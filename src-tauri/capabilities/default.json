@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:app:allow-set-app-theme",
+    "core:window:allow-set-theme",
+    "sql:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "store:default"
+  ]
+}
