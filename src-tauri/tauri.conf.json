@@ -25,16 +25,22 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "targets": ["app", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "macOS": {
-      "signingIdentity": "-"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyOTVBN0ZENzA5RjJGMjQKUldRa0w1OXcvYWVWc2tWMGhxSG9jMVdIcTFmSm9sVHN0dFRSWXAxdXhWMTZhaFhKbHlMbnRrMzEK",
+      "endpoints": [
+        "https://seaquel.app/updates/check/{{target}}/{{arch}}/{{current_version}}"
+      ]
     }
   }
 }
