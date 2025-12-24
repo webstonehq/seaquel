@@ -339,9 +339,9 @@ const handleSubmit = async () => {
                             >mysql://user:pass@host:port/db</code
                         >
                         <br />
-                        • MongoDB:
+                        • SQLite:
                         <code class="text-xs"
-                            >mongodb://user:pass@host:port/db</code
+                            >sqlite:///path/to/database.db</code
                         >
                     </p>
                 </div>

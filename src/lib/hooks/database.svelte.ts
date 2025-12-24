@@ -12,6 +12,7 @@ import type {
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
+import { getAdapter } from "$lib/db";
 
 // Type for persisted connection data (without password and database instance)
 interface PersistedConnection {
@@ -304,31 +305,14 @@ class UseDatabase {
     newSavedQueries.set(newConnection.id, []);
     this.savedQueriesByConnection = newSavedQueries;
 
+    const adapter = getAdapter(newConnection.type);
     const schemasWithTablesDbResult = await newConnection.database!
-      .select(`SELECT 
-          table_schema AS schema_name,
-          table_name
-      FROM 
-          information_schema.tables
-      WHERE 
-          table_type = 'BASE TABLE'
-          AND table_schema NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY 
-          table_schema, table_name;`);
+      .select(adapter.getSchemaQuery());
     console.log({ schemasWithTablesDbResult });
 
-    // {schemasWithTablesDbResult: [{schema_name: "public", table_name: "public_one"}, {schema_name: "public", table_name: "public_two"}, {schema_name: "schema_two", table_name: "two_one"}]}
-    const schemasWithTables: SchemaTable[] = (
-      schemasWithTablesDbResult as any[]
-    ).map((row: any) => {
-      return {
-        name: row.table_name,
-        schema: row.schema_name,
-        type: "table",
-        columns: [],
-        indexes: [],
-      };
-    });
+    const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(
+      schemasWithTablesDbResult as unknown[]
+    );
 
     // Generate sample schema for the new connection
     // const sampleSchema: SchemaTable[] = [
@@ -432,30 +416,14 @@ class UseDatabase {
     }
 
     // Fetch schemas
+    const adapter = getAdapter(existingConnection.type);
     const schemasWithTablesDbResult = await database!
-      .select(`SELECT 
-          table_schema AS schema_name,
-          table_name
-      FROM 
-          information_schema.tables
-      WHERE 
-          table_type = 'BASE TABLE'
-          AND table_schema NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY 
-          table_schema, table_name;`);
+      .select(adapter.getSchemaQuery());
     console.log({ schemasWithTablesDbResult });
 
-    const schemasWithTables: SchemaTable[] = (
-      schemasWithTablesDbResult as any[]
-    ).map((row: any) => {
-      return {
-        name: row.table_name,
-        schema: row.schema_name,
-        type: "table",
-        columns: [],
-        indexes: [],
-      };
-    });
+    const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(
+      schemasWithTablesDbResult as unknown[]
+    );
 
     const newSchemas = new Map(this.schemas);
     newSchemas.set(connectionId, schemasWithTables);
@@ -760,72 +728,33 @@ class UseDatabase {
   }
 
   async addSchemaTab(table: SchemaTable) {
-    if (!this.activeConnectionId) return null;
+    if (!this.activeConnectionId || !this.activeConnection) return null;
 
     const tabs = this.schemaTabsByConnection.get(this.activeConnectionId) || [];
+    const adapter = getAdapter(this.activeConnection.type);
 
     // Fetch table metadata - query columns and indexes
-    const columnsResult = (await this.activeConnection?.database!.select(`
-      SELECT 
-        column_name,
-        data_type,
-        is_nullable,
-        column_default,
-        (SELECT EXISTS (
-          SELECT 1 FROM information_schema.constraint_column_usage ccu
-          JOIN information_schema.table_constraints tc ON ccu.constraint_name = tc.constraint_name
-          WHERE ccu.column_name = c.column_name 
-            AND ccu.table_schema = c.table_schema
-            AND ccu.table_name = c.table_name
-            AND tc.constraint_type = 'PRIMARY KEY'
-        )) as is_primary_key,
-        (SELECT EXISTS (
-          SELECT 1 FROM information_schema.constraint_column_usage ccu
-          JOIN information_schema.table_constraints tc ON ccu.constraint_name = tc.constraint_name
-          WHERE ccu.column_name = c.column_name 
-            AND ccu.table_schema = c.table_schema
-            AND ccu.table_name = c.table_name
-            AND tc.constraint_type = 'FOREIGN KEY'
-        )) as is_foreign_key
-      FROM information_schema.columns c
-      WHERE table_name = '${table.name}' AND table_schema = '${table.schema}'
-      ORDER BY ordinal_position
-    `)) as any[];
+    const columnsResult = (await this.activeConnection.database!.select(
+      adapter.getColumnsQuery(table.name, table.schema)
+    )) as unknown[];
 
-    const indexesResult = (await this.activeConnection?.database!.select(`
-      SELECT
-        indexname,
-        indexdef,
-        schemaname,
-        tablename
-      FROM pg_indexes
-      WHERE tablename = '${table.name}' AND schemaname = '${table.schema}'
-    `)) as any[];
+    const indexesResult = (await this.activeConnection.database!.select(
+      adapter.getIndexesQuery(table.name, table.schema)
+    )) as unknown[];
 
-    // Parse index columns from indexdef (e.g., "CREATE UNIQUE INDEX idx ON schema.table (col1, col2)")
-    const parseIndexColumns = (indexdef: string): string[] => {
-      const match = indexdef.match(/\((.*?)\)/);
-      if (!match) return [];
-      return match[1].split(",").map((col) => col.trim());
-    };
+    // Fetch foreign keys if adapter supports it (needed for SQLite)
+    let foreignKeysResult: unknown[] | undefined;
+    if (adapter.getForeignKeysQuery) {
+      foreignKeysResult = (await this.activeConnection.database!.select(
+        adapter.getForeignKeysQuery(table.name, table.schema)
+      )) as unknown[];
+    }
 
     // Update table with fetched columns and indexes
     const updatedTable: SchemaTable = {
       ...table,
-      columns: (columnsResult || []).map((col: any) => ({
-        name: col.column_name,
-        type: col.data_type,
-        nullable: col.is_nullable === "YES",
-        defaultValue: col.column_default || undefined,
-        isPrimaryKey: col.is_primary_key,
-        isForeignKey: col.is_foreign_key,
-      })),
-      indexes: (indexesResult || []).map((idx: any) => ({
-        name: idx.indexname,
-        columns: parseIndexColumns(idx.indexdef),
-        unique: idx.indexdef.includes("UNIQUE"),
-        type: "btree", // PostgreSQL primarily uses btree
-      })),
+      columns: adapter.parseColumnsResult(columnsResult || [], foreignKeysResult),
+      indexes: adapter.parseIndexesResult(indexesResult || []),
     };
 
     // Update this.schemas with the refreshed table metadata
