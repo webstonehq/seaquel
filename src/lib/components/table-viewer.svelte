@@ -4,8 +4,7 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Separator } from "$lib/components/ui/separator";
-	import { ScrollArea } from "$lib/components/ui/scroll-area";
-	import { KeyIcon, DatabaseIcon, ListIcon, XIcon } from "@lucide/svelte";
+	import { KeyIcon, DatabaseIcon, ListIcon } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
 
 	const db = useDatabase();
@@ -18,32 +17,6 @@
 </script>
 
 <div class="flex flex-col h-full">
-	{#if db.schemaTabs.length > 0}
-		<div class="flex items-center gap-2 p-2 border-b bg-muted/30 overflow-hidden">
-			<!-- <ScrollArea orientation="horizontal" class="flex-1"> -->
-				<div class="flex items-center gap-1 pb-1">
-					{#each db.schemaTabs as tab (tab.id)}
-					    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-						<div class={["relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors", db.activeSchemaTabId === tab.id ? "bg-background shadow-sm" : "hover:bg-muted"]} onclick={() => db.setActiveSchemaTab(tab.id)}>
-							<span class="pr-4">{tab.table.schema}.{tab.table.name}</span>
-							<Button
-								size="icon"
-								variant="ghost"
-								class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
-								onclick={(e) => {
-									e.stopPropagation();
-									db.removeSchemaTab(tab.id);
-								}}
-							>
-								<XIcon />
-							</Button>
-						</div>
-					{/each}
-				</div>
-			<!-- </ScrollArea> -->
-		</div>
-	{/if}
-
 	{#if db.activeSchemaTab}
 		<div class="flex-1 overflow-auto p-4" transition:fly={{ x: 20, duration: 200 }}>
 			<Card>
