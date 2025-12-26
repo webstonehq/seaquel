@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { Button } from "$lib/components/ui/button";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon } from "@lucide/svelte";
+	import { Button, buttonVariants } from "$lib/components/ui/button";
+	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
+	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import MonacoEditor from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
@@ -49,14 +51,74 @@
 		return JSON.stringify(results.rows, null, 2);
 	};
 
-	const handleExport = async (format: "csv" | "json") => {
+	const generateSQL = (tableName: string = "table_name"): string => {
+		const results = db.activeQueryTab?.results;
+		if (!results || results.rows.length === 0) return "";
+
+		const escapeValue = (value: unknown): string => {
+			if (value === null || value === undefined) return "NULL";
+			if (typeof value === "number") return String(value);
+			if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+			const str = String(value);
+			return `'${str.replace(/'/g, "''")}'`;
+		};
+
+		const columns = results.columns.join(", ");
+		const inserts = results.rows.map((row) => {
+			const values = results.columns.map((col) => escapeValue(row[col])).join(", ");
+			return `INSERT INTO ${tableName} (${columns}) VALUES (${values});`;
+		});
+
+		return inserts.join("\n");
+	};
+
+	const generateMarkdown = (): string => {
+		const results = db.activeQueryTab?.results;
+		if (!results || results.rows.length === 0) return "";
+
+		const escapeMarkdown = (value: unknown): string => {
+			if (value === null || value === undefined) return "";
+			return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
+		};
+
+		const header = `| ${results.columns.join(" | ")} |`;
+		const separator = `| ${results.columns.map(() => "---").join(" | ")} |`;
+		const rows = results.rows.map(
+			(row) => `| ${results.columns.map((col) => escapeMarkdown(row[col])).join(" | ")} |`
+		);
+
+		return [header, separator, ...rows].join("\n");
+	};
+
+	type ExportFormat = "csv" | "json" | "sql" | "markdown";
+
+	const formatConfig: Record<ExportFormat, { extension: string; name: string }> = {
+		csv: { extension: "csv", name: "CSV" },
+		json: { extension: "json", name: "JSON" },
+		sql: { extension: "sql", name: "SQL" },
+		markdown: { extension: "md", name: "Markdown" }
+	};
+
+	const getContent = (format: ExportFormat): string => {
+		switch (format) {
+			case "csv":
+				return generateCSV();
+			case "json":
+				return generateJSON();
+			case "sql":
+				return generateSQL();
+			case "markdown":
+				return generateMarkdown();
+		}
+	};
+
+	const handleExport = async (format: ExportFormat) => {
 		if (!db.activeQueryTab?.results) return;
 
+		const config = formatConfig[format];
 		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
-		const defaultName = `query_results_${timestamp}.${format}`;
-		const filters = format === "csv"
-			? [{ name: "CSV", extensions: ["csv"] }]
-			: [{ name: "JSON", extensions: ["json"] }];
+		const defaultName = `query_results_${timestamp}.${config.extension}`;
+		const filters = [{ name: config.name, extensions: [config.extension] }];
 
 		const filePath = await save({
 			defaultPath: defaultName,
@@ -65,8 +127,27 @@
 
 		if (!filePath) return;
 
-		const content = format === "csv" ? generateCSV() : generateJSON();
+		const content = getContent(format);
 		await writeTextFile(filePath, content);
+	};
+
+	const handleCopy = async (format: ExportFormat) => {
+		if (!db.activeQueryTab?.results) return;
+
+		const content = getContent(format);
+		const formatNames: Record<ExportFormat, string> = {
+			csv: "CSV",
+			json: "JSON",
+			sql: "SQL INSERT",
+			markdown: "Markdown"
+		};
+
+		try {
+			await navigator.clipboard.writeText(content);
+			toast.success(`${formatNames[format]} copied to clipboard`);
+		} catch {
+			toast.error("Failed to copy to clipboard");
+		}
 	};
 </script>
 
@@ -122,16 +203,54 @@
 				<div class="h-full flex flex-col overflow-hidden">
 					{#if db.activeQueryTab.results}
 						<div class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0">
-							<div class="flex items-center gap-2">
-								<Button size="sm" variant="outline" class="h-7 gap-1" onclick={() => handleExport("csv")}>
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger class={buttonVariants({ variant: "outline", size: "sm" }) + " h-7 gap-1"}>
 									<DownloadIcon class="size-3" />
-									CSV
-								</Button>
-								<Button size="sm" variant="outline" class="h-7 gap-1" onclick={() => handleExport("json")}>
-									<DownloadIcon class="size-3" />
-									JSON
-								</Button>
-							</div>
+									Export
+									<ChevronDownIcon class="size-3" />
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="end" class="w-48">
+									<DropdownMenu.Group>
+										<DropdownMenu.GroupHeading>Download</DropdownMenu.GroupHeading>
+										<DropdownMenu.Item onclick={() => handleExport("csv")}>
+											<DownloadIcon class="size-4 mr-2" />
+											CSV
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleExport("json")}>
+											<DownloadIcon class="size-4 mr-2" />
+											JSON
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleExport("sql")}>
+											<DownloadIcon class="size-4 mr-2" />
+											SQL INSERT
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleExport("markdown")}>
+											<DownloadIcon class="size-4 mr-2" />
+											Markdown
+										</DropdownMenu.Item>
+									</DropdownMenu.Group>
+									<DropdownMenu.Separator />
+									<DropdownMenu.Group>
+										<DropdownMenu.GroupHeading>Copy to Clipboard</DropdownMenu.GroupHeading>
+										<DropdownMenu.Item onclick={() => handleCopy("csv")}>
+											<CopyIcon class="size-4 mr-2" />
+											CSV
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleCopy("json")}>
+											<CopyIcon class="size-4 mr-2" />
+											JSON
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleCopy("sql")}>
+											<CopyIcon class="size-4 mr-2" />
+											SQL INSERT
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleCopy("markdown")}>
+											<CopyIcon class="size-4 mr-2" />
+											Markdown
+										</DropdownMenu.Item>
+									</DropdownMenu.Group>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
 						</div>
 
 						<div class="flex-1 overflow-auto min-h-0">
