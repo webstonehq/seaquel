@@ -84,18 +84,20 @@
 
 <Sidebar class="top-(--header-height)" collapsible="offcanvas">
 	<SidebarHeader class="p-0 py-1">
-		<Tabs bind:value={sidebarTab} class="w-full">
-			<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
-				<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
-					<DatabaseIcon class="size-3 mr-1" />
-					Schema
-				</TabsTrigger>
-				<TabsTrigger value="queries" class="text-xs data-[state=active]:bg-background">
-					<FileTextIcon class="size-3 mr-1" />
-					Queries
-				</TabsTrigger>
-			</TabsList>
-		</Tabs>
+		{#if db.activeConnectionId}
+			<Tabs bind:value={sidebarTab} class="w-full">
+				<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
+					<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
+						<DatabaseIcon class="size-3 mr-1" />
+						Schema
+					</TabsTrigger>
+					<TabsTrigger value="queries" class="text-xs data-[state=active]:bg-background">
+						<FileTextIcon class="size-3 mr-1" />
+						Queries
+					</TabsTrigger>
+				</TabsList>
+			</Tabs>
+		{/if}
 	</SidebarHeader>
 
 	<SidebarContent>
