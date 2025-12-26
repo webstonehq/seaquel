@@ -21,10 +21,57 @@
 		showSaveDialog = true;
 	};
 
+	const downloadFile = (content: string, filename: string, mimeType: string) => {
+		const blob = new Blob([content], { type: mimeType });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = filename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+	};
+
+	const escapeCSVValue = (value: unknown): string => {
+		if (value === null || value === undefined) return "";
+		const str = String(value);
+		if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+			return `"${str.replace(/"/g, '""')}"`;
+		}
+		return str;
+	};
+
+	const exportToCSV = () => {
+		const results = db.activeQueryTab?.results;
+		if (!results) return;
+
+		const header = results.columns.map(escapeCSVValue).join(",");
+		const rows = results.rows.map((row) =>
+			results.columns.map((col) => escapeCSVValue(row[col])).join(",")
+		);
+		const csv = [header, ...rows].join("\n");
+
+		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
+		downloadFile(csv, `query_results_${timestamp}.csv`, "text/csv;charset=utf-8");
+	};
+
+	const exportToJSON = () => {
+		const results = db.activeQueryTab?.results;
+		if (!results) return;
+
+		const json = JSON.stringify(results.rows, null, 2);
+		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
+		downloadFile(json, `query_results_${timestamp}.json`, "application/json");
+	};
+
 	const handleExport = (format: "csv" | "json") => {
 		if (!db.activeQueryTab?.results) return;
-		// Simulate export
-		console.log(`Exporting as ${format}`, db.activeQueryTab.results);
+		if (format === "csv") {
+			exportToCSV();
+		} else {
+			exportToJSON();
+		}
 	};
 </script>
 
