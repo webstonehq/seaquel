@@ -12,7 +12,7 @@ import type {
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
-import { getAdapter } from "$lib/db";
+import { getAdapter, type DatabaseAdapter } from "$lib/db";
 
 // Type for persisted connection data (without password and database instance)
 interface PersistedConnection {
@@ -308,51 +308,18 @@ class UseDatabase {
     const adapter = getAdapter(newConnection.type);
     const schemasWithTablesDbResult = await newConnection.database!
       .select(adapter.getSchemaQuery());
-    console.log({ schemasWithTablesDbResult });
 
     const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(
       schemasWithTablesDbResult as unknown[]
     );
 
-    // Generate sample schema for the new connection
-    // const sampleSchema: SchemaTable[] = [
-    //   {
-    //     name: "sample_table",
-    //     schema: "public",
-    //     type: "table",
-    //     rowCount: 0,
-    //     columns: [
-    //       {
-    //         name: "id",
-    //         type: "integer",
-    //         nullable: false,
-    //         isPrimaryKey: true,
-    //         isForeignKey: false,
-    //       },
-    //       {
-    //         name: "created_at",
-    //         type: "timestamp",
-    //         nullable: false,
-    //         defaultValue: "now()",
-    //         isPrimaryKey: false,
-    //         isForeignKey: false,
-    //       },
-    //     ],
-    //     indexes: [
-    //       {
-    //         name: "sample_table_pkey",
-    //         columns: ["id"],
-    //         unique: true,
-    //         type: "btree",
-    //       },
-    //     ],
-    //   },
-    // ];
-
+    // Store tables immediately (without column metadata) so UI is responsive
     const newSchemas = new Map(this.schemas);
     newSchemas.set(newConnection.id, schemasWithTables);
-    // newSchemas.set(newConnection.id, sampleSchema);
     this.schemas = newSchemas;
+
+    // Load column metadata asynchronously in the background
+    this.loadTableMetadataInBackground(newConnection.id, schemasWithTables, adapter, newConnection.database!);
 
     // Create initial query tab for new connection
     this.addQueryTab();
@@ -419,15 +386,18 @@ class UseDatabase {
     const adapter = getAdapter(existingConnection.type);
     const schemasWithTablesDbResult = await database!
       .select(adapter.getSchemaQuery());
-    console.log({ schemasWithTablesDbResult });
 
     const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(
       schemasWithTablesDbResult as unknown[]
     );
 
+    // Store tables immediately (without column metadata) so UI is responsive
     const newSchemas = new Map(this.schemas);
     newSchemas.set(connectionId, schemasWithTables);
     this.schemas = newSchemas;
+
+    // Load column metadata asynchronously in the background
+    this.loadTableMetadataInBackground(connectionId, schemasWithTables, adapter, database!);
 
     // Set this as the active connection
     this.activeConnectionId = connectionId;
@@ -725,6 +695,56 @@ class UseDatabase {
       );
       this.setActiveView("query");
     }
+  }
+
+  /**
+   * Load column and index metadata for all tables in the background.
+   * Updates the schema state progressively as each table's metadata is loaded.
+   */
+  private loadTableMetadataInBackground(
+    connectionId: string,
+    tables: SchemaTable[],
+    adapter: DatabaseAdapter,
+    database: Database
+  ): void {
+    // Process tables in parallel but update state as each completes
+    tables.forEach(async (table, index) => {
+      try {
+        const columnsResult = (await database.select(
+          adapter.getColumnsQuery(table.name, table.schema)
+        )) as unknown[];
+
+        const indexesResult = (await database.select(
+          adapter.getIndexesQuery(table.name, table.schema)
+        )) as unknown[];
+
+        // Fetch foreign keys if adapter supports it (needed for SQLite)
+        let foreignKeysResult: unknown[] | undefined;
+        if (adapter.getForeignKeysQuery) {
+          foreignKeysResult = (await database.select(
+            adapter.getForeignKeysQuery(table.name, table.schema)
+          )) as unknown[];
+        }
+
+        const updatedTable: SchemaTable = {
+          ...table,
+          columns: adapter.parseColumnsResult(columnsResult || [], foreignKeysResult),
+          indexes: adapter.parseIndexesResult(indexesResult || []),
+        };
+
+        // Update the schema state with the new table metadata
+        const currentSchemas = this.schemas.get(connectionId);
+        if (currentSchemas) {
+          const updatedSchemas = [...currentSchemas];
+          updatedSchemas[index] = updatedTable;
+          const newSchemas = new Map(this.schemas);
+          newSchemas.set(connectionId, updatedSchemas);
+          this.schemas = newSchemas;
+        }
+      } catch (error) {
+        console.error(`Failed to load metadata for table ${table.schema}.${table.name}:`, error);
+      }
+    });
   }
 
   async addSchemaTab(table: SchemaTable) {

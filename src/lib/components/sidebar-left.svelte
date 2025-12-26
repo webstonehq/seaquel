@@ -83,7 +83,7 @@
 </script>
 
 <Sidebar class="top-(--header-height)" collapsible="offcanvas">
-	<SidebarHeader class="border-b border-sidebar-border p-0">
+	<SidebarHeader class="p-0 py-1">
 		<Tabs bind:value={sidebarTab} class="w-full">
 			<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
 				<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
