@@ -16,7 +16,9 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-sql": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.4.1",
-    "@tauri-apps/plugin-updater": "^2.9.0"
+    "@tauri-apps/plugin-updater": "^2.9.0",
+    "monaco-editor": "^0.55.1",
+    "monaco-sql-languages": "^0.15.1"
   },
   "devDependencies": {
     "@internationalized/date": "^3.10.0",

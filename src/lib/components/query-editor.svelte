@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { Button } from "$lib/components/ui/button";
-	import { Textarea } from "$lib/components/ui/textarea";
 	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
+	import MonacoEditor from "$lib/components/monaco-editor.svelte";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -24,13 +24,6 @@
 		if (!db.activeQueryTab?.results) return;
 		// Simulate export
 		console.log(`Exporting as ${format}`, db.activeQueryTab.results);
-	};
-
-	const handleTextareaKeydown = (e: KeyboardEvent) => {
-		if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-			e.preventDefault();
-			handleExecute();
-		}
 	};
 </script>
 
@@ -67,7 +60,13 @@
 
 		<div class="flex-1 flex flex-col">
 			<div class="h-64 border-b">
-				<Textarea bind:value={db.activeQueryTab.query} placeholder="Enter your SQL query here..." class="h-full resize-none rounded-none border-0 font-mono text-sm focus-visible:ring-0" onchange={(e) => db.updateQueryTabContent(db.activeQueryTab!.id, e.currentTarget.value)} onkeydown={handleTextareaKeydown} />
+				{#key db.activeQueryTabId}
+					<MonacoEditor
+						bind:value={db.activeQueryTab.query}
+						schema={db.activeSchema}
+						onExecute={handleExecute}
+					/>
+				{/key}
 			</div>
 
 			<div class="h-full flex flex-col">

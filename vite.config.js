@@ -7,7 +7,10 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit()
+  ],
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent vite from obscuring rust errors
@@ -20,5 +23,9 @@ export default defineConfig(async () => ({
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: { // 3. tell vite to ignore watching `src-tauri`
     ignored: ["**/src-tauri/**"] }
+  },
+  // Monaco Editor optimization
+  optimizeDeps: {
+    include: ["monaco-editor", "monaco-sql-languages"]
   }
 }));
