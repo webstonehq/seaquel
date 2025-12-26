@@ -33,6 +33,7 @@
     "@tailwindcss/vite": "^4.1.17",
     "@tanstack/table-core": "^8.21.3",
     "@tauri-apps/cli": "^2",
+    "beads-ui": "^0.8.0",
     "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",
     "mode-watcher": "^1.1.0",
