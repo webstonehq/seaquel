@@ -13,10 +13,10 @@
 <ModeWatcher />
 <Toaster position="bottom-right" theme={"dark"} richColors />
 
-<Sidebar.Provider class="[--header-height:calc(--spacing(8))] flex-col">
+<Sidebar.Provider class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden">
     <AppHeader />
 
-    <div class="flex w-full min-h-svh overflow-hidden">
+    <div class="flex w-full flex-1 min-h-0 overflow-hidden">
         {@render children()}
     </div>
 </Sidebar.Provider>

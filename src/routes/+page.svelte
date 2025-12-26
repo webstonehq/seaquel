@@ -56,7 +56,7 @@
 <Toaster position="bottom-right" richColors />
 
 <SidebarLeft />
-<SidebarInset class="flex flex-col">
+<SidebarInset class="flex flex-col h-full overflow-hidden">
     {#if db.activeConnectionId}
         <!-- Unified Tab Bar -->
         <div class="flex items-center gap-2 p-2 border-b bg-muted/30 overflow-hidden">
