@@ -6,6 +6,8 @@
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import MonacoEditor from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
+	import { save } from "@tauri-apps/plugin-dialog";
+	import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -21,10 +23,50 @@
 		showSaveDialog = true;
 	};
 
-	const handleExport = (format: "csv" | "json") => {
+	const escapeCSVValue = (value: unknown): string => {
+		if (value === null || value === undefined) return "";
+		const str = String(value);
+		if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+			return `"${str.replace(/"/g, '""')}"`;
+		}
+		return str;
+	};
+
+	const generateCSV = (): string => {
+		const results = db.activeQueryTab?.results;
+		if (!results) return "";
+
+		const header = results.columns.map(escapeCSVValue).join(",");
+		const rows = results.rows.map((row) =>
+			results.columns.map((col) => escapeCSVValue(row[col])).join(",")
+		);
+		return [header, ...rows].join("\n");
+	};
+
+	const generateJSON = (): string => {
+		const results = db.activeQueryTab?.results;
+		if (!results) return "[]";
+		return JSON.stringify(results.rows, null, 2);
+	};
+
+	const handleExport = async (format: "csv" | "json") => {
 		if (!db.activeQueryTab?.results) return;
-		// Simulate export
-		console.log(`Exporting as ${format}`, db.activeQueryTab.results);
+
+		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
+		const defaultName = `query_results_${timestamp}.${format}`;
+		const filters = format === "csv"
+			? [{ name: "CSV", extensions: ["csv"] }]
+			: [{ name: "JSON", extensions: ["json"] }];
+
+		const filePath = await save({
+			defaultPath: defaultName,
+			filters
+		});
+
+		if (!filePath) return;
+
+		const content = format === "csv" ? generateCSV() : generateJSON();
+		await writeTextFile(filePath, content);
 	};
 </script>
 

@@ -12,6 +12,8 @@
     "sql:default",
     "core:window:default",
     "core:window:allow-start-dragging",
-    "store:default"
+    "store:default",
+    "dialog:default",
+    "fs:allow-write-text-file"
   ]
 }
