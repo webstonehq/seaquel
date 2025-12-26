@@ -2,11 +2,8 @@ name: "release"
 
 on:
   push:
-    branches:
-      - main
-    # TODO: ⚠️ Implement that once this action works, remove branches: main above
-    # tags:
-    #   - v*
+    tags:
+      - 'v*'
 
 jobs:
   publish-tauri:
