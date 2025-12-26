@@ -6,6 +6,8 @@
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import MonacoEditor from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
+	import { save } from "@tauri-apps/plugin-dialog";
+	import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -21,18 +23,6 @@
 		showSaveDialog = true;
 	};
 
-	const downloadFile = (content: string, filename: string, mimeType: string) => {
-		const blob = new Blob([content], { type: mimeType });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement("a");
-		link.href = url;
-		link.download = filename;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
-	};
-
 	const escapeCSVValue = (value: unknown): string => {
 		if (value === null || value === undefined) return "";
 		const str = String(value);
@@ -42,36 +32,41 @@
 		return str;
 	};
 
-	const exportToCSV = () => {
+	const generateCSV = (): string => {
 		const results = db.activeQueryTab?.results;
-		if (!results) return;
+		if (!results) return "";
 
 		const header = results.columns.map(escapeCSVValue).join(",");
 		const rows = results.rows.map((row) =>
 			results.columns.map((col) => escapeCSVValue(row[col])).join(",")
 		);
-		const csv = [header, ...rows].join("\n");
-
-		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
-		downloadFile(csv, `query_results_${timestamp}.csv`, "text/csv;charset=utf-8");
+		return [header, ...rows].join("\n");
 	};
 
-	const exportToJSON = () => {
+	const generateJSON = (): string => {
 		const results = db.activeQueryTab?.results;
-		if (!results) return;
-
-		const json = JSON.stringify(results.rows, null, 2);
-		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
-		downloadFile(json, `query_results_${timestamp}.json`, "application/json");
+		if (!results) return "[]";
+		return JSON.stringify(results.rows, null, 2);
 	};
 
-	const handleExport = (format: "csv" | "json") => {
+	const handleExport = async (format: "csv" | "json") => {
 		if (!db.activeQueryTab?.results) return;
-		if (format === "csv") {
-			exportToCSV();
-		} else {
-			exportToJSON();
-		}
+
+		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
+		const defaultName = `query_results_${timestamp}.${format}`;
+		const filters = format === "csv"
+			? [{ name: "CSV", extensions: ["csv"] }]
+			: [{ name: "JSON", extensions: ["json"] }];
+
+		const filePath = await save({
+			defaultPath: defaultName,
+			filters
+		});
+
+		if (!filePath) return;
+
+		const content = format === "csv" ? generateCSV() : generateJSON();
+		await writeTextFile(filePath, content);
 	};
 </script>
 
