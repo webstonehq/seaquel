@@ -24,8 +24,9 @@
         TabsList,
         TabsTrigger,
     } from "$lib/components/ui/tabs";
-    import type { DatabaseType } from "$lib/types";
+    import type { DatabaseType, SSHAuthMethod } from "$lib/types";
     import { toast } from "svelte-sonner";
+    import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
     let { open = $bindable(false), prefill = undefined }: Props = $props();
     const db = useDatabase();
@@ -40,6 +41,15 @@
         password: "",
         sslMode: "disable",
         connectionString: "",
+        // SSH Tunnel fields
+        sshEnabled: false,
+        sshHost: "",
+        sshPort: 22,
+        sshUsername: "",
+        sshAuthMethod: "password" as SSHAuthMethod,
+        sshPassword: "",
+        sshKeyPath: "",
+        sshKeyPassphrase: "",
     });
 
     let activeTab = $state<"connection-string" | "manual">("connection-string");
@@ -57,6 +67,15 @@
             password: "",
             sslMode: "disable",
             connectionString: "",
+            // SSH Tunnel fields
+            sshEnabled: false,
+            sshHost: "",
+            sshPort: 22,
+            sshUsername: "",
+            sshAuthMethod: "password",
+            sshPassword: "",
+            sshKeyPath: "",
+            sshKeyPassphrase: "",
         };
     };
 
@@ -74,6 +93,15 @@
                     password: "", // Always empty for security - user must re-enter
                     sslMode: prefill.sslMode || "disable",
                     connectionString: prefill.connectionString || "",
+                    // SSH Tunnel prefill (credentials always empty for security)
+                    sshEnabled: prefill.sshTunnel?.enabled || false,
+                    sshHost: prefill.sshTunnel?.host || "",
+                    sshPort: prefill.sshTunnel?.port || 22,
+                    sshUsername: prefill.sshTunnel?.username || "",
+                    sshAuthMethod: prefill.sshTunnel?.authMethod || "password",
+                    sshPassword: "",
+                    sshKeyPath: "",
+                    sshKeyPassphrase: "",
                 };
                 activeTab = prefill.connectionString ? "connection-string" : "manual";
                 isReconnecting = true;
@@ -263,19 +291,56 @@ const handleSubmit = async () => {
     if (!formData.connectionString || formData.connectionString.split(":").length != 3) {
         formData.connectionString = buildConnectionString(formData);
     }
-        
+
+    // Build connection data with SSH tunnel config
+    const connectionData = {
+        name: formData.name,
+        type: formData.type,
+        host: formData.host,
+        port: formData.port,
+        databaseName: formData.databaseName,
+        username: formData.username,
+        password: formData.password,
+        sslMode: formData.sslMode,
+        connectionString: formData.connectionString,
+        sshTunnel: formData.sshEnabled ? {
+            enabled: true,
+            host: formData.sshHost,
+            port: formData.sshPort,
+            username: formData.sshUsername,
+            authMethod: formData.sshAuthMethod,
+        } : undefined,
+        sshPassword: formData.sshPassword,
+        sshKeyPath: formData.sshKeyPath,
+        sshKeyPassphrase: formData.sshKeyPassphrase,
+    };
+
     if (isReconnecting && reconnectingConnectionId) {
-        await db.reconnectConnection(reconnectingConnectionId, formData);
+        await db.reconnectConnection(reconnectingConnectionId, connectionData);
     } else {
-        await db.addConnection(formData);
+        await db.addConnection(connectionData);
     }
-        
+
     open = false;
 
     // Reset form
     resetForm();
     activeTab = "connection-string";
 };
+
+    const selectSshKeyFile = async () => {
+        try {
+            const selected = await openFileDialog({
+                multiple: false,
+                title: "Select SSH Key File",
+            });
+            if (selected && typeof selected === "string") {
+                formData.sshKeyPath = selected;
+            }
+        } catch (error) {
+            console.error("Failed to select file:", error);
+        }
+    };
 
     type Props = {
         open?: boolean;
@@ -289,6 +354,13 @@ const handleSubmit = async () => {
             username?: string;
             sslMode?: string;
             connectionString?: string;
+            sshTunnel?: {
+                enabled: boolean;
+                host: string;
+                port: number;
+                username: string;
+                authMethod: SSHAuthMethod;
+            };
         };
     };
 </script>
@@ -495,6 +567,110 @@ const handleSubmit = async () => {
                             </Select>
                         </div>
                     {/if}
+
+                    <!-- SSH Tunnel Section -->
+                    <div class="border-t pt-4 mt-2">
+                        <div class="flex items-center gap-3 mb-4">
+                            <input
+                                type="checkbox"
+                                id="ssh-enabled"
+                                bind:checked={formData.sshEnabled}
+                                class="h-4 w-4 rounded border-gray-300"
+                            />
+                            <Label for="ssh-enabled" class="cursor-pointer">Connect via SSH Tunnel</Label>
+                        </div>
+
+                        {#if formData.sshEnabled}
+                            <div class="flex flex-col gap-4">
+                                <div class="grid grid-cols-3 gap-2">
+                                    <div class="col-span-2 grid gap-2">
+                                        <Label for="ssh-host">SSH Host</Label>
+                                        <Input
+                                            id="ssh-host"
+                                            bind:value={formData.sshHost}
+                                            placeholder="ssh.example.com"
+                                        />
+                                    </div>
+                                    <div class="grid gap-2">
+                                        <Label for="ssh-port">SSH Port</Label>
+                                        <Input
+                                            id="ssh-port"
+                                            type="number"
+                                            bind:value={formData.sshPort}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-2">
+                                    <Label for="ssh-username">SSH Username</Label>
+                                    <Input
+                                        id="ssh-username"
+                                        bind:value={formData.sshUsername}
+                                        placeholder="username"
+                                    />
+                                </div>
+
+                                <div class="grid gap-2">
+                                    <Label>Authentication Method</Label>
+                                    <Select
+                                        type="single"
+                                        value={formData.sshAuthMethod}
+                                        onValueChange={(value) => (formData.sshAuthMethod = value as SSHAuthMethod)}
+                                    >
+                                        <SelectTrigger class="w-full">
+                                            {formData.sshAuthMethod === "password" ? "Password" : "SSH Key"}
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="password">Password</SelectItem>
+                                            <SelectItem value="key">SSH Key</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {#if formData.sshAuthMethod === "password"}
+                                    <div class="grid gap-2">
+                                        <Label for="ssh-password">SSH Password</Label>
+                                        <Input
+                                            id="ssh-password"
+                                            type="password"
+                                            bind:value={formData.sshPassword}
+                                            placeholder="SSH password"
+                                        />
+                                    </div>
+                                {:else}
+                                    <div class="grid gap-2">
+                                        <Label for="ssh-key-path">SSH Key File</Label>
+                                        <div class="flex gap-2">
+                                            <Input
+                                                id="ssh-key-path"
+                                                bind:value={formData.sshKeyPath}
+                                                placeholder="~/.ssh/id_rsa"
+                                                class="flex-1"
+                                            />
+                                            <Button variant="outline" type="button" onclick={selectSshKeyFile}>
+                                                Browse
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div class="grid gap-2">
+                                        <Label for="ssh-key-passphrase">Key Passphrase (if encrypted)</Label>
+                                        <Input
+                                            id="ssh-key-passphrase"
+                                            type="password"
+                                            bind:value={formData.sshKeyPassphrase}
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                {/if}
+
+                                {#if isReconnecting && formData.sshEnabled}
+                                    <p class="text-xs text-amber-600 dark:text-amber-500">
+                                        ⚠ SSH credentials are not stored for security. Please enter them to reconnect.
+                                    </p>
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
                 {/if}
             </TabsContent>
         </Tabs>

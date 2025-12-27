@@ -8,12 +8,14 @@ import type {
   SchemaTab,
   QueryResult,
   SavedQuery,
+  SSHTunnelConfig,
 } from "$lib/types";
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
+import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 
 // Type for persisted connection data (without password and database instance)
 interface PersistedConnection {
@@ -27,6 +29,7 @@ interface PersistedConnection {
   sslMode?: string;
   connectionString?: string;
   lastConnected?: Date;
+  sshTunnel?: SSHTunnelConfig;
 }
 
 class UseDatabase {
@@ -42,6 +45,9 @@ class UseDatabase {
   aiMessages = $state<AIMessage[]>([]);
   isAIOpen = $state(false);
   activeView = $state<"query" | "schema">("query");
+
+  // Map connection IDs to their SSH tunnel IDs for cleanup
+  private tunnelIds = new Map<string, string>();
 
   activeConnection = $derived(
     this.connections.find((c) => c.id === this.activeConnectionId) || null,
@@ -161,6 +167,7 @@ class UseDatabase {
             lastConnected: persisted.lastConnected
               ? new Date(persisted.lastConnected)
               : undefined,
+            sshTunnel: persisted.sshTunnel,
             // database is undefined - user needs to provide password to connect
           };
           this.connections.push(connection);
@@ -232,6 +239,7 @@ class UseDatabase {
           connection.connectionString,
         ),
         lastConnected: connection.lastConnected,
+        sshTunnel: connection.sshTunnel,
       };
 
       filtered.push(persistedConnection);
@@ -264,13 +272,57 @@ class UseDatabase {
     }
   }
 
-  async addConnection(connection: Omit<DatabaseConnection, "id">) {
+  async addConnection(connection: Omit<DatabaseConnection, "id"> & {
+    sshPassword?: string;
+    sshKeyPath?: string;
+    sshKeyPassphrase?: string;
+  }) {
+    let effectiveConnectionString = connection.connectionString;
+    let tunnelLocalPort: number | undefined;
+
+    // Establish SSH tunnel if enabled
+    if (connection.sshTunnel?.enabled) {
+      try {
+        const tunnelResult = await createSshTunnel({
+          sshHost: connection.sshTunnel.host,
+          sshPort: connection.sshTunnel.port,
+          sshUsername: connection.sshTunnel.username,
+          authMethod: connection.sshTunnel.authMethod,
+          password: connection.sshPassword,
+          keyPath: connection.sshKeyPath,
+          keyPassphrase: connection.sshKeyPassphrase,
+          remoteHost: connection.host,
+          remotePort: connection.port,
+        });
+
+        tunnelLocalPort = tunnelResult.localPort;
+
+        // Build new connection string using tunnel
+        if (effectiveConnectionString) {
+          const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
+          url.hostname = "127.0.0.1";
+          url.port = String(tunnelResult.localPort);
+          effectiveConnectionString = url.toString();
+        }
+
+        toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
+
+        // Store tunnel ID for later cleanup
+        const connectionId = `conn-${connection.host}-${connection.port}`;
+        this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
+      } catch (error) {
+        toast.error(`SSH tunnel failed: ${error}`);
+        throw error;
+      }
+    }
+
     const newConnection: DatabaseConnection = {
       ...connection,
       id: `conn-${connection.host}-${connection.port}`,
       lastConnected: new Date(),
-      database: connection.connectionString
-        ? await Database.load(connection.connectionString)
+      tunnelLocalPort,
+      database: effectiveConnectionString
+        ? await Database.load(effectiveConnectionString)
         : undefined,
     };
 
@@ -331,20 +383,73 @@ class UseDatabase {
     return newConnection.id;
   }
 
-  async reconnectConnection(connectionId: string, connection: Omit<DatabaseConnection, "id">) {
+  async reconnectConnection(connectionId: string, connection: Omit<DatabaseConnection, "id"> & {
+    sshPassword?: string;
+    sshKeyPath?: string;
+    sshKeyPassphrase?: string;
+  }) {
     const existingConnection = this.connections.find((c) => c.id === connectionId);
     if (!existingConnection) {
       throw new Error(`Connection with id ${connectionId} not found`);
     }
 
+    // Close existing tunnel if any
+    const existingTunnelId = this.tunnelIds.get(connectionId);
+    if (existingTunnelId) {
+      try {
+        await closeSshTunnel(existingTunnelId);
+      } catch {
+        // Ignore cleanup errors
+      }
+      this.tunnelIds.delete(connectionId);
+    }
+
+    let effectiveConnectionString = connection.connectionString;
+    let tunnelLocalPort: number | undefined;
+
+    // Establish SSH tunnel if enabled
+    if (connection.sshTunnel?.enabled) {
+      try {
+        const tunnelResult = await createSshTunnel({
+          sshHost: connection.sshTunnel.host,
+          sshPort: connection.sshTunnel.port,
+          sshUsername: connection.sshTunnel.username,
+          authMethod: connection.sshTunnel.authMethod,
+          password: connection.sshPassword,
+          keyPath: connection.sshKeyPath,
+          keyPassphrase: connection.sshKeyPassphrase,
+          remoteHost: connection.host,
+          remotePort: connection.port,
+        });
+
+        tunnelLocalPort = tunnelResult.localPort;
+
+        // Build new connection string using tunnel
+        if (effectiveConnectionString) {
+          const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
+          url.hostname = "127.0.0.1";
+          url.port = String(tunnelResult.localPort);
+          effectiveConnectionString = url.toString();
+        }
+
+        toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
+        this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
+      } catch (error) {
+        toast.error(`SSH tunnel failed: ${error}`);
+        throw error;
+      }
+    }
+
     // Update the existing connection with the new database connection
-    const database = connection.connectionString
-      ? await Database.load(connection.connectionString)
+    const database = effectiveConnectionString
+      ? await Database.load(effectiveConnectionString)
       : undefined;
 
     existingConnection.database = database;
     existingConnection.lastConnected = new Date();
     existingConnection.password = connection.password;
+    existingConnection.tunnelLocalPort = tunnelLocalPort;
+    existingConnection.sshTunnel = connection.sshTunnel;
 
     // Ensure maps are initialized for this connection
     if (!this.queryTabsByConnection.has(connectionId)) {
@@ -416,6 +521,13 @@ class UseDatabase {
   }
 
   removeConnection(id: string) {
+    // Close SSH tunnel if exists
+    const tunnelId = this.tunnelIds.get(id);
+    if (tunnelId) {
+      closeSshTunnel(tunnelId).catch(console.error);
+      this.tunnelIds.delete(id);
+    }
+
     // Remove from persistence
     this.removePersistedConnection(id);
     this.connections = this.connections.filter((c) => c.id !== id);

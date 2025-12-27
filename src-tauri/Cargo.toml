@@ -25,6 +25,10 @@ tauri-plugin-sql = { version = "2", features = ["postgres", "sqlite"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+russh = "0.48"
+russh-keys = "0.48"
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "net", "io-util"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

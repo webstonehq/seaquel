@@ -3,6 +3,16 @@ import type { QueryType } from './db/query-utils';
 
 export type DatabaseType = "postgres" | "mysql" | "sqlite" | "mongodb" | "mariadb" | "mssql";
 
+export type SSHAuthMethod = "password" | "key";
+
+export interface SSHTunnelConfig {
+	enabled: boolean;
+	host: string;
+	port: number;
+	username: string;
+	authMethod: SSHAuthMethod;
+}
+
 export interface DatabaseConnection {
 	id: string;
 	name: string;
@@ -13,9 +23,11 @@ export interface DatabaseConnection {
 	username: string;
 	password: string;
 	sslMode?: string;
-  connectionString?: string;
+	connectionString?: string;
 	lastConnected?: Date;
-	database?: Database
+	database?: Database;
+	sshTunnel?: SSHTunnelConfig;
+	tunnelLocalPort?: number;
 }
 
 export interface SchemaTable {
