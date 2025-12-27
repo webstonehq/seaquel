@@ -1,4 +1,5 @@
 import type Database from "@tauri-apps/plugin-sql";
+import type { QueryType } from './db/query-utils';
 
 export type DatabaseType = "postgres" | "mysql" | "sqlite" | "mongodb" | "mariadb" | "mssql";
 
@@ -64,6 +65,13 @@ export interface QueryResult {
 	totalRows: number;
 	executionTime: number;
 	affectedRows?: number;
+	lastInsertId?: number;
+	queryType?: QueryType;
+	sourceTable?: {
+		schema: string;
+		name: string;
+		primaryKeys: string[];
+	};
 	page: number;
 	pageSize: number;
 	totalPages: number;

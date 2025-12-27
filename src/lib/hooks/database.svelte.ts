@@ -13,6 +13,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
+import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
 
 // Type for persisted connection data (without password and database instance)
 interface PersistedConnection {
@@ -873,7 +874,36 @@ class UseDatabase {
     try {
       const start = performance.now();
       const baseQuery = tab.query.replace(/;$/, '');
+      const queryType = detectQueryType(baseQuery);
 
+      // Handle write queries (INSERT/UPDATE/DELETE)
+      if (isWriteQuery(baseQuery)) {
+        const executeResult = await this.activeConnection?.database!.execute(baseQuery);
+        const totalMs = performance.now() - start;
+
+        const results: QueryResult = {
+          columns: ['Result'],
+          rows: [{ Result: `${executeResult?.rowsAffected ?? 0} row(s) affected` }],
+          rowCount: 1,
+          totalRows: 1,
+          executionTime: Math.round(totalMs * 100) / 100,
+          affectedRows: executeResult?.rowsAffected ?? 0,
+          lastInsertId: executeResult?.lastInsertId,
+          queryType,
+          page: 1,
+          pageSize: 1,
+          totalPages: 1,
+        };
+
+        tab.results = results;
+        tab.isExecuting = false;
+
+        // Add to history
+        this.addToHistory(tab.query, results);
+        return;
+      }
+
+      // Handle SELECT queries
       // Check if query already has LIMIT clause - if so, skip pagination
       const hasLimit = /\bLIMIT\b/i.test(baseQuery);
 
@@ -887,7 +917,7 @@ class UseDatabase {
           const countResult = (await this.activeConnection?.database!.select(countQuery)) as any[];
           totalRows = parseInt(countResult[0]?.total ?? '0', 10);
         } catch {
-          // If count fails (e.g., non-SELECT query), just run the query without pagination
+          // If count fails, just run the query without pagination
           totalRows = -1;
         }
 
@@ -911,6 +941,22 @@ class UseDatabase {
 
       const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
 
+      // Try to extract source table info for CRUD operations
+      const tableInfo = extractTableFromSelect(baseQuery);
+      let sourceTable: QueryResult['sourceTable'] | undefined;
+
+      if (tableInfo) {
+        const schema = tableInfo.schema || 'public';
+        const primaryKeys = this.getPrimaryKeysForTable(schema, tableInfo.table);
+        if (primaryKeys.length > 0) {
+          sourceTable = {
+            schema,
+            name: tableInfo.table,
+            primaryKeys,
+          };
+        }
+      }
+
       // Generate results
       const results: QueryResult = {
         columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
@@ -918,6 +964,8 @@ class UseDatabase {
         rowCount: dbResult?.length ?? 0,
         totalRows,
         executionTime: Math.round(totalMs * 100) / 100,
+        queryType,
+        sourceTable,
         page,
         pageSize: effectivePageSize,
         totalPages,
@@ -928,26 +976,113 @@ class UseDatabase {
 
       // Add to history (only on first page to avoid duplicates)
       if (page === 1) {
-        const queryHistory =
-          this.queryHistoryByConnection.get(this.activeConnectionId) || [];
-        const newQueryHistory = new Map(this.queryHistoryByConnection);
-        newQueryHistory.set(this.activeConnectionId, [
-          {
-            id: `hist-${Date.now()}`,
-            query: tab.query,
-            timestamp: new Date(),
-            executionTime: results.executionTime,
-            rowCount: results.totalRows,
-            connectionId: this.activeConnectionId,
-            favorite: false,
-          },
-          ...queryHistory,
-        ]);
-        this.queryHistoryByConnection = newQueryHistory;
+        this.addToHistory(tab.query, results);
       }
     } catch (error) {
       tab.isExecuting = false;
       toast.error(`Query failed: ${error}`);
+    }
+  }
+
+  private addToHistory(query: string, results: QueryResult) {
+    if (!this.activeConnectionId) return;
+
+    const queryHistory = this.queryHistoryByConnection.get(this.activeConnectionId) || [];
+    const newQueryHistory = new Map(this.queryHistoryByConnection);
+    newQueryHistory.set(this.activeConnectionId, [
+      {
+        id: `hist-${Date.now()}`,
+        query,
+        timestamp: new Date(),
+        executionTime: results.executionTime,
+        rowCount: results.affectedRows ?? results.totalRows,
+        connectionId: this.activeConnectionId,
+        favorite: false,
+      },
+      ...queryHistory,
+    ]);
+    this.queryHistoryByConnection = newQueryHistory;
+  }
+
+  getPrimaryKeysForTable(schema: string, tableName: string): string[] {
+    if (!this.activeConnectionId) return [];
+    const tables = this.schemas.get(this.activeConnectionId) || [];
+    const table = tables.find(t => t.name === tableName && t.schema === schema);
+    if (!table) return [];
+    return table.columns.filter(c => c.isPrimaryKey).map(c => c.name);
+  }
+
+  async updateCell(
+    tabId: string,
+    rowIndex: number,
+    column: string,
+    newValue: unknown,
+    sourceTable: { schema: string; name: string; primaryKeys: string[] }
+  ): Promise<{ success: boolean; error?: string }> {
+    const tabs = this.queryTabsByConnection.get(this.activeConnectionId!) || [];
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab?.results) return { success: false, error: 'No results' };
+
+    const row = tab.results.rows[rowIndex];
+    if (!row) return { success: false, error: 'Row not found' };
+
+    if (sourceTable.primaryKeys.length === 0) {
+      return { success: false, error: 'No primary key found' };
+    }
+
+    // Build parameterized query
+    const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
+    const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(' AND ')}`;
+    const bindValues = [newValue, ...sourceTable.primaryKeys.map(pk => row[pk])];
+
+    try {
+      await this.activeConnection?.database!.execute(query, bindValues);
+      // Update the local row data
+      row[column] = newValue;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async insertRow(
+    sourceTable: { schema: string; name: string },
+    values: Record<string, unknown>
+  ): Promise<{ success: boolean; error?: string; lastInsertId?: number }> {
+    const columns = Object.keys(values);
+    if (columns.length === 0) {
+      return { success: false, error: 'No values provided' };
+    }
+
+    const columnNames = columns.map(c => `"${c}"`).join(', ');
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+    const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
+
+    try {
+      const result = await this.activeConnection?.database!.execute(query, Object.values(values));
+      return { success: true, lastInsertId: result?.lastInsertId };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async deleteRow(
+    sourceTable: { schema: string; name: string; primaryKeys: string[] },
+    row: Record<string, unknown>
+  ): Promise<{ success: boolean; error?: string }> {
+    if (sourceTable.primaryKeys.length === 0) {
+      return { success: false, error: 'No primary key found' };
+    }
+
+    const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
+    const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(' AND ')}`;
+    const bindValues = sourceTable.primaryKeys.map(pk => row[pk]);
+
+    try {
+      await this.activeConnection?.database!.execute(query, bindValues);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
     }
   }
 

@@ -10,6 +10,7 @@
     "core:app:allow-set-app-theme",
     "core:window:allow-set-theme",
     "sql:default",
+    "sql:allow-execute",
     "core:window:default",
     "core:window:allow-start-dragging",
     "store:default",
