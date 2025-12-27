@@ -872,36 +872,44 @@ class UseDatabase {
 
     try {
       const start = performance.now();
+      const baseQuery = tab.query.replace(/;$/, '');
 
-      // Get total count first by wrapping in a subquery
-      const countQuery = `SELECT COUNT(*) as total FROM (${tab.query.replace(/;$/, '')}) AS count_query`;
+      // Check if query already has LIMIT clause - if so, skip pagination
+      const hasLimit = /\bLIMIT\b/i.test(baseQuery);
+
       let totalRows = 0;
-      try {
-        const countResult = (await this.activeConnection?.database!.select(countQuery)) as any[];
-        totalRows = parseInt(countResult[0]?.total ?? '0', 10);
-      } catch {
-        // If count fails (e.g., non-SELECT query), just run the query without pagination
+      let paginatedQuery = baseQuery;
+
+      if (!hasLimit) {
+        // Get total count first by wrapping in a subquery
+        const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
+        try {
+          const countResult = (await this.activeConnection?.database!.select(countQuery)) as any[];
+          totalRows = parseInt(countResult[0]?.total ?? '0', 10);
+        } catch {
+          // If count fails (e.g., non-SELECT query), just run the query without pagination
+          totalRows = -1;
+        }
+
+        // Add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
+        if (totalRows >= 0) {
+          const offset = (page - 1) * effectivePageSize;
+          paginatedQuery = `${baseQuery} LIMIT ${effectivePageSize} OFFSET ${offset}`;
+        }
+      } else {
+        // Query has its own LIMIT, don't paginate
         totalRows = -1;
-      }
-
-      // Execute the paginated query
-      const offset = (page - 1) * effectivePageSize;
-      let paginatedQuery = tab.query.replace(/;$/, '');
-
-      // Only add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
-      if (totalRows >= 0) {
-        paginatedQuery = `${paginatedQuery} LIMIT ${effectivePageSize} OFFSET ${offset}`;
       }
 
       const dbResult = (await this.activeConnection?.database!.select(paginatedQuery)) as any[];
       const totalMs = performance.now() - start;
 
-      // If count failed, use result length as total
+      // If count failed or query had LIMIT, use result length as total
       if (totalRows < 0) {
         totalRows = dbResult?.length ?? 0;
       }
 
-      const totalPages = Math.max(1, Math.ceil(totalRows / effectivePageSize));
+      const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
 
       // Generate results
       const results: QueryResult = {
