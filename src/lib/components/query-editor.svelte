@@ -2,7 +2,8 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon } from "@lucide/svelte";
+	import * as Dialog from "$lib/components/ui/dialog/index.js";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -12,9 +13,77 @@
 	import { writeTextFile } from "@tauri-apps/plugin-fs";
 	import { format as formatSQL } from "sql-formatter";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
+	import EditableCell from "$lib/components/editable-cell.svelte";
+	import RowActions from "$lib/components/row-actions.svelte";
+	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
+	let showInsertDialog = $state(false);
+	let deletingRowIndex = $state<number | null>(null);
+	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
+	let showDeleteConfirm = $state(false);
+
+	// Get columns for the source table (for insert dialog)
+	const sourceTableColumns = $derived.by(() => {
+		const sourceTable = db.activeQueryTab?.results?.sourceTable;
+		if (!sourceTable || !db.activeConnectionId) return [];
+		const tables = db.schemas.get(db.activeConnectionId) || [];
+		const table = tables.find(t => t.name === sourceTable.name && t.schema === sourceTable.schema);
+		return table?.columns || [];
+	});
+
+	// Check if results are editable (have source table with primary keys)
+	const isEditable = $derived(
+		db.activeQueryTab?.results?.sourceTable &&
+		db.activeQueryTab?.results?.sourceTable.primaryKeys.length > 0
+	);
+
+	async function handleCellSave(rowIndex: number, column: string, newValue: string) {
+		if (!db.activeQueryTabId || !db.activeQueryTab?.results?.sourceTable) return;
+
+		const result = await db.updateCell(
+			db.activeQueryTabId,
+			rowIndex,
+			column,
+			newValue,
+			db.activeQueryTab.results.sourceTable
+		);
+
+		if (result.success) {
+			toast.success('Cell updated');
+		} else {
+			toast.error(`Failed to update: ${result.error}`);
+		}
+	}
+
+	function confirmDeleteRow(rowIndex: number, row: Record<string, unknown>) {
+		pendingDeleteRow = { index: rowIndex, row };
+		showDeleteConfirm = true;
+	}
+
+	async function handleDeleteRow() {
+		if (!pendingDeleteRow || !db.activeQueryTabId || !db.activeQueryTab?.results?.sourceTable) return;
+
+		deletingRowIndex = pendingDeleteRow.index;
+		showDeleteConfirm = false;
+
+		const result = await db.deleteRow(
+			db.activeQueryTab.results.sourceTable,
+			pendingDeleteRow.row
+		);
+
+		if (result.success) {
+			toast.success('Row deleted');
+			// Refresh data
+			await db.executeQuery(db.activeQueryTabId);
+		} else {
+			toast.error(`Failed to delete: ${result.error}`);
+		}
+
+		deletingRowIndex = null;
+		pendingDeleteRow = null;
+	}
 
 	const handleExecute = () => {
 		if (db.activeQueryTabId) {
@@ -228,10 +297,22 @@
             <div class="flex items-center gap-3 text-xs text-muted-foreground">
                 {#if db.activeQueryTab.results}
                     <span class="flex items-center gap-1">
-                        <Badge variant="secondary" class="text-xs"
-                            >{db.activeQueryTab.results.totalRows.toLocaleString()}</Badge
-                        >
-                        total rows
+                        {#if db.activeQueryTab.results.queryType && ['insert', 'update', 'delete'].includes(db.activeQueryTab.results.queryType)}
+                            <Badge variant="secondary" class="text-xs"
+                                >{db.activeQueryTab.results.affectedRows ?? 0}</Badge
+                            >
+                            rows affected
+                            {#if db.activeQueryTab.results.lastInsertId}
+                                <Badge variant="outline" class="text-xs ml-1"
+                                    >ID: {db.activeQueryTab.results.lastInsertId}</Badge
+                                >
+                            {/if}
+                        {:else}
+                            <Badge variant="secondary" class="text-xs"
+                                >{db.activeQueryTab.results.totalRows.toLocaleString()}</Badge
+                            >
+                            total rows
+                        {/if}
                     </span>
                     <span class="flex items-center gap-1">
                         <Badge variant="secondary" class="text-xs"
@@ -265,6 +346,17 @@
                     <WandSparklesIcon class="size-3" />
                     Format
                 </Button>
+                {#if isEditable && sourceTableColumns.length > 0}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 gap-1"
+                        onclick={() => showInsertDialog = true}
+                    >
+                        <PlusIcon class="size-3" />
+                        Add Row
+                    </Button>
+                {/if}
                 <Button
                     size="sm"
                     variant="outline"
@@ -383,6 +475,9 @@
                                 <table class="w-full text-sm">
                                     <thead class="sticky top-0 bg-muted border-b">
                                         <tr>
+                                            {#if isEditable}
+                                                <th class="px-2 py-2 w-8"></th>
+                                            {/if}
                                             {#each db.activeQueryTab.results.columns as column}
                                                 <th class="px-4 py-2 text-left font-medium">{column}</th>
                                             {/each}
@@ -391,12 +486,24 @@
                                     <tbody>
                                         {#each db.activeQueryTab.results.rows as row, i}
                                             <tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
+                                                {#if isEditable}
+                                                    <td class="px-2 py-1">
+                                                        <RowActions
+                                                            onDelete={async () => confirmDeleteRow(i, row)}
+                                                            isDeleting={deletingRowIndex === i}
+                                                        />
+                                                    </td>
+                                                {/if}
                                                 {#each db.activeQueryTab.results.columns as column}
                                                     <td
                                                         class="px-4 py-2"
                                                         oncontextmenu={() => handleCellRightClick(row[column], column, row)}
                                                     >
-                                                        {row[column]}
+                                                        <EditableCell
+                                                            value={row[column]}
+                                                            isEditable={isEditable}
+                                                            onSave={(newValue) => handleCellSave(i, column, newValue)}
+                                                        />
                                                     </td>
                                                 {/each}
                                             </tr>
@@ -535,5 +642,36 @@
         bind:open={showSaveDialog}
         query={db.activeQueryTab.query}
         tabId={db.activeQueryTab.id}
+    />
+{/if}
+
+<!-- Delete Row Confirmation Dialog -->
+<Dialog.Root bind:open={showDeleteConfirm}>
+    <Dialog.Content class="sm:max-w-md">
+        <Dialog.Header>
+            <Dialog.Title>Delete Row</Dialog.Title>
+            <Dialog.Description>
+                Are you sure you want to delete this row? This action cannot be undone.
+            </Dialog.Description>
+        </Dialog.Header>
+        <Dialog.Footer>
+            <Button variant="outline" onclick={() => showDeleteConfirm = false}>
+                Cancel
+            </Button>
+            <Button variant="destructive" onclick={handleDeleteRow}>
+                Delete
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
+
+<!-- Insert Row Dialog -->
+{#if db.activeQueryTab?.results?.sourceTable && sourceTableColumns.length > 0}
+    <InsertRowDialog
+        bind:open={showInsertDialog}
+        sourceTable={db.activeQueryTab.results.sourceTable}
+        columns={sourceTableColumns}
+        onClose={() => showInsertDialog = false}
+        onSuccess={() => db.activeQueryTabId && db.executeQuery(db.activeQueryTabId)}
     />
 {/if}
