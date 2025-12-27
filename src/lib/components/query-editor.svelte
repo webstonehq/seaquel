@@ -345,7 +345,7 @@
                     </Button>
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger
-                            class={buttonVariants({ size: "sm" }) + " h-7 px-1.5 rounded-l-none"}
+                            class={buttonVariants({ size: "sm", variant: "default" }) + " h-7 px-1.5 rounded-l-none border-l border-primary-foreground/20"}
                             disabled={!db.activeQueryTab || db.activeQueryTab.isExecuting}
                         >
                             <ChevronDownIcon class="size-3" />

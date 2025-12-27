@@ -7,9 +7,13 @@
   import { ClockIcon, RowsIcon, DatabaseIcon, FileCodeIcon, LoaderIcon } from "@lucide/svelte";
   import ExplainPlanNode from "./explain-plan-node.svelte";
   import { layoutExplainPlan } from "$lib/utils/explain-layout";
-  import type { Node, Edge, NodeTypes } from "@xyflow/svelte";
+  import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
+  import { mode } from "mode-watcher";
 
   const db = useDatabase();
+
+  // Map mode-watcher theme to xyflow colorMode
+  const colorMode: ColorMode = $derived(mode.current === "dark" ? "dark" : "light");
 
   // Custom node types
   const nodeTypes: NodeTypes = {
@@ -89,6 +93,7 @@
           {nodes}
           {edges}
           {nodeTypes}
+          {colorMode}
           fitView
           minZoom={0.1}
           maxZoom={2}
