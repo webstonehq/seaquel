@@ -61,8 +61,12 @@ export interface QueryResult {
 	columns: string[];
 	rows: any[];
 	rowCount: number;
+	totalRows: number;
 	executionTime: number;
 	affectedRows?: number;
+	page: number;
+	pageSize: number;
+	totalPages: number;
 }
 
 export interface QueryHistoryItem {
