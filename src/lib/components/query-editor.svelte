@@ -11,6 +11,7 @@
 	import { save } from "@tauri-apps/plugin-dialog";
 	import { writeTextFile } from "@tauri-apps/plugin-fs";
 	import { format as formatSQL } from "sql-formatter";
+	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -163,6 +164,37 @@
 		} catch {
 			toast.error("Failed to copy to clipboard");
 		}
+	};
+
+	// Context menu for copying cells
+	let contextCell = $state<{ value: unknown; column: string; row: Record<string, unknown> } | null>(null);
+
+	const handleCellRightClick = (value: unknown, column: string, row: Record<string, unknown>) => {
+		contextCell = { value, column, row };
+	};
+
+	const copyCell = async () => {
+		if (!contextCell) return;
+		const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
+		await navigator.clipboard.writeText(value);
+		toast.success("Cell value copied");
+	};
+
+	const copyRowAsJSON = async () => {
+		if (!contextCell) return;
+		await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
+		toast.success("Row copied as JSON");
+	};
+
+	const copyColumn = async () => {
+		if (!contextCell || !db.activeQueryTab?.results) return;
+		const col = contextCell.column;
+		const values = db.activeQueryTab.results.rows
+			.map(row => row[col])
+			.map(v => v === null || v === undefined ? "" : String(v))
+			.join("\n");
+		await navigator.clipboard.writeText(values);
+		toast.success("Column values copied");
 	};
 
 	// Keyboard shortcuts
@@ -346,44 +378,49 @@
                             </DropdownMenu.Root>
                         </div>
 
-                        <div class="flex-1 overflow-auto min-h-0">
-                            <table class="w-full text-sm">
-                                <thead class="sticky top-0 bg-muted border-b">
-                                    <tr>
-                                        {#each db.activeQueryTab.results.columns as column}
-                                            <th
-                                                class="px-4 py-2 text-left font-medium"
-                                                >{column}</th
-                                            >
-                                        {/each}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {#each db.activeQueryTab.results.rows as row, i}
-                                        <tr
-                                            class={[
-                                                "border-b hover:bg-muted/50",
-                                                i % 2 === 0 && "bg-muted/20",
-                                            ]}
-                                        >
+                        <ContextMenu.Root>
+                            <ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
+                                <table class="w-full text-sm">
+                                    <thead class="sticky top-0 bg-muted border-b">
+                                        <tr>
                                             {#each db.activeQueryTab.results.columns as column}
-                                                <td
-                                                    class="px-4 py-2 cursor-pointer hover:bg-muted"
-                                                    title="Double-click to copy"
-                                                    ondblclick={() => {
-                                                        const value = row[column] === null || row[column] === undefined ? "" : String(row[column]);
-                                                        navigator.clipboard.writeText(value);
-                                                        toast.success("Cell value copied");
-                                                    }}
-                                                >
-                                                    {row[column]}
-                                                </td>
+                                                <th class="px-4 py-2 text-left font-medium">{column}</th>
                                             {/each}
                                         </tr>
-                                    {/each}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody>
+                                        {#each db.activeQueryTab.results.rows as row, i}
+                                            <tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
+                                                {#each db.activeQueryTab.results.columns as column}
+                                                    <td
+                                                        class="px-4 py-2"
+                                                        oncontextmenu={() => handleCellRightClick(row[column], column, row)}
+                                                    >
+                                                        {row[column]}
+                                                    </td>
+                                                {/each}
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            </ContextMenu.Trigger>
+                            <ContextMenu.Portal>
+                                <ContextMenu.Content class="w-48">
+                                    <ContextMenu.Item onclick={copyCell}>
+                                        <CopyIcon class="size-4 mr-2" />
+                                        Copy Cell Value
+                                    </ContextMenu.Item>
+                                    <ContextMenu.Item onclick={copyRowAsJSON}>
+                                        <CopyIcon class="size-4 mr-2" />
+                                        Copy Row as JSON
+                                    </ContextMenu.Item>
+                                    <ContextMenu.Item onclick={copyColumn}>
+                                        <CopyIcon class="size-4 mr-2" />
+                                        Copy Column Values
+                                    </ContextMenu.Item>
+                                </ContextMenu.Content>
+                            </ContextMenu.Portal>
+                        </ContextMenu.Root>
                     {:else}
                         <div
                             class="flex-1 flex items-center justify-center text-muted-foreground"
