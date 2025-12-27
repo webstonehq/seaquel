@@ -2,7 +2,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon } from "@lucide/svelte";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -229,9 +229,9 @@
                 {#if db.activeQueryTab.results}
                     <span class="flex items-center gap-1">
                         <Badge variant="secondary" class="text-xs"
-                            >{db.activeQueryTab.results.rowCount}</Badge
+                            >{db.activeQueryTab.results.totalRows.toLocaleString()}</Badge
                         >
-                        rows
+                        total rows
                     </span>
                     <span class="flex items-center gap-1">
                         <Badge variant="secondary" class="text-xs"
@@ -421,6 +421,83 @@
                                 </ContextMenu.Content>
                             </ContextMenu.Portal>
                         </ContextMenu.Root>
+
+                        <!-- Pagination Controls -->
+                        {#if db.activeQueryTab.results.totalPages > 1}
+                            {@const results = db.activeQueryTab.results}
+                            {@const start = (results.page - 1) * results.pageSize + 1}
+                            {@const end = Math.min(results.page * results.pageSize, results.totalRows)}
+                            <div class="flex items-center justify-between p-2 border-t bg-muted/30 shrink-0 text-xs">
+                                <div class="text-muted-foreground">
+                                    Showing {start}-{end} of {results.totalRows.toLocaleString()} rows
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <DropdownMenu.Root>
+                                        <DropdownMenu.Trigger
+                                            class={buttonVariants({
+                                                variant: "outline",
+                                                size: "sm",
+                                            }) + " h-7 gap-1 text-xs"}
+                                        >
+                                            {db.activeQueryTab.results.pageSize} rows
+                                            <ChevronDownIcon class="size-3" />
+                                        </DropdownMenu.Trigger>
+                                        <DropdownMenu.Content align="end">
+                                            {#each [25, 50, 100, 250, 500, 1000] as size}
+                                                <DropdownMenu.Item
+                                                    onclick={() => db.setPageSize(db.activeQueryTabId!, size)}
+                                                    class={db.activeQueryTab.results.pageSize === size ? "bg-accent" : ""}
+                                                >
+                                                    {size} rows
+                                                </DropdownMenu.Item>
+                                            {/each}
+                                        </DropdownMenu.Content>
+                                    </DropdownMenu.Root>
+
+                                    <div class="flex items-center gap-1">
+                                        <Button
+                                            size="icon"
+                                            variant="outline"
+                                            class="size-7"
+                                            onclick={() => db.goToPage(db.activeQueryTabId!, 1)}
+                                            disabled={db.activeQueryTab.results.page === 1 || db.activeQueryTab.isExecuting}
+                                        >
+                                            <ChevronsLeftIcon class="size-3" />
+                                        </Button>
+                                        <Button
+                                            size="icon"
+                                            variant="outline"
+                                            class="size-7"
+                                            onclick={() => db.goToPage(db.activeQueryTabId!, db.activeQueryTab!.results!.page - 1)}
+                                            disabled={db.activeQueryTab.results.page === 1 || db.activeQueryTab.isExecuting}
+                                        >
+                                            <ChevronLeftIcon class="size-3" />
+                                        </Button>
+                                        <span class="px-2 text-muted-foreground">
+                                            Page {db.activeQueryTab.results.page} of {db.activeQueryTab.results.totalPages}
+                                        </span>
+                                        <Button
+                                            size="icon"
+                                            variant="outline"
+                                            class="size-7"
+                                            onclick={() => db.goToPage(db.activeQueryTabId!, db.activeQueryTab!.results!.page + 1)}
+                                            disabled={db.activeQueryTab.results.page === db.activeQueryTab.results.totalPages || db.activeQueryTab.isExecuting}
+                                        >
+                                            <ChevronRightIcon class="size-3" />
+                                        </Button>
+                                        <Button
+                                            size="icon"
+                                            variant="outline"
+                                            class="size-7"
+                                            onclick={() => db.goToPage(db.activeQueryTabId!, db.activeQueryTab!.results!.totalPages)}
+                                            disabled={db.activeQueryTab.results.page === db.activeQueryTab.results.totalPages || db.activeQueryTab.isExecuting}
+                                        >
+                                            <ChevronsRightIcon class="size-3" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
                     {:else}
                         <div
                             class="flex-1 flex items-center justify-center text-muted-foreground"

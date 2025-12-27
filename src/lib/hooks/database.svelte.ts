@@ -858,7 +858,9 @@ class UseDatabase {
     this.activeSchemaTabIdByConnection = newActiveSchemaIds;
   }
 
-  async executeQuery(tabId: string) {
+  private readonly DEFAULT_PAGE_SIZE = 100;
+
+  async executeQuery(tabId: string, page: number = 1, pageSize?: number) {
     if (!this.activeConnectionId) return;
 
     const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
@@ -866,41 +868,100 @@ class UseDatabase {
     if (!tab) return;
 
     tab.isExecuting = true;
+    const effectivePageSize = pageSize ?? tab.results?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
-    const start = performance.now();
-    const dbResult = (await this.activeConnection?.database!.select(
-      tab.query,
-    )) as any[];
-    const totalMs = performance.now() - start;
+    try {
+      const start = performance.now();
+      const baseQuery = tab.query.replace(/;$/, '');
 
-    // Generate results
-    const results: QueryResult = {
-      columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
-      rows: dbResult || [],
-      rowCount: dbResult?.length ?? 0,
-      executionTime: Math.round(totalMs * 100) / 100,
-    };
+      // Check if query already has LIMIT clause - if so, skip pagination
+      const hasLimit = /\bLIMIT\b/i.test(baseQuery);
 
-    tab.results = results;
-    tab.isExecuting = false;
+      let totalRows = 0;
+      let paginatedQuery = baseQuery;
 
-    // Add to history
-    const queryHistory =
-      this.queryHistoryByConnection.get(this.activeConnectionId) || [];
-    const newQueryHistory = new Map(this.queryHistoryByConnection);
-    newQueryHistory.set(this.activeConnectionId, [
-      {
-        id: `hist-${Date.now()}`,
-        query: tab.query,
-        timestamp: new Date(),
-        executionTime: results.executionTime,
-        rowCount: results.rowCount,
-        connectionId: this.activeConnectionId,
-        favorite: false,
-      },
-      ...queryHistory,
-    ]);
-    this.queryHistoryByConnection = newQueryHistory;
+      if (!hasLimit) {
+        // Get total count first by wrapping in a subquery
+        const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
+        try {
+          const countResult = (await this.activeConnection?.database!.select(countQuery)) as any[];
+          totalRows = parseInt(countResult[0]?.total ?? '0', 10);
+        } catch {
+          // If count fails (e.g., non-SELECT query), just run the query without pagination
+          totalRows = -1;
+        }
+
+        // Add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
+        if (totalRows >= 0) {
+          const offset = (page - 1) * effectivePageSize;
+          paginatedQuery = `${baseQuery} LIMIT ${effectivePageSize} OFFSET ${offset}`;
+        }
+      } else {
+        // Query has its own LIMIT, don't paginate
+        totalRows = -1;
+      }
+
+      const dbResult = (await this.activeConnection?.database!.select(paginatedQuery)) as any[];
+      const totalMs = performance.now() - start;
+
+      // If count failed or query had LIMIT, use result length as total
+      if (totalRows < 0) {
+        totalRows = dbResult?.length ?? 0;
+      }
+
+      const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
+
+      // Generate results
+      const results: QueryResult = {
+        columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
+        rows: dbResult || [],
+        rowCount: dbResult?.length ?? 0,
+        totalRows,
+        executionTime: Math.round(totalMs * 100) / 100,
+        page,
+        pageSize: effectivePageSize,
+        totalPages,
+      };
+
+      tab.results = results;
+      tab.isExecuting = false;
+
+      // Add to history (only on first page to avoid duplicates)
+      if (page === 1) {
+        const queryHistory =
+          this.queryHistoryByConnection.get(this.activeConnectionId) || [];
+        const newQueryHistory = new Map(this.queryHistoryByConnection);
+        newQueryHistory.set(this.activeConnectionId, [
+          {
+            id: `hist-${Date.now()}`,
+            query: tab.query,
+            timestamp: new Date(),
+            executionTime: results.executionTime,
+            rowCount: results.totalRows,
+            connectionId: this.activeConnectionId,
+            favorite: false,
+          },
+          ...queryHistory,
+        ]);
+        this.queryHistoryByConnection = newQueryHistory;
+      }
+    } catch (error) {
+      tab.isExecuting = false;
+      toast.error(`Query failed: ${error}`);
+    }
+  }
+
+  async goToPage(tabId: string, page: number) {
+    const tabs = this.queryTabsByConnection.get(this.activeConnectionId!) || [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab?.results) return;
+
+    const targetPage = Math.max(1, Math.min(page, tab.results.totalPages));
+    await this.executeQuery(tabId, targetPage, tab.results.pageSize);
+  }
+
+  async setPageSize(tabId: string, pageSize: number) {
+    await this.executeQuery(tabId, 1, pageSize);
   }
 
   toggleQueryFavorite(id: string) {
