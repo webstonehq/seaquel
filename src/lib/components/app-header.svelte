@@ -86,8 +86,11 @@
                                 ]}
                                 onclick={() =>
                                     handleConnectionClick(connection)}
-                                onkeyup={() =>
-                                    handleConnectionClick(connection)}
+                                onkeyup={(e) => {
+                                    if (e.key !== "Escape") {
+                                        handleConnectionClick(connection);
+                                    }
+                                }}
                             >
                                 <span class="pr-4">{connection.name}</span>
                                 <Button
