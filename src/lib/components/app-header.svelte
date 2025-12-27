@@ -82,7 +82,6 @@
                                     db.activeConnectionId === connection.id
                                         ? "bg-primary text-primary-foreground border-primary"
                                         : "bg-background hover:bg-muted border-border",
-                                    !connection.database && "opacity-60",
                                 ]}
                                 onclick={() =>
                                     handleConnectionClick(connection)}
@@ -92,6 +91,15 @@
                                     }
                                 }}
                             >
+                                <span
+                                    class={[
+                                        "size-2 rounded-full shrink-0",
+                                        connection.database
+                                            ? "bg-green-500"
+                                            : "bg-gray-400"
+                                    ]}
+                                    title={connection.database ? "Connected" : "Disconnected"}
+                                ></span>
                                 <span class="pr-4">{connection.name}</span>
                                 <Button
                                     size="icon"

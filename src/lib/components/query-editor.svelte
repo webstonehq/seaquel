@@ -2,7 +2,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon } from "@lucide/svelte";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -10,6 +10,8 @@
 	import * as Resizable from "$lib/components/ui/resizable";
 	import { save } from "@tauri-apps/plugin-dialog";
 	import { writeTextFile } from "@tauri-apps/plugin-fs";
+	import { format as formatSQL } from "sql-formatter";
+	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -23,6 +25,20 @@
 	const handleSave = () => {
 		if (!db.activeQueryTab?.query.trim()) return;
 		showSaveDialog = true;
+	};
+
+	const handleFormat = () => {
+		if (!db.activeQueryTab?.query.trim()) return;
+		try {
+			const formatted = formatSQL(db.activeQueryTab.query, {
+				language: "postgresql",
+				tabWidth: 2,
+				keywordCase: "upper"
+			});
+			db.activeQueryTab.query = formatted;
+		} catch {
+			toast.error("Failed to format SQL");
+		}
 	};
 
 	const escapeCSVValue = (value: unknown): string => {
@@ -149,7 +165,67 @@
 			toast.error("Failed to copy to clipboard");
 		}
 	};
+
+	// Context menu state
+	let contextCell = $state<{ value: unknown; column: string; row: Record<string, unknown> } | null>(null);
+
+	const copyCell = async () => {
+		if (!contextCell) return;
+		try {
+			const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
+			await navigator.clipboard.writeText(value);
+			toast.success("Cell value copied");
+		} catch {
+			toast.error("Failed to copy");
+		}
+	};
+
+	const copyRowAsJSON = async () => {
+		if (!contextCell) return;
+		try {
+			await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
+			toast.success("Row copied as JSON");
+		} catch {
+			toast.error("Failed to copy");
+		}
+	};
+
+	const copyColumn = async () => {
+		if (!contextCell || !db.activeQueryTab?.results) return;
+		try {
+			const col = contextCell.column;
+			const values = db.activeQueryTab.results.rows
+				.map(row => row[col])
+				.map(v => v === null || v === undefined ? "" : String(v))
+				.join("\n");
+			await navigator.clipboard.writeText(values);
+			toast.success("Column values copied");
+		} catch {
+			toast.error("Failed to copy");
+		}
+	};
+
+	// Keyboard shortcuts
+	const handleKeydown = (e: KeyboardEvent) => {
+		const isMod = e.metaKey || e.ctrlKey;
+
+		// Cmd+S: Save query
+		if (isMod && e.key === 's') {
+			e.preventDefault();
+			handleSave();
+			return;
+		}
+
+		// Cmd+Shift+F: Format SQL
+		if (isMod && e.shiftKey && e.key === 'f') {
+			e.preventDefault();
+			handleFormat();
+			return;
+		}
+	};
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="flex flex-col h-full overflow-hidden">
 	{#if db.activeQueryTab}
@@ -174,10 +250,17 @@
 						<PlayIcon class="size-3" />
 					{/if}
 					Execute
+					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘↵</kbd>
+				</Button>
+				<Button size="sm" variant="outline" class="h-7 gap-1" onclick={handleFormat} disabled={!db.activeQueryTab?.query.trim()}>
+					<WandSparklesIcon class="size-3" />
+					Format
+					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘⇧F</kbd>
 				</Button>
 				<Button size="sm" variant="outline" class="h-7 gap-1" onclick={handleSave} disabled={!db.activeQueryTab?.query.trim()}>
 					<SaveIcon class="size-3" />
 					Save
+					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘S</kbd>
 				</Button>
 			</div>
 		</div>
@@ -266,7 +349,32 @@
 									{#each db.activeQueryTab.results.rows as row, i}
 										<tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
 											{#each db.activeQueryTab.results.columns as column}
-												<td class="px-4 py-2">{row[column]}</td>
+												<ContextMenu.Root>
+													<ContextMenu.Trigger>
+														<td
+															class="px-4 py-2"
+															oncontextmenu={() => { contextCell = { value: row[column], column, row }; }}
+														>
+															{row[column]}
+														</td>
+													</ContextMenu.Trigger>
+													<ContextMenu.Portal>
+														<ContextMenu.Content class="w-48">
+															<ContextMenu.Item onclick={copyCell}>
+																<CopyIcon class="size-4 mr-2" />
+																Copy Cell Value
+															</ContextMenu.Item>
+															<ContextMenu.Item onclick={copyRowAsJSON}>
+																<CopyIcon class="size-4 mr-2" />
+																Copy Row as JSON
+															</ContextMenu.Item>
+															<ContextMenu.Item onclick={copyColumn}>
+																<CopyIcon class="size-4 mr-2" />
+																Copy Column Values
+															</ContextMenu.Item>
+														</ContextMenu.Content>
+													</ContextMenu.Portal>
+												</ContextMenu.Root>
 											{/each}
 										</tr>
 									{/each}

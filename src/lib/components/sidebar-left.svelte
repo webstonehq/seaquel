@@ -15,6 +15,7 @@
 	let historyExpanded = $state(true);
 	let savedExpanded = $state(true);
 	let searchQuery = $state("");
+	let schemaSearchQuery = $state("");
 
 	const toggleSchema = (schemaName: string) => {
 		const newExpanded = new Set(expandedSchemas);
@@ -36,10 +37,18 @@
 		expandedTables = newExpanded;
 	};
 
-	// Group tables by schema
+	// Filter and group tables by schema
 	const tablesBySchema = $derived(() => {
+		const searchLower = schemaSearchQuery.toLowerCase();
+		const filtered = schemaSearchQuery
+			? db.activeSchema.filter(table =>
+				table.name.toLowerCase().includes(searchLower) ||
+				(table.schema || "").toLowerCase().includes(searchLower)
+			)
+			: db.activeSchema;
+
 		const grouped = new Map<string, typeof db.activeSchema>();
-		db.activeSchema.forEach((table) => {
+		filtered.forEach((table) => {
 			const schema = table.schema || "default";
 			if (!grouped.has(schema)) {
 				grouped.set(schema, []);
@@ -103,6 +112,16 @@
 	<SidebarContent>
 		{#if sidebarTab === "schema"}
 			{#if db.activeConnection && db.activeConnection.database}
+				<div class="p-3 pb-2">
+					<div class="relative">
+						<SearchIcon class="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+						<Input
+							bind:value={schemaSearchQuery}
+							placeholder="Search tables..."
+							class="pl-8 h-8 text-sm"
+						/>
+					</div>
+				</div>
 				<SidebarGroup>
 					<SidebarGroupLabel>{db.activeConnection.name}</SidebarGroupLabel>
 					<SidebarGroupContent>
@@ -123,17 +142,23 @@
 										<CollapsibleContent>
 											<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
 												{#each tables as table (table.name)}
-													<Collapsible open={expandedTables.has(table.name)} onOpenChange={() => toggleTable(table.name)}>
+													<Collapsible open={expandedTables.has(table.name)}>
 														<SidebarMenuItem>
-															<CollapsibleTrigger>
-																{#snippet child({ props })}
-																	<SidebarMenuButton {...props} onclick={() => handleTableClick(table)}>
-																		<TableIcon class="size-4" />
-																		<span class="flex-1">{table.name}</span>
-																		<Badge variant="secondary" class="text-xs">{table.rowCount?.toLocaleString()}</Badge>
-																	</SidebarMenuButton>
-																{/snippet}
-															</CollapsibleTrigger>
+															<SidebarMenuButton onclick={() => handleTableClick(table)}>
+																<button
+																	type="button"
+																	class="p-0.5 -ml-0.5 hover:bg-muted rounded"
+																	onclick={(e) => {
+																		e.stopPropagation();
+																		toggleTable(table.name);
+																	}}
+																>
+																	<ChevronRightIcon class={["size-3 transition-transform", expandedTables.has(table.name) && "rotate-90"]} />
+																</button>
+																<TableIcon class="size-4" />
+																<span class="flex-1">{table.name}</span>
+																<Badge variant="secondary" class="text-xs">{table.rowCount?.toLocaleString()}</Badge>
+															</SidebarMenuButton>
 															<CollapsibleContent>
 																<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
 																	<SidebarMenuItem>

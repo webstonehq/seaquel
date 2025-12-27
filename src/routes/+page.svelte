@@ -51,7 +51,89 @@
         db.setActiveSchemaTab(tabId);
         db.setActiveView("schema");
     };
+
+    // Get all tabs in order for keyboard navigation
+    const allTabs = $derived([
+        ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const })),
+        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const }))
+    ]);
+
+    const currentTabIndex = $derived(() => {
+        if (db.activeView === 'query' && db.activeQueryTabId) {
+            return allTabs.findIndex(t => t.type === 'query' && t.id === db.activeQueryTabId);
+        }
+        if (db.activeView === 'schema' && db.activeSchemaTabId) {
+            return allTabs.findIndex(t => t.type === 'schema' && t.id === db.activeSchemaTabId);
+        }
+        return -1;
+    });
+
+    const switchToTab = (index: number) => {
+        if (index < 0 || index >= allTabs.length) return;
+        const tab = allTabs[index];
+        if (tab.type === 'query') {
+            handleQueryTabClick(tab.id);
+        } else {
+            handleSchemaTabClick(tab.id);
+        }
+    };
+
+    const closeCurrentTab = () => {
+        if (db.activeView === 'query' && db.activeQueryTabId) {
+            db.removeQueryTab(db.activeQueryTabId);
+        } else if (db.activeView === 'schema' && db.activeSchemaTabId) {
+            db.removeSchemaTab(db.activeSchemaTabId);
+        }
+    };
+
+    const handleGlobalKeydown = (e: KeyboardEvent) => {
+        // Ignore if typing in an input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+
+        const isMod = e.metaKey || e.ctrlKey;
+
+        // Cmd+T: New query tab
+        if (isMod && e.key === 't') {
+            e.preventDefault();
+            db.addQueryTab();
+            return;
+        }
+
+        // Cmd+W: Close current tab
+        if (isMod && e.key === 'w') {
+            e.preventDefault();
+            closeCurrentTab();
+            return;
+        }
+
+        // Cmd+1-9: Switch to tab by index
+        if (isMod && e.key >= '1' && e.key <= '9') {
+            e.preventDefault();
+            const index = parseInt(e.key) - 1;
+            switchToTab(index);
+            return;
+        }
+
+        // Cmd+Shift+] or Cmd+Shift+[: Next/Previous tab
+        if (isMod && e.shiftKey) {
+            const idx = currentTabIndex();
+            if (e.key === ']' || e.key === '}') {
+                e.preventDefault();
+                switchToTab((idx + 1) % allTabs.length);
+                return;
+            }
+            if (e.key === '[' || e.key === '{') {
+                e.preventDefault();
+                switchToTab((idx - 1 + allTabs.length) % allTabs.length);
+                return;
+            }
+        }
+    };
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <Toaster position="bottom-right" richColors />
 
