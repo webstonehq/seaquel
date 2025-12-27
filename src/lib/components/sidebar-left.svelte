@@ -5,13 +5,12 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { TableIcon, Columns3Icon, KeyIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon } from "@lucide/svelte";
+	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 
 	const db = useDatabase();
 	let sidebarTab = $state<"schema" | "queries">("schema");
 	let expandedSchemas = $state<Set<string>>(new Set());
-	let expandedTables = $state<Set<string>>(new Set());
 	let historyExpanded = $state(true);
 	let savedExpanded = $state(true);
 	let searchQuery = $state("");
@@ -25,16 +24,6 @@
 			newExpanded.add(schemaName);
 		}
 		expandedSchemas = newExpanded;
-	};
-
-	const toggleTable = (tableName: string) => {
-		const newExpanded = new Set(expandedTables);
-		if (newExpanded.has(tableName)) {
-			newExpanded.delete(tableName);
-		} else {
-			newExpanded.add(tableName);
-		}
-		expandedTables = newExpanded;
 	};
 
 	// Filter and group tables by schema
@@ -142,41 +131,13 @@
 										<CollapsibleContent>
 											<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
 												{#each tables as table (table.name)}
-													<Collapsible open={expandedTables.has(table.name)}>
-														<SidebarMenuItem>
-															<SidebarMenuButton onclick={() => handleTableClick(table)}>
-																<button
-																	type="button"
-																	class="p-0.5 -ml-0.5 hover:bg-muted rounded"
-																	onclick={(e) => {
-																		e.stopPropagation();
-																		toggleTable(table.name);
-																	}}
-																>
-																	<ChevronRightIcon class={["size-3 transition-transform", expandedTables.has(table.name) && "rotate-90"]} />
-																</button>
-																<TableIcon class="size-4" />
-																<span class="flex-1">{table.name}</span>
-																<Badge variant="secondary" class="text-xs">{table.rowCount?.toLocaleString()}</Badge>
-															</SidebarMenuButton>
-															<CollapsibleContent>
-																<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
-																	<SidebarMenuItem>
-																		<SidebarMenuButton class="text-xs">
-																			<Columns3Icon class="size-3" />
-																			<span>{table.columns.length} columns</span>
-																		</SidebarMenuButton>
-																	</SidebarMenuItem>
-																	<SidebarMenuItem>
-																		<SidebarMenuButton class="text-xs">
-																			<KeyIcon class="size-3" />
-																			<span>{table.indexes.length} indexes</span>
-																		</SidebarMenuButton>
-																	</SidebarMenuItem>
-																</SidebarMenu>
-															</CollapsibleContent>
-														</SidebarMenuItem>
-													</Collapsible>
+													<SidebarMenuItem>
+														<SidebarMenuButton onclick={() => handleTableClick(table)}>
+															<TableIcon class="size-4" />
+															<span class="flex-1">{table.name}</span>
+															<Badge variant="secondary" class="text-xs">{table.rowCount?.toLocaleString()}</Badge>
+														</SidebarMenuButton>
+													</SidebarMenuItem>
 												{/each}
 											</SidebarMenu>
 										</CollapsibleContent>

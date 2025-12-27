@@ -11,7 +11,6 @@
 	import { save } from "@tauri-apps/plugin-dialog";
 	import { writeTextFile } from "@tauri-apps/plugin-fs";
 	import { format as formatSQL } from "sql-formatter";
-	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 
 	const db = useDatabase();
 	let showSaveDialog = $state(false);
@@ -166,45 +165,6 @@
 		}
 	};
 
-	// Context menu state
-	let contextCell = $state<{ value: unknown; column: string; row: Record<string, unknown> } | null>(null);
-
-	const copyCell = async () => {
-		if (!contextCell) return;
-		try {
-			const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
-			await navigator.clipboard.writeText(value);
-			toast.success("Cell value copied");
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
-
-	const copyRowAsJSON = async () => {
-		if (!contextCell) return;
-		try {
-			await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
-			toast.success("Row copied as JSON");
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
-
-	const copyColumn = async () => {
-		if (!contextCell || !db.activeQueryTab?.results) return;
-		try {
-			const col = contextCell.column;
-			const values = db.activeQueryTab.results.rows
-				.map(row => row[col])
-				.map(v => v === null || v === undefined ? "" : String(v))
-				.join("\n");
-			await navigator.clipboard.writeText(values);
-			toast.success("Column values copied");
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
-
 	// Keyboard shortcuts
 	const handleKeydown = (e: KeyboardEvent) => {
 		const isMod = e.metaKey || e.ctrlKey;
@@ -228,181 +188,238 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="flex flex-col h-full overflow-hidden">
-	{#if db.activeQueryTab}
-		<!-- Toolbar -->
-		<div class="flex items-center justify-between p-2 border-b bg-muted/30 shrink-0">
-			<div class="flex items-center gap-3 text-xs text-muted-foreground">
-				{#if db.activeQueryTab.results}
-					<span class="flex items-center gap-1">
-						<Badge variant="secondary" class="text-xs">{db.activeQueryTab.results.rowCount}</Badge>
-						rows
-					</span>
-					<span class="flex items-center gap-1">
-						<Badge variant="secondary" class="text-xs">{db.activeQueryTab.results.executionTime}ms</Badge>
-					</span>
-				{/if}
-			</div>
-			<div class="flex items-center gap-2">
-				<Button size="sm" class="h-7 gap-1" onclick={handleExecute} disabled={!db.activeQueryTab || db.activeQueryTab.isExecuting}>
-					{#if db.activeQueryTab?.isExecuting}
-						<LoaderIcon class="animate-spin size-3" />
-					{:else}
-						<PlayIcon class="size-3" />
-					{/if}
-					Execute
-					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘↵</kbd>
-				</Button>
-				<Button size="sm" variant="outline" class="h-7 gap-1" onclick={handleFormat} disabled={!db.activeQueryTab?.query.trim()}>
-					<WandSparklesIcon class="size-3" />
-					Format
-					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘⇧F</kbd>
-				</Button>
-				<Button size="sm" variant="outline" class="h-7 gap-1" onclick={handleSave} disabled={!db.activeQueryTab?.query.trim()}>
-					<SaveIcon class="size-3" />
-					Save
-					<kbd class="ml-1 text-[10px] font-mono opacity-60">⌘S</kbd>
-				</Button>
-			</div>
-		</div>
+    {#if db.activeQueryTab}
+        <!-- Toolbar -->
+        <div
+            class="flex items-center justify-between p-2 border-b bg-muted/30 shrink-0"
+        >
+            <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                {#if db.activeQueryTab.results}
+                    <span class="flex items-center gap-1">
+                        <Badge variant="secondary" class="text-xs"
+                            >{db.activeQueryTab.results.rowCount}</Badge
+                        >
+                        rows
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <Badge variant="secondary" class="text-xs"
+                            >{db.activeQueryTab.results.executionTime}ms</Badge
+                        >
+                    </span>
+                {/if}
+            </div>
+            <div class="flex items-center gap-2">
+                <Button
+                    size="sm"
+                    class="h-7 gap-1"
+                    onclick={handleExecute}
+                    disabled={!db.activeQueryTab ||
+                        db.activeQueryTab.isExecuting}
+                >
+                    {#if db.activeQueryTab?.isExecuting}
+                        <LoaderIcon class="animate-spin size-3" />
+                    {:else}
+                        <PlayIcon class="size-3" />
+                    {/if}
+                    Execute
+                </Button>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    class="h-7 gap-1"
+                    onclick={handleFormat}
+                    disabled={!db.activeQueryTab?.query.trim()}
+                >
+                    <WandSparklesIcon class="size-3" />
+                    Format
+                </Button>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    class="h-7 gap-1"
+                    onclick={handleSave}
+                    disabled={!db.activeQueryTab?.query.trim()}
+                >
+                    <SaveIcon class="size-3" />
+                    Save
+                </Button>
+            </div>
+        </div>
 
-		<Resizable.PaneGroup direction="vertical" class="flex-1 min-h-0">
-			<!-- Editor Pane -->
-			<Resizable.Pane defaultSize={40} minSize={15}>
-				<div class="h-full">
-					{#key db.activeQueryTabId}
-						<MonacoEditor
-							bind:value={db.activeQueryTab.query}
-							schema={db.activeSchema}
-							onExecute={handleExecute}
-						/>
-					{/key}
-				</div>
-			</Resizable.Pane>
+        <Resizable.PaneGroup direction="vertical" class="flex-1 min-h-0">
+            <!-- Editor Pane -->
+            <Resizable.Pane defaultSize={40} minSize={15}>
+                <div class="h-full">
+                    {#key db.activeQueryTabId}
+                        <MonacoEditor
+                            bind:value={db.activeQueryTab.query}
+                            schema={db.activeSchema}
+                            onExecute={handleExecute}
+                        />
+                    {/key}
+                </div>
+            </Resizable.Pane>
 
-			<Resizable.Handle withHandle />
+            <Resizable.Handle withHandle />
 
-			<!-- Results Pane -->
-			<Resizable.Pane defaultSize={60} minSize={15}>
-				<div class="h-full flex flex-col overflow-hidden">
-					{#if db.activeQueryTab.results}
-						<div class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0">
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger class={buttonVariants({ variant: "outline", size: "sm" }) + " h-7 gap-1"}>
-									<DownloadIcon class="size-3" />
-									Export
-									<ChevronDownIcon class="size-3" />
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end" class="w-48">
-									<DropdownMenu.Group>
-										<DropdownMenu.GroupHeading>Download</DropdownMenu.GroupHeading>
-										<DropdownMenu.Item onclick={() => handleExport("csv")}>
-											<DownloadIcon class="size-4 mr-2" />
-											CSV
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleExport("json")}>
-											<DownloadIcon class="size-4 mr-2" />
-											JSON
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleExport("sql")}>
-											<DownloadIcon class="size-4 mr-2" />
-											SQL INSERT
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleExport("markdown")}>
-											<DownloadIcon class="size-4 mr-2" />
-											Markdown
-										</DropdownMenu.Item>
-									</DropdownMenu.Group>
-									<DropdownMenu.Separator />
-									<DropdownMenu.Group>
-										<DropdownMenu.GroupHeading>Copy to Clipboard</DropdownMenu.GroupHeading>
-										<DropdownMenu.Item onclick={() => handleCopy("csv")}>
-											<CopyIcon class="size-4 mr-2" />
-											CSV
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleCopy("json")}>
-											<CopyIcon class="size-4 mr-2" />
-											JSON
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleCopy("sql")}>
-											<CopyIcon class="size-4 mr-2" />
-											SQL INSERT
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleCopy("markdown")}>
-											<CopyIcon class="size-4 mr-2" />
-											Markdown
-										</DropdownMenu.Item>
-									</DropdownMenu.Group>
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						</div>
+            <!-- Results Pane -->
+            <Resizable.Pane defaultSize={60} minSize={15}>
+                <div class="h-full flex flex-col overflow-hidden">
+                    {#if db.activeQueryTab.results}
+                        <div
+                            class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0"
+                        >
+                            <DropdownMenu.Root>
+                                <DropdownMenu.Trigger
+                                    class={buttonVariants({
+                                        variant: "outline",
+                                        size: "sm",
+                                    }) + " h-7 gap-1"}
+                                >
+                                    <DownloadIcon class="size-3" />
+                                    Export
+                                    <ChevronDownIcon class="size-3" />
+                                </DropdownMenu.Trigger>
+                                <DropdownMenu.Content align="end" class="w-48">
+                                    <DropdownMenu.Group>
+                                        <DropdownMenu.GroupHeading
+                                            >Download</DropdownMenu.GroupHeading
+                                        >
+                                        <DropdownMenu.Item
+                                            onclick={() => handleExport("csv")}
+                                        >
+                                            <DownloadIcon class="size-4 mr-2" />
+                                            CSV
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() => handleExport("json")}
+                                        >
+                                            <DownloadIcon class="size-4 mr-2" />
+                                            JSON
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() => handleExport("sql")}
+                                        >
+                                            <DownloadIcon class="size-4 mr-2" />
+                                            SQL INSERT
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() =>
+                                                handleExport("markdown")}
+                                        >
+                                            <DownloadIcon class="size-4 mr-2" />
+                                            Markdown
+                                        </DropdownMenu.Item>
+                                    </DropdownMenu.Group>
+                                    <DropdownMenu.Separator />
+                                    <DropdownMenu.Group>
+                                        <DropdownMenu.GroupHeading
+                                            >Copy to Clipboard</DropdownMenu.GroupHeading
+                                        >
+                                        <DropdownMenu.Item
+                                            onclick={() => handleCopy("csv")}
+                                        >
+                                            <CopyIcon class="size-4 mr-2" />
+                                            CSV
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() => handleCopy("json")}
+                                        >
+                                            <CopyIcon class="size-4 mr-2" />
+                                            JSON
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() => handleCopy("sql")}
+                                        >
+                                            <CopyIcon class="size-4 mr-2" />
+                                            SQL INSERT
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            onclick={() =>
+                                                handleCopy("markdown")}
+                                        >
+                                            <CopyIcon class="size-4 mr-2" />
+                                            Markdown
+                                        </DropdownMenu.Item>
+                                    </DropdownMenu.Group>
+                                </DropdownMenu.Content>
+                            </DropdownMenu.Root>
+                        </div>
 
-						<div class="flex-1 overflow-auto min-h-0">
-							<table class="w-full text-sm">
-								<thead class="sticky top-0 bg-muted border-b">
-									<tr>
-										{#each db.activeQueryTab.results.columns as column}
-											<th class="px-4 py-2 text-left font-medium">{column}</th>
-										{/each}
-									</tr>
-								</thead>
-								<tbody>
-									{#each db.activeQueryTab.results.rows as row, i}
-										<tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
-											{#each db.activeQueryTab.results.columns as column}
-												<ContextMenu.Root>
-													<ContextMenu.Trigger>
-														<td
-															class="px-4 py-2"
-															oncontextmenu={() => { contextCell = { value: row[column], column, row }; }}
-														>
-															{row[column]}
-														</td>
-													</ContextMenu.Trigger>
-													<ContextMenu.Portal>
-														<ContextMenu.Content class="w-48">
-															<ContextMenu.Item onclick={copyCell}>
-																<CopyIcon class="size-4 mr-2" />
-																Copy Cell Value
-															</ContextMenu.Item>
-															<ContextMenu.Item onclick={copyRowAsJSON}>
-																<CopyIcon class="size-4 mr-2" />
-																Copy Row as JSON
-															</ContextMenu.Item>
-															<ContextMenu.Item onclick={copyColumn}>
-																<CopyIcon class="size-4 mr-2" />
-																Copy Column Values
-															</ContextMenu.Item>
-														</ContextMenu.Content>
-													</ContextMenu.Portal>
-												</ContextMenu.Root>
-											{/each}
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					{:else}
-						<div class="flex-1 flex items-center justify-center text-muted-foreground">
-							<div class="text-center">
-								<PlayIcon class="size-12 mx-auto mb-2 opacity-20" />
-								<p class="text-sm">Execute a query to see results</p>
-								<p class="text-xs mt-1 text-muted-foreground">Press ⌘+Enter to run</p>
-							</div>
-						</div>
-					{/if}
-				</div>
-			</Resizable.Pane>
-		</Resizable.PaneGroup>
-	{:else}
-		<div class="flex-1 flex items-center justify-center text-muted-foreground">
-			<div class="text-center">
-				<PlayIcon class="size-12 mx-auto mb-2 opacity-20" />
-				<p class="text-sm">Create a new query tab to get started</p>
-			</div>
-		</div>
-	{/if}
+                        <div class="flex-1 overflow-auto min-h-0">
+                            <table class="w-full text-sm">
+                                <thead class="sticky top-0 bg-muted border-b">
+                                    <tr>
+                                        {#each db.activeQueryTab.results.columns as column}
+                                            <th
+                                                class="px-4 py-2 text-left font-medium"
+                                                >{column}</th
+                                            >
+                                        {/each}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {#each db.activeQueryTab.results.rows as row, i}
+                                        <tr
+                                            class={[
+                                                "border-b hover:bg-muted/50",
+                                                i % 2 === 0 && "bg-muted/20",
+                                            ]}
+                                        >
+                                            {#each db.activeQueryTab.results.columns as column}
+                                                <td
+                                                    class="px-4 py-2 cursor-pointer hover:bg-muted"
+                                                    title="Double-click to copy"
+                                                    ondblclick={() => {
+                                                        const value = row[column] === null || row[column] === undefined ? "" : String(row[column]);
+                                                        navigator.clipboard.writeText(value);
+                                                        toast.success("Cell value copied");
+                                                    }}
+                                                >
+                                                    {row[column]}
+                                                </td>
+                                            {/each}
+                                        </tr>
+                                    {/each}
+                                </tbody>
+                            </table>
+                        </div>
+                    {:else}
+                        <div
+                            class="flex-1 flex items-center justify-center text-muted-foreground"
+                        >
+                            <div class="text-center">
+                                <PlayIcon
+                                    class="size-12 mx-auto mb-2 opacity-20"
+                                />
+                                <p class="text-sm">
+                                    Execute a query to see results
+                                </p>
+                                <p class="text-xs mt-1 text-muted-foreground">
+                                    Press ⌘+Enter to run
+                                </p>
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+            </Resizable.Pane>
+        </Resizable.PaneGroup>
+    {:else}
+        <div
+            class="flex-1 flex items-center justify-center text-muted-foreground"
+        >
+            <div class="text-center">
+                <PlayIcon class="size-12 mx-auto mb-2 opacity-20" />
+                <p class="text-sm">Create a new query tab to get started</p>
+            </div>
+        </div>
+    {/if}
 </div>
 
 {#if db.activeQueryTab}
-	<SaveQueryDialog bind:open={showSaveDialog} query={db.activeQueryTab.query} tabId={db.activeQueryTab.id} />
+    <SaveQueryDialog
+        bind:open={showSaveDialog}
+        query={db.activeQueryTab.query}
+        tabId={db.activeQueryTab.id}
+    />
 {/if}

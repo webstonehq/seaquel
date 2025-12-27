@@ -72,11 +72,13 @@
 		editor?.dispose();
 	});
 
-	// React to value prop changes (e.g., when switching tabs)
+	// React to value prop changes (e.g., when switching tabs or formatting)
 	$effect(() => {
-		if (editor && editor.getValue() !== value) {
+		// Explicitly track value to ensure reactivity
+		const currentValue = value;
+		if (editor && editor.getValue() !== currentValue) {
 			isUpdatingFromProp = true;
-			editor.setValue(value);
+			editor.setValue(currentValue);
 			isUpdatingFromProp = false;
 		}
 	});
