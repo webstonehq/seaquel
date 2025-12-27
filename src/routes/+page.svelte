@@ -4,11 +4,12 @@
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
     import QueryEditor from "$lib/components/query-editor.svelte";
     import TableViewer from "$lib/components/table-viewer.svelte";
+    import ExplainViewer from "$lib/components/explain-viewer.svelte";
     import AIAssistant from "$lib/components/ai-assistant.svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { PlusIcon, XIcon, TableIcon, FileCodeIcon } from "@lucide/svelte";
+    import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon } from "@lucide/svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
 
     const db = useDatabase();
@@ -52,10 +53,16 @@
         db.setActiveView("schema");
     };
 
+    const handleExplainTabClick = (tabId: string) => {
+        db.setActiveExplainTab(tabId);
+        db.setActiveView("explain");
+    };
+
     // Get all tabs in order for keyboard navigation
     const allTabs = $derived([
         ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const })),
-        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const }))
+        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const })),
+        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const }))
     ]);
 
     const currentTabIndex = $derived(() => {
@@ -65,6 +72,9 @@
         if (db.activeView === 'schema' && db.activeSchemaTabId) {
             return allTabs.findIndex(t => t.type === 'schema' && t.id === db.activeSchemaTabId);
         }
+        if (db.activeView === 'explain' && db.activeExplainTabId) {
+            return allTabs.findIndex(t => t.type === 'explain' && t.id === db.activeExplainTabId);
+        }
         return -1;
     });
 
@@ -73,8 +83,10 @@
         const tab = allTabs[index];
         if (tab.type === 'query') {
             handleQueryTabClick(tab.id);
-        } else {
+        } else if (tab.type === 'schema') {
             handleSchemaTabClick(tab.id);
+        } else if (tab.type === 'explain') {
+            handleExplainTabClick(tab.id);
         }
     };
 
@@ -83,6 +95,8 @@
             db.removeQueryTab(db.activeQueryTabId);
         } else if (db.activeView === 'schema' && db.activeSchemaTabId) {
             db.removeSchemaTab(db.activeSchemaTabId);
+        } else if (db.activeView === 'explain' && db.activeExplainTabId) {
+            db.removeExplainTab(db.activeExplainTabId);
         }
     };
 
@@ -217,6 +231,34 @@
                             </Button>
                         </div>
                     {/each}
+
+                    <!-- Explain Tabs -->
+                    {#each db.explainTabs as tab (tab.id)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                        <div
+                            class={[
+                                "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                activeTabType === "explain" && db.activeExplainTabId === tab.id
+                                    ? "bg-background shadow-sm"
+                                    : "hover:bg-muted",
+                            ]}
+                            onclick={() => handleExplainTabClick(tab.id)}
+                        >
+                            <ActivityIcon class="size-3 text-muted-foreground" />
+                            <span class="pr-4">{tab.name}</span>
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    db.removeExplainTab(tab.id);
+                                }}
+                            >
+                                <XIcon />
+                            </Button>
+                        </div>
+                    {/each}
                 </div>
             </ScrollArea>
 
@@ -239,6 +281,8 @@
                 <ScrollArea orientation="both" class="h-full">
                     <TableViewer />
                 </ScrollArea>
+            {:else if activeTabType === "explain"}
+                <ExplainViewer />
             {/if}
         </div>
     {/if}

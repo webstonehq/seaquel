@@ -3,7 +3,7 @@
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon } from "@lucide/svelte";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon, SearchIcon, ActivityIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -88,6 +88,12 @@
 	const handleExecute = () => {
 		if (db.activeQueryTabId) {
 			db.executeQuery(db.activeQueryTabId);
+		}
+	};
+
+	const handleExplain = (analyze: boolean) => {
+		if (db.activeQueryTabId) {
+			db.executeExplain(db.activeQueryTabId, analyze);
 		}
 	};
 
@@ -322,20 +328,45 @@
                 {/if}
             </div>
             <div class="flex items-center gap-2">
-                <Button
-                    size="sm"
-                    class="h-7 gap-1"
-                    onclick={handleExecute}
-                    disabled={!db.activeQueryTab ||
-                        db.activeQueryTab.isExecuting}
-                >
-                    {#if db.activeQueryTab?.isExecuting}
-                        <LoaderIcon class="animate-spin size-3" />
-                    {:else}
-                        <PlayIcon class="size-3" />
-                    {/if}
-                    Execute
-                </Button>
+                <!-- Execute Button with Dropdown -->
+                <div class="flex">
+                    <Button
+                        size="sm"
+                        class="h-7 gap-1 rounded-r-none border-r-0"
+                        onclick={handleExecute}
+                        disabled={!db.activeQueryTab || db.activeQueryTab.isExecuting}
+                    >
+                        {#if db.activeQueryTab?.isExecuting}
+                            <LoaderIcon class="animate-spin size-3" />
+                        {:else}
+                            <PlayIcon class="size-3" />
+                        {/if}
+                        Execute
+                    </Button>
+                    <DropdownMenu.Root>
+                        <DropdownMenu.Trigger
+                            class={buttonVariants({ size: "sm" }) + " h-7 px-1.5 rounded-l-none"}
+                            disabled={!db.activeQueryTab || db.activeQueryTab.isExecuting}
+                        >
+                            <ChevronDownIcon class="size-3" />
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content align="end">
+                            <DropdownMenu.Item onclick={handleExecute}>
+                                <PlayIcon class="size-4 mr-2" />
+                                Execute
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Separator />
+                            <DropdownMenu.Item onclick={() => handleExplain(false)}>
+                                <SearchIcon class="size-4 mr-2" />
+                                Explain
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onclick={() => handleExplain(true)}>
+                                <ActivityIcon class="size-4 mr-2" />
+                                Explain Analyze
+                            </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                    </DropdownMenu.Root>
+                </div>
                 <Button
                     size="sm"
                     variant="outline"

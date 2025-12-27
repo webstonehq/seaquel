@@ -115,3 +115,43 @@ export interface AIMessage {
 	timestamp: Date;
 	query?: string;
 }
+
+// EXPLAIN/ANALYZE types
+export interface ExplainPlanNode {
+	id: string;
+	nodeType: string;
+	relationName?: string;
+	alias?: string;
+	startupCost: number;
+	totalCost: number;
+	planRows: number;
+	planWidth: number;
+	// ANALYZE fields
+	actualStartupTime?: number;
+	actualTotalTime?: number;
+	actualRows?: number;
+	actualLoops?: number;
+	// Conditions
+	filter?: string;
+	indexName?: string;
+	indexCond?: string;
+	joinType?: string;
+	hashCond?: string;
+	sortKey?: string[];
+	children: ExplainPlanNode[];
+}
+
+export interface ExplainResult {
+	plan: ExplainPlanNode;
+	planningTime: number;
+	executionTime?: number;
+	isAnalyze: boolean;
+}
+
+export interface ExplainTab {
+	id: string;
+	name: string;
+	sourceQuery: string;
+	result?: ExplainResult;
+	isExecuting: boolean;
+}

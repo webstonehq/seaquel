@@ -9,6 +9,9 @@ import type {
   QueryResult,
   SavedQuery,
   SSHTunnelConfig,
+  ExplainTab,
+  ExplainResult,
+  ExplainPlanNode,
 } from "$lib/types";
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
@@ -42,9 +45,11 @@ class UseDatabase {
   activeSchemaTabIdByConnection = $state<Map<string, string | null>>(new Map());
   queryHistoryByConnection = $state<Map<string, QueryHistoryItem[]>>(new Map());
   savedQueriesByConnection = $state<Map<string, SavedQuery[]>>(new Map());
+  explainTabsByConnection = $state<Map<string, ExplainTab[]>>(new Map());
+  activeExplainTabIdByConnection = $state<Map<string, string | null>>(new Map());
   aiMessages = $state<AIMessage[]>([]);
   isAIOpen = $state(false);
-  activeView = $state<"query" | "schema">("query");
+  activeView = $state<"query" | "schema" | "explain">("query");
 
   // Map connection IDs to their SSH tunnel IDs for cleanup
   private tunnelIds = new Map<string, string>();
@@ -101,6 +106,22 @@ class UseDatabase {
     this.activeConnectionId
       ? this.savedQueriesByConnection.get(this.activeConnectionId) || []
       : [],
+  );
+
+  explainTabs = $derived(
+    this.activeConnectionId
+      ? this.explainTabsByConnection.get(this.activeConnectionId) || []
+      : [],
+  );
+
+  activeExplainTabId = $derived(
+    this.activeConnectionId
+      ? this.activeExplainTabIdByConnection.get(this.activeConnectionId) || null
+      : null,
+  );
+
+  activeExplainTab = $derived(
+    this.explainTabs.find((t) => t.id === this.activeExplainTabId) || null,
   );
 
   constructor() {
@@ -198,6 +219,14 @@ class UseDatabase {
           const newSavedQueries = new Map(this.savedQueriesByConnection);
           newSavedQueries.set(connection.id, []);
           this.savedQueriesByConnection = newSavedQueries;
+
+          const newExplainTabs = new Map(this.explainTabsByConnection);
+          newExplainTabs.set(connection.id, []);
+          this.explainTabsByConnection = newExplainTabs;
+
+          const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+          newActiveExplainIds.set(connection.id, null);
+          this.activeExplainTabIdByConnection = newActiveExplainIds;
 
           const newSchemas = new Map(this.schemas);
           newSchemas.set(connection.id, []);
@@ -358,6 +387,14 @@ class UseDatabase {
     newSavedQueries.set(newConnection.id, []);
     this.savedQueriesByConnection = newSavedQueries;
 
+    const newExplainTabs = new Map(this.explainTabsByConnection);
+    newExplainTabs.set(newConnection.id, []);
+    this.explainTabsByConnection = newExplainTabs;
+
+    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+    newActiveExplainIds.set(newConnection.id, null);
+    this.activeExplainTabIdByConnection = newActiveExplainIds;
+
     const adapter = getAdapter(newConnection.type);
     const schemasWithTablesDbResult = await newConnection.database!
       .select(adapter.getSchemaQuery());
@@ -488,6 +525,18 @@ class UseDatabase {
       this.savedQueriesByConnection = newSavedQueries;
     }
 
+    if (!this.explainTabsByConnection.has(connectionId)) {
+      const newExplainTabs = new Map(this.explainTabsByConnection);
+      newExplainTabs.set(connectionId, []);
+      this.explainTabsByConnection = newExplainTabs;
+    }
+
+    if (!this.activeExplainTabIdByConnection.has(connectionId)) {
+      const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+      newActiveExplainIds.set(connectionId, null);
+      this.activeExplainTabIdByConnection = newActiveExplainIds;
+    }
+
     // Fetch schemas
     const adapter = getAdapter(existingConnection.type);
     const schemasWithTablesDbResult = await database!
@@ -561,6 +610,15 @@ class UseDatabase {
     const newSavedQueries = new Map(this.savedQueriesByConnection);
     newSavedQueries.delete(id);
     this.savedQueriesByConnection = newSavedQueries;
+
+    // Clean up explain tabs for removed connection
+    const newExplainTabs = new Map(this.explainTabsByConnection);
+    newExplainTabs.delete(id);
+    this.explainTabsByConnection = newExplainTabs;
+
+    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+    newActiveExplainIds.delete(id);
+    this.activeExplainTabIdByConnection = newActiveExplainIds;
 
     if (this.activeConnectionId === id) {
       const nextConnection = this.connections.find((c) => c.database);
@@ -1254,8 +1312,146 @@ class UseDatabase {
     }, 1000);
   }
 
-  setActiveView(view: "query" | "schema") {
+  setActiveView(view: "query" | "schema" | "explain") {
     this.activeView = view;
+  }
+
+  // EXPLAIN/ANALYZE methods
+  async executeExplain(tabId: string, analyze: boolean = false) {
+    if (!this.activeConnectionId) return;
+
+    const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab || !tab.query.trim()) return;
+
+    // Create a new explain tab
+    const explainTabs = this.explainTabsByConnection.get(this.activeConnectionId) || [];
+    const explainTabId = `explain-${Date.now()}`;
+    const queryPreview = tab.query.substring(0, 30).replace(/\s+/g, ' ').trim();
+    const newExplainTab: ExplainTab = $state({
+      id: explainTabId,
+      name: analyze ? `Analyze: ${queryPreview}...` : `Explain: ${queryPreview}...`,
+      sourceQuery: tab.query,
+      result: undefined,
+      isExecuting: true,
+    });
+
+    const newExplainTabs = new Map(this.explainTabsByConnection);
+    newExplainTabs.set(this.activeConnectionId, [...explainTabs, newExplainTab]);
+    this.explainTabsByConnection = newExplainTabs;
+
+    // Set as active and switch view
+    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+    newActiveExplainIds.set(this.activeConnectionId, explainTabId);
+    this.activeExplainTabIdByConnection = newActiveExplainIds;
+    this.setActiveView("explain");
+
+    try {
+      const baseQuery = tab.query.replace(/;$/, '');
+      const explainQuery = analyze
+        ? `EXPLAIN (ANALYZE, FORMAT JSON) ${baseQuery}`
+        : `EXPLAIN (FORMAT JSON) ${baseQuery}`;
+
+      const result = await this.activeConnection?.database!.select(explainQuery) as any[];
+
+      // PostgreSQL returns JSON in a column called "QUERY PLAN"
+      const jsonPlan = result[0]?.["QUERY PLAN"] || result[0]?.["query plan"];
+      const parsedPlan = typeof jsonPlan === 'string' ? JSON.parse(jsonPlan) : jsonPlan;
+
+      // Parse the plan into our structured format
+      const explainResult: ExplainResult = this.parseExplainPlan(parsedPlan[0], analyze);
+
+      // Update the explain tab with results
+      newExplainTab.result = explainResult;
+      newExplainTab.isExecuting = false;
+
+      // Trigger reactivity
+      const updatedExplainTabs = new Map(this.explainTabsByConnection);
+      updatedExplainTabs.set(this.activeConnectionId!, [...this.explainTabsByConnection.get(this.activeConnectionId!) || []]);
+      this.explainTabsByConnection = updatedExplainTabs;
+
+    } catch (error) {
+      // Remove failed explain tab
+      const updatedExplainTabs = new Map(this.explainTabsByConnection);
+      const currentTabs = updatedExplainTabs.get(this.activeConnectionId!) || [];
+      updatedExplainTabs.set(this.activeConnectionId!, currentTabs.filter(t => t.id !== explainTabId));
+      this.explainTabsByConnection = updatedExplainTabs;
+
+      // Switch back to query view
+      this.setActiveView("query");
+      toast.error(`Explain failed: ${error}`);
+    }
+  }
+
+  private parseExplainPlan(rawPlan: any, isAnalyze: boolean): ExplainResult {
+    let nodeCounter = 0;
+
+    const parseNode = (node: any): ExplainPlanNode => {
+      const id = `node-${nodeCounter++}`;
+
+      return {
+        id,
+        nodeType: node["Node Type"] || "Unknown",
+        relationName: node["Relation Name"],
+        alias: node["Alias"],
+        startupCost: node["Startup Cost"] || 0,
+        totalCost: node["Total Cost"] || 0,
+        planRows: node["Plan Rows"] || 0,
+        planWidth: node["Plan Width"] || 0,
+        actualStartupTime: node["Actual Startup Time"],
+        actualTotalTime: node["Actual Total Time"],
+        actualRows: node["Actual Rows"],
+        actualLoops: node["Actual Loops"],
+        filter: node["Filter"],
+        indexName: node["Index Name"],
+        indexCond: node["Index Cond"],
+        joinType: node["Join Type"],
+        hashCond: node["Hash Cond"],
+        sortKey: node["Sort Key"],
+        children: (node["Plans"] || []).map((child: any) => parseNode(child)),
+      };
+    };
+
+    return {
+      plan: parseNode(rawPlan.Plan || rawPlan),
+      planningTime: rawPlan["Planning Time"] || 0,
+      executionTime: rawPlan["Execution Time"],
+      isAnalyze,
+    };
+  }
+
+  removeExplainTab(id: string) {
+    if (!this.activeConnectionId) return;
+
+    const tabs = this.explainTabsByConnection.get(this.activeConnectionId) || [];
+    const index = tabs.findIndex((t) => t.id === id);
+    const newTabs = tabs.filter((t) => t.id !== id);
+
+    const newExplainTabs = new Map(this.explainTabsByConnection);
+    newExplainTabs.set(this.activeConnectionId, newTabs);
+    this.explainTabsByConnection = newExplainTabs;
+
+    const currentActiveId = this.activeExplainTabIdByConnection.get(this.activeConnectionId);
+    if (currentActiveId === id) {
+      const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+      if (newTabs.length > 0) {
+        const newIndex = Math.min(index, newTabs.length - 1);
+        newActiveExplainIds.set(this.activeConnectionId, newTabs[newIndex]?.id || null);
+      } else {
+        newActiveExplainIds.set(this.activeConnectionId, null);
+        // Switch to query view if no explain tabs left
+        this.setActiveView("query");
+      }
+      this.activeExplainTabIdByConnection = newActiveExplainIds;
+    }
+  }
+
+  setActiveExplainTab(id: string) {
+    if (!this.activeConnectionId) return;
+
+    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
+    newActiveExplainIds.set(this.activeConnectionId, id);
+    this.activeExplainTabIdByConnection = newActiveExplainIds;
   }
 }
 
