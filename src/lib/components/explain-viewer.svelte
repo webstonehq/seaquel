@@ -33,10 +33,7 @@
 
   const handleViewQuery = () => {
     if (!db.activeExplainTab) return;
-    db.addQueryTab(
-      `Query`,
-      db.activeExplainTab.sourceQuery
-    );
+    db.focusOrCreateQueryTab(db.activeExplainTab.sourceQuery, 'Query');
     db.setActiveView("query");
   };
 </script>
