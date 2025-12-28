@@ -16,6 +16,12 @@
     "store:default",
     "dialog:default",
     "fs:allow-write-text-file",
-    "os:default"
+    "fs:allow-write-file",
+    "fs:allow-temp-write",
+    "fs:allow-remove",
+    "core:path:default",
+    "os:default",
+    "clipboard-manager:allow-write-image",
+    "clipboard-manager:allow-write-text"
   ]
 }

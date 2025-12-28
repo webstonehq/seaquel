@@ -6,11 +6,12 @@
     import QueryEditor from "$lib/components/query-editor.svelte";
     import TableViewer from "$lib/components/table-viewer.svelte";
     import ExplainViewer from "$lib/components/explain-viewer.svelte";
+    import ErdViewer from "$lib/components/erd-viewer.svelte";
     import AIAssistant from "$lib/components/ai-assistant.svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon } from "@lucide/svelte";
+    import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon, NetworkIcon } from "@lucide/svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
     import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
@@ -67,6 +68,11 @@
         db.setActiveView("explain");
     };
 
+    const handleErdTabClick = (tabId: string) => {
+        db.setActiveErdTab(tabId);
+        db.setActiveView("erd");
+    };
+
     // Extract timestamp from tab ID for ordering
     const getTabTimestamp = (id: string): number => {
         const match = id.match(/\d+$/);
@@ -77,7 +83,8 @@
     const allTabs = $derived([
         ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const, tab: t })),
         ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const, tab: t })),
-        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const, tab: t }))
+        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const, tab: t })),
+        ...db.erdTabs.map(t => ({ id: t.id, type: 'erd' as const, tab: t }))
     ].sort((a, b) => getTabTimestamp(a.id) - getTabTimestamp(b.id)));
 
     const currentTabIndex = $derived(() => {
@@ -89,6 +96,9 @@
         }
         if (db.activeView === 'explain' && db.activeExplainTabId) {
             return allTabs.findIndex(t => t.type === 'explain' && t.id === db.activeExplainTabId);
+        }
+        if (db.activeView === 'erd' && db.activeErdTabId) {
+            return allTabs.findIndex(t => t.type === 'erd' && t.id === db.activeErdTabId);
         }
         return -1;
     });
@@ -102,6 +112,8 @@
             handleSchemaTabClick(tab.id);
         } else if (tab.type === 'explain') {
             handleExplainTabClick(tab.id);
+        } else if (tab.type === 'erd') {
+            handleErdTabClick(tab.id);
         }
     };
 
@@ -111,15 +123,16 @@
     let showSaveDialogForClose = $state(false);
 
     // Batch close dialog state
-    let pendingBatchCloseTabs = $state<{id: string, type: 'query' | 'schema' | 'explain'}[]>([]);
+    let pendingBatchCloseTabs = $state<{id: string, type: 'query' | 'schema' | 'explain' | 'erd'}[]>([]);
     let unsavedTabsInBatch = $state<string[]>([]);
     let showBatchUnsavedDialog = $state(false);
 
     // Direct close without confirmation (for non-query tabs or tabs without unsaved changes)
-    const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain') => {
+    const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain' | 'erd') => {
         if (type === 'query') db.removeQueryTab(id);
         else if (type === 'schema') db.removeSchemaTab(id);
         else if (type === 'explain') db.removeExplainTab(id);
+        else if (type === 'erd') db.removeErdTab(id);
     };
 
     // Try to close a query tab, prompting if unsaved changes
@@ -156,7 +169,7 @@
     };
 
     // Batch close with single prompt for all unsaved tabs
-    const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain'}[]) => {
+    const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain' | 'erd'}[]) => {
         const unsaved = tabsToClose
             .filter(t => t.type === 'query' && db.hasUnsavedChanges(t.id))
             .map(t => t.id);
@@ -188,14 +201,17 @@
             db.removeSchemaTab(db.activeSchemaTabId);
         } else if (db.activeView === 'explain' && db.activeExplainTabId) {
             db.removeExplainTab(db.activeExplainTabId);
+        } else if (db.activeView === 'erd' && db.activeErdTabId) {
+            db.removeErdTab(db.activeErdTabId);
         }
     };
 
     // Tab context menu helpers
-    const closeTab = (id: string, type: 'query' | 'schema' | 'explain') => {
+    const closeTab = (id: string, type: 'query' | 'schema' | 'explain' | 'erd') => {
         if (type === 'query') tryCloseQueryTab(id);
         else if (type === 'schema') db.removeSchemaTab(id);
         else if (type === 'explain') db.removeExplainTab(id);
+        else if (type === 'erd') db.removeErdTab(id);
     };
 
     const closeOtherTabs = (id: string) => {
@@ -394,6 +410,45 @@
                                     </ContextMenu.Content>
                                 </ContextMenu.Portal>
                             </ContextMenu.Root>
+                        {:else if type === 'erd'}
+                            {@const erdTab = tab as import('$lib/types').ErdTab}
+                            <ContextMenu.Root>
+                                <ContextMenu.Trigger>
+                                    <div
+                                        class={[
+                                            "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                            activeTabType === "erd" && db.activeErdTabId === id
+                                                ? "bg-background shadow-sm"
+                                                : "hover:bg-muted",
+                                        ]}
+                                        onclick={() => handleErdTabClick(id)}
+                                    >
+                                        <NetworkIcon class="size-3 text-muted-foreground" />
+                                        <span class="pr-4">{erdTab.name}</span>
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                db.removeErdTab(id);
+                                            }}
+                                        >
+                                            <XIcon />
+                                        </Button>
+                                    </div>
+                                </ContextMenu.Trigger>
+                                <ContextMenu.Portal>
+                                    <ContextMenu.Content class="w-40">
+                                        <ContextMenu.Item onclick={() => closeTab(id, type)}>Close</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeOtherTabs(id)}>Close Others</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeTabsToRight(id)}>Close Right</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeTabsToLeft(id)}>Close Left</ContextMenu.Item>
+                                        <ContextMenu.Separator />
+                                        <ContextMenu.Item onclick={closeAllTabs}>Close All</ContextMenu.Item>
+                                    </ContextMenu.Content>
+                                </ContextMenu.Portal>
+                            </ContextMenu.Root>
                         {/if}
                     {/each}
                 </div>
@@ -432,6 +487,8 @@
                 </ScrollArea>
             {:else if activeTabType === "explain"}
                 <ExplainViewer />
+            {:else if activeTabType === "erd"}
+                <ErdViewer />
             {/if}
         </div>
     {/if}

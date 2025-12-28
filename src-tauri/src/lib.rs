@@ -1,4 +1,6 @@
 use tauri_plugin_updater::UpdaterExt;
+use arboard::Clipboard;
+use image::ImageReader;
 
 mod ssh_tunnel;
 
@@ -8,6 +10,31 @@ use ssh_tunnel::TunnelManager;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust! Yep", name)
+}
+
+#[tauri::command]
+fn copy_image_to_clipboard(path: String) -> Result<(), String> {
+    let img = ImageReader::open(&path)
+        .map_err(|e| format!("Failed to open image: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    let img_data = arboard::ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: rgba.into_raw().into(),
+    };
+
+    let mut clipboard = Clipboard::new()
+        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+
+    clipboard.set_image(img_data)
+        .map_err(|e| format!("Failed to copy image: {}", e))?;
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,8 +47,10 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            copy_image_to_clipboard,
             ssh_tunnel::create_ssh_tunnel,
             ssh_tunnel::close_ssh_tunnel,
             ssh_tunnel::check_tunnel_status,

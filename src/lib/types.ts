@@ -39,6 +39,12 @@ export interface SchemaTable {
 	indexes: SchemaIndex[];
 }
 
+export interface ForeignKeyRef {
+	referencedSchema: string;
+	referencedTable: string;
+	referencedColumn: string;
+}
+
 export interface SchemaColumn {
 	name: string;
 	type: string;
@@ -46,7 +52,7 @@ export interface SchemaColumn {
 	defaultValue?: string;
 	isPrimaryKey: boolean;
 	isForeignKey: boolean;
-	foreignKeyRef?: string;
+	foreignKeyRef?: ForeignKeyRef;
 }
 
 export interface SchemaIndex {
@@ -156,6 +162,12 @@ export interface ExplainTab {
 	isExecuting: boolean;
 }
 
+// ERD types
+export interface ErdTab {
+	id: string;
+	name: string;
+}
+
 // Persisted state types (for storing across app restarts)
 export interface PersistedQueryTab {
 	id: string;
@@ -174,6 +186,11 @@ export interface PersistedExplainTab {
 	id: string;
 	name: string;
 	sourceQuery: string;
+}
+
+export interface PersistedErdTab {
+	id: string;
+	name: string;
 }
 
 export interface PersistedSavedQuery {
@@ -200,10 +217,12 @@ export interface PersistedConnectionState {
 	queryTabs: PersistedQueryTab[];
 	schemaTabs: PersistedSchemaTab[];
 	explainTabs: PersistedExplainTab[];
+	erdTabs: PersistedErdTab[];
 	activeQueryTabId: string | null;
 	activeSchemaTabId: string | null;
 	activeExplainTabId: string | null;
-	activeView: "query" | "schema" | "explain";
+	activeErdTabId: string | null;
+	activeView: "query" | "schema" | "explain" | "erd";
 	savedQueries: PersistedSavedQuery[];
 	queryHistory: PersistedQueryHistoryItem[];
 }

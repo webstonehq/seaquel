@@ -1,5 +1,5 @@
 import type { DatabaseAdapter, ExplainNode } from "./index";
-import type { SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
+import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from "$lib/types";
 
 interface PostgresSchemaRow {
 	schema_name: string;
@@ -13,6 +13,7 @@ interface PostgresColumnRow {
 	column_default: string | null;
 	is_primary_key: boolean;
 	is_foreign_key: boolean;
+	foreign_key_ref: string | null;
 }
 
 interface PostgresIndexRow {
@@ -43,21 +44,40 @@ export class PostgresAdapter implements DatabaseAdapter {
 			is_nullable,
 			column_default,
 			(SELECT EXISTS (
-				SELECT 1 FROM information_schema.constraint_column_usage ccu
-				JOIN information_schema.table_constraints tc ON ccu.constraint_name = tc.constraint_name
-				WHERE ccu.column_name = c.column_name
-					AND ccu.table_schema = c.table_schema
-					AND ccu.table_name = c.table_name
+				SELECT 1 FROM information_schema.key_column_usage kcu
+				JOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name
+					AND kcu.table_schema = tc.table_schema
+					AND kcu.table_name = tc.table_name
+				WHERE kcu.column_name = c.column_name
+					AND kcu.table_schema = c.table_schema
+					AND kcu.table_name = c.table_name
 					AND tc.constraint_type = 'PRIMARY KEY'
 			)) as is_primary_key,
 			(SELECT EXISTS (
-				SELECT 1 FROM information_schema.constraint_column_usage ccu
-				JOIN information_schema.table_constraints tc ON ccu.constraint_name = tc.constraint_name
-				WHERE ccu.column_name = c.column_name
-					AND ccu.table_schema = c.table_schema
-					AND ccu.table_name = c.table_name
+				SELECT 1 FROM information_schema.key_column_usage kcu
+				JOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name
+					AND kcu.table_schema = tc.table_schema
+					AND kcu.table_name = tc.table_name
+				WHERE kcu.column_name = c.column_name
+					AND kcu.table_schema = c.table_schema
+					AND kcu.table_name = c.table_name
 					AND tc.constraint_type = 'FOREIGN KEY'
-			)) as is_foreign_key
+			)) as is_foreign_key,
+			(SELECT ccu.table_schema || '.' || ccu.table_name || '.' || ccu.column_name
+				FROM information_schema.key_column_usage kcu
+				JOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name
+					AND kcu.table_schema = tc.table_schema
+					AND kcu.table_name = tc.table_name
+				JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
+					AND tc.table_schema = rc.constraint_schema
+				JOIN information_schema.constraint_column_usage ccu ON rc.unique_constraint_name = ccu.constraint_name
+					AND rc.unique_constraint_schema = ccu.constraint_schema
+				WHERE kcu.column_name = c.column_name
+					AND kcu.table_schema = c.table_schema
+					AND kcu.table_name = c.table_name
+					AND tc.constraint_type = 'FOREIGN KEY'
+				LIMIT 1
+			) as foreign_key_ref
 		FROM information_schema.columns c
 		WHERE table_name = '${table}' AND table_schema = '${schema}'
 		ORDER BY ordinal_position`;
@@ -136,14 +156,28 @@ export class PostgresAdapter implements DatabaseAdapter {
 	}
 
 	parseColumnsResult(rows: unknown[]): SchemaColumn[] {
-		return (rows as PostgresColumnRow[]).map((col) => ({
-			name: col.column_name,
-			type: col.data_type,
-			nullable: col.is_nullable === "YES",
-			defaultValue: col.column_default || undefined,
-			isPrimaryKey: col.is_primary_key,
-			isForeignKey: col.is_foreign_key,
-		}));
+		return (rows as PostgresColumnRow[]).map((col) => {
+			let foreignKeyRef: ForeignKeyRef | undefined;
+			if (col.foreign_key_ref) {
+				const parts = col.foreign_key_ref.split(".");
+				if (parts.length === 3) {
+					foreignKeyRef = {
+						referencedSchema: parts[0],
+						referencedTable: parts[1],
+						referencedColumn: parts[2],
+					};
+				}
+			}
+			return {
+				name: col.column_name,
+				type: col.data_type,
+				nullable: col.is_nullable === "YES",
+				defaultValue: col.column_default || undefined,
+				isPrimaryKey: col.is_primary_key,
+				isForeignKey: col.is_foreign_key,
+				foreignKeyRef,
+			};
+		});
 	}
 
 	parseIndexesResult(rows: unknown[]): SchemaIndex[] {
