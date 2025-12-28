@@ -155,3 +155,55 @@ export interface ExplainTab {
 	result?: ExplainResult;
 	isExecuting: boolean;
 }
+
+// Persisted state types (for storing across app restarts)
+export interface PersistedQueryTab {
+	id: string;
+	name: string;
+	query: string;
+	savedQueryId?: string;
+}
+
+export interface PersistedSchemaTab {
+	id: string;
+	tableName: string;
+	schemaName: string;
+}
+
+export interface PersistedExplainTab {
+	id: string;
+	name: string;
+	sourceQuery: string;
+}
+
+export interface PersistedSavedQuery {
+	id: string;
+	name: string;
+	query: string;
+	connectionId: string;
+	createdAt: string; // ISO string
+	updatedAt: string; // ISO string
+}
+
+export interface PersistedQueryHistoryItem {
+	id: string;
+	query: string;
+	timestamp: string; // ISO string
+	executionTime: number;
+	rowCount: number;
+	connectionId: string;
+	favorite: boolean;
+}
+
+export interface PersistedConnectionState {
+	connectionId: string;
+	queryTabs: PersistedQueryTab[];
+	schemaTabs: PersistedSchemaTab[];
+	explainTabs: PersistedExplainTab[];
+	activeQueryTabId: string | null;
+	activeSchemaTabId: string | null;
+	activeExplainTabId: string | null;
+	activeView: "query" | "schema" | "explain";
+	savedQueries: PersistedSavedQuery[];
+	queryHistory: PersistedQueryHistoryItem[];
+}

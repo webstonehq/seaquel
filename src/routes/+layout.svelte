@@ -4,17 +4,22 @@
     import { Toaster } from "$lib/components/ui/sonner/index.js";
     import AppHeader from "$lib/components/app-header.svelte";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-    import { setDatabase } from "$lib/hooks/database.svelte.js";
+    import { setDatabase, useDatabase } from "$lib/hooks/database.svelte.js";
     import { setShortcuts } from "$lib/shortcuts/index.js";
     import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
 
     setDatabase();
+    const db = useDatabase();
     const shortcuts = setShortcuts();
 
     let { children } = $props();
+
+    function handleBeforeUnload() {
+        db.flushPersistence();
+    }
 </script>
 
-<svelte:window onkeydown={shortcuts.handleKeydown} />
+<svelte:window onkeydown={shortcuts.handleKeydown} onbeforeunload={handleBeforeUnload} />
 
 <ModeWatcher />
 <Toaster position="bottom-right" theme={"dark"} richColors />
