@@ -12,6 +12,12 @@ import type {
   ExplainTab,
   ExplainResult,
   ExplainPlanNode,
+  PersistedConnectionState,
+  PersistedQueryTab,
+  PersistedSchemaTab,
+  PersistedExplainTab,
+  PersistedSavedQuery,
+  PersistedQueryHistoryItem,
 } from "$lib/types";
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
@@ -53,6 +59,296 @@ class UseDatabase {
 
   // Map connection IDs to their SSH tunnel IDs for cleanup
   private tunnelIds = new Map<string, string>();
+
+  // Persistence infrastructure
+  private persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly PERSISTENCE_DEBOUNCE_MS = 500;
+  private readonly MAX_HISTORY_ITEMS = 500;
+
+  private schedulePersistence(connectionId: string | null) {
+    if (!connectionId) return;
+
+    if (this.persistenceTimer) {
+      clearTimeout(this.persistenceTimer);
+    }
+    this.persistenceTimer = setTimeout(() => {
+      this.persistConnectionState(connectionId);
+      this.persistenceTimer = null;
+    }, this.PERSISTENCE_DEBOUNCE_MS);
+  }
+
+  flushPersistence() {
+    if (this.persistenceTimer) {
+      clearTimeout(this.persistenceTimer);
+      this.persistenceTimer = null;
+    }
+    // Persist all connections that have data
+    for (const connectionId of this.queryTabsByConnection.keys()) {
+      this.persistConnectionState(connectionId);
+    }
+  }
+
+  private serializeQueryTabs(connectionId: string): PersistedQueryTab[] {
+    const tabs = this.queryTabsByConnection.get(connectionId) || [];
+    return tabs.map(tab => ({
+      id: tab.id,
+      name: tab.name,
+      query: tab.query,
+      savedQueryId: tab.savedQueryId,
+    }));
+  }
+
+  private serializeSchemaTabs(connectionId: string): PersistedSchemaTab[] {
+    const tabs = this.schemaTabsByConnection.get(connectionId) || [];
+    return tabs.map(tab => ({
+      id: tab.id,
+      tableName: tab.table.name,
+      schemaName: tab.table.schema,
+    }));
+  }
+
+  private serializeExplainTabs(connectionId: string): PersistedExplainTab[] {
+    const tabs = this.explainTabsByConnection.get(connectionId) || [];
+    return tabs.map(tab => ({
+      id: tab.id,
+      name: tab.name,
+      sourceQuery: tab.sourceQuery,
+    }));
+  }
+
+  private serializeSavedQueries(connectionId: string): PersistedSavedQuery[] {
+    const queries = this.savedQueriesByConnection.get(connectionId) || [];
+    return queries.map(q => ({
+      id: q.id,
+      name: q.name,
+      query: q.query,
+      connectionId: q.connectionId,
+      createdAt: q.createdAt.toISOString(),
+      updatedAt: q.updatedAt.toISOString(),
+    }));
+  }
+
+  private serializeQueryHistory(connectionId: string): PersistedQueryHistoryItem[] {
+    const history = this.queryHistoryByConnection.get(connectionId) || [];
+    return history.slice(0, this.MAX_HISTORY_ITEMS).map(h => ({
+      id: h.id,
+      query: h.query,
+      timestamp: h.timestamp.toISOString(),
+      executionTime: h.executionTime,
+      rowCount: h.rowCount,
+      connectionId: h.connectionId,
+      favorite: h.favorite,
+    }));
+  }
+
+  private async persistConnectionState(connectionId: string) {
+    try {
+      const store = await load(`connection_state_${connectionId}.json`, {
+        autoSave: true,
+        defaults: { state: null },
+      });
+
+      const state: PersistedConnectionState = {
+        connectionId,
+        queryTabs: this.serializeQueryTabs(connectionId),
+        schemaTabs: this.serializeSchemaTabs(connectionId),
+        explainTabs: this.serializeExplainTabs(connectionId),
+        activeQueryTabId: this.activeQueryTabIdByConnection.get(connectionId) || null,
+        activeSchemaTabId: this.activeSchemaTabIdByConnection.get(connectionId) || null,
+        activeExplainTabId: this.activeExplainTabIdByConnection.get(connectionId) || null,
+        activeView: this.activeView,
+        savedQueries: this.serializeSavedQueries(connectionId),
+        queryHistory: this.serializeQueryHistory(connectionId),
+      };
+
+      await store.set("state", state);
+      await store.save();
+    } catch (error) {
+      console.error(`Failed to persist state for connection ${connectionId}:`, error);
+    }
+  }
+
+  private async loadPersistedConnectionState(connectionId: string): Promise<PersistedConnectionState | null> {
+    try {
+      const store = await load(`connection_state_${connectionId}.json`, {
+        autoSave: false,
+        defaults: { state: null },
+      });
+      return (await store.get("state")) as PersistedConnectionState | null;
+    } catch (error) {
+      console.error(`Failed to load persisted state for ${connectionId}:`, error);
+      return null;
+    }
+  }
+
+  private async removePersistedConnectionState(connectionId: string) {
+    try {
+      const store = await load(`connection_state_${connectionId}.json`, {
+        autoSave: true,
+        defaults: { state: null },
+      });
+      await store.clear();
+      await store.save();
+    } catch (error) {
+      console.error(`Failed to remove persisted state for ${connectionId}:`, error);
+    }
+  }
+
+  private restoreSavedQueries(connectionId: string, data: PersistedSavedQuery[]) {
+    const savedQueries: SavedQuery[] = data.map(q => ({
+      id: q.id,
+      name: q.name,
+      query: q.query,
+      connectionId: q.connectionId,
+      createdAt: new Date(q.createdAt),
+      updatedAt: new Date(q.updatedAt),
+    }));
+    this.setMapValue(
+      () => this.savedQueriesByConnection,
+      m => this.savedQueriesByConnection = m,
+      connectionId,
+      savedQueries
+    );
+  }
+
+  private restoreQueryHistory(connectionId: string, data: PersistedQueryHistoryItem[]) {
+    const history: QueryHistoryItem[] = data.map(h => ({
+      id: h.id,
+      query: h.query,
+      timestamp: new Date(h.timestamp),
+      executionTime: h.executionTime,
+      rowCount: h.rowCount,
+      connectionId: h.connectionId,
+      favorite: h.favorite,
+    }));
+    this.setMapValue(
+      () => this.queryHistoryByConnection,
+      m => this.queryHistoryByConnection = m,
+      connectionId,
+      history
+    );
+  }
+
+  private async restoreConnectionTabs(connectionId: string) {
+    const state = await this.loadPersistedConnectionState(connectionId);
+    if (!state) return false;
+
+    // Restore query tabs (without results - they'll need to be re-executed)
+    const queryTabs: QueryTab[] = state.queryTabs.map(pt => ({
+      id: pt.id,
+      name: pt.name,
+      query: pt.query,
+      savedQueryId: pt.savedQueryId,
+      isExecuting: false,
+      results: undefined,
+    }));
+    this.setMapValue(
+      () => this.queryTabsByConnection,
+      m => this.queryTabsByConnection = m,
+      connectionId,
+      queryTabs
+    );
+
+    // Restore explain tabs (without results - they'll need to be re-executed)
+    const explainTabs: ExplainTab[] = state.explainTabs.map(pt => ({
+      id: pt.id,
+      name: pt.name,
+      sourceQuery: pt.sourceQuery,
+      isExecuting: false,
+      result: undefined,
+    }));
+    this.setMapValue(
+      () => this.explainTabsByConnection,
+      m => this.explainTabsByConnection = m,
+      connectionId,
+      explainTabs
+    );
+
+    // Restore schema tabs - need to match against current schema
+    await this.restoreSchemaTabs(connectionId, state.schemaTabs);
+
+    // Restore active tab IDs (only if tabs exist)
+    if (state.activeQueryTabId && queryTabs.some(t => t.id === state.activeQueryTabId)) {
+      this.setMapValue(
+        () => this.activeQueryTabIdByConnection,
+        m => this.activeQueryTabIdByConnection = m,
+        connectionId,
+        state.activeQueryTabId
+      );
+    } else if (queryTabs.length > 0) {
+      this.setMapValue(
+        () => this.activeQueryTabIdByConnection,
+        m => this.activeQueryTabIdByConnection = m,
+        connectionId,
+        queryTabs[0].id
+      );
+    }
+
+    const schemaTabs = this.schemaTabsByConnection.get(connectionId) || [];
+    if (state.activeSchemaTabId && schemaTabs.some(t => t.id === state.activeSchemaTabId)) {
+      this.setMapValue(
+        () => this.activeSchemaTabIdByConnection,
+        m => this.activeSchemaTabIdByConnection = m,
+        connectionId,
+        state.activeSchemaTabId
+      );
+    } else if (schemaTabs.length > 0) {
+      this.setMapValue(
+        () => this.activeSchemaTabIdByConnection,
+        m => this.activeSchemaTabIdByConnection = m,
+        connectionId,
+        schemaTabs[0].id
+      );
+    }
+
+    if (state.activeExplainTabId && explainTabs.some(t => t.id === state.activeExplainTabId)) {
+      this.setMapValue(
+        () => this.activeExplainTabIdByConnection,
+        m => this.activeExplainTabIdByConnection = m,
+        connectionId,
+        state.activeExplainTabId
+      );
+    } else if (explainTabs.length > 0) {
+      this.setMapValue(
+        () => this.activeExplainTabIdByConnection,
+        m => this.activeExplainTabIdByConnection = m,
+        connectionId,
+        explainTabs[0].id
+      );
+    }
+
+    // Restore active view
+    this.activeView = state.activeView;
+
+    return queryTabs.length > 0;
+  }
+
+  private async restoreSchemaTabs(connectionId: string, persistedTabs: PersistedSchemaTab[]) {
+    const schemas = this.schemas.get(connectionId) || [];
+    const schemaTabs: SchemaTab[] = [];
+
+    for (const pt of persistedTabs) {
+      // Find matching table in current schema
+      const table = schemas.find(
+        t => t.name === pt.tableName && t.schema === pt.schemaName
+      );
+
+      if (table) {
+        schemaTabs.push({
+          id: pt.id,
+          table: table,
+        });
+      }
+      // If table no longer exists, skip restoring this tab
+    }
+
+    this.setMapValue(
+      () => this.schemaTabsByConnection,
+      m => this.schemaTabsByConnection = m,
+      connectionId,
+      schemaTabs
+    );
+  }
 
   // Helper method to update Map state with reactivity
   private setMapValue<K, V>(
@@ -297,6 +593,13 @@ class UseDatabase {
           };
           this.connections.push(connection);
           this.initializeConnectionMaps(connection.id);
+
+          // Pre-load saved queries and history (doesn't require active DB connection)
+          const state = await this.loadPersistedConnectionState(connection.id);
+          if (state) {
+            this.restoreSavedQueries(connection.id, state.savedQueries);
+            this.restoreQueryHistory(connection.id, state.queryHistory);
+          }
         }
       }
     } catch (error) {
@@ -542,10 +845,15 @@ class UseDatabase {
     // Set this as the active connection
     this.activeConnectionId = connectionId;
 
-    // Create initial query tab if there aren't any
-    const tabs = this.queryTabsByConnection.get(connectionId) || [];
-    if (tabs.length === 0) {
-      this.addQueryTab();
+    // Try to restore tabs from persisted state
+    const hasRestoredTabs = await this.restoreConnectionTabs(connectionId);
+
+    // Create initial query tab if no tabs were restored
+    if (!hasRestoredTabs) {
+      const tabs = this.queryTabsByConnection.get(connectionId) || [];
+      if (tabs.length === 0) {
+        this.addQueryTab();
+      }
     }
 
     // Persist the connection to store (without password for security)
@@ -562,8 +870,9 @@ class UseDatabase {
       this.tunnelIds.delete(id);
     }
 
-    // Remove from persistence
+    // Remove from persistence (both connection and its state)
     this.removePersistedConnection(id);
+    this.removePersistedConnectionState(id);
     this.connections = this.connections.filter((c) => c.id !== id);
     this.cleanupConnectionMaps(id);
 
@@ -616,6 +925,7 @@ class UseDatabase {
     newActiveQueryIds.set(this.activeConnectionId, newTab.id);
     this.activeQueryTabIdByConnection = newActiveQueryIds;
 
+    this.schedulePersistence(this.activeConnectionId);
     return newTab.id;
   }
 
@@ -627,6 +937,7 @@ class UseDatabase {
       m => this.activeQueryTabIdByConnection = m,
       id
     );
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   renameQueryTab(id: string, newName: string) {
@@ -640,6 +951,7 @@ class UseDatabase {
       const newQueryTabs = new Map(this.queryTabsByConnection);
       newQueryTabs.set(this.activeConnectionId, [...tabs]);
       this.queryTabsByConnection = newQueryTabs;
+      this.schedulePersistence(this.activeConnectionId);
     }
   }
 
@@ -649,6 +961,7 @@ class UseDatabase {
     const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
     newActiveQueryIds.set(this.activeConnectionId, id);
     this.activeQueryTabIdByConnection = newActiveQueryIds;
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   /**
@@ -678,6 +991,7 @@ class UseDatabase {
     const tab = tabs.find((t) => t.id === id);
     if (tab) {
       tab.query = query;
+      this.schedulePersistence(this.activeConnectionId);
     }
   }
 
@@ -705,6 +1019,7 @@ class UseDatabase {
         const newSavedQueries = new Map(this.savedQueriesByConnection);
         newSavedQueries.set(this.activeConnectionId, [...savedQueries]);
         this.savedQueriesByConnection = newSavedQueries;
+        this.schedulePersistence(this.activeConnectionId);
         return savedQueryId;
       }
     }
@@ -742,6 +1057,7 @@ class UseDatabase {
       }
     }
 
+    this.schedulePersistence(this.activeConnectionId);
     return newSavedQuery.id;
   }
 
@@ -765,6 +1081,7 @@ class UseDatabase {
     const newQueryTabs = new Map(this.queryTabsByConnection);
     newQueryTabs.set(this.activeConnectionId, [...tabs]);
     this.queryTabsByConnection = newQueryTabs;
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   loadSavedQuery(savedQueryId: string) {
@@ -920,6 +1237,7 @@ class UseDatabase {
       const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
       newActiveSchemaIds.set(this.activeConnectionId, existingTab.id);
       this.activeSchemaTabIdByConnection = newActiveSchemaIds;
+      this.schedulePersistence(this.activeConnectionId);
       return existingTab.id;
     }
 
@@ -937,6 +1255,7 @@ class UseDatabase {
     newActiveSchemaIds.set(this.activeConnectionId, newTab.id);
     this.activeSchemaTabIdByConnection = newActiveSchemaIds;
 
+    this.schedulePersistence(this.activeConnectionId);
     return newTab.id;
   }
 
@@ -948,6 +1267,7 @@ class UseDatabase {
       m => this.activeSchemaTabIdByConnection = m,
       id
     );
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   setActiveSchemaTab(id: string) {
@@ -956,6 +1276,7 @@ class UseDatabase {
     const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
     newActiveSchemaIds.set(this.activeConnectionId, id);
     this.activeSchemaTabIdByConnection = newActiveSchemaIds;
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   private readonly DEFAULT_PAGE_SIZE = 100;
@@ -1101,6 +1422,7 @@ class UseDatabase {
       ...queryHistory,
     ]);
     this.queryHistoryByConnection = newQueryHistory;
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   getPrimaryKeysForTable(schema: string, tableName: string): string[] {
@@ -1209,6 +1531,7 @@ class UseDatabase {
       const newQueryHistory = new Map(this.queryHistoryByConnection);
       newQueryHistory.set(this.activeConnectionId, [...queryHistory]);
       this.queryHistoryByConnection = newQueryHistory;
+      this.schedulePersistence(this.activeConnectionId);
     }
   }
 
@@ -1243,6 +1566,7 @@ class UseDatabase {
 
   setActiveView(view: "query" | "schema" | "explain") {
     this.activeView = view;
+    this.schedulePersistence(this.activeConnectionId);
   }
 
   // EXPLAIN/ANALYZE methods
@@ -1274,6 +1598,7 @@ class UseDatabase {
     newActiveExplainIds.set(this.activeConnectionId, explainTabId);
     this.activeExplainTabIdByConnection = newActiveExplainIds;
     this.setActiveView("explain");
+    this.schedulePersistence(this.activeConnectionId);
 
     try {
       const adapter = getAdapter(this.activeConnection!.type);
@@ -1353,6 +1678,7 @@ class UseDatabase {
       m => this.activeExplainTabIdByConnection = m,
       id
     );
+    this.schedulePersistence(this.activeConnectionId);
     // Switch to query view if no explain tabs left
     if (this.activeConnectionId && this.explainTabs.length === 0) {
       this.setActiveView("query");
@@ -1365,6 +1691,7 @@ class UseDatabase {
     const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
     newActiveExplainIds.set(this.activeConnectionId, id);
     this.activeExplainTabIdByConnection = newActiveExplainIds;
+    this.schedulePersistence(this.activeConnectionId);
   }
 }
 
