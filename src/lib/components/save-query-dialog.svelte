@@ -6,10 +6,30 @@
 	import { Label } from "$lib/components/ui/label";
 	import { toast } from "svelte-sonner";
 
-	let { open = $bindable(false), query, tabId }: Props = $props();
+	type Props = {
+		open?: boolean;
+		query: string;
+		tabId?: string;
+		onSaveComplete?: () => void;
+	};
+
+	let { open = $bindable(false), query, tabId, onSaveComplete }: Props = $props();
 	const db = useDatabase();
 
 	let queryName = $state("");
+
+	// Pre-populate query name when dialog opens for an existing saved query
+	$effect(() => {
+		if (open && tabId) {
+			const tab = db.queryTabs.find(t => t.id === tabId);
+			if (tab?.savedQueryId) {
+				const savedQuery = db.activeConnectionSavedQueries.find(q => q.id === tab.savedQueryId);
+				if (savedQuery) {
+					queryName = savedQuery.name;
+				}
+			}
+		}
+	});
 
 	const handleSave = () => {
 		if (!queryName.trim()) {
@@ -21,18 +41,13 @@
 		toast.success("Query saved successfully");
 		open = false;
 		queryName = "";
+		onSaveComplete?.();
 	};
 
 	const handleKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Enter") {
 			handleSave();
 		}
-	};
-
-	type Props = {
-		open?: boolean;
-		query: string;
-		tabId?: string;
 	};
 </script>
 

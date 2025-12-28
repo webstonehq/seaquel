@@ -946,11 +946,28 @@ class UseDatabase {
     const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
     const tab = tabs.find((t) => t.id === id);
     if (tab) {
-      tab.name = newName;
-      // Trigger reactivity by creating new Map
+      // Create new array with updated tab object for proper reactivity
+      const updatedTabs = tabs.map((t) =>
+        t.id === id ? { ...t, name: newName } : t
+      );
       const newQueryTabs = new Map(this.queryTabsByConnection);
-      newQueryTabs.set(this.activeConnectionId, [...tabs]);
+      newQueryTabs.set(this.activeConnectionId, updatedTabs);
       this.queryTabsByConnection = newQueryTabs;
+
+      // Also update linked saved query name if exists
+      if (tab.savedQueryId) {
+        const savedQueries =
+          this.savedQueriesByConnection.get(this.activeConnectionId) || [];
+        const updatedSavedQueries = savedQueries.map((q) =>
+          q.id === tab.savedQueryId
+            ? { ...q, name: newName, updatedAt: new Date() }
+            : q
+        );
+        const newSavedQueries = new Map(this.savedQueriesByConnection);
+        newSavedQueries.set(this.activeConnectionId, updatedSavedQueries);
+        this.savedQueriesByConnection = newSavedQueries;
+      }
+
       this.schedulePersistence(this.activeConnectionId);
     }
   }
@@ -984,13 +1001,38 @@ class UseDatabase {
     return this.addQueryTab(name, query);
   }
 
+  hasUnsavedChanges(tabId: string): boolean {
+    const tab = this.queryTabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+
+    // Empty tabs are not considered "unsaved"
+    if (!tab.query.trim()) return false;
+
+    // Tab not linked to a saved query = unsaved
+    if (!tab.savedQueryId) return true;
+
+    // Tab linked to saved query - compare content
+    const savedQuery = this.activeConnectionSavedQueries.find(
+      (q) => q.id === tab.savedQueryId
+    );
+    if (!savedQuery) return true;
+
+    return tab.query !== savedQuery.query;
+  }
+
   updateQueryTabContent(id: string, query: string) {
     if (!this.activeConnectionId) return;
 
     const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
     const tab = tabs.find((t) => t.id === id);
-    if (tab) {
-      tab.query = query;
+    if (tab && tab.query !== query) {
+      // Create new objects for proper reactivity
+      const updatedTabs = tabs.map((t) =>
+        t.id === id ? { ...t, query } : t
+      );
+      const newQueryTabs = new Map(this.queryTabsByConnection);
+      newQueryTabs.set(this.activeConnectionId, updatedTabs);
+      this.queryTabsByConnection = newQueryTabs;
       this.schedulePersistence(this.activeConnectionId);
     }
   }
@@ -1008,17 +1050,35 @@ class UseDatabase {
     }
 
     if (savedQueryId) {
-      // Update existing saved query
+      // Update existing saved query with new object for proper reactivity
       const savedQueries =
         this.savedQueriesByConnection.get(this.activeConnectionId) || [];
       const savedQuery = savedQueries.find((q) => q.id === savedQueryId);
       if (savedQuery) {
-        savedQuery.name = name;
-        savedQuery.query = query;
-        savedQuery.updatedAt = new Date();
+        const updatedSavedQueries = savedQueries.map((q) =>
+          q.id === savedQueryId
+            ? { ...q, name, query, updatedAt: new Date() }
+            : q
+        );
         const newSavedQueries = new Map(this.savedQueriesByConnection);
-        newSavedQueries.set(this.activeConnectionId, [...savedQueries]);
+        newSavedQueries.set(this.activeConnectionId, updatedSavedQueries);
         this.savedQueriesByConnection = newSavedQueries;
+
+        // Also update tab name if it differs
+        if (tabId) {
+          const tabs =
+            this.queryTabsByConnection.get(this.activeConnectionId) || [];
+          const tab = tabs.find((t) => t.id === tabId);
+          if (tab && tab.name !== name) {
+            const updatedTabs = tabs.map((t) =>
+              t.id === tabId ? { ...t, name } : t
+            );
+            const newQueryTabs = new Map(this.queryTabsByConnection);
+            newQueryTabs.set(this.activeConnectionId, updatedTabs);
+            this.queryTabsByConnection = newQueryTabs;
+          }
+        }
+
         this.schedulePersistence(this.activeConnectionId);
         return savedQueryId;
       }
@@ -1047,14 +1107,14 @@ class UseDatabase {
     if (tabId) {
       const tabs =
         this.queryTabsByConnection.get(this.activeConnectionId) || [];
-      const tab = tabs.find((t) => t.id === tabId);
-      if (tab) {
-        tab.savedQueryId = newSavedQuery.id;
-        tab.name = name;
-        const newQueryTabs = new Map(this.queryTabsByConnection);
-        newQueryTabs.set(this.activeConnectionId, [...tabs]);
-        this.queryTabsByConnection = newQueryTabs;
-      }
+      const updatedTabs = tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, savedQueryId: newSavedQuery.id, name }
+          : t
+      );
+      const newQueryTabs = new Map(this.queryTabsByConnection);
+      newQueryTabs.set(this.activeConnectionId, updatedTabs);
+      this.queryTabsByConnection = newQueryTabs;
     }
 
     this.schedulePersistence(this.activeConnectionId);

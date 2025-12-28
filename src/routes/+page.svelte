@@ -16,6 +16,9 @@
     import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
     import * as Tooltip from "$lib/components/ui/tooltip/index.js";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
+    import UnsavedChangesDialog from "$lib/components/unsaved-changes-dialog.svelte";
+    import BatchUnsavedDialog from "$lib/components/batch-unsaved-dialog.svelte";
+    import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 
     const db = useDatabase();
     const shortcuts = useShortcuts();
@@ -102,9 +105,85 @@
         }
     };
 
+    // Unsaved changes dialog state
+    let pendingCloseTabId = $state<string | null>(null);
+    let showUnsavedDialog = $state(false);
+    let showSaveDialogForClose = $state(false);
+
+    // Batch close dialog state
+    let pendingBatchCloseTabs = $state<{id: string, type: 'query' | 'schema' | 'explain'}[]>([]);
+    let unsavedTabsInBatch = $state<string[]>([]);
+    let showBatchUnsavedDialog = $state(false);
+
+    // Direct close without confirmation (for non-query tabs or tabs without unsaved changes)
+    const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain') => {
+        if (type === 'query') db.removeQueryTab(id);
+        else if (type === 'schema') db.removeSchemaTab(id);
+        else if (type === 'explain') db.removeExplainTab(id);
+    };
+
+    // Try to close a query tab, prompting if unsaved changes
+    const tryCloseQueryTab = (tabId: string) => {
+        if (db.hasUnsavedChanges(tabId)) {
+            pendingCloseTabId = tabId;
+            showUnsavedDialog = true;
+        } else {
+            db.removeQueryTab(tabId);
+        }
+    };
+
+    const handleUnsavedDiscard = () => {
+        if (pendingCloseTabId) {
+            db.removeQueryTab(pendingCloseTabId);
+            pendingCloseTabId = null;
+        }
+    };
+
+    const handleUnsavedSave = () => {
+        showSaveDialogForClose = true;
+    };
+
+    const handleUnsavedCancel = () => {
+        pendingCloseTabId = null;
+    };
+
+    const handleSaveComplete = () => {
+        if (pendingCloseTabId) {
+            db.removeQueryTab(pendingCloseTabId);
+            pendingCloseTabId = null;
+        }
+        showSaveDialogForClose = false;
+    };
+
+    // Batch close with single prompt for all unsaved tabs
+    const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain'}[]) => {
+        const unsaved = tabsToClose
+            .filter(t => t.type === 'query' && db.hasUnsavedChanges(t.id))
+            .map(t => t.id);
+
+        if (unsaved.length > 0) {
+            pendingBatchCloseTabs = tabsToClose;
+            unsavedTabsInBatch = unsaved;
+            showBatchUnsavedDialog = true;
+        } else {
+            tabsToClose.forEach(t => closeTabDirect(t.id, t.type));
+        }
+    };
+
+    const handleBatchDiscard = () => {
+        pendingBatchCloseTabs.forEach(t => closeTabDirect(t.id, t.type));
+        pendingBatchCloseTabs = [];
+        unsavedTabsInBatch = [];
+    };
+
+    const handleBatchCancel = () => {
+        pendingBatchCloseTabs = [];
+        unsavedTabsInBatch = [];
+    };
+
     const closeCurrentTab = () => {
         if (db.activeView === 'query' && db.activeQueryTabId) {
-            db.removeQueryTab(db.activeQueryTabId);
+            tryCloseQueryTab(db.activeQueryTabId);
         } else if (db.activeView === 'schema' && db.activeSchemaTabId) {
             db.removeSchemaTab(db.activeSchemaTabId);
         } else if (db.activeView === 'explain' && db.activeExplainTabId) {
@@ -114,35 +193,28 @@
 
     // Tab context menu helpers
     const closeTab = (id: string, type: 'query' | 'schema' | 'explain') => {
-        if (type === 'query') db.removeQueryTab(id);
+        if (type === 'query') tryCloseQueryTab(id);
         else if (type === 'schema') db.removeSchemaTab(id);
         else if (type === 'explain') db.removeExplainTab(id);
     };
 
     const closeOtherTabs = (id: string) => {
-        for (const t of allTabs) {
-            if (t.id !== id) closeTab(t.id, t.type);
-        }
+        const tabsToClose = allTabs.filter(t => t.id !== id);
+        tryBatchClose(tabsToClose);
     };
 
     const closeTabsToRight = (id: string) => {
         const idx = allTabs.findIndex(t => t.id === id);
-        for (let i = allTabs.length - 1; i > idx; i--) {
-            closeTab(allTabs[i].id, allTabs[i].type);
-        }
+        tryBatchClose(allTabs.slice(idx + 1));
     };
 
     const closeTabsToLeft = (id: string) => {
         const idx = allTabs.findIndex(t => t.id === id);
-        for (let i = idx - 1; i >= 0; i--) {
-            closeTab(allTabs[i].id, allTabs[i].type);
-        }
+        tryBatchClose(allTabs.slice(0, idx));
     };
 
     const closeAllTabs = () => {
-        for (let i = allTabs.length - 1; i >= 0; i--) {
-            closeTab(allTabs[i].id, allTabs[i].type);
-        }
+        tryBatchClose([...allTabs]);
     };
 
     // Register keyboard shortcuts
@@ -217,7 +289,7 @@
                                                     startEditing(id, queryTab.name);
                                                 }}
                                             >
-                                                {queryTab.name}
+                                                {queryTab.name}{db.hasUnsavedChanges(id) ? " *" : ""}
                                             </span>
                                         {/if}
                                         <Button
@@ -226,7 +298,7 @@
                                             class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
                                             onclick={(e) => {
                                                 e.stopPropagation();
-                                                db.removeQueryTab(id);
+                                                tryCloseQueryTab(id);
                                             }}
                                         >
                                             <XIcon />
@@ -235,7 +307,7 @@
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Portal>
                                     <ContextMenu.Content class="w-40">
-                                        <ContextMenu.Item onclick={() => closeTab(id, type)}>Close</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => tryCloseQueryTab(id)}>Close</ContextMenu.Item>
                                         <ContextMenu.Item onclick={() => closeOtherTabs(id)}>Close Others</ContextMenu.Item>
                                         <ContextMenu.Item onclick={() => closeTabsToRight(id)}>Close Right</ContextMenu.Item>
                                         <ContextMenu.Item onclick={() => closeTabsToLeft(id)}>Close Left</ContextMenu.Item>
@@ -366,3 +438,29 @@
 </SidebarInset>
 
 <AIAssistant />
+
+<UnsavedChangesDialog
+    bind:open={showUnsavedDialog}
+    onDiscard={handleUnsavedDiscard}
+    onSave={handleUnsavedSave}
+    onCancel={handleUnsavedCancel}
+/>
+
+{#if pendingCloseTabId}
+    {@const pendingTab = db.queryTabs.find(t => t.id === pendingCloseTabId)}
+    {#if pendingTab}
+        <SaveQueryDialog
+            bind:open={showSaveDialogForClose}
+            query={pendingTab.query}
+            tabId={pendingCloseTabId}
+            onSaveComplete={handleSaveComplete}
+        />
+    {/if}
+{/if}
+
+<BatchUnsavedDialog
+    bind:open={showBatchUnsavedDialog}
+    unsavedCount={unsavedTabsInBatch.length}
+    onDiscardAll={handleBatchDiscard}
+    onCancel={handleBatchCancel}
+/>
