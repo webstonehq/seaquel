@@ -332,7 +332,7 @@
                 <div class="flex">
                     <Button
                         size="sm"
-                        class="h-7 gap-1 rounded-r-none border-r-0"
+                        class="h-8 gap-1 rounded-r-none border-r-0"
                         onclick={handleExecute}
                         disabled={!db.activeQueryTab || db.activeQueryTab.isExecuting}
                     >
