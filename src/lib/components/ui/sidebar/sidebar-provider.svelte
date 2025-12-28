@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, onDestroy } from "svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { cn, type WithElementRef } from "$lib/utils.js";
 	import type { HTMLAttributes } from "svelte/elements";
@@ -9,6 +10,7 @@
 		SIDEBAR_WIDTH_ICON,
 	} from "./constants.js";
 	import { setSidebar } from "./context.svelte.js";
+	import { useShortcuts } from "$lib/shortcuts/index.js";
 
 	let {
 		ref = $bindable(null),
@@ -33,9 +35,17 @@
 			document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
 		},
 	});
-</script>
 
-<svelte:window onkeydown={sidebar.handleShortcutKeydown} />
+	const shortcuts = useShortcuts();
+
+	onMount(() => {
+		shortcuts.registerHandler('toggleSidebar', () => sidebar.toggle());
+	});
+
+	onDestroy(() => {
+		shortcuts.unregisterHandler('toggleSidebar');
+	});
+</script>
 
 <Tooltip.Provider delayDuration={0}>
 	<div

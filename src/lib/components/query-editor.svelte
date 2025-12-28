@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onMount, onDestroy } from "svelte";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
+	import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -18,6 +21,7 @@
 	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
 
 	const db = useDatabase();
+	const shortcuts = useShortcuts();
 	let showSaveDialog = $state(false);
 	let showInsertDialog = $state(false);
 	let deletingRowIndex = $state<number | null>(null);
@@ -272,27 +276,17 @@
 		toast.success("Column values copied");
 	};
 
-	// Keyboard shortcuts
-	const handleKeydown = (e: KeyboardEvent) => {
-		const isMod = e.metaKey || e.ctrlKey;
+	// Register keyboard shortcuts
+	onMount(() => {
+		shortcuts.registerHandler('saveQuery', handleSave);
+		shortcuts.registerHandler('formatSql', handleFormat);
+	});
 
-		// Cmd+S: Save query
-		if (isMod && e.key === 's') {
-			e.preventDefault();
-			handleSave();
-			return;
-		}
-
-		// Cmd+Shift+F: Format SQL
-		if (isMod && e.shiftKey && e.key === 'f') {
-			e.preventDefault();
-			handleFormat();
-			return;
-		}
-	};
+	onDestroy(() => {
+		shortcuts.unregisterHandler('saveQuery');
+		shortcuts.unregisterHandler('formatSql');
+	});
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div class="flex flex-col h-full overflow-hidden">
     {#if db.activeQueryTab}
@@ -354,6 +348,9 @@
                             <DropdownMenu.Item onclick={handleExecute}>
                                 <PlayIcon class="size-4 mr-2" />
                                 Execute
+                                {#if findShortcut('executeQuery')}
+                                    <ShortcutKeys keys={findShortcut('executeQuery')!.keys} class="ml-auto" />
+                                {/if}
                             </DropdownMenu.Item>
                             <DropdownMenu.Separator />
                             <DropdownMenu.Item onclick={() => handleExplain(false)}>
@@ -376,6 +373,9 @@
                 >
                     <WandSparklesIcon class="size-3" />
                     Format
+                    {#if findShortcut('formatSql')}
+                        <ShortcutKeys keys={findShortcut('formatSql')!.keys} class="ml-1" />
+                    {/if}
                 </Button>
                 {#if isEditable && sourceTableColumns.length > 0}
                     <Button
@@ -397,6 +397,9 @@
                 >
                     <SaveIcon class="size-3" />
                     Save
+                    {#if findShortcut('saveQuery')}
+                        <ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ml-1" />
+                    {/if}
                 </Button>
             </div>
         </div>
