@@ -333,6 +333,11 @@
                             bind:value={db.activeQueryTab.query}
                             schema={db.activeSchema}
                             onExecute={handleExecute}
+                            onChange={(newValue) => {
+                                if (db.activeQueryTabId) {
+                                    db.updateQueryTabContent(db.activeQueryTabId, newValue);
+                                }
+                            }}
                         />
                     {/key}
                 </div>

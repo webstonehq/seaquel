@@ -8,11 +8,13 @@
 		value = $bindable(""),
 		schema = [] as SchemaTable[],
 		onExecute = () => {},
+		onChange = (_value: string) => {},
 		class: className = ""
 	}: {
 		value?: string;
 		schema?: SchemaTable[];
 		onExecute?: () => void;
+		onChange?: (value: string) => void;
 		class?: string;
 	} = $props();
 
@@ -54,10 +56,12 @@
 			createSchemaCompletionProvider(() => schema)
 		);
 
-		// Sync editor content to bound value
+		// Sync editor content to bound value and notify parent
 		editor.onDidChangeModelContent(() => {
 			if (!isUpdatingFromProp && editor) {
-				value = editor.getValue();
+				const newValue = editor.getValue();
+				value = newValue;
+				onChange(newValue);
 			}
 		});
 
