@@ -63,12 +63,18 @@
         db.setActiveView("explain");
     };
 
-    // Get all tabs in order for keyboard navigation
+    // Extract timestamp from tab ID for ordering
+    const getTabTimestamp = (id: string): number => {
+        const match = id.match(/\d+$/);
+        return match ? parseInt(match[0], 10) : 0;
+    };
+
+    // Get all tabs in creation order for unified tab bar
     const allTabs = $derived([
-        ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const })),
-        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const })),
-        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const }))
-    ]);
+        ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const, tab: t })),
+        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const, tab: t })),
+        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const, tab: t }))
+    ].sort((a, b) => getTabTimestamp(a.id) - getTabTimestamp(b.id)));
 
     const currentTabIndex = $derived(() => {
         if (db.activeView === 'query' && db.activeQueryTabId) {
@@ -144,106 +150,103 @@
         <div class="flex items-center gap-2 p-2 border-b bg-muted/30 overflow-hidden">
             <ScrollArea orientation="horizontal" class="flex-1">
                 <div class="flex items-center gap-1 pb-1">
-                    <!-- Query Tabs -->
-                    {#each db.queryTabs as tab (tab.id)}
+                    <!-- All tabs in creation order -->
+                    {#each allTabs as { id, type, tab } (id)}
                         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                        <div
-                            class={[
-                                "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                activeTabType === "query" && db.activeQueryTabId === tab.id
-                                    ? "bg-background shadow-sm"
-                                    : "hover:bg-muted",
-                            ]}
-                            onclick={() => handleQueryTabClick(tab.id)}
-                        >
-                            <FileCodeIcon class="size-3 text-muted-foreground" />
-                            {#if editingTabId === tab.id}
-                                <Input
-                                    bind:value={editingTabName}
-                                    class="h-5 px-1 text-xs w-24"
-                                    onblur={finishEditing}
-                                    onkeydown={handleKeydown}
-                                    onclick={(e) => e.stopPropagation()}
-                                />
-                            {:else}
-                                <span
-                                    class="pr-4"
-                                    ondblclick={(e) => {
+                        {#if type === 'query'}
+                            {@const queryTab = tab as import('$lib/types').QueryTab}
+                            <div
+                                class={[
+                                    "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                    activeTabType === "query" && db.activeQueryTabId === id
+                                        ? "bg-background shadow-sm"
+                                        : "hover:bg-muted",
+                                ]}
+                                onclick={() => handleQueryTabClick(id)}
+                            >
+                                <FileCodeIcon class="size-3 text-muted-foreground" />
+                                {#if editingTabId === id}
+                                    <Input
+                                        bind:value={editingTabName}
+                                        class="h-5 px-1 text-xs w-24"
+                                        onblur={finishEditing}
+                                        onkeydown={handleKeydown}
+                                        onclick={(e) => e.stopPropagation()}
+                                    />
+                                {:else}
+                                    <span
+                                        class="pr-4"
+                                        ondblclick={(e) => {
+                                            e.stopPropagation();
+                                            startEditing(id, queryTab.name);
+                                        }}
+                                    >
+                                        {queryTab.name}
+                                    </span>
+                                {/if}
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                    onclick={(e) => {
                                         e.stopPropagation();
-                                        startEditing(tab.id, tab.name);
+                                        db.removeQueryTab(id);
                                     }}
                                 >
-                                    {tab.name}
-                                </span>
-                            {/if}
-                            <Button
-                                size="icon"
-                                variant="ghost"
-                                class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    db.removeQueryTab(tab.id);
-                                }}
+                                    <XIcon />
+                                </Button>
+                            </div>
+                        {:else if type === 'schema'}
+                            {@const schemaTab = tab as import('$lib/types').SchemaTab}
+                            <div
+                                class={[
+                                    "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                    activeTabType === "schema" && db.activeSchemaTabId === id
+                                        ? "bg-background shadow-sm"
+                                        : "hover:bg-muted",
+                                ]}
+                                onclick={() => handleSchemaTabClick(id)}
                             >
-                                <XIcon />
-                            </Button>
-                        </div>
-                    {/each}
-
-                    <!-- Schema Tabs -->
-                    {#each db.schemaTabs as tab (tab.id)}
-                        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                        <div
-                            class={[
-                                "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                activeTabType === "schema" && db.activeSchemaTabId === tab.id
-                                    ? "bg-background shadow-sm"
-                                    : "hover:bg-muted",
-                            ]}
-                            onclick={() => handleSchemaTabClick(tab.id)}
-                        >
-                            <TableIcon class="size-3 text-muted-foreground" />
-                            <span class="pr-4">{tab.table.schema}.{tab.table.name}</span>
-                            <Button
-                                size="icon"
-                                variant="ghost"
-                                class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    db.removeSchemaTab(tab.id);
-                                }}
+                                <TableIcon class="size-3 text-muted-foreground" />
+                                <span class="pr-4">{schemaTab.table.schema}.{schemaTab.table.name}</span>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        db.removeSchemaTab(id);
+                                    }}
+                                >
+                                    <XIcon />
+                                </Button>
+                            </div>
+                        {:else if type === 'explain'}
+                            {@const explainTab = tab as import('$lib/types').ExplainTab}
+                            <div
+                                class={[
+                                    "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                    activeTabType === "explain" && db.activeExplainTabId === id
+                                        ? "bg-background shadow-sm"
+                                        : "hover:bg-muted",
+                                ]}
+                                onclick={() => handleExplainTabClick(id)}
                             >
-                                <XIcon />
-                            </Button>
-                        </div>
-                    {/each}
-
-                    <!-- Explain Tabs -->
-                    {#each db.explainTabs as tab (tab.id)}
-                        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                        <div
-                            class={[
-                                "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                activeTabType === "explain" && db.activeExplainTabId === tab.id
-                                    ? "bg-background shadow-sm"
-                                    : "hover:bg-muted",
-                            ]}
-                            onclick={() => handleExplainTabClick(tab.id)}
-                        >
-                            <ActivityIcon class="size-3 text-muted-foreground" />
-                            <span class="pr-4">{tab.name}</span>
-                            <Button
-                                size="icon"
-                                variant="ghost"
-                                class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
-                                onclick={(e) => {
-                                    e.stopPropagation();
-                                    db.removeExplainTab(tab.id);
-                                }}
-                            >
-                                <XIcon />
-                            </Button>
-                        </div>
+                                <ActivityIcon class="size-3 text-muted-foreground" />
+                                <span class="pr-4">{explainTab.name}</span>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        db.removeExplainTab(id);
+                                    }}
+                                >
+                                    <XIcon />
+                                </Button>
+                            </div>
+                        {/if}
                     {/each}
                 </div>
             </ScrollArea>

@@ -651,6 +651,26 @@ class UseDatabase {
     this.activeQueryTabIdByConnection = newActiveQueryIds;
   }
 
+  /**
+   * Find a query tab by its query content and focus it, or create a new one if not found.
+   * Returns the tab ID.
+   */
+  focusOrCreateQueryTab(query: string, name?: string): string | null {
+    if (!this.activeConnectionId) return null;
+
+    const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
+    const existingTab = tabs.find((t) => t.query.trim() === query.trim());
+
+    if (existingTab) {
+      this.setActiveQueryTab(existingTab.id);
+      this.setActiveView("query");
+      return existingTab.id;
+    }
+
+    // Create new tab if not found
+    return this.addQueryTab(name, query);
+  }
+
   updateQueryTabContent(id: string, query: string) {
     if (!this.activeConnectionId) return;
 
