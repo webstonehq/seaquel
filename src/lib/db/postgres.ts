@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from "./index";
+import type { DatabaseAdapter, ExplainNode } from "./index";
 import type { SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
 
 interface PostgresSchemaRow {
@@ -71,6 +71,58 @@ export class PostgresAdapter implements DatabaseAdapter {
 			tablename
 		FROM pg_indexes
 		WHERE tablename = '${table}' AND schemaname = '${schema}'`;
+	}
+
+	getExplainQuery(query: string, analyze: boolean): string {
+		const baseQuery = query.replace(/;$/, "");
+		return analyze
+			? `EXPLAIN (ANALYZE, FORMAT JSON) ${baseQuery}`
+			: `EXPLAIN (FORMAT JSON) ${baseQuery}`;
+	}
+
+	parseExplainResult(rows: unknown[], analyze: boolean): ExplainNode {
+		// PostgreSQL returns JSON in a column called "QUERY PLAN"
+		const result = rows as { "QUERY PLAN"?: unknown; "query plan"?: unknown }[];
+		const jsonPlan = result[0]?.["QUERY PLAN"] || result[0]?.["query plan"];
+		const parsedPlan =
+			typeof jsonPlan === "string" ? JSON.parse(jsonPlan) : jsonPlan;
+		const plan = (parsedPlan as { Plan: Record<string, unknown> }[])[0]?.Plan;
+
+		return this.convertPgPlanNode(plan, analyze);
+	}
+
+	private convertPgPlanNode(
+		node: Record<string, unknown>,
+		analyze: boolean
+	): ExplainNode {
+		const result: ExplainNode = {
+			type: String(node["Node Type"] || "Unknown"),
+			label: this.buildPgNodeLabel(node),
+			cost: node["Total Cost"] as number | undefined,
+			rows: node["Plan Rows"] as number | undefined,
+		};
+
+		if (analyze) {
+			result.actualTime = node["Actual Total Time"] as number | undefined;
+			result.actualRows = node["Actual Rows"] as number | undefined;
+		}
+
+		const plans = node["Plans"] as Record<string, unknown>[] | undefined;
+		if (plans && plans.length > 0) {
+			result.children = plans.map((child) =>
+				this.convertPgPlanNode(child, analyze)
+			);
+		}
+
+		return result;
+	}
+
+	private buildPgNodeLabel(node: Record<string, unknown>): string {
+		const parts: string[] = [String(node["Node Type"] || "")];
+		if (node["Relation Name"]) parts.push(`on ${node["Relation Name"]}`);
+		if (node["Index Name"]) parts.push(`using ${node["Index Name"]}`);
+		if (node["Join Type"]) parts.push(`(${node["Join Type"]})`);
+		return parts.join(" ");
 	}
 
 	parseSchemaResult(rows: unknown[]): SchemaTable[] {

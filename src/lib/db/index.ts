@@ -2,6 +2,16 @@ import type { DatabaseType, SchemaTable, SchemaColumn, SchemaIndex } from "$lib/
 import { PostgresAdapter } from "./postgres";
 import { SqliteAdapter } from "./sqlite";
 
+export interface ExplainNode {
+	type: string;
+	label: string;
+	cost?: number;
+	rows?: number;
+	actualTime?: number;
+	actualRows?: number;
+	children?: ExplainNode[];
+}
+
 export interface DatabaseAdapter {
 	/** SQL query to list all tables in the database */
 	getSchemaQuery(): string;
@@ -14,6 +24,12 @@ export interface DatabaseAdapter {
 
 	/** SQL query to get foreign key information for a table (optional, some DBs include in columns query) */
 	getForeignKeysQuery?(table: string, schema: string): string;
+
+	/** Build the EXPLAIN query for this database type */
+	getExplainQuery(query: string, analyze: boolean): string;
+
+	/** Parse EXPLAIN results into a common format */
+	parseExplainResult(rows: unknown[], analyze: boolean): ExplainNode;
 
 	/** Transform raw schema query results to SchemaTable[] */
 	parseSchemaResult(rows: unknown[]): SchemaTable[];
