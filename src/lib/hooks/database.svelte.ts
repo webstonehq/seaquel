@@ -11,10 +11,12 @@ import type {
   ExplainTab,
   ExplainResult,
   ExplainPlanNode,
+  ErdTab,
   PersistedConnectionState,
   PersistedQueryTab,
   PersistedSchemaTab,
   PersistedExplainTab,
+  PersistedErdTab,
   PersistedSavedQuery,
   PersistedQueryHistoryItem,
 } from "$lib/types";
@@ -102,6 +104,14 @@ class UseDatabase extends DatabaseState {
     }));
   }
 
+  private serializeErdTabs(connectionId: string): PersistedErdTab[] {
+    const tabs = this.erdTabsByConnection.get(connectionId) || [];
+    return tabs.map(tab => ({
+      id: tab.id,
+      name: tab.name,
+    }));
+  }
+
   private serializeSavedQueries(connectionId: string): PersistedSavedQuery[] {
     const queries = this.savedQueriesByConnection.get(connectionId) || [];
     return queries.map(q => ({
@@ -139,9 +149,11 @@ class UseDatabase extends DatabaseState {
         queryTabs: this.serializeQueryTabs(connectionId),
         schemaTabs: this.serializeSchemaTabs(connectionId),
         explainTabs: this.serializeExplainTabs(connectionId),
+        erdTabs: this.serializeErdTabs(connectionId),
         activeQueryTabId: this.activeQueryTabIdByConnection.get(connectionId) || null,
         activeSchemaTabId: this.activeSchemaTabIdByConnection.get(connectionId) || null,
         activeExplainTabId: this.activeExplainTabIdByConnection.get(connectionId) || null,
+        activeErdTabId: this.activeErdTabIdByConnection.get(connectionId) || null,
         activeView: this.activeView,
         savedQueries: this.serializeSavedQueries(connectionId),
         queryHistory: this.serializeQueryHistory(connectionId),
@@ -346,6 +358,8 @@ class UseDatabase extends DatabaseState {
     setMapValue(() => this.savedQueriesByConnection, m => this.savedQueriesByConnection = m, connectionId, []);
     setMapValue(() => this.explainTabsByConnection, m => this.explainTabsByConnection = m, connectionId, []);
     setMapValue(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId, null);
+    setMapValue(() => this.erdTabsByConnection, m => this.erdTabsByConnection = m, connectionId, []);
+    setMapValue(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId, null);
     setMapValue(() => this.schemas, m => this.schemas = m, connectionId, []);
   }
 
@@ -359,6 +373,8 @@ class UseDatabase extends DatabaseState {
     deleteMapKey(() => this.savedQueriesByConnection, m => this.savedQueriesByConnection = m, connectionId);
     deleteMapKey(() => this.explainTabsByConnection, m => this.explainTabsByConnection = m, connectionId);
     deleteMapKey(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId);
+    deleteMapKey(() => this.erdTabsByConnection, m => this.erdTabsByConnection = m, connectionId);
+    deleteMapKey(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId);
     deleteMapKey(() => this.schemas, m => this.schemas = m, connectionId);
   }
 
@@ -387,6 +403,12 @@ class UseDatabase extends DatabaseState {
     }
     if (!this.activeExplainTabIdByConnection.has(connectionId)) {
       setMapValue(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId, null);
+    }
+    if (!this.erdTabsByConnection.has(connectionId)) {
+      setMapValue(() => this.erdTabsByConnection, m => this.erdTabsByConnection = m, connectionId, []);
+    }
+    if (!this.activeErdTabIdByConnection.has(connectionId)) {
+      setMapValue(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId, null);
     }
   }
 
@@ -1293,7 +1315,7 @@ class UseDatabase extends DatabaseState {
     this._uiState.sendAIMessage(content);
   }
 
-  setActiveView(view: "query" | "schema" | "explain") {
+  setActiveView(view: "query" | "schema" | "explain" | "erd") {
     this._uiState.setActiveView(view);
   }
 
@@ -1405,6 +1427,77 @@ class UseDatabase extends DatabaseState {
 
   setActiveExplainTab(id: string) {
     this._explainTabs.setActiveExplainTab(id);
+  }
+
+  // ERD tab methods
+  addErdTab(): string | null {
+    if (!this.activeConnectionId || !this.activeConnection) return null;
+
+    const tabs = this.erdTabsByConnection.get(this.activeConnectionId) || [];
+
+    // Check if an ERD tab already exists for this connection
+    const existingTab = tabs.find(t => t.name === `ERD: ${this.activeConnection!.name}`);
+    if (existingTab) {
+      // Just switch to the existing tab
+      setMapValue(
+        () => this.activeErdTabIdByConnection,
+        m => this.activeErdTabIdByConnection = m,
+        this.activeConnectionId,
+        existingTab.id
+      );
+      this.setActiveView("erd");
+      return existingTab.id;
+    }
+
+    const erdTabId = `erd-${Date.now()}`;
+    const newErdTab: ErdTab = {
+      id: erdTabId,
+      name: `ERD: ${this.activeConnection.name}`,
+    };
+
+    const newErdTabs = new Map(this.erdTabsByConnection);
+    newErdTabs.set(this.activeConnectionId, [...tabs, newErdTab]);
+    this.erdTabsByConnection = newErdTabs;
+
+    setMapValue(
+      () => this.activeErdTabIdByConnection,
+      m => this.activeErdTabIdByConnection = m,
+      this.activeConnectionId,
+      erdTabId
+    );
+
+    this.setActiveView("erd");
+    this.schedulePersistence(this.activeConnectionId);
+
+    return erdTabId;
+  }
+
+  removeErdTab(id: string) {
+    this.removeTabGeneric(
+      () => this.erdTabsByConnection,
+      m => this.erdTabsByConnection = m,
+      () => this.activeErdTabIdByConnection,
+      m => this.activeErdTabIdByConnection = m,
+      id
+    );
+    this.schedulePersistence(this.activeConnectionId);
+
+    // If no more ERD tabs, switch back to query view
+    const remainingTabs = this.erdTabsByConnection.get(this.activeConnectionId!) || [];
+    if (remainingTabs.length === 0) {
+      this.setActiveView("query");
+    }
+  }
+
+  setActiveErdTab(id: string) {
+    if (!this.activeConnectionId) return;
+    setMapValue(
+      () => this.activeErdTabIdByConnection,
+      m => this.activeErdTabIdByConnection = m,
+      this.activeConnectionId,
+      id
+    );
+    this.schedulePersistence(this.activeConnectionId);
   }
 }
 

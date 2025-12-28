@@ -7,6 +7,7 @@ import type {
   SchemaTab,
   SavedQuery,
   ExplainTab,
+  ErdTab,
 } from "$lib/types";
 
 /**
@@ -36,12 +37,16 @@ export class DatabaseState {
   explainTabsByConnection = $state<Map<string, ExplainTab[]>>(new Map());
   activeExplainTabIdByConnection = $state<Map<string, string | null>>(new Map());
 
+  // ERD tabs state
+  erdTabsByConnection = $state<Map<string, ErdTab[]>>(new Map());
+  activeErdTabIdByConnection = $state<Map<string, string | null>>(new Map());
+
   // AI state
   aiMessages = $state<AIMessage[]>([]);
   isAIOpen = $state(false);
 
   // View state
-  activeView = $state<"query" | "schema" | "explain">("query");
+  activeView = $state<"query" | "schema" | "explain" | "erd">("query");
 
   // Derived: active connection object
   activeConnection = $derived(
@@ -124,5 +129,24 @@ export class DatabaseState {
   // Derived: active explain tab object
   activeExplainTab = $derived(
     this.explainTabs.find((t) => t.id === this.activeExplainTabId) || null,
+  );
+
+  // Derived: ERD tabs for active connection
+  erdTabs = $derived(
+    this.activeConnectionId
+      ? this.erdTabsByConnection.get(this.activeConnectionId) || []
+      : [],
+  );
+
+  // Derived: active ERD tab ID for active connection
+  activeErdTabId = $derived(
+    this.activeConnectionId
+      ? this.activeErdTabIdByConnection.get(this.activeConnectionId) || null
+      : null,
+  );
+
+  // Derived: active ERD tab object
+  activeErdTab = $derived(
+    this.erdTabs.find((t) => t.id === this.activeErdTabId) || null,
   );
 }

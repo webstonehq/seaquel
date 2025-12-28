@@ -1,5 +1,5 @@
 import type { DatabaseAdapter, ExplainNode } from "./index";
-import type { SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
+import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from "$lib/types";
 
 interface SqliteSchemaRow {
 	name: string;
@@ -130,10 +130,14 @@ export class SqliteAdapter implements DatabaseAdapter {
 	}
 
 	parseColumnsResult(rows: unknown[], foreignKeys?: unknown[]): SchemaColumn[] {
-		const fkColumns = new Set<string>();
+		const fkMap = new Map<string, ForeignKeyRef>();
 		if (foreignKeys) {
 			for (const fk of foreignKeys as SqliteForeignKeyRow[]) {
-				fkColumns.add(fk.from);
+				fkMap.set(fk.from, {
+					referencedSchema: "main", // SQLite uses "main" as default schema
+					referencedTable: fk.table,
+					referencedColumn: fk.to,
+				});
 			}
 		}
 
@@ -143,7 +147,8 @@ export class SqliteAdapter implements DatabaseAdapter {
 			nullable: col.notnull === 0,
 			defaultValue: col.dflt_value || undefined,
 			isPrimaryKey: col.pk > 0,
-			isForeignKey: fkColumns.has(col.name),
+			isForeignKey: fkMap.has(col.name),
+			foreignKeyRef: fkMap.get(col.name),
 		}));
 	}
 

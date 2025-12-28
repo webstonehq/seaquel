@@ -9,6 +9,7 @@
     import XIcon from "@lucide/svelte/icons/x";
     import PlusIcon from "@lucide/svelte/icons/plus";
     import BotIcon from "@lucide/svelte/icons/bot";
+    import NetworkIcon from "@lucide/svelte/icons/network";
     import ThemeToggle from "./theme-toggle.svelte";
     import type { DatabaseType } from "$lib/types";
 
@@ -142,6 +143,17 @@
             {/if}
         </div>
         <div class="flex items-center gap-1">
+            {#if db.activeConnection?.database}
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    class="size-8"
+                    title="View ERD"
+                    onclick={() => db.addErdTab()}
+                >
+                    <NetworkIcon class="size-5" />
+                </Button>
+            {/if}
             <Button
                 size="icon"
                 variant="ghost"

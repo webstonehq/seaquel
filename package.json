@@ -18,6 +18,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",
     "@tauri-apps/plugin-os": "^2.3.2",
@@ -25,6 +26,7 @@
     "@tauri-apps/plugin-store": "^2.4.1",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "@xyflow/svelte": "^1.5.0",
+    "html-to-image": "^1.11.13",
     "monaco-editor": "^0.55.1",
     "monaco-sql-languages": "^0.15.1",
     "sql-formatter": "^15.6.12"
