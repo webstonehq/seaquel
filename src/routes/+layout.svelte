@@ -5,13 +5,20 @@
     import AppHeader from "$lib/components/app-header.svelte";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import { setDatabase } from "$lib/hooks/database.svelte.js";
+    import { setShortcuts } from "$lib/shortcuts/index.js";
+    import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
+
     setDatabase();
+    const shortcuts = setShortcuts();
 
     let { children } = $props();
 </script>
 
+<svelte:window onkeydown={shortcuts.handleKeydown} />
+
 <ModeWatcher />
 <Toaster position="bottom-right" theme={"dark"} richColors />
+<KeyboardShortcutsDialog />
 
 <Sidebar.Provider class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden">
     <AppHeader />

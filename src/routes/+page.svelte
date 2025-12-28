@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
     import { Toaster } from "$lib/components/ui/sonner";
     import { SidebarInset } from "$lib/components/ui/sidebar";
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
@@ -11,8 +12,12 @@
     import { Input } from "$lib/components/ui/input";
     import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon } from "@lucide/svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
+    import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
+    import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
+    import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 
     const db = useDatabase();
+    const shortcuts = useShortcuts();
 
     // Track which type of tab is active: 'query' or 'schema'
     let activeTabType = $derived(db.activeView);
@@ -100,54 +105,35 @@
         }
     };
 
-    const handleGlobalKeydown = (e: KeyboardEvent) => {
-        // Ignore if typing in an input
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-            return;
-        }
-
-        const isMod = e.metaKey || e.ctrlKey;
-
-        // Cmd+T: New query tab
-        if (isMod && e.key === 't') {
-            e.preventDefault();
-            db.addQueryTab();
-            return;
-        }
-
-        // Cmd+W: Close current tab
-        if (isMod && e.key === 'w') {
-            e.preventDefault();
-            closeCurrentTab();
-            return;
-        }
-
-        // Cmd+1-9: Switch to tab by index
-        if (isMod && e.key >= '1' && e.key <= '9') {
-            e.preventDefault();
-            const index = parseInt(e.key) - 1;
-            switchToTab(index);
-            return;
-        }
-
-        // Cmd+Shift+] or Cmd+Shift+[: Next/Previous tab
-        if (isMod && e.shiftKey) {
+    // Register keyboard shortcuts
+    onMount(() => {
+        shortcuts.registerHandler('newTab', () => db.addQueryTab());
+        shortcuts.registerHandler('closeTab', closeCurrentTab);
+        shortcuts.registerHandler('nextTab', () => {
             const idx = currentTabIndex();
-            if (e.key === ']' || e.key === '}') {
-                e.preventDefault();
-                switchToTab((idx + 1) % allTabs.length);
-                return;
-            }
-            if (e.key === '[' || e.key === '{') {
-                e.preventDefault();
-                switchToTab((idx - 1 + allTabs.length) % allTabs.length);
-                return;
-            }
-        }
-    };
-</script>
+            switchToTab((idx + 1) % allTabs.length);
+        });
+        shortcuts.registerHandler('previousTab', () => {
+            const idx = currentTabIndex();
+            switchToTab((idx - 1 + allTabs.length) % allTabs.length);
+        });
 
-<svelte:window onkeydown={handleGlobalKeydown} />
+        // Register tab 1-9 handlers
+        for (let i = 1; i <= 9; i++) {
+            shortcuts.registerHandler(`goToTab${i}`, () => switchToTab(i - 1));
+        }
+    });
+
+    onDestroy(() => {
+        shortcuts.unregisterHandler('newTab');
+        shortcuts.unregisterHandler('closeTab');
+        shortcuts.unregisterHandler('nextTab');
+        shortcuts.unregisterHandler('previousTab');
+        for (let i = 1; i <= 9; i++) {
+            shortcuts.unregisterHandler(`goToTab${i}`);
+        }
+    });
+</script>
 
 <Toaster position="bottom-right" richColors />
 
@@ -263,14 +249,26 @@
             </ScrollArea>
 
             <!-- Add new query tab button -->
-            <Button
-                size="icon"
-                variant="ghost"
-                class="size-7 shrink-0 [&_svg:not([class*='size-'])]:size-4"
-                onclick={() => db.addQueryTab()}
-            >
-                <PlusIcon />
-            </Button>
+            <Tooltip.Root>
+                <Tooltip.Trigger>
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        class="size-7 shrink-0 [&_svg:not([class*='size-'])]:size-4"
+                        onclick={() => db.addQueryTab()}
+                    >
+                        <PlusIcon />
+                    </Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content side="bottom">
+                    <span class="flex items-center gap-2">
+                        New Tab
+                        {#if findShortcut('newTab')}
+                            <ShortcutKeys keys={findShortcut('newTab')!.keys} />
+                        {/if}
+                    </span>
+                </Tooltip.Content>
+            </Tooltip.Root>
         </div>
 
         <!-- Content Area -->

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use russh::{client, ChannelMsg};
-use serde::{Deserialize, Serialize};
 use russh_keys::ssh_key::PrivateKey;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -93,10 +93,7 @@ impl client::Handler for ClientHandler {
     }
 }
 
-fn load_private_key(
-    key_path: &str,
-    passphrase: Option<&str>,
-) -> Result<PrivateKey, TunnelError> {
+fn load_private_key(key_path: &str, passphrase: Option<&str>) -> Result<PrivateKey, TunnelError> {
     let path = Path::new(key_path);
 
     if !path.exists() {
@@ -183,15 +180,20 @@ async fn establish_tunnel(
     }
 
     // Bind to a random local port
-    let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| TunnelError {
-        message: format!("Failed to bind local port: {}", e),
-        code: "BIND_ERROR".to_string(),
-    })?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| TunnelError {
+            message: format!("Failed to bind local port: {}", e),
+            code: "BIND_ERROR".to_string(),
+        })?;
 
-    let local_port = listener.local_addr().map_err(|e| TunnelError {
-        message: format!("Failed to get local address: {}", e),
-        code: "BIND_ERROR".to_string(),
-    })?.port();
+    let local_port = listener
+        .local_addr()
+        .map_err(|e| TunnelError {
+            message: format!("Failed to get local address: {}", e),
+            code: "BIND_ERROR".to_string(),
+        })?
+        .port();
 
     // Generate tunnel ID
     let tunnel_id = {
