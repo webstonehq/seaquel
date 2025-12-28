@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from "./index";
+import type { DatabaseAdapter, ExplainNode } from "./index";
 import type { SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
 
 interface SqliteSchemaRow {
@@ -52,6 +52,71 @@ export class SqliteAdapter implements DatabaseAdapter {
 
 	getForeignKeysQuery(table: string, _schema: string): string {
 		return `PRAGMA foreign_key_list('${table}')`;
+	}
+
+	getExplainQuery(query: string, _analyze: boolean): string {
+		// SQLite doesn't support ANALYZE in the same way as PostgreSQL
+		// EXPLAIN QUERY PLAN shows the query plan without execution
+		const baseQuery = query.replace(/;$/, "");
+		return `EXPLAIN QUERY PLAN ${baseQuery}`;
+	}
+
+	parseExplainResult(rows: unknown[], _analyze: boolean): ExplainNode {
+		// SQLite EXPLAIN QUERY PLAN returns: id, parent, notused, detail
+		const result = rows as {
+			id: number;
+			parent: number;
+			detail: string;
+		}[];
+
+		if (result.length === 0) {
+			return { type: "Query Plan", label: "No plan available" };
+		}
+
+		// Build a map of nodes by id
+		const nodeMap = new Map<number, ExplainNode & { parentId: number }>();
+		for (const row of result) {
+			const nodeType = this.extractSqliteNodeType(row.detail);
+			nodeMap.set(row.id, {
+				type: nodeType,
+				label: row.detail,
+				parentId: row.parent,
+				children: [],
+			});
+		}
+
+		// Build tree structure
+		let root: ExplainNode | null = null;
+		for (const [id, node] of nodeMap) {
+			if (node.parentId === 0 || !nodeMap.has(node.parentId)) {
+				// This is a root node
+				if (!root) {
+					root = node;
+				}
+			} else {
+				const parent = nodeMap.get(node.parentId);
+				if (parent) {
+					if (!parent.children) parent.children = [];
+					parent.children.push(node);
+				}
+			}
+		}
+
+		return root || { type: "Query Plan", label: "No plan available" };
+	}
+
+	private extractSqliteNodeType(detail: string): string {
+		// Extract node type from SQLite EXPLAIN QUERY PLAN detail
+		if (detail.includes("SCAN")) return "Scan";
+		if (detail.includes("SEARCH")) return "Search";
+		if (detail.includes("INDEX")) return "Index Scan";
+		if (detail.includes("USING COVERING INDEX")) return "Covering Index Scan";
+		if (detail.includes("SUBQUERY")) return "Subquery";
+		if (detail.includes("COMPOUND")) return "Compound";
+		if (detail.includes("UNION")) return "Union";
+		if (detail.includes("EXCEPT")) return "Except";
+		if (detail.includes("INTERSECT")) return "Intersect";
+		return "Step";
 	}
 
 	parseSchemaResult(rows: unknown[]): SchemaTable[] {

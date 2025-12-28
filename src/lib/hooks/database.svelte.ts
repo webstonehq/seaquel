@@ -16,7 +16,7 @@ import type {
 import Database from "@tauri-apps/plugin-sql";
 import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
-import { getAdapter, type DatabaseAdapter } from "$lib/db";
+import { getAdapter, type DatabaseAdapter, type ExplainNode } from "$lib/db";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 
@@ -1347,19 +1347,15 @@ class UseDatabase {
     this.setActiveView("explain");
 
     try {
-      const baseQuery = tab.query.replace(/;$/, '');
-      const explainQuery = analyze
-        ? `EXPLAIN (ANALYZE, FORMAT JSON) ${baseQuery}`
-        : `EXPLAIN (FORMAT JSON) ${baseQuery}`;
+      const adapter = getAdapter(this.activeConnection!.type);
+      const explainQuery = adapter.getExplainQuery(tab.query, analyze);
+      const result = await this.activeConnection?.database!.select(explainQuery) as unknown[];
 
-      const result = await this.activeConnection?.database!.select(explainQuery) as any[];
+      // Use adapter to parse the results into common format
+      const parsedNode = adapter.parseExplainResult(result, analyze);
 
-      // PostgreSQL returns JSON in a column called "QUERY PLAN"
-      const jsonPlan = result[0]?.["QUERY PLAN"] || result[0]?.["query plan"];
-      const parsedPlan = typeof jsonPlan === 'string' ? JSON.parse(jsonPlan) : jsonPlan;
-
-      // Parse the plan into our structured format
-      const explainResult: ExplainResult = this.parseExplainPlan(parsedPlan[0], analyze);
+      // Convert to ExplainResult format for rendering
+      const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
 
       // Update the explain tab with results
       newExplainTab.result = explainResult;
@@ -1383,39 +1379,39 @@ class UseDatabase {
     }
   }
 
-  private parseExplainPlan(rawPlan: any, isAnalyze: boolean): ExplainResult {
+  private convertExplainNodeToResult(node: ExplainNode, isAnalyze: boolean): ExplainResult {
     let nodeCounter = 0;
 
-    const parseNode = (node: any): ExplainPlanNode => {
+    const convertNode = (n: ExplainNode): ExplainPlanNode => {
       const id = `node-${nodeCounter++}`;
 
       return {
         id,
-        nodeType: node["Node Type"] || "Unknown",
-        relationName: node["Relation Name"],
-        alias: node["Alias"],
-        startupCost: node["Startup Cost"] || 0,
-        totalCost: node["Total Cost"] || 0,
-        planRows: node["Plan Rows"] || 0,
-        planWidth: node["Plan Width"] || 0,
-        actualStartupTime: node["Actual Startup Time"],
-        actualTotalTime: node["Actual Total Time"],
-        actualRows: node["Actual Rows"],
-        actualLoops: node["Actual Loops"],
-        filter: node["Filter"],
-        indexName: node["Index Name"],
-        indexCond: node["Index Cond"],
-        joinType: node["Join Type"],
-        hashCond: node["Hash Cond"],
-        sortKey: node["Sort Key"],
-        children: (node["Plans"] || []).map((child: any) => parseNode(child)),
+        nodeType: n.type,
+        relationName: undefined,
+        alias: undefined,
+        startupCost: 0,
+        totalCost: n.cost || 0,
+        planRows: n.rows || 0,
+        planWidth: 0,
+        actualStartupTime: undefined,
+        actualTotalTime: n.actualTime,
+        actualRows: n.actualRows,
+        actualLoops: undefined,
+        filter: n.label !== n.type ? n.label : undefined,
+        indexName: undefined,
+        indexCond: undefined,
+        joinType: undefined,
+        hashCond: undefined,
+        sortKey: undefined,
+        children: (n.children || []).map((child) => convertNode(child)),
       };
     };
 
     return {
-      plan: parseNode(rawPlan.Plan || rawPlan),
-      planningTime: rawPlan["Planning Time"] || 0,
-      executionTime: rawPlan["Execution Time"],
+      plan: convertNode(node),
+      planningTime: 0,
+      executionTime: undefined,
       isAnalyze,
     };
   }
