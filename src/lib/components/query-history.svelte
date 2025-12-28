@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { formatRelativeTime } from "$lib/utils.js";
 	import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
 	import { Button } from "$lib/components/ui/button";
 	import { Badge } from "$lib/components/ui/badge";
@@ -15,18 +16,6 @@
 
 	const filteredSavedQueries = $derived(db.activeConnectionSavedQueries.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.query.toLowerCase().includes(searchQuery.toLowerCase())));
 
-	const formatTime = (date: Date) => {
-		const now = new Date();
-		const diff = now.getTime() - date.getTime();
-		const minutes = Math.floor(diff / 60000);
-		const hours = Math.floor(diff / 3600000);
-		const days = Math.floor(diff / 86400000);
-
-		if (minutes < 1) return "Just now";
-		if (minutes < 60) return `${minutes}m ago`;
-		if (hours < 24) return `${hours}h ago`;
-		return `${days}d ago`;
-	};
 </script>
 
 <Card class="h-full flex flex-col">
@@ -61,7 +50,7 @@
 								<div class="flex items-start justify-between gap-2 mb-2">
 									<div class="flex items-center gap-2 flex-1 min-w-0">
 										<ClockIcon class="size-3 text-muted-foreground shrink-0" />
-										<span class="text-xs text-muted-foreground">{formatTime(item.timestamp)}</span>
+										<span class="text-xs text-muted-foreground">{formatRelativeTime(item.timestamp)}</span>
 										<Badge variant="secondary" class="text-xs">{item.executionTime}ms</Badge>
 										<Badge variant="outline" class="text-xs">{item.rowCount} rows</Badge>
 									</div>
@@ -115,7 +104,7 @@
 										<Trash2Icon />
 									</Button>
 								</div>
-								<p class="text-xs text-muted-foreground mb-2">Updated {formatTime(item.updatedAt)}</p>
+								<p class="text-xs text-muted-foreground mb-2">Updated {formatRelativeTime(item.updatedAt)}</p>
 								<p class="text-xs font-mono line-clamp-2 text-muted-foreground group-hover:text-foreground transition-colors">
 									{item.query}
 								</p>
