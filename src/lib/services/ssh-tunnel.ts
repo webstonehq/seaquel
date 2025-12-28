@@ -41,11 +41,3 @@ export async function createSshTunnel(config: TunnelConfig): Promise<TunnelResul
 export async function closeSshTunnel(tunnelId: string): Promise<void> {
 	await invoke("close_ssh_tunnel", { tunnelId });
 }
-
-export async function checkTunnelStatus(tunnelId: string): Promise<boolean> {
-	return await invoke<boolean>("check_tunnel_status", { tunnelId });
-}
-
-export async function listActiveTunnels(): Promise<string[]> {
-	return await invoke<string[]>("list_active_tunnels");
-}

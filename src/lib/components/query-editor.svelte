@@ -19,6 +19,7 @@
 	import EditableCell from "$lib/components/editable-cell.svelte";
 	import RowActions from "$lib/components/row-actions.svelte";
 	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
+	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -120,91 +121,10 @@
 		}
 	};
 
-	const escapeCSVValue = (value: unknown): string => {
-		if (value === null || value === undefined) return "";
-		const str = String(value);
-		if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-			return `"${str.replace(/"/g, '""')}"`;
-		}
-		return str;
-	};
-
-	const generateCSV = (): string => {
-		const results = db.activeQueryTab?.results;
-		if (!results) return "";
-
-		const header = results.columns.map(escapeCSVValue).join(",");
-		const rows = results.rows.map((row) =>
-			results.columns.map((col) => escapeCSVValue(row[col])).join(",")
-		);
-		return [header, ...rows].join("\n");
-	};
-
-	const generateJSON = (): string => {
-		const results = db.activeQueryTab?.results;
-		if (!results) return "[]";
-		return JSON.stringify(results.rows, null, 2);
-	};
-
-	const generateSQL = (tableName: string = "table_name"): string => {
-		const results = db.activeQueryTab?.results;
-		if (!results || results.rows.length === 0) return "";
-
-		const escapeValue = (value: unknown): string => {
-			if (value === null || value === undefined) return "NULL";
-			if (typeof value === "number") return String(value);
-			if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-			const str = String(value);
-			return `'${str.replace(/'/g, "''")}'`;
-		};
-
-		const columns = results.columns.join(", ");
-		const inserts = results.rows.map((row) => {
-			const values = results.columns.map((col) => escapeValue(row[col])).join(", ");
-			return `INSERT INTO ${tableName} (${columns}) VALUES (${values});`;
-		});
-
-		return inserts.join("\n");
-	};
-
-	const generateMarkdown = (): string => {
-		const results = db.activeQueryTab?.results;
-		if (!results || results.rows.length === 0) return "";
-
-		const escapeMarkdown = (value: unknown): string => {
-			if (value === null || value === undefined) return "";
-			return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
-		};
-
-		const header = `| ${results.columns.join(" | ")} |`;
-		const separator = `| ${results.columns.map(() => "---").join(" | ")} |`;
-		const rows = results.rows.map(
-			(row) => `| ${results.columns.map((col) => escapeMarkdown(row[col])).join(" | ")} |`
-		);
-
-		return [header, separator, ...rows].join("\n");
-	};
-
-	type ExportFormat = "csv" | "json" | "sql" | "markdown";
-
-	const formatConfig: Record<ExportFormat, { extension: string; name: string }> = {
-		csv: { extension: "csv", name: "CSV" },
-		json: { extension: "json", name: "JSON" },
-		sql: { extension: "sql", name: "SQL" },
-		markdown: { extension: "md", name: "Markdown" }
-	};
-
 	const getContent = (format: ExportFormat): string => {
-		switch (format) {
-			case "csv":
-				return generateCSV();
-			case "json":
-				return generateJSON();
-			case "sql":
-				return generateSQL();
-			case "markdown":
-				return generateMarkdown();
-		}
+		const results = db.activeQueryTab?.results;
+		if (!results) return format === "json" ? "[]" : "";
+		return getExportContent(format, results.columns, results.rows);
 	};
 
 	const handleExport = async (format: ExportFormat) => {

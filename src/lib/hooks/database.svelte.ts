@@ -54,6 +54,110 @@ class UseDatabase {
   // Map connection IDs to their SSH tunnel IDs for cleanup
   private tunnelIds = new Map<string, string>();
 
+  // Helper method to update Map state with reactivity
+  private setMapValue<K, V>(
+    getter: () => Map<K, V>,
+    setter: (m: Map<K, V>) => void,
+    key: K,
+    value: V
+  ): void {
+    const newMap = new Map(getter());
+    newMap.set(key, value);
+    setter(newMap);
+  }
+
+  // Helper method to delete from Map state with reactivity
+  private deleteMapKey<K, V>(
+    getter: () => Map<K, V>,
+    setter: (m: Map<K, V>) => void,
+    key: K
+  ): void {
+    const newMap = new Map(getter());
+    newMap.delete(key);
+    setter(newMap);
+  }
+
+  // Initialize all per-connection maps for a new or reconnected connection
+  private initializeConnectionMaps(connectionId: string): void {
+    this.setMapValue(() => this.queryTabsByConnection, m => this.queryTabsByConnection = m, connectionId, []);
+    this.setMapValue(() => this.schemaTabsByConnection, m => this.schemaTabsByConnection = m, connectionId, []);
+    this.setMapValue(() => this.activeQueryTabIdByConnection, m => this.activeQueryTabIdByConnection = m, connectionId, null);
+    this.setMapValue(() => this.activeSchemaTabIdByConnection, m => this.activeSchemaTabIdByConnection = m, connectionId, null);
+    this.setMapValue(() => this.queryHistoryByConnection, m => this.queryHistoryByConnection = m, connectionId, []);
+    this.setMapValue(() => this.savedQueriesByConnection, m => this.savedQueriesByConnection = m, connectionId, []);
+    this.setMapValue(() => this.explainTabsByConnection, m => this.explainTabsByConnection = m, connectionId, []);
+    this.setMapValue(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId, null);
+    this.setMapValue(() => this.schemas, m => this.schemas = m, connectionId, []);
+  }
+
+  // Clean up all per-connection maps when removing a connection
+  private cleanupConnectionMaps(connectionId: string): void {
+    this.deleteMapKey(() => this.queryTabsByConnection, m => this.queryTabsByConnection = m, connectionId);
+    this.deleteMapKey(() => this.schemaTabsByConnection, m => this.schemaTabsByConnection = m, connectionId);
+    this.deleteMapKey(() => this.activeQueryTabIdByConnection, m => this.activeQueryTabIdByConnection = m, connectionId);
+    this.deleteMapKey(() => this.activeSchemaTabIdByConnection, m => this.activeSchemaTabIdByConnection = m, connectionId);
+    this.deleteMapKey(() => this.queryHistoryByConnection, m => this.queryHistoryByConnection = m, connectionId);
+    this.deleteMapKey(() => this.savedQueriesByConnection, m => this.savedQueriesByConnection = m, connectionId);
+    this.deleteMapKey(() => this.explainTabsByConnection, m => this.explainTabsByConnection = m, connectionId);
+    this.deleteMapKey(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId);
+    this.deleteMapKey(() => this.schemas, m => this.schemas = m, connectionId);
+  }
+
+  // Ensure maps exist for a connection (used during reconnect to preserve existing state)
+  private ensureConnectionMapsExist(connectionId: string): void {
+    if (!this.queryTabsByConnection.has(connectionId)) {
+      this.setMapValue(() => this.queryTabsByConnection, m => this.queryTabsByConnection = m, connectionId, []);
+    }
+    if (!this.schemaTabsByConnection.has(connectionId)) {
+      this.setMapValue(() => this.schemaTabsByConnection, m => this.schemaTabsByConnection = m, connectionId, []);
+    }
+    if (!this.activeQueryTabIdByConnection.has(connectionId)) {
+      this.setMapValue(() => this.activeQueryTabIdByConnection, m => this.activeQueryTabIdByConnection = m, connectionId, null);
+    }
+    if (!this.activeSchemaTabIdByConnection.has(connectionId)) {
+      this.setMapValue(() => this.activeSchemaTabIdByConnection, m => this.activeSchemaTabIdByConnection = m, connectionId, null);
+    }
+    if (!this.queryHistoryByConnection.has(connectionId)) {
+      this.setMapValue(() => this.queryHistoryByConnection, m => this.queryHistoryByConnection = m, connectionId, []);
+    }
+    if (!this.savedQueriesByConnection.has(connectionId)) {
+      this.setMapValue(() => this.savedQueriesByConnection, m => this.savedQueriesByConnection = m, connectionId, []);
+    }
+    if (!this.explainTabsByConnection.has(connectionId)) {
+      this.setMapValue(() => this.explainTabsByConnection, m => this.explainTabsByConnection = m, connectionId, []);
+    }
+    if (!this.activeExplainTabIdByConnection.has(connectionId)) {
+      this.setMapValue(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId, null);
+    }
+  }
+
+  // Generic tab removal helper
+  private removeTabGeneric<T extends { id: string }>(
+    tabsGetter: () => Map<string, T[]>,
+    tabsSetter: (m: Map<string, T[]>) => void,
+    activeIdGetter: () => Map<string, string | null>,
+    activeIdSetter: (m: Map<string, string | null>) => void,
+    tabId: string
+  ): void {
+    if (!this.activeConnectionId) return;
+
+    const tabs = tabsGetter().get(this.activeConnectionId) || [];
+    const index = tabs.findIndex((t) => t.id === tabId);
+    const newTabs = tabs.filter((t) => t.id !== tabId);
+
+    this.setMapValue(tabsGetter, tabsSetter, this.activeConnectionId, newTabs);
+
+    const currentActiveId = activeIdGetter().get(this.activeConnectionId);
+    if (currentActiveId === tabId) {
+      let newActiveId: string | null = null;
+      if (newTabs.length > 0) {
+        const newIndex = Math.min(index, newTabs.length - 1);
+        newActiveId = newTabs[newIndex]?.id || null;
+      }
+      this.setMapValue(activeIdGetter, activeIdSetter, this.activeConnectionId, newActiveId);
+    }
+  }
+
   activeConnection = $derived(
     this.connections.find((c) => c.id === this.activeConnectionId) || null,
   );
@@ -192,45 +296,7 @@ class UseDatabase {
             // database is undefined - user needs to provide password to connect
           };
           this.connections.push(connection);
-
-          // Initialize empty maps for this connection
-          const newQueryTabs = new Map(this.queryTabsByConnection);
-          newQueryTabs.set(connection.id, []);
-          this.queryTabsByConnection = newQueryTabs;
-
-          const newSchemaTabs = new Map(this.schemaTabsByConnection);
-          newSchemaTabs.set(connection.id, []);
-          this.schemaTabsByConnection = newSchemaTabs;
-
-          const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
-          newActiveQueryIds.set(connection.id, null);
-          this.activeQueryTabIdByConnection = newActiveQueryIds;
-
-          const newActiveSchemaIds = new Map(
-            this.activeSchemaTabIdByConnection,
-          );
-          newActiveSchemaIds.set(connection.id, null);
-          this.activeSchemaTabIdByConnection = newActiveSchemaIds;
-
-          const newQueryHistory = new Map(this.queryHistoryByConnection);
-          newQueryHistory.set(connection.id, []);
-          this.queryHistoryByConnection = newQueryHistory;
-
-          const newSavedQueries = new Map(this.savedQueriesByConnection);
-          newSavedQueries.set(connection.id, []);
-          this.savedQueriesByConnection = newSavedQueries;
-
-          const newExplainTabs = new Map(this.explainTabsByConnection);
-          newExplainTabs.set(connection.id, []);
-          this.explainTabsByConnection = newExplainTabs;
-
-          const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
-          newActiveExplainIds.set(connection.id, null);
-          this.activeExplainTabIdByConnection = newActiveExplainIds;
-
-          const newSchemas = new Map(this.schemas);
-          newSchemas.set(connection.id, []);
-          this.schemas = newSchemas;
+          this.initializeConnectionMaps(connection.id);
         }
       }
     } catch (error) {
@@ -360,40 +426,7 @@ class UseDatabase {
     }
 
     this.activeConnectionId = newConnection.id;
-
-    // Initialize tabs for new connection
-    const newQueryTabs = new Map(this.queryTabsByConnection);
-    newQueryTabs.set(newConnection.id, []);
-    this.queryTabsByConnection = newQueryTabs;
-
-    const newSchemaTabs = new Map(this.schemaTabsByConnection);
-    newSchemaTabs.set(newConnection.id, []);
-    this.schemaTabsByConnection = newSchemaTabs;
-
-    const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
-    newActiveQueryIds.set(newConnection.id, null);
-    this.activeQueryTabIdByConnection = newActiveQueryIds;
-
-    const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
-    newActiveSchemaIds.set(newConnection.id, null);
-    this.activeSchemaTabIdByConnection = newActiveSchemaIds;
-
-    // Initialize query history and saved queries for new connection
-    const newQueryHistory = new Map(this.queryHistoryByConnection);
-    newQueryHistory.set(newConnection.id, []);
-    this.queryHistoryByConnection = newQueryHistory;
-
-    const newSavedQueries = new Map(this.savedQueriesByConnection);
-    newSavedQueries.set(newConnection.id, []);
-    this.savedQueriesByConnection = newSavedQueries;
-
-    const newExplainTabs = new Map(this.explainTabsByConnection);
-    newExplainTabs.set(newConnection.id, []);
-    this.explainTabsByConnection = newExplainTabs;
-
-    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
-    newActiveExplainIds.set(newConnection.id, null);
-    this.activeExplainTabIdByConnection = newActiveExplainIds;
+    this.initializeConnectionMaps(newConnection.id);
 
     const adapter = getAdapter(newConnection.type);
     const schemasWithTablesDbResult = await newConnection.database!
@@ -487,55 +520,7 @@ class UseDatabase {
     existingConnection.password = connection.password;
     existingConnection.tunnelLocalPort = tunnelLocalPort;
     existingConnection.sshTunnel = connection.sshTunnel;
-
-    // Ensure maps are initialized for this connection
-    if (!this.queryTabsByConnection.has(connectionId)) {
-      const newQueryTabs = new Map(this.queryTabsByConnection);
-      newQueryTabs.set(connectionId, []);
-      this.queryTabsByConnection = newQueryTabs;
-    }
-
-    if (!this.schemaTabsByConnection.has(connectionId)) {
-      const newSchemaTabs = new Map(this.schemaTabsByConnection);
-      newSchemaTabs.set(connectionId, []);
-      this.schemaTabsByConnection = newSchemaTabs;
-    }
-
-    if (!this.activeQueryTabIdByConnection.has(connectionId)) {
-      const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
-      newActiveQueryIds.set(connectionId, null);
-      this.activeQueryTabIdByConnection = newActiveQueryIds;
-    }
-
-    if (!this.activeSchemaTabIdByConnection.has(connectionId)) {
-      const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
-      newActiveSchemaIds.set(connectionId, null);
-      this.activeSchemaTabIdByConnection = newActiveSchemaIds;
-    }
-
-    if (!this.queryHistoryByConnection.has(connectionId)) {
-      const newQueryHistory = new Map(this.queryHistoryByConnection);
-      newQueryHistory.set(connectionId, []);
-      this.queryHistoryByConnection = newQueryHistory;
-    }
-
-    if (!this.savedQueriesByConnection.has(connectionId)) {
-      const newSavedQueries = new Map(this.savedQueriesByConnection);
-      newSavedQueries.set(connectionId, []);
-      this.savedQueriesByConnection = newSavedQueries;
-    }
-
-    if (!this.explainTabsByConnection.has(connectionId)) {
-      const newExplainTabs = new Map(this.explainTabsByConnection);
-      newExplainTabs.set(connectionId, []);
-      this.explainTabsByConnection = newExplainTabs;
-    }
-
-    if (!this.activeExplainTabIdByConnection.has(connectionId)) {
-      const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
-      newActiveExplainIds.set(connectionId, null);
-      this.activeExplainTabIdByConnection = newActiveExplainIds;
-    }
+    this.ensureConnectionMapsExist(connectionId);
 
     // Fetch schemas
     const adapter = getAdapter(existingConnection.type);
@@ -580,45 +565,7 @@ class UseDatabase {
     // Remove from persistence
     this.removePersistedConnection(id);
     this.connections = this.connections.filter((c) => c.id !== id);
-
-    // Clean up tabs for removed connection
-    const newQueryTabs = new Map(this.queryTabsByConnection);
-    newQueryTabs.delete(id);
-    this.queryTabsByConnection = newQueryTabs;
-
-    const newSchemaTabs = new Map(this.schemaTabsByConnection);
-    newSchemaTabs.delete(id);
-    this.schemaTabsByConnection = newSchemaTabs;
-
-    const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
-    newActiveQueryIds.delete(id);
-    this.activeQueryTabIdByConnection = newActiveQueryIds;
-
-    const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
-    newActiveSchemaIds.delete(id);
-    this.activeSchemaTabIdByConnection = newActiveSchemaIds;
-
-    const newSchemas = new Map(this.schemas);
-    newSchemas.delete(id);
-    this.schemas = newSchemas;
-
-    // Clean up query history and saved queries for removed connection
-    const newQueryHistory = new Map(this.queryHistoryByConnection);
-    newQueryHistory.delete(id);
-    this.queryHistoryByConnection = newQueryHistory;
-
-    const newSavedQueries = new Map(this.savedQueriesByConnection);
-    newSavedQueries.delete(id);
-    this.savedQueriesByConnection = newSavedQueries;
-
-    // Clean up explain tabs for removed connection
-    const newExplainTabs = new Map(this.explainTabsByConnection);
-    newExplainTabs.delete(id);
-    this.explainTabsByConnection = newExplainTabs;
-
-    const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
-    newActiveExplainIds.delete(id);
-    this.activeExplainTabIdByConnection = newActiveExplainIds;
+    this.cleanupConnectionMaps(id);
 
     if (this.activeConnectionId === id) {
       const nextConnection = this.connections.find((c) => c.database);
@@ -673,32 +620,13 @@ class UseDatabase {
   }
 
   removeQueryTab(id: string) {
-    if (!this.activeConnectionId) return;
-
-    const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
-    const index = tabs.findIndex((t) => t.id === id);
-    const newTabs = tabs.filter((t) => t.id !== id);
-
-    const newQueryTabs = new Map(this.queryTabsByConnection);
-    newQueryTabs.set(this.activeConnectionId, newTabs);
-    this.queryTabsByConnection = newQueryTabs;
-
-    const currentActiveId = this.activeQueryTabIdByConnection.get(
-      this.activeConnectionId,
+    this.removeTabGeneric(
+      () => this.queryTabsByConnection,
+      m => this.queryTabsByConnection = m,
+      () => this.activeQueryTabIdByConnection,
+      m => this.activeQueryTabIdByConnection = m,
+      id
     );
-    if (currentActiveId === id) {
-      const newActiveQueryIds = new Map(this.activeQueryTabIdByConnection);
-      if (newTabs.length > 0) {
-        const newIndex = Math.min(index, newTabs.length - 1);
-        newActiveQueryIds.set(
-          this.activeConnectionId,
-          newTabs[newIndex]?.id || null,
-        );
-      } else {
-        newActiveQueryIds.set(this.activeConnectionId, null);
-      }
-      this.activeQueryTabIdByConnection = newActiveQueryIds;
-    }
   }
 
   renameQueryTab(id: string, newName: string) {
@@ -993,32 +921,13 @@ class UseDatabase {
   }
 
   removeSchemaTab(id: string) {
-    if (!this.activeConnectionId) return;
-
-    const tabs = this.schemaTabsByConnection.get(this.activeConnectionId) || [];
-    const index = tabs.findIndex((t) => t.id === id);
-    const newTabs = tabs.filter((t) => t.id !== id);
-
-    const newSchemaTabs = new Map(this.schemaTabsByConnection);
-    newSchemaTabs.set(this.activeConnectionId, newTabs);
-    this.schemaTabsByConnection = newSchemaTabs;
-
-    const currentActiveId = this.activeSchemaTabIdByConnection.get(
-      this.activeConnectionId,
+    this.removeTabGeneric(
+      () => this.schemaTabsByConnection,
+      m => this.schemaTabsByConnection = m,
+      () => this.activeSchemaTabIdByConnection,
+      m => this.activeSchemaTabIdByConnection = m,
+      id
     );
-    if (currentActiveId === id) {
-      const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
-      if (newTabs.length > 0) {
-        const newIndex = Math.min(index, newTabs.length - 1);
-        newActiveSchemaIds.set(
-          this.activeConnectionId,
-          newTabs[newIndex]?.id || null,
-        );
-      } else {
-        newActiveSchemaIds.set(this.activeConnectionId, null);
-      }
-      this.activeSchemaTabIdByConnection = newActiveSchemaIds;
-    }
   }
 
   setActiveSchemaTab(id: string) {
@@ -1417,28 +1326,16 @@ class UseDatabase {
   }
 
   removeExplainTab(id: string) {
-    if (!this.activeConnectionId) return;
-
-    const tabs = this.explainTabsByConnection.get(this.activeConnectionId) || [];
-    const index = tabs.findIndex((t) => t.id === id);
-    const newTabs = tabs.filter((t) => t.id !== id);
-
-    const newExplainTabs = new Map(this.explainTabsByConnection);
-    newExplainTabs.set(this.activeConnectionId, newTabs);
-    this.explainTabsByConnection = newExplainTabs;
-
-    const currentActiveId = this.activeExplainTabIdByConnection.get(this.activeConnectionId);
-    if (currentActiveId === id) {
-      const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
-      if (newTabs.length > 0) {
-        const newIndex = Math.min(index, newTabs.length - 1);
-        newActiveExplainIds.set(this.activeConnectionId, newTabs[newIndex]?.id || null);
-      } else {
-        newActiveExplainIds.set(this.activeConnectionId, null);
-        // Switch to query view if no explain tabs left
-        this.setActiveView("query");
-      }
-      this.activeExplainTabIdByConnection = newActiveExplainIds;
+    this.removeTabGeneric(
+      () => this.explainTabsByConnection,
+      m => this.explainTabsByConnection = m,
+      () => this.activeExplainTabIdByConnection,
+      m => this.activeExplainTabIdByConnection = m,
+      id
+    );
+    // Switch to query view if no explain tabs left
+    if (this.activeConnectionId && this.explainTabs.length === 0) {
+      this.setActiveView("query");
     }
   }
 
