@@ -8,6 +8,9 @@
     import { setShortcuts } from "$lib/shortcuts/index.js";
     import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
     import CommandPalette from "$lib/components/command-palette.svelte";
+    import { listen } from "@tauri-apps/api/event";
+    import { invoke } from "@tauri-apps/api/core";
+    import { toast } from "svelte-sonner";
 
     setDatabase();
     const db = useDatabase();
@@ -18,6 +21,21 @@
     function handleBeforeUnload() {
         db.flushPersistence();
     }
+
+    $effect(() => {
+        const unlisten = listen<string>("update-downloaded", (event) => {
+            toast.success(`Update v${event.payload} downloaded`, {
+                action: {
+                    label: "Install & Restart",
+                    onClick: () => invoke("install_update"),
+                },
+                duration: Infinity,
+            });
+        });
+        return () => {
+            unlisten.then((fn) => fn());
+        };
+    });
 </script>
 
 <svelte:window onkeydown={shortcuts.handleKeydown} onbeforeunload={handleBeforeUnload} />

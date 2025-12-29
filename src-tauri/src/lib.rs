@@ -1,10 +1,16 @@
-use tauri_plugin_updater::UpdaterExt;
 use arboard::Clipboard;
 use image::ImageReader;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager};
+use tauri_plugin_updater::UpdaterExt;
 
 mod ssh_tunnel;
 
 use ssh_tunnel::TunnelManager;
+
+struct PendingUpdate {
+    bytes: Mutex<Option<Vec<u8>>>,
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -37,12 +43,30 @@ fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let bytes = pending.bytes.lock().unwrap().take();
+    if let Some(bytes) = bytes {
+        // Re-check for update to get the Update object needed for install
+        if let Some(update) = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())? {
+            update.install(&bytes).map_err(|e| e.to_string())?;
+            app.restart();
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
+        .manage(PendingUpdate { bytes: Mutex::new(None) })
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -51,6 +75,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             copy_image_to_clipboard,
+            install_update,
             ssh_tunnel::create_ssh_tunnel,
             ssh_tunnel::close_ssh_tunnel,
             ssh_tunnel::check_tunnel_status,
@@ -59,7 +84,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                update(handle).await.unwrap();
+                let _ = check_for_update(handle).await;
             });
             Ok(())
         })
@@ -67,13 +92,13 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
+async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     if let Some(update) = app.updater()?.check().await? {
         let mut downloaded = 0;
+        let version = update.version.clone();
 
-        // alternatively we could also call update.download() and update.install() separately
-        update
-            .download_and_install(
+        let bytes = update
+            .download(
                 |chunk_length, content_length| {
                     downloaded += chunk_length;
                     println!("downloaded {downloaded} from {content_length:?}");
@@ -84,8 +109,13 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
             )
             .await?;
 
-        println!("update installed");
-        app.restart();
+        println!("update downloaded, notifying frontend");
+
+        // Store the bytes for later installation
+        let pending = app.state::<PendingUpdate>();
+        *pending.bytes.lock().unwrap() = Some(bytes);
+
+        let _ = app.emit("update-downloaded", version);
     }
 
     Ok(())

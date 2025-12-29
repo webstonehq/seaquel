@@ -4825,6 +4825,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-os",
+ "tauri-plugin-process",
  "tauri-plugin-sql",
  "tauri-plugin-store",
  "tauri-plugin-updater",
@@ -5867,6 +5868,16 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "tauri-plugin-process"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d55511a7bf6cd70c8767b02c97bf8134fa434daf3926cfc1be0a0f94132d165a"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
