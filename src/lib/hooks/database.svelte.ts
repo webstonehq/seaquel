@@ -732,7 +732,10 @@ class UseDatabase extends DatabaseState {
         toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
 
         // Store tunnel ID for later cleanup
-        const connectionId = `conn-${connection.host}-${connection.port}`;
+        const connectionId =
+          connection.type === 'sqlite'
+            ? `conn-sqlite-${connection.databaseName}`
+            : `conn-${connection.host}-${connection.port}`;
         this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
       } catch (error) {
         toast.error(`SSH tunnel failed: ${error}`);
@@ -742,7 +745,10 @@ class UseDatabase extends DatabaseState {
 
     const newConnection: DatabaseConnection = {
       ...connection,
-      id: `conn-${connection.host}-${connection.port}`,
+      id:
+        connection.type === 'sqlite'
+          ? `conn-sqlite-${connection.databaseName}`
+          : `conn-${connection.host}-${connection.port}`,
       lastConnected: new Date(),
       tunnelLocalPort,
       database: effectiveConnectionString

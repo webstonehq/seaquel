@@ -16,8 +16,8 @@
 	);
 </script>
 
-<div class="flex-1 flex items-center justify-center p-8">
-	<div class="max-w-3xl w-full space-y-6">
+<div class="flex-1 overflow-y-auto p-8">
+	<div class="max-w-3xl mx-auto space-y-6">
 		<div class="text-center space-y-1">
 			<h1 class="text-xl font-semibold">Select a Connection</h1>
 			<p class="text-muted-foreground text-sm">Click a connection to get started</p>
