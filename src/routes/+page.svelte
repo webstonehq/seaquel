@@ -8,6 +8,8 @@
     import ExplainViewer from "$lib/components/explain-viewer.svelte";
     import ErdViewer from "$lib/components/erd-viewer.svelte";
     import AIAssistant from "$lib/components/ai-assistant.svelte";
+    import WelcomeScreen from "$lib/components/empty-states/welcome-screen.svelte";
+    import ConnectionsGrid from "$lib/components/empty-states/connections-grid.svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -265,7 +267,9 @@
 
 <Toaster position="bottom-right" richColors />
 
-<SidebarLeft />
+{#if db.activeConnectionId}
+    <SidebarLeft />
+{/if}
 <SidebarInset class="flex flex-col h-full overflow-hidden">
     {#if db.activeConnectionId}
         <!-- Unified Tab Bar -->
@@ -491,6 +495,10 @@
                 <ErdViewer />
             {/if}
         </div>
+    {:else if db.connections.length === 0}
+        <WelcomeScreen />
+    {:else}
+        <ConnectionsGrid />
     {/if}
 </SidebarInset>
 

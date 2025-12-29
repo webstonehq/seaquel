@@ -288,7 +288,7 @@
 		{/if}
 	</SidebarContent>
 
-	<SidebarFooter class="border-t border-sidebar-border p-4">
+	<SidebarFooter class="p-4">
 		<div class="text-xs text-muted-foreground">
 			{#if db.activeConnection}
 				{#if sidebarTab === "schema"}

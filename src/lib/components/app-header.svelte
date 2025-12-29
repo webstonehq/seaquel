@@ -3,6 +3,8 @@
     import SidebarIcon from "@lucide/svelte/icons/sidebar";
     import { Button } from "$lib/components/ui/button/index.js";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+    import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
+    import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import ConnectionDialog from "$lib/components/connection-dialog.svelte";
@@ -11,27 +13,20 @@
     import BotIcon from "@lucide/svelte/icons/bot";
     import NetworkIcon from "@lucide/svelte/icons/network";
     import ThemeToggle from "./theme-toggle.svelte";
-    import type { DatabaseType } from "$lib/types";
+    import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
 
     const db = useDatabase();
     const sidebar = Sidebar.useSidebar();
+
+    // Remove connection confirmation dialog state
+    let showRemoveDialog = $state(false);
+    let connectionToRemove = $state<string | null>(null);
+    let connectionToRemoveName = $state("");
 
     const handleCloseConnection = (e: MouseEvent, connectionId: string) => {
         e.stopPropagation();
         db.toggleConnection(connectionId);
     };
-    let showConnectionDialog = $state(false);
-    let dialogPrefillData = $state<{
-        id?: string;
-        name?: string;
-        type?: DatabaseType;
-        host?: string;
-        port?: number;
-        databaseName?: string;
-        username?: string;
-        sslMode?: string;
-        connectionString?: string;
-    } | undefined>(undefined);
 
     const handleConnectionClick = (connection: typeof db.connections[0]) => {
         // If connection has a database instance, just activate it
@@ -39,7 +34,7 @@
             db.setActiveConnection(connection.id);
         } else {
             // If no database (persisted connection), open dialog with prefilled values
-            dialogPrefillData = {
+            connectionDialogStore.open({
                 id: connection.id,
                 name: connection.name,
                 type: connection.type,
@@ -49,9 +44,23 @@
                 username: connection.username,
                 sslMode: connection.sslMode,
                 connectionString: connection.connectionString,
-            };
-            showConnectionDialog = true;
+            });
         }
+    };
+
+    const confirmRemoveConnection = (connectionId: string, name: string) => {
+        connectionToRemove = connectionId;
+        connectionToRemoveName = name;
+        showRemoveDialog = true;
+    };
+
+    const handleRemoveConnection = () => {
+        if (connectionToRemove) {
+            db.removeConnection(connectionToRemove);
+            connectionToRemove = null;
+            connectionToRemoveName = "";
+        }
+        showRemoveDialog = false;
     };
 </script>
 
@@ -75,54 +84,76 @@
                 <ScrollArea orientation="horizontal" class="flex-1">
                     <div class="flex items-center gap-1">
                         {#each db.connections as connection (connection.id)}
-                            <div
-                                role="button"
-                                tabindex="0"
-                                class={[
-                                    "relative group shrink-0 flex items-center gap-2 px-3 h-5 text-xs rounded-md",
-                                    db.activeConnectionId === connection.id
-                                        ? "bg-primary text-primary-foreground border-primary"
-                                        : "bg-background hover:bg-muted border-border",
-                                ]}
-                                onclick={() =>
-                                    handleConnectionClick(connection)}
-                                onkeyup={(e) => {
-                                    if (e.key !== "Escape") {
-                                        handleConnectionClick(connection);
-                                    }
-                                }}
-                            >
-                                <span
-                                    class={[
-                                        "size-2 rounded-full shrink-0",
-                                        connection.database
-                                            ? "bg-green-500"
-                                            : "bg-gray-400"
-                                    ]}
-                                    title={connection.database ? "Connected" : "Disconnected"}
-                                ></span>
-                                <span class="pr-4">{connection.name}</span>
-                                <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    class={[
-                                        "absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity",
-                                    ]}
-                                    onclick={(e) =>
-                                        handleCloseConnection(e, connection.id)}
-                                >
-                                    <XIcon class="size-3" />
-                                </Button>
-                            </div>
+                            <ContextMenu.Root>
+                                <ContextMenu.Trigger>
+                                    <div
+                                        role="button"
+                                        tabindex="0"
+                                        class={[
+                                            "relative group shrink-0 flex items-center gap-2 px-3 h-5 text-xs rounded-md",
+                                            db.activeConnectionId === connection.id
+                                                ? "bg-primary text-primary-foreground border-primary"
+                                                : "bg-background hover:bg-muted border-border",
+                                        ]}
+                                        onclick={() =>
+                                            handleConnectionClick(connection)}
+                                        onkeyup={(e) => {
+                                            if (e.key !== "Escape") {
+                                                handleConnectionClick(connection);
+                                            }
+                                        }}
+                                    >
+                                        <span
+                                            class={[
+                                                "size-2 rounded-full shrink-0",
+                                                connection.database
+                                                    ? "bg-green-500"
+                                                    : "bg-gray-400"
+                                            ]}
+                                            title={connection.database ? "Connected" : "Disconnected"}
+                                        ></span>
+                                        <span class="pr-4">{connection.name}</span>
+                                        {#if connection.database}
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                class={[
+                                                    "absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity",
+                                                ]}
+                                                onclick={(e) =>
+                                                    handleCloseConnection(e, connection.id)}
+                                            >
+                                                <XIcon class="size-3" />
+                                            </Button>
+                                        {/if}
+                                    </div>
+                                </ContextMenu.Trigger>
+                                <ContextMenu.Content class="w-40">
+                                    {#if connection.database}
+                                        <ContextMenu.Item onclick={() => db.toggleConnection(connection.id)}>
+                                            Disconnect
+                                        </ContextMenu.Item>
+                                        <ContextMenu.Separator />
+                                    {:else}
+                                        <ContextMenu.Item onclick={() => handleConnectionClick(connection)}>
+                                            Connect
+                                        </ContextMenu.Item>
+                                        <ContextMenu.Separator />
+                                    {/if}
+                                    <ContextMenu.Item
+                                        class="text-destructive focus:text-destructive"
+                                        onclick={() => confirmRemoveConnection(connection.id, connection.name)}
+                                    >
+                                        Remove Connection
+                                    </ContextMenu.Item>
+                                </ContextMenu.Content>
+                            </ContextMenu.Root>
                         {/each}
                         <Button
                             size="icon"
                             variant="ghost"
                             class="size-8"
-                            onclick={() => {
-                                dialogPrefillData = undefined;
-                                showConnectionDialog = true;
-                            }}
+                            onclick={() => connectionDialogStore.open()}
                         >
                             <PlusIcon class="size-4" />
                         </Button>
@@ -132,10 +163,7 @@
                 <Badge
                     variant="outline"
                     class="cursor-pointer hover:bg-muted transition-colors"
-                    onclick={() => {
-                        dialogPrefillData = undefined;
-                        showConnectionDialog = true;
-                    }}
+                    onclick={() => connectionDialogStore.open()}
                 >
                     <PlusIcon class="size-3 mr-1" />
                     Add new connection
@@ -167,4 +195,23 @@
     </div>
 </header>
 
-<ConnectionDialog bind:open={showConnectionDialog} prefill={dialogPrefillData} />
+<ConnectionDialog bind:open={connectionDialogStore.isOpen} prefill={connectionDialogStore.prefill} />
+
+<Dialog.Root bind:open={showRemoveDialog}>
+    <Dialog.Content class="max-w-md">
+        <Dialog.Header>
+            <Dialog.Title>Remove Connection</Dialog.Title>
+            <Dialog.Description>
+                Are you sure you want to remove "{connectionToRemoveName}"? This will delete the saved connection and all associated data.
+            </Dialog.Description>
+        </Dialog.Header>
+        <Dialog.Footer class="gap-2">
+            <Button variant="outline" onclick={() => showRemoveDialog = false}>
+                Cancel
+            </Button>
+            <Button variant="destructive" onclick={handleRemoveConnection}>
+                Remove
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
