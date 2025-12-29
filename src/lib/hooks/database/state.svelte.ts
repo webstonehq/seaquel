@@ -41,6 +41,9 @@ export class DatabaseState {
   erdTabsByConnection = $state<Map<string, ErdTab[]>>(new Map());
   activeErdTabIdByConnection = $state<Map<string, string | null>>(new Map());
 
+  // Tab ordering state (stores ordered array of all tab IDs per connection)
+  tabOrderByConnection = $state<Map<string, string[]>>(new Map());
+
   // AI state
   aiMessages = $state<AIMessage[]>([]);
   isAIOpen = $state(false);

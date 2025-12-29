@@ -218,6 +218,7 @@ export interface PersistedConnectionState {
 	schemaTabs: PersistedSchemaTab[];
 	explainTabs: PersistedExplainTab[];
 	erdTabs: PersistedErdTab[];
+	tabOrder: string[];
 	activeQueryTabId: string | null;
 	activeSchemaTabId: string | null;
 	activeExplainTabId: string | null;

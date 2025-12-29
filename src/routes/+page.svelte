@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import { flip } from "svelte/animate";
+    import { dndzone } from "svelte-dnd-action";
     import { Toaster } from "$lib/components/ui/sonner";
     import { SidebarInset } from "$lib/components/ui/sidebar";
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
@@ -22,6 +24,7 @@
     import UnsavedChangesDialog from "$lib/components/unsaved-changes-dialog.svelte";
     import BatchUnsavedDialog from "$lib/components/batch-unsaved-dialog.svelte";
     import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
+    import type { QueryTab, SchemaTab, ExplainTab, ErdTab } from "$lib/types";
 
     const db = useDatabase();
     const shortcuts = useShortcuts();
@@ -75,19 +78,31 @@
         db.setActiveView("erd");
     };
 
-    // Extract timestamp from tab ID for ordering
-    const getTabTimestamp = (id: string): number => {
-        const match = id.match(/\d+$/);
-        return match ? parseInt(match[0], 10) : 0;
-    };
+    // Get ordered tabs from db (uses custom order with timestamp fallback)
+    const allTabs = $derived(db.orderedTabs);
 
-    // Get all tabs in creation order for unified tab bar
-    const allTabs = $derived([
-        ...db.queryTabs.map(t => ({ id: t.id, type: 'query' as const, tab: t })),
-        ...db.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const, tab: t })),
-        ...db.explainTabs.map(t => ({ id: t.id, type: 'explain' as const, tab: t })),
-        ...db.erdTabs.map(t => ({ id: t.id, type: 'erd' as const, tab: t }))
-    ].sort((a, b) => getTabTimestamp(a.id) - getTabTimestamp(b.id)));
+    // Drag and drop configuration
+    const flipDurationMs = 150;
+    type DndItem = { id: string; type: 'query' | 'schema' | 'explain' | 'erd'; tab: QueryTab | SchemaTab | ExplainTab | ErdTab };
+
+    // State for dragging (tracks items during drag for smooth animation)
+    let draggedItems = $state<DndItem[]>([]);
+    let isDragging = $state(false);
+
+    // Use dragged items during drag, otherwise use db.orderedTabs
+    const displayTabs = $derived(isDragging ? draggedItems : allTabs);
+
+    function handleDndConsider(e: CustomEvent<{ items: DndItem[] }>) {
+        isDragging = true;
+        draggedItems = e.detail.items;
+    }
+
+    function handleDndFinalize(e: CustomEvent<{ items: DndItem[] }>) {
+        isDragging = false;
+        draggedItems = [];
+        const newOrder = e.detail.items.map(item => item.id);
+        db.reorderTabs(newOrder);
+    }
 
     const currentTabIndex = $derived(() => {
         if (db.activeView === 'query' && db.activeQueryTabId) {
@@ -275,9 +290,21 @@
         <!-- Unified Tab Bar -->
         <div class="flex items-center gap-2 p-2 border-b bg-muted/30">
             <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
-                <div class="flex items-center gap-1 w-max">
-                    <!-- All tabs in creation order -->
-                    {#each allTabs as { id, type, tab } (id)}
+                <div
+                    class="flex items-center gap-1 w-max"
+                    use:dndzone={{
+                        items: displayTabs,
+                        flipDurationMs,
+                        type: 'tabs',
+                        dropTargetStyle: {},
+                        dragDisabled: editingTabId !== null
+                    }}
+                    onconsider={handleDndConsider}
+                    onfinalize={handleDndFinalize}
+                >
+                    <!-- All tabs in order -->
+                    {#each displayTabs as { id, type, tab } (id)}
+                        <div animate:flip={{ duration: flipDurationMs }}>
                         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
                         {#if type === 'query'}
                             {@const queryTab = tab as import('$lib/types').QueryTab}
@@ -454,6 +481,7 @@
                                 </ContextMenu.Portal>
                             </ContextMenu.Root>
                         {/if}
+                        </div>
                     {/each}
                 </div>
             </div>

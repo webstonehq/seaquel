@@ -150,6 +150,7 @@ class UseDatabase extends DatabaseState {
         schemaTabs: this.serializeSchemaTabs(connectionId),
         explainTabs: this.serializeExplainTabs(connectionId),
         erdTabs: this.serializeErdTabs(connectionId),
+        tabOrder: this.tabOrderByConnection.get(connectionId) || [],
         activeQueryTabId: this.activeQueryTabIdByConnection.get(connectionId) || null,
         activeSchemaTabId: this.activeSchemaTabIdByConnection.get(connectionId) || null,
         activeExplainTabId: this.activeExplainTabIdByConnection.get(connectionId) || null,
@@ -315,6 +316,16 @@ class UseDatabase extends DatabaseState {
       );
     }
 
+    // Restore tab order (if available, otherwise will use timestamp ordering)
+    if (state.tabOrder && state.tabOrder.length > 0) {
+      setMapValue(
+        () => this.tabOrderByConnection,
+        m => this.tabOrderByConnection = m,
+        connectionId,
+        state.tabOrder
+      );
+    }
+
     // Restore active view
     this.activeView = state.activeView;
 
@@ -360,6 +371,7 @@ class UseDatabase extends DatabaseState {
     setMapValue(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId, null);
     setMapValue(() => this.erdTabsByConnection, m => this.erdTabsByConnection = m, connectionId, []);
     setMapValue(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId, null);
+    setMapValue(() => this.tabOrderByConnection, m => this.tabOrderByConnection = m, connectionId, []);
     setMapValue(() => this.schemas, m => this.schemas = m, connectionId, []);
   }
 
@@ -375,6 +387,7 @@ class UseDatabase extends DatabaseState {
     deleteMapKey(() => this.activeExplainTabIdByConnection, m => this.activeExplainTabIdByConnection = m, connectionId);
     deleteMapKey(() => this.erdTabsByConnection, m => this.erdTabsByConnection = m, connectionId);
     deleteMapKey(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId);
+    deleteMapKey(() => this.tabOrderByConnection, m => this.tabOrderByConnection = m, connectionId);
     deleteMapKey(() => this.schemas, m => this.schemas = m, connectionId);
   }
 
@@ -410,6 +423,9 @@ class UseDatabase extends DatabaseState {
     if (!this.activeErdTabIdByConnection.has(connectionId)) {
       setMapValue(() => this.activeErdTabIdByConnection, m => this.activeErdTabIdByConnection = m, connectionId, null);
     }
+    if (!this.tabOrderByConnection.has(connectionId)) {
+      setMapValue(() => this.tabOrderByConnection, m => this.tabOrderByConnection = m, connectionId, []);
+    }
   }
 
   // Generic tab removal helper
@@ -428,6 +444,9 @@ class UseDatabase extends DatabaseState {
 
     setMapValue(tabsGetter, tabsSetter, this.activeConnectionId, newTabs);
 
+    // Remove from tab order
+    this.removeFromTabOrder(tabId);
+
     const currentActiveId = activeIdGetter().get(this.activeConnectionId);
     if (currentActiveId === tabId) {
       let newActiveId: string | null = null;
@@ -439,6 +458,77 @@ class UseDatabase extends DatabaseState {
     }
   }
 
+  // Tab ordering methods
+  private addToTabOrder(tabId: string): void {
+    if (!this.activeConnectionId) return;
+    const order = this.tabOrderByConnection.get(this.activeConnectionId) || [];
+    if (!order.includes(tabId)) {
+      setMapValue(
+        () => this.tabOrderByConnection,
+        m => this.tabOrderByConnection = m,
+        this.activeConnectionId,
+        [...order, tabId]
+      );
+    }
+  }
+
+  private removeFromTabOrder(tabId: string): void {
+    if (!this.activeConnectionId) return;
+    const order = this.tabOrderByConnection.get(this.activeConnectionId) || [];
+    setMapValue(
+      () => this.tabOrderByConnection,
+      m => this.tabOrderByConnection = m,
+      this.activeConnectionId,
+      order.filter(id => id !== tabId)
+    );
+  }
+
+  reorderTabs(newOrder: string[]): void {
+    if (!this.activeConnectionId) return;
+    setMapValue(
+      () => this.tabOrderByConnection,
+      m => this.tabOrderByConnection = m,
+      this.activeConnectionId,
+      newOrder
+    );
+    this.schedulePersistence(this.activeConnectionId);
+  }
+
+  // Helper to extract timestamp from tab ID for default ordering
+  private getTabTimestamp(id: string): number {
+    const match = id.match(/\d+$/);
+    return match ? parseInt(match[0], 10) : 0;
+  }
+
+  get orderedTabs(): Array<{id: string, type: 'query' | 'schema' | 'explain' | 'erd', tab: QueryTab | SchemaTab | ExplainTab | ErdTab}> {
+    if (!this.activeConnectionId) return [];
+
+    const allTabsUnordered = [
+      ...this.queryTabs.map(t => ({ id: t.id, type: 'query' as const, tab: t })),
+      ...this.schemaTabs.map(t => ({ id: t.id, type: 'schema' as const, tab: t })),
+      ...this.explainTabs.map(t => ({ id: t.id, type: 'explain' as const, tab: t })),
+      ...this.erdTabs.map(t => ({ id: t.id, type: 'erd' as const, tab: t }))
+    ];
+
+    const order = this.tabOrderByConnection.get(this.activeConnectionId) || [];
+
+    // Sort by order array, falling back to timestamp for new tabs
+    return allTabsUnordered.sort((a, b) => {
+      const aIndex = order.indexOf(a.id);
+      const bIndex = order.indexOf(b.id);
+
+      // Both in order array: use order
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+
+      // Only one in order: ordered comes first
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+
+      // Neither in order: fall back to timestamp
+      return this.getTabTimestamp(a.id) - this.getTabTimestamp(b.id);
+    });
+  }
+
   constructor() {
     super();
     this._uiState = new UIStateManager(this, (id) => this.schedulePersistence(id));
@@ -446,7 +536,8 @@ class UseDatabase extends DatabaseState {
     this._queryTabs = new QueryTabManager(
       this,
       (id) => this.schedulePersistence(id),
-      this.removeTabGeneric.bind(this)
+      this.removeTabGeneric.bind(this),
+      this.addToTabOrder.bind(this)
     );
     this._savedQueries = new SavedQueryManager(this, (id) => this.schedulePersistence(id));
     this._schemaTabs = new SchemaTabManager(
@@ -1110,6 +1201,8 @@ class UseDatabase extends DatabaseState {
     newSchemaTabs.set(this.activeConnectionId, [...tabs, newTab]);
     this.schemaTabsByConnection = newSchemaTabs;
 
+    this.addToTabOrder(newTab.id);
+
     const newActiveSchemaIds = new Map(this.activeSchemaTabIdByConnection);
     newActiveSchemaIds.set(this.activeConnectionId, newTab.id);
     this.activeSchemaTabIdByConnection = newActiveSchemaIds;
@@ -1393,6 +1486,8 @@ class UseDatabase extends DatabaseState {
     newExplainTabs.set(this.activeConnectionId, [...explainTabs, newExplainTab]);
     this.explainTabsByConnection = newExplainTabs;
 
+    this.addToTabOrder(explainTabId);
+
     // Set as active and switch view
     const newActiveExplainIds = new Map(this.activeExplainTabIdByConnection);
     newActiveExplainIds.set(this.activeConnectionId, explainTabId);
@@ -1508,6 +1603,8 @@ class UseDatabase extends DatabaseState {
     const newErdTabs = new Map(this.erdTabsByConnection);
     newErdTabs.set(this.activeConnectionId, [...tabs, newErdTab]);
     this.erdTabsByConnection = newErdTabs;
+
+    this.addToTabOrder(erdTabId);
 
     setMapValue(
       () => this.activeErdTabIdByConnection,
