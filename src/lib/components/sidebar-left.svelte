@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getVersion } from "@tauri-apps/api/app";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
 	import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "$lib/components/ui/sidebar";
@@ -11,6 +12,13 @@
 
 	const db = useDatabase();
 	let sidebarTab = $state<"schema" | "queries">("schema");
+	let version = $state("");
+
+	$effect(() => {
+		getVersion().then((v) => {
+			version = v;
+		});
+	});
 	let expandedSchemas = $state<Set<string>>(new Set());
 	let historyExpanded = $state(true);
 	let savedExpanded = $state(true);
@@ -69,7 +77,7 @@
 
 </script>
 
-<Sidebar class="top-(--header-height)" collapsible="offcanvas">
+<Sidebar class="top-(--header-height) h-[calc(100svh-var(--header-height))]" collapsible="offcanvas">
 	<SidebarHeader class="p-0 py-1">
 		{#if db.activeConnectionId}
 			<Tabs bind:value={sidebarTab} class="w-full">
@@ -124,7 +132,6 @@
 														<SidebarMenuButton onclick={() => handleTableClick(table)}>
 															<TableIcon class="size-4" />
 															<span class="flex-1">{table.name}</span>
-															<Badge variant="secondary" class="text-xs">{table.rowCount?.toLocaleString()}</Badge>
 														</SidebarMenuButton>
 													</SidebarMenuItem>
 												{/each}
@@ -289,15 +296,20 @@
 	</SidebarContent>
 
 	<SidebarFooter class="p-4">
-		<div class="text-xs text-muted-foreground">
-			{#if db.activeConnection}
-				{#if sidebarTab === "schema"}
-					{db.activeSchema.length} tables
+		<div class="text-xs text-muted-foreground flex justify-between">
+			<span>
+				{#if db.activeConnection}
+					{#if sidebarTab === "schema"}
+						{db.activeSchema.length} tables
+					{:else}
+						{db.activeConnectionQueryHistory.length} executed, {db.activeConnectionSavedQueries.length} saved
+					{/if}
 				{:else}
-					{db.activeConnectionQueryHistory.length} executed, {db.activeConnectionSavedQueries.length} saved
+					No connection
 				{/if}
-			{:else}
-				No connection
+			</span>
+			{#if version}
+				<span>v{version}</span>
 			{/if}
 		</div>
 	</SidebarFooter>
