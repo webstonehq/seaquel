@@ -19,6 +19,12 @@ export interface ShortcutDefinition {
 export const shortcuts: ShortcutDefinition[] = [
 	// General
 	{
+		id: "commandPalette",
+		keys: { mod: true, key: "k" },
+		description: "Open command palette",
+		category: "general",
+	},
+	{
 		id: "showShortcuts",
 		keys: { key: "?" },
 		description: "Show keyboard shortcuts",
