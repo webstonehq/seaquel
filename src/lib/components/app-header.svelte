@@ -6,7 +6,6 @@
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
-    import { ScrollArea } from "$lib/components/ui/scroll-area";
     import ConnectionDialog from "$lib/components/connection-dialog.svelte";
     import XIcon from "@lucide/svelte/icons/x";
     import PlusIcon from "@lucide/svelte/icons/plus";
@@ -71,9 +70,9 @@
         data-tauri-drag-region
         class="pl-18 h-(--header-height) flex w-full items-center gap-2 pr-2 justify-between"
     >
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-1 flex-1 min-w-0">
             <Button
-                class="size-8"
+                class="size-8 shrink-0"
                 variant="ghost"
                 size="icon"
                 onclick={sidebar.toggle}
@@ -81,8 +80,8 @@
                 <SidebarIcon />
             </Button>
             {#if db.connections.length > 0}
-                <ScrollArea orientation="horizontal" class="flex-1">
-                    <div class="flex items-center gap-1">
+                <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
+                    <div class="flex items-center gap-1 w-max">
                         {#each db.connections as connection (connection.id)}
                             <ContextMenu.Root>
                                 <ContextMenu.Trigger>
@@ -158,7 +157,7 @@
                             <PlusIcon class="size-4" />
                         </Button>
                     </div>
-                </ScrollArea>
+                </div>
             {:else}
                 <Badge
                     variant="outline"
