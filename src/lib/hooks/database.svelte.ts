@@ -797,6 +797,56 @@ class UseDatabase extends DatabaseState {
     return connectionId;
   }
 
+  async testConnection(connection: Omit<DatabaseConnection, "id"> & {
+    sshPassword?: string;
+    sshKeyPath?: string;
+    sshKeyPassphrase?: string;
+  }) {
+    let effectiveConnectionString = connection.connectionString;
+    let tunnelId: string | undefined;
+
+    // Establish SSH tunnel if enabled
+    if (connection.sshTunnel?.enabled) {
+      const tunnelResult = await createSshTunnel({
+        sshHost: connection.sshTunnel.host,
+        sshPort: connection.sshTunnel.port,
+        sshUsername: connection.sshTunnel.username,
+        authMethod: connection.sshTunnel.authMethod,
+        password: connection.sshPassword,
+        keyPath: connection.sshKeyPath,
+        keyPassphrase: connection.sshKeyPassphrase,
+        remoteHost: connection.host,
+        remotePort: connection.port,
+      });
+
+      tunnelId = tunnelResult.tunnelId;
+
+      // Build new connection string using tunnel
+      if (effectiveConnectionString) {
+        const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
+        url.hostname = "127.0.0.1";
+        url.port = String(tunnelResult.localPort);
+        effectiveConnectionString = url.toString();
+      }
+    }
+
+    try {
+      // Try to connect to the database
+      const database = await Database.load(effectiveConnectionString!);
+      // Close the test connection immediately
+      await database.close();
+    } finally {
+      // Clean up SSH tunnel if we created one
+      if (tunnelId) {
+        try {
+          await closeSshTunnel(tunnelId);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+  }
+
   removeConnection(id: string) {
     // Close SSH tunnel if exists
     const tunnelId = this.tunnelIds.get(id);
