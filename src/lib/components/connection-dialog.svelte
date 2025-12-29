@@ -55,6 +55,9 @@
     let activeTab = $state<"connection-string" | "manual">("connection-string");
     let isReconnecting = $state(false);
     let reconnectingConnectionId = $state<string | null>(null);
+    let isConnecting = $state(false);
+    let isTesting = $state(false);
+    let connectionError = $state<string | null>(null);
 
     const resetForm = () => {
         formData = {
@@ -82,6 +85,7 @@
     // Initialize form with prefilled data when dialog opens
     $effect(() => {
         if (open) {
+            connectionError = null;
             if (prefill) {
                 formData = {
                     name: prefill.name || "",
@@ -224,8 +228,6 @@
             // Generate a name from the database
             formData.name =
                 formData.databaseName || `${dbType.label} Connection`;
-
-            toast.success("Connection string parsed successfully");
         } catch (error) {
             toast.error("Invalid connection string format");
             console.error("Parse error:", error);
@@ -256,77 +258,131 @@
         return connectionString;
     };
 
-const handleSubmit = async () => {
-    if (
-        activeTab === "connection-string" &&
-        formData.connectionString.trim()
-    ) {
-        parseConnectionString(formData.connectionString.trim());
-    }
+    const getConnectionData = () => {
+        if (
+            activeTab === "connection-string" &&
+            formData.connectionString.trim()
+        ) {
+            parseConnectionString(formData.connectionString.trim());
+        }
 
-    if (!formData.name.trim()) {
-        toast.error("Please enter a connection name");
-        return;
-    }
+        let connString = formData.connectionString;
+        if (connString) {
+            connString = connString.replace("postgresql://", "postgres://");
+        } else {
+            connString = buildConnectionString(formData);
+        }
 
-    if (formData.type !== "sqlite" && !formData.host.trim()) {
-        toast.error("Please enter a host");
-        return;
-    }
+        if (!connString || connString.split(":").length != 3) {
+            connString = buildConnectionString(formData);
+        }
 
-    if (!formData.databaseName.trim()) {
-        toast.error("Please enter a database name");
-        return;
-    }
-
-    if (formData.connectionString) {
-        formData.connectionString = formData.connectionString.replace(
-            "postgresql://",
-            "postgres://",
-        );
-    } else {
-        formData.connectionString = buildConnectionString(formData);
-    }
-
-    if (!formData.connectionString || formData.connectionString.split(":").length != 3) {
-        formData.connectionString = buildConnectionString(formData);
-    }
-
-    // Build connection data with SSH tunnel config
-    const connectionData = {
-        name: formData.name,
-        type: formData.type,
-        host: formData.host,
-        port: formData.port,
-        databaseName: formData.databaseName,
-        username: formData.username,
-        password: formData.password,
-        sslMode: formData.sslMode,
-        connectionString: formData.connectionString,
-        sshTunnel: formData.sshEnabled ? {
-            enabled: true,
-            host: formData.sshHost,
-            port: formData.sshPort,
-            username: formData.sshUsername,
-            authMethod: formData.sshAuthMethod,
-        } : undefined,
-        sshPassword: formData.sshPassword,
-        sshKeyPath: formData.sshKeyPath,
-        sshKeyPassphrase: formData.sshKeyPassphrase,
+        return {
+            name: formData.name,
+            type: formData.type,
+            host: formData.host,
+            port: formData.port,
+            databaseName: formData.databaseName,
+            username: formData.username,
+            password: formData.password,
+            sslMode: formData.sslMode,
+            connectionString: connString,
+            sshTunnel: formData.sshEnabled ? {
+                enabled: true,
+                host: formData.sshHost,
+                port: formData.sshPort,
+                username: formData.sshUsername,
+                authMethod: formData.sshAuthMethod,
+            } : undefined,
+            sshPassword: formData.sshPassword,
+            sshKeyPath: formData.sshKeyPath,
+            sshKeyPassphrase: formData.sshKeyPassphrase,
+        };
     };
 
-    if (isReconnecting && reconnectingConnectionId) {
-        await db.reconnectConnection(reconnectingConnectionId, connectionData);
-    } else {
-        await db.addConnection(connectionData);
-    }
+    const extractErrorMessage = (error: unknown): string => {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        if (typeof error === "string") {
+            // Extract the meaningful part from database error strings
+            const match = error.match(/error returned from database: (.+)/);
+            if (match) {
+                return match[1];
+            }
+            return error;
+        }
+        return "An unknown error occurred";
+    };
 
-    open = false;
+    const handleTestConnection = async () => {
+        connectionError = null;
 
-    // Reset form
-    resetForm();
-    activeTab = "connection-string";
-};
+        if (!formData.name.trim()) {
+            connectionError = "Please enter a connection name";
+            return;
+        }
+
+        if (formData.type !== "sqlite" && !formData.host.trim()) {
+            connectionError = "Please enter a host";
+            return;
+        }
+
+        if (!formData.databaseName.trim()) {
+            connectionError = "Please enter a database name";
+            return;
+        }
+
+        isTesting = true;
+        try {
+            const connectionData = getConnectionData();
+            await db.testConnection(connectionData);
+            toast.success("Connection successful");
+        } catch (error) {
+            connectionError = extractErrorMessage(error);
+        } finally {
+            isTesting = false;
+        }
+    };
+
+    const handleSubmit = async () => {
+        connectionError = null;
+
+        if (!formData.name.trim()) {
+            connectionError = "Please enter a connection name";
+            return;
+        }
+
+        if (formData.type !== "sqlite" && !formData.host.trim()) {
+            connectionError = "Please enter a host";
+            return;
+        }
+
+        if (!formData.databaseName.trim()) {
+            connectionError = "Please enter a database name";
+            return;
+        }
+
+        isConnecting = true;
+        try {
+            const connectionData = getConnectionData();
+
+            if (isReconnecting && reconnectingConnectionId) {
+                await db.reconnectConnection(reconnectingConnectionId, connectionData);
+            } else {
+                await db.addConnection(connectionData);
+            }
+
+            toast.success("Connected successfully");
+            open = false;
+            resetForm();
+            activeTab = "connection-string";
+        } catch (error) {
+            connectionError = extractErrorMessage(error);
+        } finally {
+            isConnecting = false;
+        }
+    };
 
     const selectSshKeyFile = async () => {
         try {
@@ -675,11 +731,39 @@ const handleSubmit = async () => {
             </TabsContent>
         </Tabs>
 
-        <DialogFooter>
-            <Button variant="outline" onclick={() => (open = false)}
-                >Cancel</Button
+        {#if connectionError}
+            <div class="p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
+                {connectionError}
+            </div>
+        {/if}
+
+        <DialogFooter class="flex-col sm:flex-row gap-2">
+            <Button
+                variant="outline"
+                onclick={handleTestConnection}
+                disabled={isConnecting || isTesting}
+                class="sm:mr-auto"
             >
-            <Button onclick={handleSubmit}>{isReconnecting ? "Reconnect" : "Add Connection"}</Button>
+                {#if isTesting}
+                    Testing...
+                {:else}
+                    Test Connection
+                {/if}
+            </Button>
+            <div class="flex gap-2">
+                <Button variant="outline" onclick={() => (open = false)} disabled={isConnecting || isTesting}>
+                    Cancel
+                </Button>
+                <Button onclick={handleSubmit} disabled={isConnecting || isTesting}>
+                    {#if isConnecting}
+                        Connecting...
+                    {:else if isReconnecting}
+                        Reconnect
+                    {:else}
+                        Add Connection
+                    {/if}
+                </Button>
+            </div>
         </DialogFooter>
     </DialogContent>
 </Dialog>
