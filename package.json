@@ -17,6 +17,7 @@
   "license": "MIT",
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
+    "@tanstack/svelte-virtual": "^3.13.13",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.4.2",

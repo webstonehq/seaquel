@@ -19,6 +19,7 @@
 	import EditableCell from "$lib/components/editable-cell.svelte";
 	import RowActions from "$lib/components/row-actions.svelte";
 	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
+	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 
 	const db = useDatabase();
@@ -167,6 +168,12 @@
 
 	// Context menu for copying cells
 	let contextCell = $state<{ value: unknown; column: string; row: Record<string, unknown> } | null>(null);
+
+	// Threshold for enabling virtualization (rows)
+	const VIRTUALIZATION_THRESHOLD = 100;
+	const shouldVirtualize = $derived(
+		(db.activeQueryTab?.results?.rows.length ?? 0) > VIRTUALIZATION_THRESHOLD
+	);
 
 	const handleCellRightClick = (value: unknown, column: string, row: Record<string, unknown>) => {
 		contextCell = { value, column, row };
@@ -429,64 +436,79 @@
                             </DropdownMenu.Root>
                         </div>
 
-                        <ContextMenu.Root>
-                            <ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
-                                <table class="w-full text-sm">
-                                    <thead class="sticky top-0 bg-muted border-b">
-                                        <tr>
-                                            {#if isEditable}
-                                                <th class="px-2 py-2 w-8"></th>
-                                            {/if}
-                                            {#each db.activeQueryTab.results.columns as column}
-                                                <th class="px-4 py-2 text-left font-medium">{column}</th>
-                                            {/each}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {#each db.activeQueryTab.results.rows as row, i}
-                                            <tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
+                        {#if shouldVirtualize}
+                            <VirtualResultsTable
+                                columns={db.activeQueryTab.results.columns}
+                                rows={db.activeQueryTab.results.rows}
+                                isEditable={!!isEditable}
+                                onCellSave={handleCellSave}
+                                onRowDelete={confirmDeleteRow}
+                                {deletingRowIndex}
+                                onCopyCell={copyCell}
+                                onCopyRow={copyRowAsJSON}
+                                onCopyColumn={copyColumn}
+                                onCellRightClick={handleCellRightClick}
+                            />
+                        {:else}
+                            <ContextMenu.Root>
+                                <ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
+                                    <table class="w-full text-sm">
+                                        <thead class="sticky top-0 bg-muted border-b">
+                                            <tr>
                                                 {#if isEditable}
-                                                    <td class="px-2 py-1">
-                                                        <RowActions
-                                                            onDelete={async () => confirmDeleteRow(i, row)}
-                                                            isDeleting={deletingRowIndex === i}
-                                                        />
-                                                    </td>
+                                                    <th class="px-2 py-2 w-8"></th>
                                                 {/if}
                                                 {#each db.activeQueryTab.results.columns as column}
-                                                    <td
-                                                        class="px-4 py-2"
-                                                        oncontextmenu={() => handleCellRightClick(row[column], column, row)}
-                                                    >
-                                                        <EditableCell
-                                                            value={row[column]}
-                                                            isEditable={isEditable}
-                                                            onSave={(newValue) => handleCellSave(i, column, newValue)}
-                                                        />
-                                                    </td>
+                                                    <th class="px-4 py-2 text-left font-medium">{column}</th>
                                                 {/each}
                                             </tr>
-                                        {/each}
-                                    </tbody>
-                                </table>
-                            </ContextMenu.Trigger>
-                            <ContextMenu.Portal>
-                                <ContextMenu.Content class="w-48">
-                                    <ContextMenu.Item onclick={copyCell}>
-                                        <CopyIcon class="size-4 mr-2" />
-                                        Copy Cell Value
-                                    </ContextMenu.Item>
-                                    <ContextMenu.Item onclick={copyRowAsJSON}>
-                                        <CopyIcon class="size-4 mr-2" />
-                                        Copy Row as JSON
-                                    </ContextMenu.Item>
-                                    <ContextMenu.Item onclick={copyColumn}>
-                                        <CopyIcon class="size-4 mr-2" />
-                                        Copy Column Values
-                                    </ContextMenu.Item>
-                                </ContextMenu.Content>
-                            </ContextMenu.Portal>
-                        </ContextMenu.Root>
+                                        </thead>
+                                        <tbody>
+                                            {#each db.activeQueryTab.results.rows as row, i}
+                                                <tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
+                                                    {#if isEditable}
+                                                        <td class="px-2 py-1">
+                                                            <RowActions
+                                                                onDelete={async () => confirmDeleteRow(i, row)}
+                                                                isDeleting={deletingRowIndex === i}
+                                                            />
+                                                        </td>
+                                                    {/if}
+                                                    {#each db.activeQueryTab.results.columns as column}
+                                                        <td
+                                                            class="px-4 py-2"
+                                                            oncontextmenu={() => handleCellRightClick(row[column], column, row)}
+                                                        >
+                                                            <EditableCell
+                                                                value={row[column]}
+                                                                isEditable={isEditable}
+                                                                onSave={(newValue) => handleCellSave(i, column, newValue)}
+                                                            />
+                                                        </td>
+                                                    {/each}
+                                                </tr>
+                                            {/each}
+                                        </tbody>
+                                    </table>
+                                </ContextMenu.Trigger>
+                                <ContextMenu.Portal>
+                                    <ContextMenu.Content class="w-48">
+                                        <ContextMenu.Item onclick={copyCell}>
+                                            <CopyIcon class="size-4 mr-2" />
+                                            Copy Cell Value
+                                        </ContextMenu.Item>
+                                        <ContextMenu.Item onclick={copyRowAsJSON}>
+                                            <CopyIcon class="size-4 mr-2" />
+                                            Copy Row as JSON
+                                        </ContextMenu.Item>
+                                        <ContextMenu.Item onclick={copyColumn}>
+                                            <CopyIcon class="size-4 mr-2" />
+                                            Copy Column Values
+                                        </ContextMenu.Item>
+                                    </ContextMenu.Content>
+                                </ContextMenu.Portal>
+                            </ContextMenu.Root>
+                        {/if}
 
                         <!-- Pagination Controls -->
                         {#if db.activeQueryTab.results.totalPages > 1}
