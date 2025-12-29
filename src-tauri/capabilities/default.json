@@ -22,6 +22,7 @@
     "core:path:default",
     "os:default",
     "clipboard-manager:allow-write-image",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "process:allow-restart"
   ]
 }
