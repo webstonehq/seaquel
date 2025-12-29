@@ -17,3 +17,4 @@ sample.db
 /playwright/.cache/
 /playwright/.auth/
 /.playwright-tmp/
+e2e/test-databases/sqlite/test.db
