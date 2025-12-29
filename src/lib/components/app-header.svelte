@@ -5,9 +5,10 @@
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
+    import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
+    import DatabaseIcon from "@lucide/svelte/icons/database";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import ConnectionDialog from "$lib/components/connection-dialog.svelte";
-    import XIcon from "@lucide/svelte/icons/x";
     import PlusIcon from "@lucide/svelte/icons/plus";
     import BotIcon from "@lucide/svelte/icons/bot";
     import NetworkIcon from "@lucide/svelte/icons/network";
@@ -17,15 +18,19 @@
     const db = useDatabase();
     const sidebar = Sidebar.useSidebar();
 
+    // Sort connections by last connected (most recent first)
+    const sortedConnections = $derived(
+        [...db.connections].sort((a, b) => {
+            const aTime = a.lastConnected?.getTime() ?? 0;
+            const bTime = b.lastConnected?.getTime() ?? 0;
+            return bTime - aTime;
+        })
+    );
+
     // Remove connection confirmation dialog state
     let showRemoveDialog = $state(false);
     let connectionToRemove = $state<string | null>(null);
     let connectionToRemoveName = $state("");
-
-    const handleCloseConnection = (e: MouseEvent, connectionId: string) => {
-        e.stopPropagation();
-        db.toggleConnection(connectionId);
-    };
 
     const handleConnectionClick = (connection: typeof db.connections[0]) => {
         // If connection has a database instance, just activate it
@@ -80,52 +85,44 @@
                 <SidebarIcon />
             </Button>
             {#if db.connections.length > 0}
-                <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
-                    <div class="flex items-center gap-1 w-max">
-                        {#each db.connections as connection (connection.id)}
+                <DropdownMenu.Root>
+                    <DropdownMenu.Trigger class="flex items-center gap-2 px-3 h-8 text-sm rounded-md bg-background hover:bg-muted transition-colors">
+                        <DatabaseIcon class="size-4 text-muted-foreground" />
+                        {#if db.activeConnection}
+                            <span
+                                class={[
+                                    "size-2 rounded-full shrink-0",
+                                    db.activeConnection.database ? "bg-green-500" : "bg-gray-400"
+                                ]}
+                            ></span>
+                            <span class="max-w-32 truncate" title={db.activeConnection.name}>{db.activeConnection.name}</span>
+                        {:else}
+                            <span class="text-muted-foreground">Select Connection</span>
+                        {/if}
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Content class="w-56" align="start">
+                        {#each sortedConnections as connection (connection.id)}
                             <ContextMenu.Root>
-                                <ContextMenu.Trigger>
-                                    <div
-                                        role="button"
-                                        tabindex="0"
+                                <ContextMenu.Trigger class="w-full">
+                                    <DropdownMenu.Item
                                         class={[
-                                            "relative group shrink-0 flex items-center gap-2 px-3 h-5 text-xs rounded-md",
-                                            db.activeConnectionId === connection.id
-                                                ? "bg-primary text-primary-foreground border-primary"
-                                                : "bg-background hover:bg-muted border-border",
+                                            "flex items-center gap-2 cursor-pointer",
+                                            db.activeConnectionId === connection.id && "bg-accent"
                                         ]}
-                                        onclick={() =>
-                                            handleConnectionClick(connection)}
-                                        onkeyup={(e) => {
-                                            if (e.key !== "Escape") {
-                                                handleConnectionClick(connection);
-                                            }
-                                        }}
+                                        onclick={() => handleConnectionClick(connection)}
                                     >
                                         <span
                                             class={[
                                                 "size-2 rounded-full shrink-0",
-                                                connection.database
-                                                    ? "bg-green-500"
-                                                    : "bg-gray-400"
+                                                connection.database ? "bg-green-500" : "bg-gray-400"
                                             ]}
                                             title={connection.database ? "Connected" : "Disconnected"}
                                         ></span>
-                                        <span class="pr-4">{connection.name}</span>
-                                        {#if connection.database}
-                                            <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                class={[
-                                                    "absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity",
-                                                ]}
-                                                onclick={(e) =>
-                                                    handleCloseConnection(e, connection.id)}
-                                            >
-                                                <XIcon class="size-3" />
-                                            </Button>
+                                        <span class="flex-1 truncate">{connection.name}</span>
+                                        {#if db.activeConnectionId === connection.id}
+                                            <span class="text-xs text-muted-foreground">Active</span>
                                         {/if}
-                                    </div>
+                                    </DropdownMenu.Item>
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Content class="w-40">
                                     {#if connection.database}
@@ -148,16 +145,16 @@
                                 </ContextMenu.Content>
                             </ContextMenu.Root>
                         {/each}
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            class="size-8"
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item
+                            class="flex items-center gap-2 cursor-pointer"
                             onclick={() => connectionDialogStore.open()}
                         >
                             <PlusIcon class="size-4" />
-                        </Button>
-                    </div>
-                </div>
+                            Add Connection
+                        </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                </DropdownMenu.Root>
             {:else}
                 <Badge
                     variant="outline"
