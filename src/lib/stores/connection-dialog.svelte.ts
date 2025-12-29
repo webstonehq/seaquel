@@ -1,4 +1,4 @@
-import type { DatabaseType } from "$lib/types";
+import type { DatabaseType, SSHAuthMethod } from "$lib/types";
 
 export interface ConnectionDialogPrefill {
 	id?: string;
@@ -10,6 +10,13 @@ export interface ConnectionDialogPrefill {
 	username?: string;
 	sslMode?: string;
 	connectionString?: string;
+	sshTunnel?: {
+		enabled: boolean;
+		host: string;
+		port: number;
+		username: string;
+		authMethod: SSHAuthMethod;
+	};
 }
 
 class ConnectionDialogStore {

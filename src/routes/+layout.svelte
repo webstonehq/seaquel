@@ -7,6 +7,7 @@
     import { setDatabase, useDatabase } from "$lib/hooks/database.svelte.js";
     import { setShortcuts } from "$lib/shortcuts/index.js";
     import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
+    import CommandPalette from "$lib/components/command-palette.svelte";
 
     setDatabase();
     const db = useDatabase();
@@ -24,6 +25,7 @@
 <ModeWatcher />
 <Toaster position="bottom-right" theme={"dark"} richColors />
 <KeyboardShortcutsDialog />
+<CommandPalette />
 
 <Sidebar.Provider class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden">
     <AppHeader />
