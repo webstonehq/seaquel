@@ -15,7 +15,8 @@ export class QueryTabManager {
       activeIdGetter: () => Map<string, string | null>,
       activeIdSetter: (m: Map<string, string | null>) => void,
       tabId: string
-    ) => void
+    ) => void,
+    private addToTabOrder: (tabId: string) => void
   ) {}
 
   addQueryTab(name?: string, query?: string, savedQueryId?: string): string | null {
@@ -39,6 +40,7 @@ export class QueryTabManager {
     newActiveQueryIds.set(this.state.activeConnectionId, newTab.id);
     this.state.activeQueryTabIdByConnection = newActiveQueryIds;
 
+    this.addToTabOrder(newTab.id);
     this.schedulePersistence(this.state.activeConnectionId);
     return newTab.id;
   }
