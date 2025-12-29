@@ -269,9 +269,9 @@
 <SidebarInset class="flex flex-col h-full overflow-hidden">
     {#if db.activeConnectionId}
         <!-- Unified Tab Bar -->
-        <div class="flex items-center gap-2 p-2 border-b bg-muted/30 overflow-hidden">
-            <ScrollArea orientation="horizontal" class="flex-1">
-                <div class="flex items-center gap-1 pb-1">
+        <div class="flex items-center gap-2 p-2 border-b bg-muted/30">
+            <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
+                <div class="flex items-center gap-1 w-max">
                     <!-- All tabs in creation order -->
                     {#each allTabs as { id, type, tab } (id)}
                         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -452,7 +452,7 @@
                         {/if}
                     {/each}
                 </div>
-            </ScrollArea>
+            </div>
 
             <!-- Add new query tab button -->
             <Tooltip.Root>
