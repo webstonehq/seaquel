@@ -27,7 +27,7 @@ import { getAdapter, type DatabaseAdapter, type ExplainNode } from "$lib/db";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import type { PersistedConnection } from "./database/types.js";
-import { setMapValue, deleteMapKey } from "./database/map-utils.js";
+import { setMapValue, deleteMapKey, updateMapArrayItem } from "./database/map-utils.js";
 import { DatabaseState } from "./database/state.svelte.js";
 import { UIStateManager } from "./database/ui-state.svelte.js";
 import { QueryHistoryManager } from "./database/query-history.svelte.js";
@@ -850,11 +850,21 @@ class UseDatabase extends DatabaseState {
       ? await Database.load(effectiveConnectionString)
       : undefined;
 
-    existingConnection.database = database;
-    existingConnection.lastConnected = new Date();
-    existingConnection.password = connection.password;
-    existingConnection.tunnelLocalPort = tunnelLocalPort;
-    existingConnection.sshTunnel = connection.sshTunnel;
+    // Create updated connection object to ensure Svelte reactivity sees the change
+    const updatedConnection: DatabaseConnection = {
+      ...existingConnection,
+      database,
+      lastConnected: new Date(),
+      password: connection.password,
+      tunnelLocalPort,
+      sshTunnel: connection.sshTunnel,
+    };
+
+    // Replace the old connection with the updated one in the connections array
+    this.connections = this.connections.map(c =>
+      c.id === connectionId ? updatedConnection : c
+    );
+
     this.ensureConnectionMapsExist(connectionId);
 
     // Fetch schemas
@@ -889,7 +899,7 @@ class UseDatabase extends DatabaseState {
     }
 
     // Persist the connection to store (without password for security)
-    this.persistConnection(existingConnection);
+    this.persistConnection(updatedConnection);
 
     return connectionId;
   }
@@ -1228,14 +1238,36 @@ class UseDatabase extends DatabaseState {
 
   private readonly DEFAULT_PAGE_SIZE = 100;
 
+  /**
+   * Update a query tab's state with proper Svelte 5 reactivity.
+   * Creates new objects to ensure derived values update.
+   */
+  private updateQueryTabState(tabId: string, updates: Partial<QueryTab>) {
+    if (!this.activeConnectionId) return;
+    updateMapArrayItem(
+      () => this.queryTabsByConnection,
+      m => this.queryTabsByConnection = m,
+      this.activeConnectionId,
+      tabId,
+      updates
+    );
+  }
+
   async executeQuery(tabId: string, page: number = 1, pageSize?: number) {
     if (!this.activeConnectionId) return;
+
+    const database = this.activeConnection?.database;
+    if (!database) {
+      toast.error("Not connected to database. Please reconnect.");
+      return;
+    }
 
     const tabs = this.queryTabsByConnection.get(this.activeConnectionId) || [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
-    tab.isExecuting = true;
+    // Mark as executing with proper reactivity
+    this.updateQueryTabState(tabId, { isExecuting: true });
     const effectivePageSize = pageSize ?? tab.results?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
     try {
@@ -1245,7 +1277,7 @@ class UseDatabase extends DatabaseState {
 
       // Handle write queries (INSERT/UPDATE/DELETE)
       if (isWriteQuery(baseQuery)) {
-        const executeResult = await this.activeConnection?.database!.execute(baseQuery);
+        const executeResult = await database.execute(baseQuery);
         const totalMs = performance.now() - start;
 
         const results: QueryResult = {
@@ -1262,8 +1294,8 @@ class UseDatabase extends DatabaseState {
           totalPages: 1,
         };
 
-        tab.results = results;
-        tab.isExecuting = false;
+        // Update tab with results using proper reactivity
+        this.updateQueryTabState(tabId, { results, isExecuting: false });
 
         // Add to history
         this.addToHistory(tab.query, results);
@@ -1281,7 +1313,7 @@ class UseDatabase extends DatabaseState {
         // Get total count first by wrapping in a subquery
         const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
         try {
-          const countResult = (await this.activeConnection?.database!.select(countQuery)) as any[];
+          const countResult = (await database.select(countQuery)) as any[];
           totalRows = parseInt(countResult[0]?.total ?? '0', 10);
         } catch {
           // If count fails, just run the query without pagination
@@ -1298,7 +1330,7 @@ class UseDatabase extends DatabaseState {
         totalRows = -1;
       }
 
-      const dbResult = (await this.activeConnection?.database!.select(paginatedQuery)) as any[];
+      const dbResult = (await database.select(paginatedQuery)) as any[];
       const totalMs = performance.now() - start;
 
       // If count failed or query had LIMIT, use result length as total
@@ -1338,15 +1370,15 @@ class UseDatabase extends DatabaseState {
         totalPages,
       };
 
-      tab.results = results;
-      tab.isExecuting = false;
+      // Update tab with results using proper reactivity
+      this.updateQueryTabState(tabId, { results, isExecuting: false });
 
       // Add to history (only on first page to avoid duplicates)
       if (page === 1) {
         this.addToHistory(tab.query, results);
       }
     } catch (error) {
-      tab.isExecuting = false;
+      this.updateQueryTabState(tabId, { isExecuting: false });
       toast.error(`Query failed: ${error}`);
     }
   }
