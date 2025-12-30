@@ -30,7 +30,7 @@
     const shortcuts = useShortcuts();
 
     // Track which type of tab is active: 'query' or 'schema'
-    let activeTabType = $derived(db.activeView);
+    let activeTabType = $derived(db.state.activeView);
 
     // For editing query tab names
     let editingTabId = $state<string | null>(null);
@@ -43,7 +43,7 @@
 
     const finishEditing = () => {
         if (editingTabId && editingTabName.trim()) {
-            db.renameQueryTab(editingTabId, editingTabName.trim());
+            db.queryTabs.rename(editingTabId, editingTabName.trim());
         }
         editingTabId = null;
         editingTabName = "";
@@ -59,27 +59,31 @@
     };
 
     const handleQueryTabClick = (tabId: string) => {
-        db.setActiveQueryTab(tabId);
-        db.setActiveView("query");
+        db.queryTabs.setActive(tabId);
+        db.ui.setActiveView("query");
     };
 
     const handleSchemaTabClick = (tabId: string) => {
-        db.setActiveSchemaTab(tabId);
-        db.setActiveView("schema");
+        db.schemaTabs.setActive(tabId);
+        db.ui.setActiveView("schema");
     };
 
     const handleExplainTabClick = (tabId: string) => {
-        db.setActiveExplainTab(tabId);
-        db.setActiveView("explain");
+        db.explainTabs.setActive(tabId);
+        db.ui.setActiveView("explain");
     };
 
     const handleErdTabClick = (tabId: string) => {
-        db.setActiveErdTab(tabId);
-        db.setActiveView("erd");
+        db.erdTabs.setActive(tabId);
+        db.ui.setActiveView("erd");
     };
 
     // Get ordered tabs from db (uses custom order with timestamp fallback)
-    const allTabs = $derived(db.orderedTabs);
+    // Ensure it's a proper mutable array for dnd-action
+    const allTabs = $derived.by(() => {
+        const ordered = db.tabs.ordered;
+        return Array.isArray(ordered) ? [...ordered] : [];
+    });
 
     // Drag and drop configuration
     const flipDurationMs = 150;
@@ -101,21 +105,21 @@
         isDragging = false;
         draggedItems = [];
         const newOrder = e.detail.items.map(item => item.id);
-        db.reorderTabs(newOrder);
+        db.tabs.reorder(newOrder);
     }
 
     const currentTabIndex = $derived(() => {
-        if (db.activeView === 'query' && db.activeQueryTabId) {
-            return allTabs.findIndex(t => t.type === 'query' && t.id === db.activeQueryTabId);
+        if (db.state.activeView === 'query' && db.state.activeQueryTabId) {
+            return allTabs.findIndex(t => t.type === 'query' && t.id === db.state.activeQueryTabId);
         }
-        if (db.activeView === 'schema' && db.activeSchemaTabId) {
-            return allTabs.findIndex(t => t.type === 'schema' && t.id === db.activeSchemaTabId);
+        if (db.state.activeView === 'schema' && db.state.activeSchemaTabId) {
+            return allTabs.findIndex(t => t.type === 'schema' && t.id === db.state.activeSchemaTabId);
         }
-        if (db.activeView === 'explain' && db.activeExplainTabId) {
-            return allTabs.findIndex(t => t.type === 'explain' && t.id === db.activeExplainTabId);
+        if (db.state.activeView === 'explain' && db.state.activeExplainTabId) {
+            return allTabs.findIndex(t => t.type === 'explain' && t.id === db.state.activeExplainTabId);
         }
-        if (db.activeView === 'erd' && db.activeErdTabId) {
-            return allTabs.findIndex(t => t.type === 'erd' && t.id === db.activeErdTabId);
+        if (db.state.activeView === 'erd' && db.state.activeErdTabId) {
+            return allTabs.findIndex(t => t.type === 'erd' && t.id === db.state.activeErdTabId);
         }
         return -1;
     });
@@ -146,25 +150,25 @@
 
     // Direct close without confirmation (for non-query tabs or tabs without unsaved changes)
     const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain' | 'erd') => {
-        if (type === 'query') db.removeQueryTab(id);
-        else if (type === 'schema') db.removeSchemaTab(id);
-        else if (type === 'explain') db.removeExplainTab(id);
-        else if (type === 'erd') db.removeErdTab(id);
+        if (type === 'query') db.queryTabs.remove(id);
+        else if (type === 'schema') db.schemaTabs.remove(id);
+        else if (type === 'explain') db.explainTabs.remove(id);
+        else if (type === 'erd') db.erdTabs.remove(id);
     };
 
     // Try to close a query tab, prompting if unsaved changes
     const tryCloseQueryTab = (tabId: string) => {
-        if (db.hasUnsavedChanges(tabId)) {
+        if (db.queryTabs.hasUnsavedChanges(tabId)) {
             pendingCloseTabId = tabId;
             showUnsavedDialog = true;
         } else {
-            db.removeQueryTab(tabId);
+            db.queryTabs.remove(tabId);
         }
     };
 
     const handleUnsavedDiscard = () => {
         if (pendingCloseTabId) {
-            db.removeQueryTab(pendingCloseTabId);
+            db.queryTabs.remove(pendingCloseTabId);
             pendingCloseTabId = null;
         }
     };
@@ -179,7 +183,7 @@
 
     const handleSaveComplete = () => {
         if (pendingCloseTabId) {
-            db.removeQueryTab(pendingCloseTabId);
+            db.queryTabs.remove(pendingCloseTabId);
             pendingCloseTabId = null;
         }
         showSaveDialogForClose = false;
@@ -188,7 +192,7 @@
     // Batch close with single prompt for all unsaved tabs
     const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain' | 'erd'}[]) => {
         const unsaved = tabsToClose
-            .filter(t => t.type === 'query' && db.hasUnsavedChanges(t.id))
+            .filter(t => t.type === 'query' && db.queryTabs.hasUnsavedChanges(t.id))
             .map(t => t.id);
 
         if (unsaved.length > 0) {
@@ -212,23 +216,23 @@
     };
 
     const closeCurrentTab = () => {
-        if (db.activeView === 'query' && db.activeQueryTabId) {
-            tryCloseQueryTab(db.activeQueryTabId);
-        } else if (db.activeView === 'schema' && db.activeSchemaTabId) {
-            db.removeSchemaTab(db.activeSchemaTabId);
-        } else if (db.activeView === 'explain' && db.activeExplainTabId) {
-            db.removeExplainTab(db.activeExplainTabId);
-        } else if (db.activeView === 'erd' && db.activeErdTabId) {
-            db.removeErdTab(db.activeErdTabId);
+        if (db.state.activeView === 'query' && db.state.activeQueryTabId) {
+            tryCloseQueryTab(db.state.activeQueryTabId);
+        } else if (db.state.activeView === 'schema' && db.state.activeSchemaTabId) {
+            db.schemaTabs.remove(db.state.activeSchemaTabId);
+        } else if (db.state.activeView === 'explain' && db.state.activeExplainTabId) {
+            db.explainTabs.remove(db.state.activeExplainTabId);
+        } else if (db.state.activeView === 'erd' && db.state.activeErdTabId) {
+            db.erdTabs.remove(db.state.activeErdTabId);
         }
     };
 
     // Tab context menu helpers
     const closeTab = (id: string, type: 'query' | 'schema' | 'explain' | 'erd') => {
         if (type === 'query') tryCloseQueryTab(id);
-        else if (type === 'schema') db.removeSchemaTab(id);
-        else if (type === 'explain') db.removeExplainTab(id);
-        else if (type === 'erd') db.removeErdTab(id);
+        else if (type === 'schema') db.schemaTabs.remove(id);
+        else if (type === 'explain') db.explainTabs.remove(id);
+        else if (type === 'erd') db.erdTabs.remove(id);
     };
 
     const closeOtherTabs = (id: string) => {
@@ -252,7 +256,7 @@
 
     // Register keyboard shortcuts
     onMount(() => {
-        shortcuts.registerHandler('newTab', () => db.addQueryTab());
+        shortcuts.registerHandler('newTab', () => db.queryTabs.add());
         shortcuts.registerHandler('closeTab', closeCurrentTab);
         shortcuts.registerHandler('nextTab', () => {
             const idx = currentTabIndex();
@@ -282,11 +286,11 @@
 
 <Toaster position="bottom-right" richColors />
 
-{#if db.activeConnectionId}
+{#if db.state.activeConnectionId}
     <SidebarLeft />
 {/if}
 <SidebarInset class="flex flex-col h-full overflow-hidden">
-    {#if db.activeConnectionId}
+    {#if db.state.activeConnectionId}
         <!-- Unified Tab Bar -->
         <div class="flex items-center gap-2 p-2 border-b bg-muted/30">
             <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
@@ -313,7 +317,7 @@
                                     <div
                                         class={[
                                             "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                            activeTabType === "query" && db.activeQueryTabId === id
+                                            activeTabType === "query" && db.state.activeQueryTabId === id
                                                 ? "bg-background shadow-sm"
                                                 : "hover:bg-muted",
                                         ]}
@@ -336,7 +340,7 @@
                                                     startEditing(id, queryTab.name);
                                                 }}
                                             >
-                                                {queryTab.name}{db.hasUnsavedChanges(id) ? " *" : ""}
+                                                {queryTab.name}{db.queryTabs.hasUnsavedChanges(id) ? " *" : ""}
                                             </span>
                                         {/if}
                                         <Button
@@ -370,7 +374,7 @@
                                     <div
                                         class={[
                                             "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                            activeTabType === "schema" && db.activeSchemaTabId === id
+                                            activeTabType === "schema" && db.state.activeSchemaTabId === id
                                                 ? "bg-background shadow-sm"
                                                 : "hover:bg-muted",
                                         ]}
@@ -384,7 +388,7 @@
                                             class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
                                             onclick={(e) => {
                                                 e.stopPropagation();
-                                                db.removeSchemaTab(id);
+                                                db.schemaTabs.remove(id);
                                             }}
                                         >
                                             <XIcon />
@@ -409,7 +413,7 @@
                                     <div
                                         class={[
                                             "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                            activeTabType === "explain" && db.activeExplainTabId === id
+                                            activeTabType === "explain" && db.state.activeExplainTabId === id
                                                 ? "bg-background shadow-sm"
                                                 : "hover:bg-muted",
                                         ]}
@@ -423,7 +427,7 @@
                                             class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
                                             onclick={(e) => {
                                                 e.stopPropagation();
-                                                db.removeExplainTab(id);
+                                                db.explainTabs.remove(id);
                                             }}
                                         >
                                             <XIcon />
@@ -448,7 +452,7 @@
                                     <div
                                         class={[
                                             "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
-                                            activeTabType === "erd" && db.activeErdTabId === id
+                                            activeTabType === "erd" && db.state.activeErdTabId === id
                                                 ? "bg-background shadow-sm"
                                                 : "hover:bg-muted",
                                         ]}
@@ -462,7 +466,7 @@
                                             class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
                                             onclick={(e) => {
                                                 e.stopPropagation();
-                                                db.removeErdTab(id);
+                                                db.erdTabs.remove(id);
                                             }}
                                         >
                                             <XIcon />
@@ -493,7 +497,7 @@
                         size="icon"
                         variant="ghost"
                         class="size-7 shrink-0 [&_svg:not([class*='size-'])]:size-4"
-                        onclick={() => db.addQueryTab()}
+                        onclick={() => db.queryTabs.add()}
                     >
                         <PlusIcon />
                     </Button>
@@ -523,7 +527,7 @@
                 <ErdViewer />
             {/if}
         </div>
-    {:else if db.connections.length === 0}
+    {:else if db.state.connections.length === 0}
         <WelcomeScreen />
     {:else}
         <ConnectionsGrid />
@@ -540,7 +544,7 @@
 />
 
 {#if pendingCloseTabId}
-    {@const pendingTab = db.queryTabs.find(t => t.id === pendingCloseTabId)}
+    {@const pendingTab = db.state.queryTabs.find(t => t.id === pendingCloseTabId)}
     {#if pendingTab}
         <SaveQueryDialog
             bind:open={showSaveDialogForClose}

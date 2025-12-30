@@ -337,7 +337,7 @@
         isTesting = true;
         try {
             const connectionData = getConnectionData();
-            await db.testConnection(connectionData);
+            await db.connections.test(connectionData);
             toast.success("Connection successful");
         } catch (error) {
             connectionError = extractErrorMessage(error);
@@ -369,9 +369,9 @@
             const connectionData = getConnectionData();
 
             if (isReconnecting && reconnectingConnectionId) {
-                await db.reconnectConnection(reconnectingConnectionId, connectionData);
+                await db.connections.reconnect(reconnectingConnectionId, connectionData);
             } else {
-                await db.addConnection(connectionData);
+                await db.connections.add(connectionData);
             }
 
             toast.success("Connected successfully");

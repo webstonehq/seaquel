@@ -9,7 +9,7 @@
 
 	// Sort connections by last connected (most recent first)
 	const sortedConnections = $derived(
-		[...db.connections].sort((a, b) => {
+		[...db.state.connections].sort((a, b) => {
 			const aTime = a.lastConnected?.getTime() ?? 0;
 			const bTime = b.lastConnected?.getTime() ?? 0;
 			return bTime - aTime;

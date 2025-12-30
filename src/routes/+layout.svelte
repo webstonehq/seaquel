@@ -21,7 +21,7 @@
 	let { children } = $props();
 
 	function handleBeforeUnload() {
-		db.flushPersistence();
+		db.persistence.flush();
 	}
 
 	$effect(() => {

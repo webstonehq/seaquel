@@ -60,7 +60,7 @@
 
 		isInserting = true;
 
-		const result = await db.insertRow(sourceTable, insertValues);
+		const result = await db.queries.insertRow(sourceTable, insertValues);
 
 		if (result.success) {
 			toast.success(result.lastInsertId

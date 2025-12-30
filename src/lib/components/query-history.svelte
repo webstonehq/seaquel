@@ -13,9 +13,9 @@
 	const db = useDatabase();
 	let searchQuery = $state("");
 
-	const filteredHistory = $derived(db.activeConnectionQueryHistory.filter((item) => item.query.toLowerCase().includes(searchQuery.toLowerCase())));
+	const filteredHistory = $derived(db.state.activeConnectionQueryHistory.filter((item) => item.query.toLowerCase().includes(searchQuery.toLowerCase())));
 
-	const filteredSavedQueries = $derived(db.activeConnectionSavedQueries.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.query.toLowerCase().includes(searchQuery.toLowerCase())));
+	const filteredSavedQueries = $derived(db.state.activeConnectionSavedQueries.filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.query.toLowerCase().includes(searchQuery.toLowerCase())));
 
 </script>
 
@@ -27,7 +27,7 @@
 					<HistoryIcon class="size-4" />
 					{m.history_title()}
 				</CardTitle>
-				<CardDescription class="text-xs">{m.history_stats({ executed: db.activeConnectionQueryHistory.length, saved: db.activeConnectionSavedQueries.length })}</CardDescription>
+				<CardDescription class="text-xs">{m.history_stats({ executed: db.state.activeConnectionQueryHistory.length, saved: db.state.activeConnectionSavedQueries.length })}</CardDescription>
 			</div>
 		</div>
 		<div class="relative mt-2">
@@ -47,7 +47,7 @@
 				<ScrollArea class="h-full">
 					<div class="p-4 flex flex-col gap-2">
 						{#each filteredHistory as item (item.id)}
-							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.loadQueryFromHistory(item.id)}>
+							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.queryTabs.loadFromHistory(item.id)}>
 								<div class="flex items-start justify-between gap-2 mb-2">
 									<div class="flex items-center gap-2 flex-1 min-w-0">
 										<ClockIcon class="size-3 text-muted-foreground shrink-0" />
@@ -61,7 +61,7 @@
 										class={["size-6 shrink-0 [&_svg:not([class*='size-'])]:size-3", item.favorite && "text-yellow-500"]}
 										onclick={(e) => {
 											e.stopPropagation();
-											db.toggleQueryFavorite(item.id);
+											db.history.toggleQueryFavorite(item.id);
 										}}
 									>
 										<StarIcon class={[item.favorite && "fill-current"]} />
@@ -87,7 +87,7 @@
 				<ScrollArea class="h-full">
 					<div class="p-4 flex flex-col gap-2">
 						{#each filteredSavedQueries as item (item.id)}
-							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.loadSavedQuery(item.id)}>
+							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.queryTabs.loadSaved(item.id)}>
 								<div class="flex items-start justify-between gap-2 mb-2">
 									<div class="flex items-center gap-2 flex-1 min-w-0">
 										<BookmarkIcon class="size-3 text-primary shrink-0" />
@@ -99,7 +99,7 @@
 										class="size-6 shrink-0 [&_svg:not([class*='size-'])]:size-3 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
 										onclick={(e) => {
 											e.stopPropagation();
-											db.deleteSavedQuery(item.id);
+											db.savedQueries.deleteSavedQuery(item.id);
 										}}
 									>
 										<Trash2Icon />
