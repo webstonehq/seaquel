@@ -1,4 +1,5 @@
 import type { DatabaseAdapter, ExplainNode } from "./index";
+import { validateIdentifier } from "./index";
 import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from "$lib/types";
 
 interface PostgresSchemaRow {
@@ -79,7 +80,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 				LIMIT 1
 			) as foreign_key_ref
 		FROM information_schema.columns c
-		WHERE table_name = '${table}' AND table_schema = '${schema}'
+		WHERE table_name = '${validateIdentifier(table)}' AND table_schema = '${validateIdentifier(schema)}'
 		ORDER BY ordinal_position`;
 	}
 
@@ -90,7 +91,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 			schemaname,
 			tablename
 		FROM pg_indexes
-		WHERE tablename = '${table}' AND schemaname = '${schema}'`;
+		WHERE tablename = '${validateIdentifier(table)}' AND schemaname = '${validateIdentifier(schema)}'`;
 	}
 
 	getExplainQuery(query: string, analyze: boolean): string {

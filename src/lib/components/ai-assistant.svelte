@@ -48,7 +48,7 @@
 							<CardDescription class="text-xs">{m.ai_description()}</CardDescription>
 						</div>
 					</div>
-					<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" onclick={() => db.toggleAI()}>
+					<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_close()} onclick={() => db.toggleAI()}>
 						<XIcon />
 					</Button>
 				</div>
@@ -97,7 +97,7 @@
 			<CardFooter class="border-t p-3">
 				<div class="flex gap-2 w-full">
 					<Textarea bind:value={messageInput} placeholder={m.ai_placeholder()} class="min-h-[60px] max-h-[120px] resize-none text-sm" onkeydown={handleKeydown} />
-					<Button size="icon" class="shrink-0" onclick={handleSend} disabled={!messageInput.trim()}>
+					<Button size="icon" class="shrink-0" aria-label={m.ai_send()} onclick={handleSend} disabled={!messageInput.trim()}>
 						<SendIcon class="size-4" />
 					</Button>
 				</div>

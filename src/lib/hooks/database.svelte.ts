@@ -76,6 +76,25 @@ class UseDatabase extends DatabaseState {
     }
   }
 
+  /**
+   * Cleans up resources and flushes pending state before unmounting.
+   * Should be called when the component is destroyed.
+   */
+  cleanup() {
+    this.flushPersistence();
+  }
+
+  /**
+   * Formats an unknown error into a user-friendly string message.
+   * Preserves the error message if it's an Error instance.
+   */
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
   private serializeQueryTabs(connectionId: string): PersistedQueryTab[] {
     const tabs = this.queryTabsByConnection.get(connectionId) || [];
     return tabs.map(tab => ({
@@ -696,59 +715,85 @@ class UseDatabase extends DatabaseState {
     }
   }
 
+  /**
+   * Establishes an SSH tunnel if configured, returning the modified connection string
+   * and local port information.
+   */
+  private async setupSshTunnel(
+    connection: {
+      sshTunnel?: DatabaseConnection['sshTunnel'];
+      host: string;
+      port: number;
+      connectionString?: string;
+    },
+    credentials: {
+      sshPassword?: string;
+      sshKeyPath?: string;
+      sshKeyPassphrase?: string;
+    },
+    connectionId: string
+  ): Promise<{ effectiveConnectionString: string | undefined; tunnelLocalPort?: number }> {
+    if (!connection.sshTunnel?.enabled) {
+      return { effectiveConnectionString: connection.connectionString };
+    }
+
+    try {
+      const tunnelResult = await createSshTunnel({
+        sshHost: connection.sshTunnel.host,
+        sshPort: connection.sshTunnel.port,
+        sshUsername: connection.sshTunnel.username,
+        authMethod: connection.sshTunnel.authMethod,
+        password: credentials.sshPassword,
+        keyPath: credentials.sshKeyPath,
+        keyPassphrase: credentials.sshKeyPassphrase,
+        remoteHost: connection.host,
+        remotePort: connection.port,
+      });
+
+      let effectiveConnectionString = connection.connectionString;
+      if (effectiveConnectionString) {
+        const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
+        url.hostname = "127.0.0.1";
+        url.port = String(tunnelResult.localPort);
+        effectiveConnectionString = url.toString();
+      }
+
+      toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
+      this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
+
+      return {
+        effectiveConnectionString,
+        tunnelLocalPort: tunnelResult.localPort,
+      };
+    } catch (error) {
+      toast.error(`SSH tunnel failed: ${error}`);
+      throw error;
+    }
+  }
+
   async addConnection(connection: Omit<DatabaseConnection, "id"> & {
     sshPassword?: string;
     sshKeyPath?: string;
     sshKeyPassphrase?: string;
   }) {
-    let effectiveConnectionString = connection.connectionString;
-    let tunnelLocalPort: number | undefined;
+    const connectionId =
+      connection.type === 'sqlite'
+        ? `conn-sqlite-${connection.databaseName}`
+        : `conn-${connection.host}-${connection.port}`;
 
-    // Establish SSH tunnel if enabled
-    if (connection.sshTunnel?.enabled) {
-      try {
-        const tunnelResult = await createSshTunnel({
-          sshHost: connection.sshTunnel.host,
-          sshPort: connection.sshTunnel.port,
-          sshUsername: connection.sshTunnel.username,
-          authMethod: connection.sshTunnel.authMethod,
-          password: connection.sshPassword,
-          keyPath: connection.sshKeyPath,
-          keyPassphrase: connection.sshKeyPassphrase,
-          remoteHost: connection.host,
-          remotePort: connection.port,
-        });
-
-        tunnelLocalPort = tunnelResult.localPort;
-
-        // Build new connection string using tunnel
-        if (effectiveConnectionString) {
-          const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-          url.hostname = "127.0.0.1";
-          url.port = String(tunnelResult.localPort);
-          effectiveConnectionString = url.toString();
-        }
-
-        toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
-
-        // Store tunnel ID for later cleanup
-        const connectionId =
-          connection.type === 'sqlite'
-            ? `conn-sqlite-${connection.databaseName}`
-            : `conn-${connection.host}-${connection.port}`;
-        this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
-      } catch (error) {
-        toast.error(`SSH tunnel failed: ${error}`);
-        throw error;
-      }
-    }
+    const { effectiveConnectionString, tunnelLocalPort } = await this.setupSshTunnel(
+      connection,
+      {
+        sshPassword: connection.sshPassword,
+        sshKeyPath: connection.sshKeyPath,
+        sshKeyPassphrase: connection.sshKeyPassphrase,
+      },
+      connectionId
+    );
 
     const newConnection: DatabaseConnection = {
       ...connection,
-      id:
-        connection.type === 'sqlite'
-          ? `conn-sqlite-${connection.databaseName}`
-          : `conn-${connection.host}-${connection.port}`,
+      id: connectionId,
       lastConnected: new Date(),
       tunnelLocalPort,
       database: effectiveConnectionString
@@ -809,41 +854,15 @@ class UseDatabase extends DatabaseState {
       this.tunnelIds.delete(connectionId);
     }
 
-    let effectiveConnectionString = connection.connectionString;
-    let tunnelLocalPort: number | undefined;
-
-    // Establish SSH tunnel if enabled
-    if (connection.sshTunnel?.enabled) {
-      try {
-        const tunnelResult = await createSshTunnel({
-          sshHost: connection.sshTunnel.host,
-          sshPort: connection.sshTunnel.port,
-          sshUsername: connection.sshTunnel.username,
-          authMethod: connection.sshTunnel.authMethod,
-          password: connection.sshPassword,
-          keyPath: connection.sshKeyPath,
-          keyPassphrase: connection.sshKeyPassphrase,
-          remoteHost: connection.host,
-          remotePort: connection.port,
-        });
-
-        tunnelLocalPort = tunnelResult.localPort;
-
-        // Build new connection string using tunnel
-        if (effectiveConnectionString) {
-          const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-          url.hostname = "127.0.0.1";
-          url.port = String(tunnelResult.localPort);
-          effectiveConnectionString = url.toString();
-        }
-
-        toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
-        this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
-      } catch (error) {
-        toast.error(`SSH tunnel failed: ${error}`);
-        throw error;
-      }
-    }
+    const { effectiveConnectionString, tunnelLocalPort } = await this.setupSshTunnel(
+      connection,
+      {
+        sshPassword: connection.sshPassword,
+        sshKeyPath: connection.sshKeyPath,
+        sshKeyPassphrase: connection.sshKeyPassphrase,
+      },
+      connectionId
+    );
 
     // Update the existing connection with the new database connection
     const database = effectiveConnectionString
@@ -981,10 +1000,9 @@ class UseDatabase extends DatabaseState {
   toggleConnection(id: string) {
     const connection = this.connections.find((c) => c.id === id);
     if (connection) {
+      const wasConnected = !!connection.database;
       connection.database = undefined;
-      if (connection.database) {
-        connection.lastConnected = new Date();
-      } else {
+      if (wasConnected) {
         // If disconnecting the active connection, switch to another connected one
         if (this.activeConnectionId === id) {
           const nextConnection = this.connections.find(
@@ -1103,14 +1121,14 @@ class UseDatabase extends DatabaseState {
    * Load column and index metadata for all tables in the background.
    * Updates the schema state progressively as each table's metadata is loaded.
    */
-  private loadTableMetadataInBackground(
+  private async loadTableMetadataInBackground(
     connectionId: string,
     tables: SchemaTable[],
     adapter: DatabaseAdapter,
     database: Database
-  ): void {
+  ): Promise<void> {
     // Process tables in parallel but update state as each completes
-    tables.forEach(async (table, index) => {
+    const promises = tables.map(async (table, index) => {
       try {
         const columnsResult = (await database.select(
           adapter.getColumnsQuery(table.name, table.schema)
@@ -1147,6 +1165,8 @@ class UseDatabase extends DatabaseState {
         console.error(`Failed to load metadata for table ${table.schema}.${table.name}:`, error);
       }
     });
+
+    await Promise.allSettled(promises);
   }
 
   async addSchemaTab(table: SchemaTable) {
@@ -1425,7 +1445,7 @@ class UseDatabase extends DatabaseState {
       row[column] = newValue;
       return { success: true };
     } catch (error) {
-      return { success: false, error: String(error) };
+      return { success: false, error: this.formatError(error) };
     }
   }
 
@@ -1446,7 +1466,7 @@ class UseDatabase extends DatabaseState {
       const result = await this.activeConnection?.database!.execute(query, Object.values(values));
       return { success: true, lastInsertId: result?.lastInsertId };
     } catch (error) {
-      return { success: false, error: String(error) };
+      return { success: false, error: this.formatError(error) };
     }
   }
 
@@ -1466,7 +1486,7 @@ class UseDatabase extends DatabaseState {
       await this.activeConnection?.database!.execute(query, bindValues);
       return { success: true };
     } catch (error) {
-      return { success: false, error: String(error) };
+      return { success: false, error: this.formatError(error) };
     }
   }
 

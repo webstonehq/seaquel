@@ -41,6 +41,20 @@ export interface DatabaseAdapter {
 	parseIndexesResult(rows: unknown[]): SchemaIndex[];
 }
 
+/**
+ * Validates and sanitizes a SQL identifier (table name, schema name, column name).
+ * Throws an error if the identifier contains invalid characters.
+ * Allows Unicode letters/digits for international table names.
+ */
+export function validateIdentifier(name: string): string {
+	// Allow alphanumeric, underscore, and common international characters
+	// Also allow dollar sign which PostgreSQL supports
+	if (!/^[\p{L}\p{N}_$][\p{L}\p{N}_$]*$/u.test(name)) {
+		throw new Error(`Invalid SQL identifier: "${name}"`);
+	}
+	return name;
+}
+
 const adapters: Partial<Record<DatabaseType, DatabaseAdapter>> = {
 	postgres: new PostgresAdapter(),
 	sqlite: new SqliteAdapter(),

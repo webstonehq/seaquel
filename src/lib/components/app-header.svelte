@@ -175,6 +175,7 @@
                     variant="ghost"
                     class="size-8"
                     title={m.header_view_erd()}
+                    aria-label={m.header_view_erd()}
                     onclick={() => db.addErdTab()}
                 >
                     <NetworkIcon class="size-5" />
@@ -184,6 +185,7 @@
                 size="icon"
                 variant="ghost"
                 class="size-8"
+                aria-label={m.header_toggle_ai()}
                 onclick={() => db.toggleAI()}
             >
                 <BotIcon class="size-5" />
