@@ -40,13 +40,13 @@
 	const tablesBySchema = $derived(() => {
 		const searchLower = schemaSearchQuery.toLowerCase();
 		const filtered = schemaSearchQuery
-			? db.activeSchema.filter(table =>
+			? db.state.activeSchema.filter(table =>
 				table.name.toLowerCase().includes(searchLower) ||
 				(table.schema || "").toLowerCase().includes(searchLower)
 			)
-			: db.activeSchema;
+			: db.state.activeSchema;
 
-		const grouped = new Map<string, typeof db.activeSchema>();
+		const grouped = new Map<string, typeof db.state.activeSchema>();
 		filtered.forEach((table) => {
 			const schema = table.schema || "default";
 			if (!grouped.has(schema)) {
@@ -57,19 +57,19 @@
 		return grouped;
 	});
 
-	const handleTableClick = (table: (typeof db.activeSchema)[0]) => {
-		db.addSchemaTab(table);
-		db.setActiveView("schema");
+	const handleTableClick = (table: (typeof db.state.activeSchema)[0]) => {
+		db.schemaTabs.add(table);
+		db.ui.setActiveView("schema");
 	};
 
 	const filteredHistory = $derived(
-		db.activeConnectionQueryHistory.filter((item) =>
+		db.state.activeConnectionQueryHistory.filter((item) =>
 			item.query.toLowerCase().includes(searchQuery.toLowerCase()),
 		),
 	);
 
 	const filteredSavedQueries = $derived(
-		db.activeConnectionSavedQueries.filter(
+		db.state.activeConnectionSavedQueries.filter(
 			(item) =>
 				item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
 				item.query.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -80,7 +80,7 @@
 
 <Sidebar class="top-(--header-height) h-[calc(100svh-var(--header-height))]" collapsible="offcanvas">
 	<SidebarHeader class="p-0 py-1">
-		{#if db.activeConnectionId}
+		{#if db.state.activeConnectionId}
 			<Tabs bind:value={sidebarTab} class="w-full">
 				<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
 					<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
@@ -98,7 +98,7 @@
 
 	<SidebarContent>
 		{#if sidebarTab === "schema"}
-			{#if db.activeConnection && db.activeConnection.database}
+			{#if db.state.activeConnection && db.state.activeConnection.database}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -110,7 +110,7 @@
 					</div>
 				</div>
 				<SidebarGroup>
-					<SidebarGroupLabel>{db.activeConnection.name}</SidebarGroupLabel>
+					<SidebarGroupLabel>{db.state.activeConnection.name}</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
 							{#each [...tablesBySchema().entries()] as [schemaName, tables] (schemaName)}
@@ -153,7 +153,7 @@
 				</div>
 			{/if}
 		{:else if sidebarTab === "queries"}
-			{#if db.activeConnection && db.activeConnection.database}
+			{#if db.state.activeConnection && db.state.activeConnection.database}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -187,7 +187,7 @@
 												<SidebarMenuItem>
 													<SidebarMenuButton
 														class="h-auto py-2 flex-col items-start gap-1 group"
-														onclick={() => db.loadQueryFromHistory(item.id)}
+														onclick={() => db.queryTabs.loadFromHistory(item.id)}
 													>
 														<div class="flex items-center justify-between w-full gap-2">
 															<div class="flex items-center gap-2 flex-1 min-w-0">
@@ -204,7 +204,7 @@
 																]}
 																onclick={(e) => {
 																	e.stopPropagation();
-																	db.toggleQueryFavorite(item.id);
+																	db.history.toggleQueryFavorite(item.id);
 																}}
 															>
 																<StarIcon class={[item.favorite && "fill-current"]} />
@@ -245,7 +245,7 @@
 												<SidebarMenuItem>
 													<SidebarMenuButton
 														class="h-auto py-2 flex-col items-start gap-1 group"
-														onclick={() => db.loadSavedQuery(item.id)}
+														onclick={() => db.queryTabs.loadSaved(item.id)}
 													>
 														<div class="flex items-center justify-between w-full gap-2">
 															<div class="flex items-center gap-2 flex-1 min-w-0">
@@ -258,7 +258,7 @@
 																class="size-5 shrink-0 [&_svg:not([class*='size-'])]:size-3 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
 																onclick={(e) => {
 																	e.stopPropagation();
-																	db.deleteSavedQuery(item.id);
+																	db.savedQueries.deleteSavedQuery(item.id);
 																}}
 															>
 																<Trash2Icon />
@@ -299,11 +299,11 @@
 	<SidebarFooter class="p-4">
 		<div class="text-xs text-muted-foreground flex justify-between">
 			<span>
-				{#if db.activeConnection}
+				{#if db.state.activeConnection}
 					{#if sidebarTab === "schema"}
-						{m.sidebar_tables_count({ count: db.activeSchema.length })}
+						{m.sidebar_tables_count({ count: db.state.activeSchema.length })}
 					{:else}
-						{m.sidebar_queries_stats({ executed: db.activeConnectionQueryHistory.length, saved: db.activeConnectionSavedQueries.length })}
+						{m.sidebar_queries_stats({ executed: db.state.activeConnectionQueryHistory.length, saved: db.state.activeConnectionSavedQueries.length })}
 					{/if}
 				{:else}
 					{m.sidebar_no_connection_footer()}

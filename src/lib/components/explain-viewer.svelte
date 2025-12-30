@@ -23,25 +23,24 @@
 
   // Convert explain result to xyflow nodes and edges
   const flowData = $derived.by(() => {
-    if (!db.activeExplainTab?.result) {
+    if (!db.state.activeExplainTab?.result) {
       return { nodes: [] as Node[], edges: [] as Edge[] };
     }
-    return layoutExplainPlan(db.activeExplainTab.result);
+    return layoutExplainPlan(db.state.activeExplainTab.result);
   });
 
   let nodes = $derived(flowData.nodes);
   let edges = $derived(flowData.edges);
 
   const handleViewQuery = () => {
-    if (!db.activeExplainTab) return;
-    db.focusOrCreateQueryTab(db.activeExplainTab.sourceQuery, 'Query');
-    db.setActiveView("query");
+    if (!db.state.activeExplainTab) return;
+    db.queryTabs.focusOrCreate(db.state.activeExplainTab.sourceQuery, 'Query', () => db.ui.setActiveView("query"));
   };
 </script>
 
 <div class="flex flex-col h-full">
-  {#if db.activeExplainTab}
-    {#if db.activeExplainTab.isExecuting}
+  {#if db.state.activeExplainTab}
+    {#if db.state.activeExplainTab.isExecuting}
       <!-- Loading state -->
       <div class="flex-1 flex items-center justify-center">
         <div class="flex flex-col items-center gap-3">
@@ -49,7 +48,7 @@
           <p class="text-sm text-muted-foreground">{m.explain_analyzing()}</p>
         </div>
       </div>
-    {:else if db.activeExplainTab.result}
+    {:else if db.state.activeExplainTab.result}
       <!-- Summary Header -->
       <div class="p-4 border-b bg-muted/30 shrink-0">
         <div class="flex items-start justify-between">
@@ -57,24 +56,24 @@
             <h2 class="text-lg font-semibold flex items-center gap-2">
               <DatabaseIcon class="size-5" />
               {m.explain_query_plan()}
-              {#if db.activeExplainTab.result.isAnalyze}
+              {#if db.state.activeExplainTab.result.isAnalyze}
                 <Badge variant="default">{m.explain_analyzed()}</Badge>
               {/if}
             </h2>
             <div class="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
               <span class="flex items-center gap-1">
                 <ClockIcon class="size-3" />
-                {m.explain_planning()} {db.activeExplainTab.result.planningTime.toFixed(2)}ms
+                {m.explain_planning()} {db.state.activeExplainTab.result.planningTime.toFixed(2)}ms
               </span>
-              {#if db.activeExplainTab.result.executionTime !== undefined}
+              {#if db.state.activeExplainTab.result.executionTime !== undefined}
                 <span class="flex items-center gap-1">
                   <ClockIcon class="size-3" />
-                  {m.explain_execution()} {db.activeExplainTab.result.executionTime.toFixed(2)}ms
+                  {m.explain_execution()} {db.state.activeExplainTab.result.executionTime.toFixed(2)}ms
                 </span>
               {/if}
               <span class="flex items-center gap-1">
                 <RowsIcon class="size-3" />
-                {m.explain_estimated_rows()} {db.activeExplainTab.result.plan.planRows.toLocaleString()}
+                {m.explain_estimated_rows()} {db.state.activeExplainTab.result.plan.planRows.toLocaleString()}
               </span>
             </div>
           </div>

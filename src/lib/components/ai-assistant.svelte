@@ -14,7 +14,7 @@
 
 	const handleSend = () => {
 		if (messageInput.trim()) {
-			db.sendAIMessage(messageInput);
+			db.ui.sendAIMessage(messageInput);
 			messageInput = "";
 		}
 	};
@@ -34,7 +34,7 @@
 	];
 </script>
 
-{#if db.isAIOpen}
+{#if db.state.isAIOpen}
 	<div class="fixed right-4 bottom-4 w-96 h-[600px] z-50" transition:fly={{ x: 100, duration: 200 }}>
 		<Card class="h-full flex flex-col shadow-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-lg-2xl border-2">
 			<CardHeader class="border-b pb-3">
@@ -48,7 +48,7 @@
 							<CardDescription class="text-xs">{m.ai_description()}</CardDescription>
 						</div>
 					</div>
-					<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_close()} onclick={() => db.toggleAI()}>
+					<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_close()} onclick={() => db.ui.toggleAI()}>
 						<XIcon />
 					</Button>
 				</div>
@@ -56,7 +56,7 @@
 
 			<CardContent class="flex-1 overflow-hidden p-0">
 				<ScrollArea class="h-full p-4">
-					{#if db.aiMessages.length === 0}
+					{#if db.state.aiMessages.length === 0}
 						<div class="space-y-3">
 							<div class="text-center py-8">
 								<SparklesIcon class="size-12 mx-auto mb-3 text-primary/20" />
@@ -70,7 +70,7 @@
 						</div>
 					{:else}
 						<div class="flex flex-col gap-4">
-							{#each db.aiMessages as message (message.id)}
+							{#each db.state.aiMessages as message (message.id)}
 								<div class={["flex gap-3", message.role === "user" && "flex-row-reverse"]}>
 									<div class={["size-8 rounded-full shrink-0 flex items-center justify-center", message.role === "user" ? "bg-primary/10" : "bg-muted"]}>
 										{#if message.role === "user"}

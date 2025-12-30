@@ -11,14 +11,14 @@
 	const db = useDatabase();
 
 	const handleQueryTable = () => {
-		if (!db.activeSchemaTab) return;
-		db.addQueryTab(`Query ${db.activeSchemaTab.table.name}`, `SELECT * FROM ${db.activeSchemaTab.table.schema}.${db.activeSchemaTab.table.name} LIMIT 100;`);
-		db.setActiveView("query");
+		if (!db.state.activeSchemaTab) return;
+		db.queryTabs.add(`Query ${db.state.activeSchemaTab.table.name}`, `SELECT * FROM ${db.state.activeSchemaTab.table.schema}.${db.state.activeSchemaTab.table.name} LIMIT 100;`);
+		db.ui.setActiveView("query");
 	};
 </script>
 
 <div class="flex flex-col h-full">
-	{#if db.activeSchemaTab}
+	{#if db.state.activeSchemaTab}
 		<div class="flex-1 overflow-auto p-4" transition:fly={{ x: 20, duration: 200 }}>
 			<Card>
 				<CardHeader>
@@ -26,10 +26,10 @@
 						<div>
 							<CardTitle class="flex items-center gap-2">
 								<DatabaseIcon class="size-5" />
-								{db.activeSchemaTab.table.name}
+								{db.state.activeSchemaTab.table.name}
 							</CardTitle>
 							<CardDescription>
-								{db.activeSchemaTab.table.type === "table" ? m.table_viewer_table() : m.table_viewer_view()} • {m.table_viewer_schema({ schema: db.activeSchemaTab.table.schema })} • {m.table_viewer_rows({ count: db.activeSchemaTab.table.rowCount?.toLocaleString() ?? "0" })}
+								{db.state.activeSchemaTab.table.type === "table" ? m.table_viewer_table() : m.table_viewer_view()} • {m.table_viewer_schema({ schema: db.state.activeSchemaTab.table.schema })} • {m.table_viewer_rows({ count: db.state.activeSchemaTab.table.rowCount?.toLocaleString() ?? "0" })}
 							</CardDescription>
 						</div>
 						<Button size="sm" onclick={handleQueryTable}>{m.table_viewer_query_table()}</Button>
@@ -39,7 +39,7 @@
 					<div>
 						<h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
 							<ListIcon class="size-4" />
-							{m.table_viewer_columns({ count: db.activeSchemaTab.table.columns.length })}
+							{m.table_viewer_columns({ count: db.state.activeSchemaTab.table.columns.length })}
 						</h3>
 						<div class="border rounded-lg overflow-hidden">
 							<table class="w-full text-sm">
@@ -53,7 +53,7 @@
 									</tr>
 								</thead>
 								<tbody>
-									{#each db.activeSchemaTab.table.columns as column, i}
+									{#each db.state.activeSchemaTab.table.columns as column, i}
 										<tr class={["border-t hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
 											<td class="px-4 py-2 font-mono">{column.name}</td>
 											<td class="px-4 py-2">
@@ -91,7 +91,7 @@
 					<div>
 						<h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
 							<KeyIcon class="size-4" />
-							{m.table_viewer_indexes({ count: db.activeSchemaTab.table.indexes.length })}
+							{m.table_viewer_indexes({ count: db.state.activeSchemaTab.table.indexes.length })}
 						</h3>
 						<div class="border rounded-lg overflow-hidden">
 							<table class="w-full text-sm">
@@ -104,7 +104,7 @@
 									</tr>
 								</thead>
 								<tbody>
-									{#each db.activeSchemaTab.table.indexes as index, i}
+									{#each db.state.activeSchemaTab.table.indexes as index, i}
 										<tr class={["border-t hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
 											<td class="px-4 py-2 font-mono">{index.name}</td>
 											<td class="px-4 py-2 font-mono text-xs">{index.columns.join(", ")}</td>

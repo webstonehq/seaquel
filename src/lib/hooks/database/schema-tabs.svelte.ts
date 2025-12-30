@@ -1,24 +1,112 @@
+import type Database from "@tauri-apps/plugin-sql";
+import type { SchemaTable, SchemaTab } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
+import type { TabOrderingManager } from "./tab-ordering.svelte.js";
+import { getAdapter, type DatabaseAdapter } from "$lib/db";
+import { setMapValue } from "./map-utils.js";
 
 /**
- * Manages schema tabs: remove, set active.
- * Note: addSchemaTab is in UseDatabase as it requires database access for metadata fetching.
+ * Manages schema tabs: add, remove, set active.
+ * Handles table metadata loading.
  */
 export class SchemaTabManager {
   constructor(
     private state: DatabaseState,
-    private schedulePersistence: (connectionId: string | null) => void,
-    private removeTabGeneric: <T extends { id: string }>(
-      tabsGetter: () => Map<string, T[]>,
-      tabsSetter: (m: Map<string, T[]>) => void,
-      activeIdGetter: () => Map<string, string | null>,
-      activeIdSetter: (m: Map<string, string | null>) => void,
-      tabId: string
-    ) => void
+    private tabOrdering: TabOrderingManager,
+    private schedulePersistence: (connectionId: string | null) => void
   ) {}
 
-  removeSchemaTab(id: string) {
-    this.removeTabGeneric(
+  /**
+   * Add a schema tab for the specified table.
+   * Fetches table metadata (columns, indexes, foreign keys).
+   */
+  async add(table: SchemaTable): Promise<string | null> {
+    if (!this.state.activeConnectionId || !this.state.activeConnection) return null;
+
+    const tabs = this.state.schemaTabsByConnection.get(this.state.activeConnectionId) || [];
+    const adapter = getAdapter(this.state.activeConnection.type);
+
+    // Fetch table metadata - query columns and indexes
+    const columnsResult = (await this.state.activeConnection.database!.select(
+      adapter.getColumnsQuery(table.name, table.schema)
+    )) as unknown[];
+
+    const indexesResult = (await this.state.activeConnection.database!.select(
+      adapter.getIndexesQuery(table.name, table.schema)
+    )) as unknown[];
+
+    // Fetch foreign keys if adapter supports it (needed for SQLite)
+    let foreignKeysResult: unknown[] | undefined;
+    if (adapter.getForeignKeysQuery) {
+      foreignKeysResult = (await this.state.activeConnection.database!.select(
+        adapter.getForeignKeysQuery(table.name, table.schema)
+      )) as unknown[];
+    }
+
+    // Update table with fetched columns and indexes
+    const updatedTable: SchemaTable = {
+      ...table,
+      columns: adapter.parseColumnsResult(columnsResult || [], foreignKeysResult),
+      indexes: adapter.parseIndexesResult(indexesResult || []),
+    };
+
+    // Update this.state.schemas with the refreshed table metadata
+    const connectionSchemas = [...(this.state.schemas.get(this.state.activeConnectionId) || [])];
+    const tableIndex = connectionSchemas.findIndex(
+      (t) => t.name === table.name && t.schema === table.schema
+    );
+    if (tableIndex >= 0) {
+      connectionSchemas[tableIndex] = updatedTable;
+    }
+    const newSchemas = new Map(this.state.schemas);
+    newSchemas.set(this.state.activeConnectionId, connectionSchemas);
+    this.state.schemas = newSchemas;
+
+    // Check if table is already open
+    const existingTab = tabs.find(
+      (t) => t.table.name === table.name && t.table.schema === table.schema
+    );
+    if (existingTab) {
+      // Update existing tab with new metadata
+      const updatedTabs = tabs.map((t) =>
+        t.id === existingTab.id ? { ...t, table: updatedTable } : t
+      );
+      const newSchemaTabs = new Map(this.state.schemaTabsByConnection);
+      newSchemaTabs.set(this.state.activeConnectionId, updatedTabs);
+      this.state.schemaTabsByConnection = newSchemaTabs;
+
+      const newActiveSchemaIds = new Map(this.state.activeSchemaTabIdByConnection);
+      newActiveSchemaIds.set(this.state.activeConnectionId, existingTab.id);
+      this.state.activeSchemaTabIdByConnection = newActiveSchemaIds;
+      this.schedulePersistence(this.state.activeConnectionId);
+      return existingTab.id;
+    }
+
+    const newTab: SchemaTab = {
+      id: `schema-tab-${Date.now()}`,
+      table: updatedTable,
+    };
+
+    // Create new Map to trigger reactivity
+    const newSchemaTabs = new Map(this.state.schemaTabsByConnection);
+    newSchemaTabs.set(this.state.activeConnectionId, [...tabs, newTab]);
+    this.state.schemaTabsByConnection = newSchemaTabs;
+
+    this.tabOrdering.add(newTab.id);
+
+    const newActiveSchemaIds = new Map(this.state.activeSchemaTabIdByConnection);
+    newActiveSchemaIds.set(this.state.activeConnectionId, newTab.id);
+    this.state.activeSchemaTabIdByConnection = newActiveSchemaIds;
+
+    this.schedulePersistence(this.state.activeConnectionId);
+    return newTab.id;
+  }
+
+  /**
+   * Remove a schema tab by ID.
+   */
+  remove(id: string): void {
+    this.tabOrdering.removeTabGeneric(
       () => this.state.schemaTabsByConnection,
       (m) => (this.state.schemaTabsByConnection = m),
       () => this.state.activeSchemaTabIdByConnection,
@@ -28,12 +116,67 @@ export class SchemaTabManager {
     this.schedulePersistence(this.state.activeConnectionId);
   }
 
-  setActiveSchemaTab(id: string) {
+  /**
+   * Set the active schema tab by ID.
+   */
+  setActive(id: string): void {
     if (!this.state.activeConnectionId) return;
 
     const newActiveSchemaIds = new Map(this.state.activeSchemaTabIdByConnection);
     newActiveSchemaIds.set(this.state.activeConnectionId, id);
     this.state.activeSchemaTabIdByConnection = newActiveSchemaIds;
     this.schedulePersistence(this.state.activeConnectionId);
+  }
+
+  /**
+   * Load column and index metadata for all tables in the background.
+   * Updates the schema state progressively as each table's metadata is loaded.
+   */
+  async loadTableMetadataInBackground(
+    connectionId: string,
+    tables: SchemaTable[],
+    adapter: DatabaseAdapter,
+    database: Database
+  ): Promise<void> {
+    // Process tables in parallel but update state as each completes
+    const promises = tables.map(async (table, index) => {
+      try {
+        const columnsResult = (await database.select(
+          adapter.getColumnsQuery(table.name, table.schema)
+        )) as unknown[];
+
+        const indexesResult = (await database.select(
+          adapter.getIndexesQuery(table.name, table.schema)
+        )) as unknown[];
+
+        // Fetch foreign keys if adapter supports it (needed for SQLite)
+        let foreignKeysResult: unknown[] | undefined;
+        if (adapter.getForeignKeysQuery) {
+          foreignKeysResult = (await database.select(
+            adapter.getForeignKeysQuery(table.name, table.schema)
+          )) as unknown[];
+        }
+
+        const updatedTable: SchemaTable = {
+          ...table,
+          columns: adapter.parseColumnsResult(columnsResult || [], foreignKeysResult),
+          indexes: adapter.parseIndexesResult(indexesResult || []),
+        };
+
+        // Update the schema state with the new table metadata
+        const currentSchemas = this.state.schemas.get(connectionId);
+        if (currentSchemas) {
+          const updatedSchemas = [...currentSchemas];
+          updatedSchemas[index] = updatedTable;
+          const newSchemas = new Map(this.state.schemas);
+          newSchemas.set(connectionId, updatedSchemas);
+          this.state.schemas = newSchemas;
+        }
+      } catch (error) {
+        console.error(`Failed to load metadata for table ${table.schema}.${table.name}:`, error);
+      }
+    });
+
+    await Promise.allSettled(promises);
   }
 }

@@ -27,16 +27,16 @@
 
 	// Derived state for dynamic commands
 	const tables = $derived(
-		db.activeConnectionId ? db.schemas.get(db.activeConnectionId) || [] : []
+		db.state.activeConnectionId ? db.state.schemas.get(db.state.activeConnectionId) || [] : []
 	);
-	const connections = $derived(db.connections);
-	const savedQueries = $derived(db.activeConnectionSavedQueries);
-	const recentHistory = $derived(db.activeConnectionQueryHistory?.slice(0, 10) || []);
-	const openTabs = $derived(db.orderedTabs);
-	const hasResults = $derived((db.activeQueryTab?.results?.rows?.length ?? 0) > 0);
-	const isConnected = $derived(!!db.activeConnectionId && !!db.activeConnection?.database);
-	const hasActiveQueryTab = $derived(isConnected && !!db.activeQueryTab);
-	const hasQueryContent = $derived(hasActiveQueryTab && !!db.activeQueryTab?.query?.trim());
+	const connections = $derived(db.state.connections);
+	const savedQueries = $derived(db.state.activeConnectionSavedQueries);
+	const recentHistory = $derived(db.state.activeConnectionQueryHistory?.slice(0, 10) || []);
+	const openTabs = $derived(db.tabs.ordered);
+	const hasResults = $derived((db.state.activeQueryTab?.results?.rows?.length ?? 0) > 0);
+	const isConnected = $derived(!!db.state.activeConnectionId && !!db.state.activeConnection?.database);
+	const hasActiveQueryTab = $derived(isConnected && !!db.state.activeQueryTab);
+	const hasQueryContent = $derived(hasActiveQueryTab && !!db.state.activeQueryTab?.query?.trim());
 	const hasConnections = $derived(connections.length > 0);
 
 	// Register shortcut handler
@@ -54,13 +54,13 @@
 
 	// Actions
 	function newQueryTab() {
-		runAndClose(() => db.addQueryTab());
+		runAndClose(() => db.queryTabs.add());
 	}
 
 	function executeQuery() {
-		const tab = db.activeQueryTab;
+		const tab = db.state.activeQueryTab;
 		if (tab) {
-			runAndClose(() => db.executeQuery(tab.id));
+			runAndClose(() => db.queries.execute(tab.id));
 		}
 	}
 
@@ -74,27 +74,27 @@
 	}
 
 	function toggleAI() {
-		runAndClose(() => db.toggleAI());
+		runAndClose(() => db.ui.toggleAI());
 	}
 
 	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd") {
 		runAndClose(() => {
 			switch (type) {
 				case "query":
-					db.setActiveQueryTab(tabId);
-					db.setActiveView("query");
+					db.queryTabs.setActive(tabId);
+					db.ui.setActiveView("query");
 					break;
 				case "schema":
-					db.setActiveSchemaTab(tabId);
-					db.setActiveView("schema");
+					db.schemaTabs.setActive(tabId);
+					db.ui.setActiveView("schema");
 					break;
 				case "explain":
-					db.setActiveExplainTab(tabId);
-					db.setActiveView("explain");
+					db.explainTabs.setActive(tabId);
+					db.ui.setActiveView("explain");
 					break;
 				case "erd":
-					db.setActiveErdTab(tabId);
-					db.setActiveView("erd");
+					db.erdTabs.setActive(tabId);
+					db.ui.setActiveView("erd");
 					break;
 			}
 		});
@@ -114,8 +114,8 @@
 		);
 		if (schemaTable) {
 			runAndClose(() => {
-				db.addSchemaTab(schemaTable);
-				db.setActiveView("schema");
+				db.schemaTabs.add(schemaTable);
+				db.ui.setActiveView("schema");
 			});
 		}
 	}
@@ -123,13 +123,13 @@
 	function queryTable(table: { name: string; schema: string }) {
 		runAndClose(() => {
 			const query = `SELECT * FROM "${table.schema}"."${table.name}" LIMIT 100`;
-			db.addQueryTab(`Query: ${table.name}`, query);
-			db.setActiveView("query");
+			db.queryTabs.add(`Query: ${table.name}`, query);
+			db.ui.setActiveView("query");
 		});
 	}
 
 	function viewErd() {
-		runAndClose(() => db.addErdTab());
+		runAndClose(() => db.erdTabs.add());
 	}
 
 	function switchConnection(id: string) {
@@ -138,7 +138,7 @@
 
 		if (connection.database) {
 			// Already connected, just switch to it
-			runAndClose(() => db.setActiveConnection(id));
+			runAndClose(() => db.connections.setActive(id));
 		} else {
 			// Disconnected, open the reconnect dialog
 			open = false;
@@ -158,15 +158,15 @@
 	}
 
 	function loadSavedQuery(id: string) {
-		runAndClose(() => db.loadSavedQuery(id));
+		runAndClose(() => db.queryTabs.loadSaved(id));
 	}
 
 	function loadHistoryItem(id: string) {
-		runAndClose(() => db.loadQueryFromHistory(id));
+		runAndClose(() => db.queryTabs.loadFromHistory(id));
 	}
 
 	function exportResults(format: "csv" | "json") {
-		const results = db.activeQueryTab?.results;
+		const results = db.state.activeQueryTab?.results;
 		if (!results) return;
 
 		let content: string;
@@ -208,7 +208,7 @@
 	}
 
 	function copyResults() {
-		const results = db.activeQueryTab?.results;
+		const results = db.state.activeQueryTab?.results;
 		if (!results) return;
 
 		const content = JSON.stringify(results.rows, null, 2);
@@ -217,16 +217,16 @@
 	}
 
 	function explainQuery() {
-		const tab = db.activeQueryTab;
+		const tab = db.state.activeQueryTab;
 		if (tab) {
-			runAndClose(() => db.executeExplain(tab.id, false));
+			runAndClose(() => db.explainTabs.execute(tab.id, false));
 		}
 	}
 
 	function explainAnalyzeQuery() {
-		const tab = db.activeQueryTab;
+		const tab = db.state.activeQueryTab;
 		if (tab) {
-			runAndClose(() => db.executeExplain(tab.id, true));
+			runAndClose(() => db.explainTabs.execute(tab.id, true));
 		}
 	}
 
@@ -361,7 +361,7 @@
 					<Command.Item value="connection-{connection.id}" onSelect={() => switchConnection(connection.id)}>
 						<Database class="size-4" />
 						<span>
-							{#if connection.id === db.activeConnectionId}
+							{#if connection.id === db.state.activeConnectionId}
 								{connection.name}
 							{:else if connection.database}
 								{m.command_switch_to({ name: connection.name })}
@@ -369,7 +369,7 @@
 								{m.command_connect_to({ name: connection.name })}
 							{/if}
 						</span>
-						{#if connection.id === db.activeConnectionId}
+						{#if connection.id === db.state.activeConnectionId}
 							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_active()}</span>
 						{:else if !connection.database}
 							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_disconnected()}</span>

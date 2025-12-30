@@ -18,7 +18,7 @@
 	const handleClick = () => {
 		if (connection.database) {
 			// Already connected, just activate
-			db.setActiveConnection(connection.id);
+			db.connections.setActive(connection.id);
 		} else {
 			// Need to reconnect - open dialog with prefill
 			connectionDialogStore.open({

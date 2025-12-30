@@ -46,7 +46,7 @@
   let searchQuery = $state("");
 
   // Schema filter state
-  const allSchemas = $derived([...new Set(db.activeSchema?.map(t => t.schema) || [])].sort());
+  const allSchemas = $derived([...new Set(db.state.activeSchema?.map(t => t.schema) || [])].sort());
   let visibleSchemas = $state<Set<string>>(new Set());
 
   // Initialize visible schemas when allSchemas changes
@@ -58,9 +58,9 @@
 
   // Filtered tables based on search and schema filter
   const filteredTables = $derived.by(() => {
-    if (!db.activeSchema) return [];
+    if (!db.state.activeSchema) return [];
 
-    let tables = db.activeSchema;
+    let tables = db.state.activeSchema;
 
     // Apply schema filter (only if not all schemas are selected)
     if (visibleSchemas.size > 0 && visibleSchemas.size < allSchemas.length) {
@@ -91,7 +91,7 @@
   let edges = $derived(flowData.edges);
 
   // Calculate stats
-  const totalTableCount = $derived(db.activeSchema?.length || 0);
+  const totalTableCount = $derived(db.state.activeSchema?.length || 0);
   const filteredTableCount = $derived(filteredTables.length);
   const relationshipCount = $derived(edges.length);
   const isFiltered = $derived(filteredTableCount < totalTableCount);
@@ -135,7 +135,7 @@
 
     try {
       const filePath = await save({
-        defaultPath: `erd-${db.activeConnection?.name || 'diagram'}.png`,
+        defaultPath: `erd-${db.state.activeConnection?.name || 'diagram'}.png`,
         filters: [{ name: 'PNG Image', extensions: ['png'] }]
       });
       if (!filePath) return;
@@ -153,7 +153,7 @@
   const exportToSvg = async () => {
     try {
       const filePath = await save({
-        defaultPath: `erd-${db.activeConnection?.name || 'diagram'}.svg`,
+        defaultPath: `erd-${db.state.activeConnection?.name || 'diagram'}.svg`,
         filters: [{ name: 'SVG Image', extensions: ['svg'] }]
       });
       if (!filePath) return;
@@ -208,8 +208,8 @@
 </script>
 
 <div class="flex flex-col h-full">
-  {#if db.activeErdTab}
-    {#if db.activeSchema && db.activeSchema.length > 0}
+  {#if db.state.activeErdTab}
+    {#if db.state.activeSchema && db.state.activeSchema.length > 0}
       <!-- Summary Header -->
       <div class="p-4 border-b bg-muted/30 shrink-0">
         <div class="flex items-start justify-between mb-3">

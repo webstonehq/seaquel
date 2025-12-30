@@ -22,9 +22,9 @@
 	// Pre-populate query name when dialog opens for an existing saved query
 	$effect(() => {
 		if (open && tabId) {
-			const tab = db.queryTabs.find(t => t.id === tabId);
+			const tab = db.state.queryTabs.find(t => t.id === tabId);
 			if (tab?.savedQueryId) {
-				const savedQuery = db.activeConnectionSavedQueries.find(q => q.id === tab.savedQueryId);
+				const savedQuery = db.state.activeConnectionSavedQueries.find(q => q.id === tab.savedQueryId);
 				if (savedQuery) {
 					queryName = savedQuery.name;
 				}
@@ -38,7 +38,7 @@
 			return;
 		}
 
-		db.saveQuery(queryName.trim(), query, tabId);
+		db.savedQueries.saveQuery(queryName.trim(), query, tabId);
 		toast.success(m.save_query_success());
 		open = false;
 		queryName = "";

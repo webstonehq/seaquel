@@ -22,7 +22,7 @@
 
     // Sort connections by last connected (most recent first)
     const sortedConnections = $derived(
-        [...db.connections].sort((a, b) => {
+        [...db.state.connections].sort((a, b) => {
             const aTime = a.lastConnected?.getTime() ?? 0;
             const bTime = b.lastConnected?.getTime() ?? 0;
             return bTime - aTime;
@@ -34,10 +34,10 @@
     let connectionToRemove = $state<string | null>(null);
     let connectionToRemoveName = $state("");
 
-    const handleConnectionClick = (connection: typeof db.connections[0]) => {
+    const handleConnectionClick = (connection: typeof db.state.connections[0]) => {
         // If connection has a database instance, just activate it
         if (connection.database) {
-            db.setActiveConnection(connection.id);
+            db.connections.setActive(connection.id);
         } else {
             // If no database (persisted connection), open dialog with prefilled values
             connectionDialogStore.open({
@@ -62,7 +62,7 @@
 
     const handleRemoveConnection = () => {
         if (connectionToRemove) {
-            db.removeConnection(connectionToRemove);
+            db.connections.remove(connectionToRemove);
             connectionToRemove = null;
             connectionToRemoveName = "";
         }
@@ -86,18 +86,18 @@
             >
                 <SidebarIcon />
             </Button>
-            {#if db.connections.length > 0}
+            {#if db.state.connections.length > 0}
                 <DropdownMenu.Root>
                     <DropdownMenu.Trigger class="flex items-center gap-2 px-3 h-8 text-sm rounded-md bg-background hover:bg-muted transition-colors">
                         <DatabaseIcon class="size-4 text-muted-foreground" />
-                        {#if db.activeConnection}
+                        {#if db.state.activeConnection}
                             <span
                                 class={[
                                     "size-2 rounded-full shrink-0",
-                                    db.activeConnection.database ? "bg-green-500" : "bg-gray-400"
+                                    db.state.activeConnection.database ? "bg-green-500" : "bg-gray-400"
                                 ]}
                             ></span>
-                            <span class="max-w-32 truncate" title={db.activeConnection.name}>{db.activeConnection.name}</span>
+                            <span class="max-w-32 truncate" title={db.state.activeConnection.name}>{db.state.activeConnection.name}</span>
                         {:else}
                             <span class="text-muted-foreground">{m.header_select_connection()}</span>
                         {/if}
@@ -109,7 +109,7 @@
                                     <DropdownMenu.Item
                                         class={[
                                             "flex items-center gap-2 cursor-pointer",
-                                            db.activeConnectionId === connection.id && "bg-accent"
+                                            db.state.activeConnectionId === connection.id && "bg-accent"
                                         ]}
                                         onclick={() => handleConnectionClick(connection)}
                                     >
@@ -121,14 +121,14 @@
                                             title={connection.database ? m.header_connected() : m.header_disconnected()}
                                         ></span>
                                         <span class="flex-1 truncate">{connection.name}</span>
-                                        {#if db.activeConnectionId === connection.id}
+                                        {#if db.state.activeConnectionId === connection.id}
                                             <span class="text-xs text-muted-foreground">{m.header_active()}</span>
                                         {/if}
                                     </DropdownMenu.Item>
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Content class="w-40">
                                     {#if connection.database}
-                                        <ContextMenu.Item onclick={() => db.toggleConnection(connection.id)}>
+                                        <ContextMenu.Item onclick={() => db.connections.toggle(connection.id)}>
                                             {m.header_disconnect()}
                                         </ContextMenu.Item>
                                         <ContextMenu.Separator />
@@ -169,14 +169,14 @@
             {/if}
         </div>
         <div class="flex items-center gap-1">
-            {#if db.activeConnection?.database}
+            {#if db.state.activeConnection?.database}
                 <Button
                     size="icon"
                     variant="ghost"
                     class="size-8"
                     title={m.header_view_erd()}
                     aria-label={m.header_view_erd()}
-                    onclick={() => db.addErdTab()}
+                    onclick={() => db.erdTabs.add()}
                 >
                     <NetworkIcon class="size-5" />
                 </Button>
@@ -186,7 +186,7 @@
                 variant="ghost"
                 class="size-8"
                 aria-label={m.header_toggle_ai()}
-                onclick={() => db.toggleAI()}
+                onclick={() => db.ui.toggleAI()}
             >
                 <BotIcon class="size-5" />
             </Button>
