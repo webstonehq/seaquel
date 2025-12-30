@@ -1,4 +1,5 @@
 import type { DatabaseAdapter, ExplainNode } from "./index";
+import { validateIdentifier } from "./index";
 import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from "$lib/types";
 
 interface SqliteSchemaRow {
@@ -43,15 +44,15 @@ export class SqliteAdapter implements DatabaseAdapter {
 
 	getColumnsQuery(table: string, _schema: string): string {
 		// SQLite uses PRAGMA for table info
-		return `PRAGMA table_info('${table}')`;
+		return `PRAGMA table_info('${validateIdentifier(table)}')`;
 	}
 
 	getIndexesQuery(table: string, _schema: string): string {
-		return `PRAGMA index_list('${table}')`;
+		return `PRAGMA index_list('${validateIdentifier(table)}')`;
 	}
 
 	getForeignKeysQuery(table: string, _schema: string): string {
-		return `PRAGMA foreign_key_list('${table}')`;
+		return `PRAGMA foreign_key_list('${validateIdentifier(table)}')`;
 	}
 
 	getExplainQuery(query: string, _analyze: boolean): string {
