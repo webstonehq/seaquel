@@ -13,6 +13,7 @@
 		categoryOrder,
 	} from "$lib/shortcuts/registry.js";
 	import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const shortcutManager = useShortcuts();
 
@@ -22,9 +23,9 @@
 <Dialog bind:open={shortcutManager.showHelp}>
 	<DialogContent class="max-w-lg max-h-[80vh] overflow-y-auto">
 		<DialogHeader>
-			<DialogTitle>Keyboard Shortcuts</DialogTitle>
+			<DialogTitle>{m.shortcuts_title()}</DialogTitle>
 			<DialogDescription>
-				Quick reference for available keyboard shortcuts
+				{m.shortcuts_description()}
 			</DialogDescription>
 		</DialogHeader>
 
@@ -44,7 +45,7 @@
 										<div
 											class="flex items-center justify-between py-1.5 px-2 rounded-sm hover:bg-muted/50"
 										>
-											<span class="text-sm">Go to tab 1-9</span>
+											<span class="text-sm">{m.shortcuts_go_to_tab()}</span>
 											<ShortcutKeys keys={{ mod: true, key: "1-9" }} />
 										</div>
 									{/if}

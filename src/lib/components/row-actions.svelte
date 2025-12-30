@@ -2,6 +2,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
 	import { MoreVerticalIcon, TrashIcon, LoaderIcon } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		onDelete: () => Promise<void>;
@@ -25,8 +26,8 @@
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Content align="start">
 		<DropdownMenu.Item onclick={onDelete} class="text-destructive focus:text-destructive">
-			<TrashIcon class="size-4 mr-2" />
-			Delete Row
+			<TrashIcon class="size-4 me-2" />
+			{m.row_actions_delete()}
 		</DropdownMenu.Item>
 	</DropdownMenu.Content>
 </DropdownMenu.Root>

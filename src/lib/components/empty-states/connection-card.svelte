@@ -6,6 +6,7 @@
 	import { formatRelativeTime } from "$lib/utils.js";
 	import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		connection: DatabaseConnection;
@@ -44,7 +45,7 @@
 	};
 </script>
 
-<button type="button" class="text-left w-full" onclick={handleClick}>
+<button type="button" class="text-start w-full" onclick={handleClick}>
 	<Card.Root class="hover:bg-muted/50 transition-colors cursor-pointer h-full">
 		<Card.Header class="pb-2">
 			<div class="flex items-center gap-2">
@@ -53,7 +54,7 @@
 						"size-2 rounded-full shrink-0",
 						connection.database ? "bg-green-500" : "bg-gray-400",
 					]}
-					title={connection.database ? "Connected" : "Disconnected"}
+					title={connection.database ? m.empty_states_connection_card_connected() : m.empty_states_connection_card_disconnected()}
 				></span>
 				<DatabaseIcon class="size-4 text-muted-foreground" />
 				<Card.Title class="text-sm font-medium truncate">{connection.name}</Card.Title>
@@ -71,7 +72,7 @@
 			</p>
 			{#if connection.lastConnected}
 				<p class="text-xs text-muted-foreground">
-					Last connected {formatRelativeTime(connection.lastConnected)}
+					{m.empty_states_connection_card_last_connected({ time: formatRelativeTime(connection.lastConnected) })}
 				</p>
 			{/if}
 		</Card.Content>

@@ -13,7 +13,9 @@
     import BotIcon from "@lucide/svelte/icons/bot";
     import NetworkIcon from "@lucide/svelte/icons/network";
     import ThemeToggle from "./theme-toggle.svelte";
+    import LanguageToggle from "./language-toggle.svelte";
     import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
+    import { m } from "$lib/paraglide/messages.js";
 
     const db = useDatabase();
     const sidebar = Sidebar.useSidebar();
@@ -97,7 +99,7 @@
                             ></span>
                             <span class="max-w-32 truncate" title={db.activeConnection.name}>{db.activeConnection.name}</span>
                         {:else}
-                            <span class="text-muted-foreground">Select Connection</span>
+                            <span class="text-muted-foreground">{m.header_select_connection()}</span>
                         {/if}
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Content class="w-56" align="start">
@@ -116,23 +118,23 @@
                                                 "size-2 rounded-full shrink-0",
                                                 connection.database ? "bg-green-500" : "bg-gray-400"
                                             ]}
-                                            title={connection.database ? "Connected" : "Disconnected"}
+                                            title={connection.database ? m.header_connected() : m.header_disconnected()}
                                         ></span>
                                         <span class="flex-1 truncate">{connection.name}</span>
                                         {#if db.activeConnectionId === connection.id}
-                                            <span class="text-xs text-muted-foreground">Active</span>
+                                            <span class="text-xs text-muted-foreground">{m.header_active()}</span>
                                         {/if}
                                     </DropdownMenu.Item>
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Content class="w-40">
                                     {#if connection.database}
                                         <ContextMenu.Item onclick={() => db.toggleConnection(connection.id)}>
-                                            Disconnect
+                                            {m.header_disconnect()}
                                         </ContextMenu.Item>
                                         <ContextMenu.Separator />
                                     {:else}
                                         <ContextMenu.Item onclick={() => handleConnectionClick(connection)}>
-                                            Connect
+                                            {m.header_connect()}
                                         </ContextMenu.Item>
                                         <ContextMenu.Separator />
                                     {/if}
@@ -140,7 +142,7 @@
                                         class="text-destructive focus:text-destructive"
                                         onclick={() => confirmRemoveConnection(connection.id, connection.name)}
                                     >
-                                        Remove Connection
+                                        {m.header_remove_connection()}
                                     </ContextMenu.Item>
                                 </ContextMenu.Content>
                             </ContextMenu.Root>
@@ -151,7 +153,7 @@
                             onclick={() => connectionDialogStore.open()}
                         >
                             <PlusIcon class="size-4" />
-                            Add Connection
+                            {m.header_add_connection()}
                         </DropdownMenu.Item>
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
@@ -161,8 +163,8 @@
                     class="cursor-pointer hover:bg-muted transition-colors"
                     onclick={() => connectionDialogStore.open()}
                 >
-                    <PlusIcon class="size-3 mr-1" />
-                    Add new connection
+                    <PlusIcon class="size-3 me-1" />
+                    {m.header_add_new_connection()}
                 </Badge>
             {/if}
         </div>
@@ -172,7 +174,7 @@
                     size="icon"
                     variant="ghost"
                     class="size-8"
-                    title="View ERD"
+                    title={m.header_view_erd()}
                     onclick={() => db.addErdTab()}
                 >
                     <NetworkIcon class="size-5" />
@@ -186,6 +188,7 @@
             >
                 <BotIcon class="size-5" />
             </Button>
+            <LanguageToggle />
             <ThemeToggle />
         </div>
     </div>
@@ -196,17 +199,17 @@
 <Dialog.Root bind:open={showRemoveDialog}>
     <Dialog.Content class="max-w-md">
         <Dialog.Header>
-            <Dialog.Title>Remove Connection</Dialog.Title>
+            <Dialog.Title>{m.header_remove_dialog_title()}</Dialog.Title>
             <Dialog.Description>
-                Are you sure you want to remove "{connectionToRemoveName}"? This will delete the saved connection and all associated data.
+                {m.header_remove_dialog_description({ name: connectionToRemoveName })}
             </Dialog.Description>
         </Dialog.Header>
         <Dialog.Footer class="gap-2">
             <Button variant="outline" onclick={() => showRemoveDialog = false}>
-                Cancel
+                {m.header_button_cancel()}
             </Button>
             <Button variant="destructive" onclick={handleRemoveConnection}>
-                Remove
+                {m.header_button_remove()}
             </Button>
         </Dialog.Footer>
     </Dialog.Content>

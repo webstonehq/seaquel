@@ -8,6 +8,7 @@
 		DialogTitle
 	} from "$lib/components/ui/dialog";
 	import { Button } from "$lib/components/ui/button";
+	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {
 		open?: boolean;
@@ -22,10 +23,11 @@
 <Dialog bind:open>
 	<DialogContent class="max-w-md">
 		<DialogHeader>
-			<DialogTitle>Unsaved Changes</DialogTitle>
+			<DialogTitle>{m.batch_unsaved_title()}</DialogTitle>
 			<DialogDescription>
-				{unsavedCount}
-				{unsavedCount === 1 ? "query has" : "queries have"} unsaved changes. Discard all changes?
+				{unsavedCount === 1
+					? m.batch_unsaved_description_singular({ count: unsavedCount })
+					: m.batch_unsaved_description_plural({ count: unsavedCount })}
 			</DialogDescription>
 		</DialogHeader>
 		<DialogFooter>
@@ -34,14 +36,14 @@
 				onclick={() => {
 					open = false;
 					onCancel();
-				}}>Cancel</Button
+				}}>{m.batch_unsaved_cancel()}</Button
 			>
 			<Button
 				variant="destructive"
 				onclick={() => {
 					open = false;
 					onDiscardAll();
-				}}>Discard All</Button
+				}}>{m.batch_unsaved_discard_all()}</Button
 			>
 		</DialogFooter>
 	</DialogContent>

@@ -6,6 +6,7 @@
 	import { Separator } from "$lib/components/ui/separator";
 	import { KeyIcon, DatabaseIcon, ListIcon } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 
@@ -28,27 +29,27 @@
 								{db.activeSchemaTab.table.name}
 							</CardTitle>
 							<CardDescription>
-								{db.activeSchemaTab.table.type === "table" ? "Table" : "View"} • {db.activeSchemaTab.table.schema} schema • {db.activeSchemaTab.table.rowCount?.toLocaleString()} rows
+								{db.activeSchemaTab.table.type === "table" ? m.table_viewer_table() : m.table_viewer_view()} • {m.table_viewer_schema({ schema: db.activeSchemaTab.table.schema })} • {m.table_viewer_rows({ count: db.activeSchemaTab.table.rowCount?.toLocaleString() ?? "0" })}
 							</CardDescription>
 						</div>
-						<Button size="sm" onclick={handleQueryTable}>Query Table</Button>
+						<Button size="sm" onclick={handleQueryTable}>{m.table_viewer_query_table()}</Button>
 					</div>
 				</CardHeader>
 				<CardContent class="space-y-6">
 					<div>
 						<h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
 							<ListIcon class="size-4" />
-							Columns ({db.activeSchemaTab.table.columns.length})
+							{m.table_viewer_columns({ count: db.activeSchemaTab.table.columns.length })}
 						</h3>
 						<div class="border rounded-lg overflow-hidden">
 							<table class="w-full text-sm">
 								<thead class="bg-muted">
 									<tr>
-										<th class="px-4 py-2 text-left font-medium">Name</th>
-										<th class="px-4 py-2 text-left font-medium">Type</th>
-										<th class="px-4 py-2 text-left font-medium">Nullable</th>
-										<th class="px-4 py-2 text-left font-medium">Default</th>
-										<th class="px-4 py-2 text-left font-medium">Keys</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_column_name()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_column_type()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_column_nullable()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_column_default()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_column_keys()}</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -90,16 +91,16 @@
 					<div>
 						<h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
 							<KeyIcon class="size-4" />
-							Indexes ({db.activeSchemaTab.table.indexes.length})
+							{m.table_viewer_indexes({ count: db.activeSchemaTab.table.indexes.length })}
 						</h3>
 						<div class="border rounded-lg overflow-hidden">
 							<table class="w-full text-sm">
 								<thead class="bg-muted">
 									<tr>
-										<th class="px-4 py-2 text-left font-medium">Name</th>
-										<th class="px-4 py-2 text-left font-medium">Columns</th>
-										<th class="px-4 py-2 text-left font-medium">Type</th>
-										<th class="px-4 py-2 text-left font-medium">Unique</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_index_name()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_index_columns()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_index_type()}</th>
+										<th class="px-4 py-2 text-start font-medium">{m.table_viewer_index_unique()}</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -130,7 +131,7 @@
 		<div class="flex-1 flex items-center justify-center text-muted-foreground">
 			<div class="text-center">
 				<DatabaseIcon class="size-12 mx-auto mb-2 opacity-20" />
-				<p class="text-sm">Select a table from the sidebar to view its schema</p>
+				<p class="text-sm">{m.table_viewer_no_selection()}</p>
 			</div>
 		</div>
 	{/if}

@@ -3,6 +3,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
 	import ConnectionCard from "./connection-card.svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 
@@ -19,8 +20,8 @@
 <div class="flex-1 overflow-y-auto p-8">
 	<div class="max-w-3xl mx-auto space-y-6">
 		<div class="text-center space-y-1">
-			<h1 class="text-xl font-semibold">Select a Connection</h1>
-			<p class="text-muted-foreground text-sm">Click a connection to get started</p>
+			<h1 class="text-xl font-semibold">{m.empty_states_connections_grid_title()}</h1>
+			<p class="text-muted-foreground text-sm">{m.empty_states_connections_grid_subtitle()}</p>
 		</div>
 
 		<div class="flex flex-wrap justify-center items-stretch gap-4">
@@ -31,7 +32,7 @@
 					onclick={() => connectionDialogStore.open()}
 				>
 					<PlusIcon class="size-8 text-muted-foreground" />
-					<span class="text-sm text-muted-foreground">Add Connection</span>
+					<span class="text-sm text-muted-foreground">{m.empty_states_connections_grid_add_connection()}</span>
 				</button>
 			</div>
 			{#each sortedConnections as connection (connection.id)}

@@ -30,6 +30,7 @@
   import { layoutErdDiagram } from "$lib/utils/erd-layout";
   import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
   import { mode } from "mode-watcher";
+  import { m } from "$lib/paraglide/messages.js";
 
   const db = useDatabase();
 
@@ -215,20 +216,20 @@
           <div>
             <h2 class="text-lg font-semibold flex items-center gap-2">
               <DatabaseIcon class="size-5" />
-              Entity Relationship Diagram
+              {m.erd_title()}
             </h2>
             <div class="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
               <span class="flex items-center gap-1">
                 <TableIcon class="size-3" />
                 {#if isFiltered}
-                  {filteredTableCount} / {totalTableCount} tables
+                  {m.erd_tables_filtered({ filtered: filteredTableCount, total: totalTableCount })}
                 {:else}
-                  {totalTableCount} tables
+                  {m.erd_tables({ count: totalTableCount })}
                 {/if}
               </span>
               <span class="flex items-center gap-1">
                 <LinkIcon class="size-3" />
-                {relationshipCount} relationships
+                {m.erd_relationships({ count: relationshipCount })}
               </span>
             </div>
           </div>
@@ -238,11 +239,11 @@
         <div class="flex items-center gap-2 flex-wrap">
           <!-- Search Input -->
           <div class="relative">
-            <SearchIcon class="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <SearchIcon class="absolute start-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search tables..."
-              class="h-8 w-48 pl-8"
+              placeholder={m.erd_search_placeholder()}
+              class="h-8 w-48 ps-8"
               bind:value={searchQuery}
             />
           </div>
@@ -252,20 +253,20 @@
             <Popover.Root>
               <Popover.Trigger>
                 <Button variant="outline" size="sm" class="h-8">
-                  <FilterIcon class="size-4 mr-2" />
-                  Schemas ({visibleSchemas.size}/{allSchemas.length})
+                  <FilterIcon class="size-4 me-2" />
+                  {m.erd_schemas_count({ visible: visibleSchemas.size, total: allSchemas.length })}
                 </Button>
               </Popover.Trigger>
               <Popover.Content class="w-56">
                 <div class="space-y-2">
                   <div class="flex items-center justify-between pb-2 border-b">
-                    <span class="text-sm font-medium">Filter by Schema</span>
+                    <span class="text-sm font-medium">{m.erd_filter_by_schema()}</span>
                     <div class="flex gap-1">
                       <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={selectAllSchemas}>
-                        All
+                        {m.erd_all()}
                       </Button>
                       <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={clearAllSchemas}>
-                        None
+                        {m.erd_none()}
                       </Button>
                     </div>
                   </div>
@@ -287,29 +288,29 @@
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>
               <Button variant="outline" size="sm" class="h-8">
-                <DownloadIcon class="size-4 mr-2" />
-                Export
+                <DownloadIcon class="size-4 me-2" />
+                {m.erd_export()}
               </Button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
-              <DropdownMenu.Label>Download</DropdownMenu.Label>
+              <DropdownMenu.Label>{m.erd_download()}</DropdownMenu.Label>
               <DropdownMenu.Item onclick={exportToPng}>
-                <ImageIcon class="size-4 mr-2" />
-                Download PNG
+                <ImageIcon class="size-4 me-2" />
+                {m.erd_download_png()}
               </DropdownMenu.Item>
               <DropdownMenu.Item onclick={exportToSvg}>
-                <FileCodeIcon class="size-4 mr-2" />
-                Download SVG
+                <FileCodeIcon class="size-4 me-2" />
+                {m.erd_download_svg()}
               </DropdownMenu.Item>
               <DropdownMenu.Separator />
-              <DropdownMenu.Label>Copy to Clipboard</DropdownMenu.Label>
+              <DropdownMenu.Label>{m.erd_copy_to_clipboard()}</DropdownMenu.Label>
               <DropdownMenu.Item onclick={copyPngToClipboard}>
-                <ClipboardIcon class="size-4 mr-2" />
-                Copy as PNG
+                <ClipboardIcon class="size-4 me-2" />
+                {m.erd_copy_as_png()}
               </DropdownMenu.Item>
               <DropdownMenu.Item onclick={copySvgToClipboard}>
-                <ClipboardIcon class="size-4 mr-2" />
-                Copy as SVG
+                <ClipboardIcon class="size-4 me-2" />
+                {m.erd_copy_as_svg()}
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Root>
@@ -341,14 +342,14 @@
           <div class="h-full flex items-center justify-center text-muted-foreground">
             <div class="text-center">
               <SearchIcon class="size-12 mx-auto mb-2 opacity-20" />
-              <p class="text-sm">No tables match your filter</p>
+              <p class="text-sm">{m.erd_no_tables_match()}</p>
               <Button
                 variant="link"
                 size="sm"
                 class="mt-2"
                 onclick={() => { searchQuery = ""; visibleSchemas = new Set(allSchemas); }}
               >
-                Clear filters
+                {m.erd_clear_filters()}
               </Button>
             </div>
           </div>
@@ -359,7 +360,7 @@
       <div class="flex-1 flex items-center justify-center text-muted-foreground">
         <div class="text-center">
           <DatabaseIcon class="size-12 mx-auto mb-2 opacity-20" />
-          <p class="text-sm">No tables found in database</p>
+          <p class="text-sm">{m.erd_no_tables_found()}</p>
         </div>
       </div>
     {/if}
@@ -368,7 +369,7 @@
     <div class="flex-1 flex items-center justify-center text-muted-foreground">
       <div class="text-center">
         <DatabaseIcon class="size-12 mx-auto mb-2 opacity-20" />
-        <p class="text-sm">No ERD diagram selected</p>
+        <p class="text-sm">{m.erd_no_diagram_selected()}</p>
       </div>
     </div>
   {/if}

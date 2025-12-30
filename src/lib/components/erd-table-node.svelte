@@ -3,6 +3,7 @@
   import type { SchemaTable } from "$lib/types";
   import KeyIcon from "@lucide/svelte/icons/key";
   import LinkIcon from "@lucide/svelte/icons/link";
+  import { m } from "$lib/paraglide/messages.js";
 
   interface Props {
     data: {
@@ -117,7 +118,7 @@
 
     {#if hiddenCount > 0}
       <div class="px-3 py-1 text-center text-muted-foreground italic">
-        +{hiddenCount} more columns
+        {m.erd_more_columns({ count: hiddenCount })}
       </div>
     {/if}
   </div>

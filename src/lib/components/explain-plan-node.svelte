@@ -2,6 +2,7 @@
   import { Handle, Position } from "@xyflow/svelte";
   import { Badge } from "$lib/components/ui/badge";
   import type { ExplainPlanNode } from "$lib/types";
+  import { m } from "$lib/paraglide/messages.js";
 
   interface Props {
     data: ExplainPlanNode;
@@ -62,19 +63,19 @@
 
   {#if data.indexName}
     <div class="text-xs text-muted-foreground mb-2 truncate" title={data.indexName}>
-      Index: <span class="font-mono">{data.indexName}</span>
+      {m.explain_index()} <span class="font-mono">{data.indexName}</span>
     </div>
   {/if}
 
   <!-- Cost & Rows -->
   <div class="grid grid-cols-2 gap-2 text-xs">
     <div>
-      <span class="text-muted-foreground">Cost:</span>
-      <span class="font-mono ml-1">{data.totalCost.toFixed(2)}</span>
+      <span class="text-muted-foreground">{m.explain_cost()}</span>
+      <span class="font-mono ms-1">{data.totalCost.toFixed(2)}</span>
     </div>
     <div>
-      <span class="text-muted-foreground">Rows:</span>
-      <span class="font-mono ml-1">{data.planRows.toLocaleString()}</span>
+      <span class="text-muted-foreground">{m.explain_rows()}</span>
+      <span class="font-mono ms-1">{data.planRows.toLocaleString()}</span>
     </div>
   </div>
 
@@ -82,21 +83,21 @@
   {#if data.actualTotalTime !== undefined}
     <div class="border-t mt-2 pt-2 grid grid-cols-2 gap-2 text-xs">
       <div>
-        <span class="text-muted-foreground">Time:</span>
-        <span class="font-mono ml-1 text-blue-600 dark:text-blue-400">
+        <span class="text-muted-foreground">{m.explain_time()}</span>
+        <span class="font-mono ms-1 text-blue-600 dark:text-blue-400">
           {formatTime(data.actualTotalTime)}
         </span>
       </div>
       <div>
-        <span class="text-muted-foreground">Actual:</span>
-        <span class="font-mono ml-1 text-blue-600 dark:text-blue-400">
+        <span class="text-muted-foreground">{m.explain_actual()}</span>
+        <span class="font-mono ms-1 text-blue-600 dark:text-blue-400">
           {data.actualRows?.toLocaleString()}
         </span>
       </div>
       {#if data.actualLoops && data.actualLoops > 1}
         <div class="col-span-2">
-          <span class="text-muted-foreground">Loops:</span>
-          <span class="font-mono ml-1">{data.actualLoops}</span>
+          <span class="text-muted-foreground">{m.explain_loops()}</span>
+          <span class="font-mono ms-1">{data.actualLoops}</span>
         </div>
       {/if}
     </div>
@@ -107,17 +108,17 @@
     <div class="border-t mt-2 pt-2 text-xs space-y-1">
       {#if data.filter}
         <div class="text-muted-foreground truncate" title={data.filter}>
-          Filter: <span class="font-mono">{data.filter}</span>
+          {m.explain_filter()} <span class="font-mono">{data.filter}</span>
         </div>
       {/if}
       {#if data.indexCond}
         <div class="text-muted-foreground truncate" title={data.indexCond}>
-          Index Cond: <span class="font-mono">{data.indexCond}</span>
+          {m.explain_index_cond()} <span class="font-mono">{data.indexCond}</span>
         </div>
       {/if}
       {#if data.hashCond}
         <div class="text-muted-foreground truncate" title={data.hashCond}>
-          Hash Cond: <span class="font-mono">{data.hashCond}</span>
+          {m.explain_hash_cond()} <span class="font-mono">{data.hashCond}</span>
         </div>
       {/if}
     </div>

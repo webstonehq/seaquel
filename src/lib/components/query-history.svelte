@@ -8,6 +8,7 @@
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
 	import { HistoryIcon, StarIcon, SearchIcon, ClockIcon, BookmarkIcon, Trash2Icon } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 	let searchQuery = $state("");
@@ -24,22 +25,22 @@
 			<div>
 				<CardTitle class="text-base flex items-center gap-2">
 					<HistoryIcon class="size-4" />
-					Queries
+					{m.history_title()}
 				</CardTitle>
-				<CardDescription class="text-xs">{db.activeConnectionQueryHistory.length} executed • {db.activeConnectionSavedQueries.length} saved</CardDescription>
+				<CardDescription class="text-xs">{m.history_stats({ executed: db.activeConnectionQueryHistory.length, saved: db.activeConnectionSavedQueries.length })}</CardDescription>
 			</div>
 		</div>
 		<div class="relative mt-2">
-			<SearchIcon class="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-			<Input bind:value={searchQuery} placeholder="Search queries..." class="pl-8 h-8 text-sm" />
+			<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+			<Input bind:value={searchQuery} placeholder={m.history_search_placeholder()} class="ps-8 h-8 text-sm" />
 		</div>
 	</CardHeader>
 
 	<CardContent class="flex-1 overflow-hidden p-0">
 		<Tabs value="history" class="h-full flex flex-col">
 			<TabsList class="w-full justify-start rounded-none border-b h-9 bg-transparent px-4">
-				<TabsTrigger value="history" class="text-xs data-[state=active]:bg-background">History</TabsTrigger>
-				<TabsTrigger value="saved" class="text-xs data-[state=active]:bg-background">Saved</TabsTrigger>
+				<TabsTrigger value="history" class="text-xs data-[state=active]:bg-background">{m.history_tab_history()}</TabsTrigger>
+				<TabsTrigger value="saved" class="text-xs data-[state=active]:bg-background">{m.history_tab_saved()}</TabsTrigger>
 			</TabsList>
 
 			<TabsContent value="history" class="flex-1 overflow-hidden m-0">
@@ -75,7 +76,7 @@
 						{#if filteredHistory.length === 0}
 							<div class="text-center py-8 text-muted-foreground">
 								<HistoryIcon class="size-12 mx-auto mb-2 opacity-20" />
-								<p class="text-sm">No query history found</p>
+								<p class="text-sm">{m.history_no_history()}</p>
 							</div>
 						{/if}
 					</div>
@@ -114,8 +115,8 @@
 						{#if filteredSavedQueries.length === 0}
 							<div class="text-center py-8 text-muted-foreground">
 								<BookmarkIcon class="size-12 mx-auto mb-2 opacity-20" />
-								<p class="text-sm">No saved queries found</p>
-								<p class="text-xs mt-1">Save queries to access them later</p>
+								<p class="text-sm">{m.history_no_saved()}</p>
+								<p class="text-xs mt-1">{m.history_save_hint()}</p>
 							</div>
 						{/if}
 					</div>

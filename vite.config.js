@@ -1,3 +1,4 @@
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
@@ -8,23 +9,28 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [
     tailwindcss(),
-    sveltekit()
+    sveltekit(),
+    paraglideVitePlugin({ project: "./project.inlang", outdir: "./src/lib/paraglide" })
   ],
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent vite from obscuring rust errors
   clearScreen: false,
+
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
-    watch: { // 3. tell vite to ignore watching `src-tauri`
-    ignored: ["**/src-tauri/**"] }
+
+    watch: {
+      // 3. tell vite to ignore watching `src-tauri`
+      ignored: ["**/src-tauri/**"]
+    }
   },
+
   // Monaco Editor optimization
-  optimizeDeps: {
-    include: ["monaco-editor", "monaco-sql-languages"]
-  }
+  optimizeDeps: { include: ["monaco-editor", "monaco-sql-languages"] }
 }));

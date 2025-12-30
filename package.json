@@ -35,6 +35,7 @@
     "svelte-dnd-action": "^0.9.69"
   },
   "devDependencies": {
+    "@inlang/paraglide-js": "^2.6.0",
     "@internationalized/date": "^3.10.0",
     "@lucide/svelte": "^0.561.0",
     "@playwright/test": "^1.57.0",

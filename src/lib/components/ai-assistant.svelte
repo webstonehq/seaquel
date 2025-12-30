@@ -7,6 +7,7 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { BotIcon, UserIcon, XIcon, SendIcon, SparklesIcon } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 	let messageInput = $state("");
@@ -25,7 +26,12 @@
 		}
 	};
 
-	const quickPrompts = ["Help me write a query to find all users created in the last 30 days", "How can I optimize this query?", "Where is user email stored?", "Show me how to join orders with users"];
+	const quickPrompts = [
+		() => m.ai_prompt_users_30_days(),
+		() => m.ai_prompt_optimize(),
+		() => m.ai_prompt_email(),
+		() => m.ai_prompt_join()
+	];
 </script>
 
 {#if db.isAIOpen}
@@ -38,8 +44,8 @@
 							<BotIcon class="size-4 text-primary" />
 						</div>
 						<div>
-							<CardTitle class="text-base">AI Assistant</CardTitle>
-							<CardDescription class="text-xs">Ask me anything about your database</CardDescription>
+							<CardTitle class="text-base">{m.ai_title()}</CardTitle>
+							<CardDescription class="text-xs">{m.ai_description()}</CardDescription>
 						</div>
 					</div>
 					<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" onclick={() => db.toggleAI()}>
@@ -54,11 +60,11 @@
 						<div class="space-y-3">
 							<div class="text-center py-8">
 								<SparklesIcon class="size-12 mx-auto mb-3 text-primary/20" />
-								<p class="text-sm text-muted-foreground mb-4">Try asking me something like:</p>
+								<p class="text-sm text-muted-foreground mb-4">{m.ai_try_asking()}</p>
 							</div>
-							{#each quickPrompts as prompt}
-								<Button variant="outline" class="w-full text-left h-auto py-3 px-4 whitespace-normal" onclick={() => (messageInput = prompt)}>
-									<span class="text-xs">{prompt}</span>
+							{#each quickPrompts as prompt, i (i)}
+								<Button variant="outline" class="w-full text-start h-auto py-3 px-4 whitespace-normal" onclick={() => (messageInput = prompt())}>
+									<span class="text-xs">{prompt()}</span>
 								</Button>
 							{/each}
 						</div>
@@ -75,9 +81,9 @@
 									</div>
 									<div class={["flex-1 space-y-1", message.role === "user" && "text-right"]}>
 										<Badge variant={message.role === "user" ? "default" : "secondary"} class="text-xs">
-											{message.role === "user" ? "You" : "AI"}
+											{message.role === "user" ? m.ai_role_you() : m.ai_role_ai()}
 										</Badge>
-										<div class={["text-sm rounded-lg p-3", message.role === "user" ? "bg-primary text-primary-foreground ml-8" : "bg-muted mr-8"]}>
+										<div class={["text-sm rounded-lg p-3", message.role === "user" ? "bg-primary text-primary-foreground ms-8" : "bg-muted me-8"]}>
 											<p class="whitespace-pre-wrap">{message.content}</p>
 										</div>
 									</div>
@@ -90,7 +96,7 @@
 
 			<CardFooter class="border-t p-3">
 				<div class="flex gap-2 w-full">
-					<Textarea bind:value={messageInput} placeholder="Ask about your database..." class="min-h-[60px] max-h-[120px] resize-none text-sm" onkeydown={handleKeydown} />
+					<Textarea bind:value={messageInput} placeholder={m.ai_placeholder()} class="min-h-[60px] max-h-[120px] resize-none text-sm" onkeydown={handleKeydown} />
 					<Button size="icon" class="shrink-0" onclick={handleSend} disabled={!messageInput.trim()}>
 						<SendIcon class="size-4" />
 					</Button>

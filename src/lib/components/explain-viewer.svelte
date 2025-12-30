@@ -9,6 +9,7 @@
   import { layoutExplainPlan } from "$lib/utils/explain-layout";
   import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
   import { mode } from "mode-watcher";
+  import { m } from "$lib/paraglide/messages.js";
 
   const db = useDatabase();
 
@@ -45,7 +46,7 @@
       <div class="flex-1 flex items-center justify-center">
         <div class="flex flex-col items-center gap-3">
           <LoaderIcon class="size-8 animate-spin text-muted-foreground" />
-          <p class="text-sm text-muted-foreground">Analyzing query plan...</p>
+          <p class="text-sm text-muted-foreground">{m.explain_analyzing()}</p>
         </div>
       </div>
     {:else if db.activeExplainTab.result}
@@ -55,31 +56,31 @@
           <div>
             <h2 class="text-lg font-semibold flex items-center gap-2">
               <DatabaseIcon class="size-5" />
-              Query Plan
+              {m.explain_query_plan()}
               {#if db.activeExplainTab.result.isAnalyze}
-                <Badge variant="default">Analyzed</Badge>
+                <Badge variant="default">{m.explain_analyzed()}</Badge>
               {/if}
             </h2>
             <div class="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
               <span class="flex items-center gap-1">
                 <ClockIcon class="size-3" />
-                Planning: {db.activeExplainTab.result.planningTime.toFixed(2)}ms
+                {m.explain_planning()} {db.activeExplainTab.result.planningTime.toFixed(2)}ms
               </span>
               {#if db.activeExplainTab.result.executionTime !== undefined}
                 <span class="flex items-center gap-1">
                   <ClockIcon class="size-3" />
-                  Execution: {db.activeExplainTab.result.executionTime.toFixed(2)}ms
+                  {m.explain_execution()} {db.activeExplainTab.result.executionTime.toFixed(2)}ms
                 </span>
               {/if}
               <span class="flex items-center gap-1">
                 <RowsIcon class="size-3" />
-                Est. Rows: {db.activeExplainTab.result.plan.planRows.toLocaleString()}
+                {m.explain_estimated_rows()} {db.activeExplainTab.result.plan.planRows.toLocaleString()}
               </span>
             </div>
           </div>
           <Button size="sm" variant="outline" onclick={handleViewQuery}>
-            <FileCodeIcon class="size-3 mr-1" />
-            View Query
+            <FileCodeIcon class="size-3 me-1" />
+            {m.explain_view_query()}
           </Button>
         </div>
       </div>
@@ -109,7 +110,7 @@
       <div class="flex-1 flex items-center justify-center text-muted-foreground">
         <div class="text-center">
           <DatabaseIcon class="size-12 mx-auto mb-2 opacity-20" />
-          <p class="text-sm">No explain plan available</p>
+          <p class="text-sm">{m.explain_no_plan_available()}</p>
         </div>
       </div>
     {/if}
@@ -118,7 +119,7 @@
     <div class="flex-1 flex items-center justify-center text-muted-foreground">
       <div class="text-center">
         <DatabaseIcon class="size-12 mx-auto mb-2 opacity-20" />
-        <p class="text-sm">No explain plan selected</p>
+        <p class="text-sm">{m.explain_no_plan_selected()}</p>
       </div>
     </div>
   {/if}
