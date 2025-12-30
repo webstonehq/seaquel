@@ -31,3 +31,28 @@ export function deleteMapKey<K, V>(
   newMap.delete(key);
   setter(newMap);
 }
+
+/**
+ * Update a specific item in an array stored in a Map while maintaining reactivity.
+ * Creates new Map and array instances, and replaces the item with updated properties.
+ */
+export function updateMapArrayItem<K, T extends { id: string }>(
+  getter: () => Map<K, T[]>,
+  setter: (m: Map<K, T[]>) => void,
+  mapKey: K,
+  itemId: string,
+  updates: Partial<T>
+): void {
+  const currentMap = getter();
+  const currentArray = currentMap.get(mapKey) || [];
+
+  // Create new array with updated item
+  const newArray = currentArray.map(item =>
+    item.id === itemId ? { ...item, ...updates } : item
+  );
+
+  // Create new Map with new array
+  const newMap = new Map(currentMap);
+  newMap.set(mapKey, newArray);
+  setter(newMap);
+}
