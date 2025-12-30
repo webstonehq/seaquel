@@ -8,6 +8,7 @@
 	import { toast } from "svelte-sonner";
 	import { LoaderIcon } from "@lucide/svelte";
 	import type { SchemaColumn } from "$lib/types";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		open: boolean;
@@ -47,13 +48,13 @@
 			if (value !== '' && value !== undefined) {
 				insertValues[col.name] = value;
 			} else if (!col.nullable && !col.defaultValue) {
-				toast.error(`${col.name} is required`);
+				toast.error(m.insert_row_error_required({ field: col.name }));
 				return;
 			}
 		}
 
 		if (Object.keys(insertValues).length === 0) {
-			toast.error('Please fill in at least one field');
+			toast.error(m.insert_row_error_empty());
 			return;
 		}
 
@@ -63,12 +64,12 @@
 
 		if (result.success) {
 			toast.success(result.lastInsertId
-				? `Row inserted (ID: ${result.lastInsertId})`
-				: 'Row inserted');
+				? m.insert_row_success_with_id({ id: String(result.lastInsertId) })
+				: m.insert_row_success());
 			open = false;
 			onSuccess();
 		} else {
-			toast.error(`Failed to insert: ${result.error}`);
+			toast.error(m.insert_row_error_failed({ error: result.error || '' }));
 		}
 
 		isInserting = false;
@@ -83,9 +84,9 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="sm:max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
 		<Dialog.Header>
-			<Dialog.Title>Insert Row</Dialog.Title>
+			<Dialog.Title>{m.insert_row_title()}</Dialog.Title>
 			<Dialog.Description>
-				Add a new row to {sourceTable.schema}.{sourceTable.name}
+				{m.insert_row_description({ schema: sourceTable.schema, table: sourceTable.name })}
 			</Dialog.Description>
 		</Dialog.Header>
 		<div class="overflow-y-auto flex-1 py-4">
@@ -97,7 +98,7 @@
 							<span class="text-xs text-muted-foreground font-normal">
 								{col.type}
 								{#if col.nullable}
-									(optional)
+									{m.insert_row_optional()}
 								{/if}
 							</span>
 						</Label>
@@ -113,13 +114,13 @@
 		</div>
 		<Dialog.Footer>
 			<Button variant="outline" onclick={handleCancel} disabled={isInserting}>
-				Cancel
+				{m.insert_row_cancel()}
 			</Button>
 			<Button onclick={handleInsert} disabled={isInserting}>
 				{#if isInserting}
-					<LoaderIcon class="size-4 mr-2 animate-spin" />
+					<LoaderIcon class="size-4 me-2 animate-spin" />
 				{/if}
-				Insert
+				{m.insert_row_insert()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

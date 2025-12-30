@@ -9,6 +9,7 @@
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
 	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 	let sidebarTab = $state<"schema" | "queries">("schema");
@@ -83,12 +84,12 @@
 			<Tabs bind:value={sidebarTab} class="w-full">
 				<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
 					<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
-						<DatabaseIcon class="size-3 mr-1" />
-						Schema
+						<DatabaseIcon class="size-3 me-1" />
+						{m.sidebar_tab_schema()}
 					</TabsTrigger>
 					<TabsTrigger value="queries" class="text-xs data-[state=active]:bg-background">
-						<FileTextIcon class="size-3 mr-1" />
-						Queries
+						<FileTextIcon class="size-3 me-1" />
+						{m.sidebar_tab_queries()}
 					</TabsTrigger>
 				</TabsList>
 			</Tabs>
@@ -100,11 +101,11 @@
 			{#if db.activeConnection && db.activeConnection.database}
 				<div class="p-3 pb-2">
 					<div class="relative">
-						<SearchIcon class="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
 						<Input
 							bind:value={schemaSearchQuery}
-							placeholder="Search tables..."
-							class="pl-8 h-8 text-sm"
+							placeholder={m.sidebar_search_tables()}
+							class="ps-8 h-8 text-sm"
 						/>
 					</div>
 				</div>
@@ -126,7 +127,7 @@
 											{/snippet}
 										</CollapsibleTrigger>
 										<CollapsibleContent>
-											<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
+											<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 												{#each tables as table (table.name)}
 													<SidebarMenuItem>
 														<SidebarMenuButton onclick={() => handleTableClick(table)}>
@@ -146,8 +147,8 @@
 			{:else}
 				<div class="flex-1 flex items-center justify-center p-4 text-center text-muted-foreground">
 					<div>
-						<p class="text-sm">No active connection</p>
-						<p class="text-xs mt-1">Connect to a database to browse its schema</p>
+						<p class="text-sm">{m.sidebar_no_connection()}</p>
+						<p class="text-xs mt-1">{m.sidebar_no_connection_schema()}</p>
 					</div>
 				</div>
 			{/if}
@@ -155,11 +156,11 @@
 			{#if db.activeConnection && db.activeConnection.database}
 				<div class="p-3 pb-2">
 					<div class="relative">
-						<SearchIcon class="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
 						<Input
 							bind:value={searchQuery}
-							placeholder="Search queries..."
-							class="pl-8 h-8 text-sm"
+							placeholder={m.sidebar_search_queries()}
+							class="ps-8 h-8 text-sm"
 						/>
 					</div>
 				</div>
@@ -175,13 +176,13 @@
 											<SidebarMenuButton {...props}>
 												<ChevronRightIcon class={["size-4 transition-transform", historyExpanded && "rotate-90"]} />
 												<HistoryIcon class="size-4" />
-												<span class="flex-1">History</span>
+												<span class="flex-1">{m.sidebar_history()}</span>
 												<Badge variant="secondary" class="text-xs">{filteredHistory.length}</Badge>
 											</SidebarMenuButton>
 										{/snippet}
 									</CollapsibleTrigger>
 									<CollapsibleContent>
-										<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
+										<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 											{#each filteredHistory as item (item.id)}
 												<SidebarMenuItem>
 													<SidebarMenuButton
@@ -217,7 +218,7 @@
 											{/each}
 											{#if filteredHistory.length === 0}
 												<div class="text-center py-4 text-muted-foreground px-2">
-													<p class="text-xs">No history found</p>
+													<p class="text-xs">{m.sidebar_no_history()}</p>
 												</div>
 											{/if}
 										</SidebarMenu>
@@ -233,13 +234,13 @@
 											<SidebarMenuButton {...props}>
 												<ChevronRightIcon class={["size-4 transition-transform", savedExpanded && "rotate-90"]} />
 												<BookmarkIcon class="size-4" />
-												<span class="flex-1">Saved</span>
+												<span class="flex-1">{m.sidebar_saved()}</span>
 												<Badge variant="secondary" class="text-xs">{filteredSavedQueries.length}</Badge>
 											</SidebarMenuButton>
 										{/snippet}
 									</CollapsibleTrigger>
 									<CollapsibleContent>
-										<SidebarMenu class="ml-4 border-l border-sidebar-border pl-2">
+										<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 											{#each filteredSavedQueries as item (item.id)}
 												<SidebarMenuItem>
 													<SidebarMenuButton
@@ -263,8 +264,8 @@
 																<Trash2Icon />
 															</Button>
 														</div>
-														<p class="text-xs text-muted-foreground w-full text-left">
-															Updated {formatRelativeTime(item.updatedAt)}
+														<p class="text-xs text-muted-foreground w-full text-start">
+															{m.sidebar_updated({ time: formatRelativeTime(item.updatedAt) })}
 														</p>
 														<p class="text-xs font-mono line-clamp-2 text-muted-foreground w-full text-left">
 															{item.query}
@@ -274,7 +275,7 @@
 											{/each}
 											{#if filteredSavedQueries.length === 0}
 												<div class="text-center py-4 text-muted-foreground px-2">
-													<p class="text-xs">No saved queries</p>
+													<p class="text-xs">{m.sidebar_no_saved()}</p>
 												</div>
 											{/if}
 										</SidebarMenu>
@@ -287,8 +288,8 @@
 			{:else}
 				<div class="flex-1 flex items-center justify-center p-4 text-center text-muted-foreground">
 					<div>
-						<p class="text-sm">No active connection</p>
-						<p class="text-xs mt-1">Connect to a database to see queries</p>
+						<p class="text-sm">{m.sidebar_no_connection()}</p>
+						<p class="text-xs mt-1">{m.sidebar_no_connection_queries()}</p>
 					</div>
 				</div>
 			{/if}
@@ -300,12 +301,12 @@
 			<span>
 				{#if db.activeConnection}
 					{#if sidebarTab === "schema"}
-						{db.activeSchema.length} tables
+						{m.sidebar_tables_count({ count: db.activeSchema.length })}
 					{:else}
-						{db.activeConnectionQueryHistory.length} executed, {db.activeConnectionSavedQueries.length} saved
+						{m.sidebar_queries_stats({ executed: db.activeConnectionQueryHistory.length, saved: db.activeConnectionSavedQueries.length })}
 					{/if}
 				{:else}
-					No connection
+					{m.sidebar_no_connection_footer()}
 				{/if}
 			</span>
 			{#if version}

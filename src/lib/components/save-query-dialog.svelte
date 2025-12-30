@@ -5,6 +5,7 @@
 	import { Input } from "$lib/components/ui/input";
 	import { Label } from "$lib/components/ui/label";
 	import { toast } from "svelte-sonner";
+	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {
 		open?: boolean;
@@ -33,12 +34,12 @@
 
 	const handleSave = () => {
 		if (!queryName.trim()) {
-			toast.error("Please enter a query name");
+			toast.error(m.save_query_error_name());
 			return;
 		}
 
 		db.saveQuery(queryName.trim(), query, tabId);
-		toast.success("Query saved successfully");
+		toast.success(m.save_query_success());
 		open = false;
 		queryName = "";
 		onSaveComplete?.();
@@ -54,20 +55,20 @@
 <Dialog bind:open>
 	<DialogContent class="max-w-md">
 		<DialogHeader>
-			<DialogTitle>Save Query</DialogTitle>
-			<DialogDescription>Give your query a name to save it for later use</DialogDescription>
+			<DialogTitle>{m.save_query_title()}</DialogTitle>
+			<DialogDescription>{m.save_query_description()}</DialogDescription>
 		</DialogHeader>
 
 		<div class="grid gap-4 py-4">
 			<div class="grid gap-2">
-				<Label for="query-name">Query Name</Label>
-				<Input id="query-name" bind:value={queryName} placeholder="e.g., Active Users Report" onkeydown={handleKeydown} />
+				<Label for="query-name">{m.save_query_label()}</Label>
+				<Input id="query-name" bind:value={queryName} placeholder={m.save_query_placeholder()} onkeydown={handleKeydown} />
 			</div>
 		</div>
 
 		<DialogFooter>
-			<Button variant="outline" onclick={() => (open = false)}>Cancel</Button>
-			<Button onclick={handleSave}>Save Query</Button>
+			<Button variant="outline" onclick={() => (open = false)}>{m.save_query_cancel()}</Button>
+			<Button onclick={handleSave}>{m.save_query_save()}</Button>
 		</DialogFooter>
 	</DialogContent>
 </Dialog>

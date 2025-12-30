@@ -8,6 +8,7 @@
 		DialogTitle
 	} from "$lib/components/ui/dialog";
 	import { Button } from "$lib/components/ui/button";
+	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {
 		open?: boolean;
@@ -22,8 +23,8 @@
 <Dialog bind:open>
 	<DialogContent class="max-w-md">
 		<DialogHeader>
-			<DialogTitle>Unsaved Changes</DialogTitle>
-			<DialogDescription>This query has unsaved changes. What would you like to do?</DialogDescription>
+			<DialogTitle>{m.unsaved_title()}</DialogTitle>
+			<DialogDescription>{m.unsaved_description()}</DialogDescription>
 		</DialogHeader>
 		<DialogFooter class="gap-2">
 			<Button
@@ -31,20 +32,20 @@
 				onclick={() => {
 					open = false;
 					onCancel();
-				}}>Cancel</Button
+				}}>{m.unsaved_cancel()}</Button
 			>
 			<Button
 				variant="destructive"
 				onclick={() => {
 					open = false;
 					onDiscard();
-				}}>Discard</Button
+				}}>{m.unsaved_discard()}</Button
 			>
 			<Button
 				onclick={() => {
 					open = false;
 					onSave();
-				}}>Save</Button
+				}}>{m.unsaved_save()}</Button
 			>
 		</DialogFooter>
 	</DialogContent>

@@ -18,6 +18,7 @@
 		GitBranch,
 		Code,
 	} from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -265,89 +266,89 @@
 	}
 </script>
 
-<Command.Dialog bind:open title="Command Palette" description="Search for a command or action">
-	<Command.Input placeholder="Search commands..." />
+<Command.Dialog bind:open title={m.command_title()} description={m.command_description()}>
+	<Command.Input placeholder={m.command_search_placeholder()} />
 	<Command.List>
-		<Command.Empty>No results found.</Command.Empty>
+		<Command.Empty>{m.command_no_results()}</Command.Empty>
 
 		<!-- Quick Actions (only show group if there are actions available) -->
 		{#if isConnected || hasConnections}
-			<Command.Group heading="Quick Actions">
+			<Command.Group heading={m.command_group_quick_actions()}>
 				{#if isConnected}
 					<Command.Item value="new-query-tab" onSelect={newQueryTab}>
 						<Plus class="size-4" />
-						<span>New Query Tab</span>
+						<span>{m.command_new_query_tab()}</span>
 						<Command.Shortcut>⌘T</Command.Shortcut>
 					</Command.Item>
 				{/if}
 				{#if hasQueryContent}
 					<Command.Item value="execute-query" onSelect={executeQuery}>
 						<Play class="size-4" />
-						<span>Execute Query</span>
+						<span>{m.command_execute_query()}</span>
 						<Command.Shortcut>⌘↵</Command.Shortcut>
 					</Command.Item>
 					<Command.Item value="save-query" onSelect={saveQuery}>
 						<Save class="size-4" />
-						<span>Save Query</span>
+						<span>{m.command_save_query()}</span>
 						<Command.Shortcut>⌘S</Command.Shortcut>
 					</Command.Item>
 					<Command.Item value="explain-query" onSelect={explainQuery}>
 						<GitBranch class="size-4" />
-						<span>Explain Query</span>
+						<span>{m.command_explain_query()}</span>
 					</Command.Item>
 					<Command.Item value="explain-analyze-query" onSelect={explainAnalyzeQuery}>
 						<GitBranch class="size-4" />
-						<span>Explain Analyze Query</span>
+						<span>{m.command_explain_analyze_query()}</span>
 					</Command.Item>
 				{/if}
 				<Command.Item value="toggle-ai" onSelect={toggleAI}>
 					<Sparkles class="size-4" />
-					<span>Toggle AI Assistant</span>
+					<span>{m.command_toggle_ai()}</span>
 				</Command.Item>
 			</Command.Group>
 		{/if}
 
 		<!-- Navigation -->
 		{#if openTabs.length > 0}
-			<Command.Group heading="Open Tabs">
+			<Command.Group heading={m.command_group_open_tabs()}>
 				{#each openTabs as tab}
 					{@const TabIcon = getTabIcon(tab.type)}
 					<Command.Item value="tab-{tab.id}" onSelect={() => goToTab(tab.id, tab.type)}>
 						<TabIcon class="size-4" />
 						<span>{getTabName(tab)}</span>
-						<span class="text-muted-foreground ml-auto text-xs">{tab.type}</span>
+						<span class="text-muted-foreground ms-auto text-xs">{tab.type}</span>
 					</Command.Item>
 				{/each}
 			</Command.Group>
 		{/if}
 
-		<Command.Group heading="Navigation">
+		<Command.Group heading={m.command_group_navigation()}>
 			<Command.Item value="toggle-sidebar" onSelect={toggleSidebar}>
 				<PanelLeft class="size-4" />
-				<span>Toggle Sidebar</span>
+				<span>{m.command_toggle_sidebar()}</span>
 				<Command.Shortcut>⌘B</Command.Shortcut>
 			</Command.Item>
 			{#if isConnected}
 				<Command.Item value="view-erd" onSelect={viewErd}>
 					<GitBranch class="size-4" />
-					<span>View ERD Diagram</span>
+					<span>{m.command_view_erd()}</span>
 				</Command.Item>
 			{/if}
 		</Command.Group>
 
 		<!-- Tables -->
 		{#if isConnected && tables.length > 0}
-			<Command.Group heading="Tables">
+			<Command.Group heading={m.command_group_tables()}>
 				{#each tables.slice(0, 20) as table}
 					<Command.Item value="open-table-{table.schema}-{table.name}" onSelect={() => openTable(table)}>
 						<Table2 class="size-4" />
-						<span>Open: {table.schema}.{table.name}</span>
+						<span>{m.command_open_table({ schema: table.schema, table: table.name })}</span>
 					</Command.Item>
 				{/each}
 				{#each tables.slice(0, 20) as table}
 					<Command.Item value="query-table-{table.schema}-{table.name}" onSelect={() => queryTable(table)}>
 						<Play class="size-4" />
-						<span>Query: {table.schema}.{table.name}</span>
+						<span>{m.command_query_table({ schema: table.schema, table: table.name })}</span>
 					</Command.Item>
 				{/each}
 			</Command.Group>
@@ -355,7 +356,7 @@
 
 		<!-- Connections -->
 		{#if hasConnections}
-			<Command.Group heading="Connections">
+			<Command.Group heading={m.command_group_connections()}>
 				{#each connections as connection}
 					<Command.Item value="connection-{connection.id}" onSelect={() => switchConnection(connection.id)}>
 						<Database class="size-4" />
@@ -363,15 +364,15 @@
 							{#if connection.id === db.activeConnectionId}
 								{connection.name}
 							{:else if connection.database}
-								Switch to: {connection.name}
+								{m.command_switch_to({ name: connection.name })}
 							{:else}
-								Connect: {connection.name}
+								{m.command_connect_to({ name: connection.name })}
 							{/if}
 						</span>
 						{#if connection.id === db.activeConnectionId}
-							<span class="text-muted-foreground ml-auto text-xs">active</span>
+							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_active()}</span>
 						{:else if !connection.database}
-							<span class="text-muted-foreground ml-auto text-xs">disconnected</span>
+							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_disconnected()}</span>
 						{/if}
 					</Command.Item>
 				{/each}
@@ -380,7 +381,7 @@
 
 		<!-- Saved Queries -->
 		{#if isConnected && savedQueries && savedQueries.length > 0}
-			<Command.Group heading="Saved Queries">
+			<Command.Group heading={m.command_group_saved_queries()}>
 				{#each savedQueries as query}
 					<Command.Item value="saved-query-{query.id}" onSelect={() => loadSavedQuery(query.id)}>
 						<FileText class="size-4" />
@@ -392,12 +393,12 @@
 
 		<!-- Query History -->
 		{#if isConnected && recentHistory.length > 0}
-			<Command.Group heading="Recent Queries">
+			<Command.Group heading={m.command_group_recent_queries()}>
 				{#each recentHistory as item}
 					<Command.Item value="history-{item.id}" onSelect={() => loadHistoryItem(item.id)}>
 						<History class="size-4" />
 						<span class="truncate">{truncateQuery(item.query)}</span>
-						<span class="text-muted-foreground ml-auto shrink-0 text-xs"
+						<span class="text-muted-foreground ms-auto shrink-0 text-xs"
 							>{item.executionTime}ms</span
 						>
 					</Command.Item>
@@ -407,18 +408,18 @@
 
 		<!-- Results Actions -->
 		{#if hasResults}
-			<Command.Group heading="Results">
+			<Command.Group heading={m.command_group_results()}>
 				<Command.Item value="export-csv" onSelect={() => exportResults("csv")}>
 					<Download class="size-4" />
-					<span>Export as CSV</span>
+					<span>{m.command_export_csv()}</span>
 				</Command.Item>
 				<Command.Item value="export-json" onSelect={() => exportResults("json")}>
 					<Download class="size-4" />
-					<span>Export as JSON</span>
+					<span>{m.command_export_json()}</span>
 				</Command.Item>
 				<Command.Item value="copy-results" onSelect={copyResults}>
 					<Copy class="size-4" />
-					<span>Copy Results as JSON</span>
+					<span>{m.command_copy_results_json()}</span>
 				</Command.Item>
 			</Command.Group>
 		{/if}

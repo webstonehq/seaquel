@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { m } from "$lib/paraglide/messages.js";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import {
         Dialog,
@@ -319,17 +320,17 @@
         connectionError = null;
 
         if (!formData.name.trim()) {
-            connectionError = "Please enter a connection name";
+            connectionError = m.connection_dialog_error_name_required();
             return;
         }
 
         if (formData.type !== "sqlite" && !formData.host.trim()) {
-            connectionError = "Please enter a host";
+            connectionError = m.connection_dialog_error_host_required();
             return;
         }
 
         if (!formData.databaseName.trim()) {
-            connectionError = "Please enter a database name";
+            connectionError = m.connection_dialog_error_database_required();
             return;
         }
 
@@ -349,17 +350,17 @@
         connectionError = null;
 
         if (!formData.name.trim()) {
-            connectionError = "Please enter a connection name";
+            connectionError = m.connection_dialog_error_name_required();
             return;
         }
 
         if (formData.type !== "sqlite" && !formData.host.trim()) {
-            connectionError = "Please enter a host";
+            connectionError = m.connection_dialog_error_host_required();
             return;
         }
 
         if (!formData.databaseName.trim()) {
-            connectionError = "Please enter a database name";
+            connectionError = m.connection_dialog_error_database_required();
             return;
         }
 
@@ -424,12 +425,12 @@
 <Dialog bind:open>
     <DialogContent class="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-            <DialogTitle>{isReconnecting ? "Reconnect to Database" : "New Database Connection"}</DialogTitle>
+            <DialogTitle>{isReconnecting ? m.connection_dialog_title_reconnect() : m.connection_dialog_title_new()}</DialogTitle>
             <DialogDescription>
                 {#if isReconnecting}
-                    Enter your password to reconnect. Connection details are pre-filled.
+                    {m.connection_dialog_description_reconnect()}
                 {:else}
-                    Configure your database connection settings
+                    {m.connection_dialog_description_new()}
                 {/if}
             </DialogDescription>
         </DialogHeader>
@@ -437,9 +438,9 @@
         <Tabs bind:value={activeTab} class="w-full">
             <TabsList class="grid w-full grid-cols-2">
                 <TabsTrigger value="connection-string"
-                    >Connection String</TabsTrigger
+                    >{m.connection_dialog_tab_connection_string()}</TabsTrigger
                 >
-                <TabsTrigger value="manual">Manual</TabsTrigger>
+                <TabsTrigger value="manual">{m.connection_dialog_tab_manual()}</TabsTrigger>
             </TabsList>
 
             <TabsContent
@@ -447,27 +448,27 @@
                 class="flex flex-col gap-4 mt-4"
             >
                 <div class="grid gap-2">
-                    <Label for="connection-string">Connection String</Label>
+                    <Label for="connection-string">{m.connection_dialog_label_connection_string()}</Label>
                     <Textarea
                         id="connection-string"
                         bind:value={formData.connectionString}
-                        placeholder="postgres://user:password@host:port/database"
+                        placeholder={m.connection_dialog_placeholder_connection_string()}
                         class="font-mono text-sm min-h-[100px]"
                     />
                     <p class="text-xs text-muted-foreground">
-                        Paste your connection string. Supported formats:
+                        {m.connection_dialog_help_formats()}
                         <br />
-                        • PostgreSQL:
+                        • {m.connection_dialog_help_postgresql()}
                         <code class="text-xs"
                             >postgres://user:pass@host:port/db</code
                         >
                         <br />
-                        • MySQL:
+                        • {m.connection_dialog_help_mysql()}
                         <code class="text-xs"
                             >mysql://user:pass@host:port/db</code
                         >
                         <br />
-                        • SQLite:
+                        • {m.connection_dialog_help_sqlite()}
                         <code class="text-xs"
                             >sqlite:///path/to/database.db</code
                         >
@@ -481,7 +482,7 @@
                     onclick={() =>
                         parseConnectionString(formData.connectionString)}
                     disabled={!formData.connectionString.trim()}
-                    >Parse Connection String</Button
+                    >{m.connection_dialog_button_parse()}</Button
                 >
 
                 {#if formData.name}
@@ -489,32 +490,32 @@
                         class="p-3 rounded-lg border bg-muted/50 flex flex-col gap-2"
                     >
                         <p class="text-sm font-medium">
-                            Parsed Connection Details:
+                            {m.connection_dialog_parsed_title()}
                         </p>
                         <div class="text-xs space-y-1">
                             <p>
-                                <span class="text-muted-foreground">Type:</span>
+                                <span class="text-muted-foreground">{m.connection_dialog_parsed_type()}</span>
                                 {selectedDbType?.label}
                             </p>
                             <p>
-                                <span class="text-muted-foreground">Host:</span>
+                                <span class="text-muted-foreground">{m.connection_dialog_parsed_host()}</span>
                                 {formData.host}
                             </p>
                             <p>
-                                <span class="text-muted-foreground">Port:</span>
+                                <span class="text-muted-foreground">{m.connection_dialog_parsed_port()}</span>
                                 {formData.port}
                             </p>
                             <p>
                                 <span class="text-muted-foreground"
-                                    >Database:</span
+                                    >{m.connection_dialog_parsed_database()}</span
                                 >
                                 {formData.databaseName}
                             </p>
                             <p>
                                 <span class="text-muted-foreground"
-                                    >Username:</span
+                                    >{m.connection_dialog_parsed_username()}</span
                                 >
-                                {formData.username || "(none)"}
+                                {formData.username || m.connection_dialog_parsed_none()}
                             </p>
                         </div>
                     </div>
@@ -523,23 +524,23 @@
             
             <TabsContent value="manual" class="flex flex-col gap-4 mt-4">
                 <div class="grid gap-2">
-                    <Label for="name">Connection Name</Label>
+                    <Label for="name">{m.connection_dialog_label_connection_name()}</Label>
                     <Input
                         id="name"
                         bind:value={formData.name}
-                        placeholder="My Database"
+                        placeholder={m.connection_dialog_placeholder_connection_name()}
                     />
                 </div>
 
                 <div class="grid gap-2">
-                    <Label for="type">Database Type</Label>
+                    <Label for="type">{m.connection_dialog_label_database_type()}</Label>
                     <Select
                         type="single"
                         value={formData.type}
                         onValueChange={handleTypeChange}
                     >
                         <SelectTrigger id="type" class="w-full">
-                            {selectedDbType?.label || "Select database type"}
+                            {selectedDbType?.label || m.connection_dialog_placeholder_select_db_type()}
                         </SelectTrigger>
                         <SelectContent>
                             {#each databaseTypes as dbType}
@@ -554,15 +555,15 @@
                 {#if formData.type !== "sqlite"}
                     <div class="grid grid-cols-3 gap-2">
                         <div class="col-span-2 grid gap-2">
-                            <Label for="host">Host</Label>
+                            <Label for="host">{m.connection_dialog_label_host()}</Label>
                             <Input
                                 id="host"
                                 bind:value={formData.host}
-                                placeholder="localhost"
+                                placeholder={m.connection_dialog_placeholder_host()}
                             />
                         </div>
                         <div class="grid gap-2">
-                            <Label for="port">Port</Label>
+                            <Label for="port">{m.connection_dialog_label_port()}</Label>
                             <Input
                                 id="port"
                                 type="number"
@@ -573,40 +574,40 @@
                 {/if}
 
                 <div class="grid gap-2">
-                    <Label for="database">Database</Label>
+                    <Label for="database">{m.connection_dialog_label_database()}</Label>
                     <Input
                         id="database"
                         bind:value={formData.databaseName}
                         placeholder={formData.type === "sqlite"
-                            ? "/path/to/database.db"
-                            : "database_name"}
+                            ? m.connection_dialog_placeholder_database_path()
+                            : m.connection_dialog_placeholder_database_name()}
                     />
                 </div>
 
                 {#if formData.type !== "sqlite"}
                     <div class="grid gap-2">
-                        <Label for="username">Username</Label>
+                        <Label for="username">{m.connection_dialog_label_username()}</Label>
                         <Input id="username" bind:value={formData.username} />
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="password">Password</Label>
+                        <Label for="password">{m.connection_dialog_label_password()}</Label>
                         <Input
                             id="password"
                             type="password"
                             bind:value={formData.password}
-                            placeholder={isReconnecting ? "Password required to reconnect" : "Enter password"}
+                            placeholder={isReconnecting ? m.connection_dialog_placeholder_password_reconnect() : m.connection_dialog_placeholder_password()}
                         />
                         {#if isReconnecting}
                             <p class="text-xs text-amber-600 dark:text-amber-500">
-                                ⚠ Password is not stored for security. Please enter your password to reconnect.
+                                ⚠ {m.connection_dialog_warning_password()}
                             </p>
                         {/if}
                     </div>
 
                     {#if formData.type === "postgres" || formData.type === "mysql" || formData.type === "mariadb"}
                         <div class="grid gap-2">
-                            <Label for="sslmode">SSL Mode</Label>
+                            <Label for="sslmode">{m.connection_dialog_label_ssl_mode()}</Label>
                             <Select
                                 type="single"
                                 value={formData.sslMode}
@@ -633,22 +634,22 @@
                                 bind:checked={formData.sshEnabled}
                                 class="h-4 w-4 rounded border-gray-300"
                             />
-                            <Label for="ssh-enabled" class="cursor-pointer">Connect via SSH Tunnel</Label>
+                            <Label for="ssh-enabled" class="cursor-pointer">{m.connection_dialog_label_ssh_tunnel()}</Label>
                         </div>
 
                         {#if formData.sshEnabled}
                             <div class="flex flex-col gap-4">
                                 <div class="grid grid-cols-3 gap-2">
                                     <div class="col-span-2 grid gap-2">
-                                        <Label for="ssh-host">SSH Host</Label>
+                                        <Label for="ssh-host">{m.connection_dialog_label_ssh_host()}</Label>
                                         <Input
                                             id="ssh-host"
                                             bind:value={formData.sshHost}
-                                            placeholder="ssh.example.com"
+                                            placeholder={m.connection_dialog_placeholder_ssh_host()}
                                         />
                                     </div>
                                     <div class="grid gap-2">
-                                        <Label for="ssh-port">SSH Port</Label>
+                                        <Label for="ssh-port">{m.connection_dialog_label_ssh_port()}</Label>
                                         <Input
                                             id="ssh-port"
                                             type="number"
@@ -658,70 +659,70 @@
                                 </div>
 
                                 <div class="grid gap-2">
-                                    <Label for="ssh-username">SSH Username</Label>
+                                    <Label for="ssh-username">{m.connection_dialog_label_ssh_username()}</Label>
                                     <Input
                                         id="ssh-username"
                                         bind:value={formData.sshUsername}
-                                        placeholder="username"
+                                        placeholder={m.connection_dialog_placeholder_ssh_username()}
                                     />
                                 </div>
 
                                 <div class="grid gap-2">
-                                    <Label>Authentication Method</Label>
+                                    <Label>{m.connection_dialog_label_auth_method()}</Label>
                                     <Select
                                         type="single"
                                         value={formData.sshAuthMethod}
                                         onValueChange={(value) => (formData.sshAuthMethod = value as SSHAuthMethod)}
                                     >
                                         <SelectTrigger class="w-full">
-                                            {formData.sshAuthMethod === "password" ? "Password" : "SSH Key"}
+                                            {formData.sshAuthMethod === "password" ? m.connection_dialog_auth_method_password() : m.connection_dialog_auth_method_ssh_key()}
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="password">Password</SelectItem>
-                                            <SelectItem value="key">SSH Key</SelectItem>
+                                            <SelectItem value="password">{m.connection_dialog_auth_method_password()}</SelectItem>
+                                            <SelectItem value="key">{m.connection_dialog_auth_method_ssh_key()}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
 
                                 {#if formData.sshAuthMethod === "password"}
                                     <div class="grid gap-2">
-                                        <Label for="ssh-password">SSH Password</Label>
+                                        <Label for="ssh-password">{m.connection_dialog_label_ssh_password()}</Label>
                                         <Input
                                             id="ssh-password"
                                             type="password"
                                             bind:value={formData.sshPassword}
-                                            placeholder="SSH password"
+                                            placeholder={m.connection_dialog_placeholder_ssh_password()}
                                         />
                                     </div>
                                 {:else}
                                     <div class="grid gap-2">
-                                        <Label for="ssh-key-path">SSH Key File</Label>
+                                        <Label for="ssh-key-path">{m.connection_dialog_label_ssh_key_file()}</Label>
                                         <div class="flex gap-2">
                                             <Input
                                                 id="ssh-key-path"
                                                 bind:value={formData.sshKeyPath}
-                                                placeholder="~/.ssh/id_rsa"
+                                                placeholder={m.connection_dialog_placeholder_ssh_key_path()}
                                                 class="flex-1"
                                             />
                                             <Button variant="outline" type="button" onclick={selectSshKeyFile}>
-                                                Browse
+                                                {m.connection_dialog_button_browse()}
                                             </Button>
                                         </div>
                                     </div>
                                     <div class="grid gap-2">
-                                        <Label for="ssh-key-passphrase">Key Passphrase (if encrypted)</Label>
+                                        <Label for="ssh-key-passphrase">{m.connection_dialog_label_key_passphrase()}</Label>
                                         <Input
                                             id="ssh-key-passphrase"
                                             type="password"
                                             bind:value={formData.sshKeyPassphrase}
-                                            placeholder="Optional"
+                                            placeholder={m.connection_dialog_placeholder_optional()}
                                         />
                                     </div>
                                 {/if}
 
                                 {#if isReconnecting && formData.sshEnabled}
                                     <p class="text-xs text-amber-600 dark:text-amber-500">
-                                        ⚠ SSH credentials are not stored for security. Please enter them to reconnect.
+                                        ⚠ {m.connection_dialog_warning_ssh()}
                                     </p>
                                 {/if}
                             </div>
@@ -742,25 +743,25 @@
                 variant="outline"
                 onclick={handleTestConnection}
                 disabled={isConnecting || isTesting}
-                class="sm:mr-auto"
+                class="sm:me-auto"
             >
                 {#if isTesting}
-                    Testing...
+                    {m.connection_dialog_button_testing()}
                 {:else}
-                    Test Connection
+                    {m.connection_dialog_button_test()}
                 {/if}
             </Button>
             <div class="flex gap-2">
                 <Button variant="outline" onclick={() => (open = false)} disabled={isConnecting || isTesting}>
-                    Cancel
+                    {m.connection_dialog_button_cancel()}
                 </Button>
                 <Button onclick={handleSubmit} disabled={isConnecting || isTesting}>
                     {#if isConnecting}
-                        Connecting...
+                        {m.connection_dialog_button_connecting()}
                     {:else if isReconnecting}
-                        Reconnect
+                        {m.connection_dialog_button_reconnect()}
                     {:else}
-                        Add Connection
+                        {m.connection_dialog_button_add()}
                     {/if}
                 </Button>
             </div>

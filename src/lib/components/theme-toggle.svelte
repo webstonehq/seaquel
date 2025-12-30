@@ -7,6 +7,7 @@
     import { buttonVariants } from "$lib/components/ui/button/index.js";
 
     import { setTheme } from "@tauri-apps/api/app";
+    import { m } from "$lib/paraglide/messages.js";
 </script>
 
 <DropdownMenu.Root>
@@ -19,26 +20,26 @@
         <MoonIcon
             class="transition-all! absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 dark:rotate-0 dark:scale-100"
         />
-        <span class="sr-only">Toggle theme</span>
+        <span class="sr-only">{m.theme_toggle()}</span>
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end">
         <DropdownMenu.Item
             onclick={async () => {
                 await setTheme("light");
                 setMode("light");
-            }}>Light</DropdownMenu.Item
+            }}>{m.theme_light()}</DropdownMenu.Item
         >
         <DropdownMenu.Item
             onclick={async () => {
                 await setTheme("dark");
                 setMode("dark");
-            }}>Dark</DropdownMenu.Item
+            }}>{m.theme_dark()}</DropdownMenu.Item
         >
         <DropdownMenu.Item
             onclick={async () => {
                 await setTheme(null);
                 resetMode();
-            }}>System</DropdownMenu.Item
+            }}>{m.theme_system()}</DropdownMenu.Item
         >
     </DropdownMenu.Content>
 </DropdownMenu.Root>

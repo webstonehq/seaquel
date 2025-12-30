@@ -21,6 +21,7 @@
 	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -57,9 +58,9 @@
 		);
 
 		if (result.success) {
-			toast.success('Cell updated');
+			toast.success(m.query_cell_updated());
 		} else {
-			toast.error(`Failed to update: ${result.error}`);
+			toast.error(m.query_cell_update_failed({ error: result.error || '' }));
 		}
 	}
 
@@ -80,11 +81,11 @@
 		);
 
 		if (result.success) {
-			toast.success('Row deleted');
+			toast.success(m.query_row_deleted());
 			// Refresh data
 			await db.executeQuery(db.activeQueryTabId);
 		} else {
-			toast.error(`Failed to delete: ${result.error}`);
+			toast.error(m.query_row_delete_failed({ error: result.error || '' }));
 		}
 
 		deletingRowIndex = null;
@@ -118,7 +119,7 @@
 			});
 			db.activeQueryTab.query = formatted;
 		} catch {
-			toast.error("Failed to format SQL");
+			toast.error(m.query_format_failed());
 		}
 	};
 
@@ -160,9 +161,9 @@
 
 		try {
 			await navigator.clipboard.writeText(content);
-			toast.success(`${formatNames[format]} copied to clipboard`);
+			toast.success(m.query_copied_to_clipboard({ format: formatNames[format] }));
 		} catch {
-			toast.error("Failed to copy to clipboard");
+			toast.error(m.query_copy_failed());
 		}
 	};
 
@@ -183,13 +184,13 @@
 		if (!contextCell) return;
 		const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
 		await navigator.clipboard.writeText(value);
-		toast.success("Cell value copied");
+		toast.success(m.query_cell_copied());
 	};
 
 	const copyRowAsJSON = async () => {
 		if (!contextCell) return;
 		await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
-		toast.success("Row copied as JSON");
+		toast.success(m.query_row_copied());
 	};
 
 	const copyColumn = async () => {
@@ -200,7 +201,7 @@
 			.map(v => v === null || v === undefined ? "" : String(v))
 			.join("\n");
 		await navigator.clipboard.writeText(values);
-		toast.success("Column values copied");
+		toast.success(m.query_column_copied());
 	};
 
 	// Register keyboard shortcuts
@@ -228,9 +229,9 @@
                             <Badge variant="secondary" class="text-xs"
                                 >{db.activeQueryTab.results.affectedRows ?? 0}</Badge
                             >
-                            rows affected
+                            {m.query_rows_affected()}
                             {#if db.activeQueryTab.results.lastInsertId}
-                                <Badge variant="outline" class="text-xs ml-1"
+                                <Badge variant="outline" class="text-xs ms-1"
                                     >ID: {db.activeQueryTab.results.lastInsertId}</Badge
                                 >
                             {/if}
@@ -238,7 +239,7 @@
                             <Badge variant="secondary" class="text-xs"
                                 >{db.activeQueryTab.results.totalRows.toLocaleString()}</Badge
                             >
-                            total rows
+                            {m.query_total_rows()}
                         {/if}
                     </span>
                     <span class="flex items-center gap-1">
@@ -262,7 +263,7 @@
                         {:else}
                             <PlayIcon class="size-3" />
                         {/if}
-                        Execute
+                        {m.query_execute()}
                     </Button>
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger
@@ -273,20 +274,20 @@
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content align="end">
                             <DropdownMenu.Item onclick={handleExecute}>
-                                <PlayIcon class="size-4 mr-2" />
-                                Execute
+                                <PlayIcon class="size-4 me-2" />
+                                {m.query_execute()}
                                 {#if findShortcut('executeQuery')}
-                                    <ShortcutKeys keys={findShortcut('executeQuery')!.keys} class="ml-auto" />
+                                    <ShortcutKeys keys={findShortcut('executeQuery')!.keys} class="ms-auto" />
                                 {/if}
                             </DropdownMenu.Item>
                             <DropdownMenu.Separator />
                             <DropdownMenu.Item onclick={() => handleExplain(false)}>
-                                <SearchIcon class="size-4 mr-2" />
-                                Explain
+                                <SearchIcon class="size-4 me-2" />
+                                {m.query_explain()}
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onclick={() => handleExplain(true)}>
-                                <ActivityIcon class="size-4 mr-2" />
-                                Explain Analyze
+                                <ActivityIcon class="size-4 me-2" />
+                                {m.query_explain_analyze()}
                             </DropdownMenu.Item>
                         </DropdownMenu.Content>
                     </DropdownMenu.Root>
@@ -299,9 +300,9 @@
                     disabled={!db.activeQueryTab?.query.trim()}
                 >
                     <WandSparklesIcon class="size-3" />
-                    Format
+                    {m.query_format()}
                     {#if findShortcut('formatSql')}
-                        <ShortcutKeys keys={findShortcut('formatSql')!.keys} class="ml-1" />
+                        <ShortcutKeys keys={findShortcut('formatSql')!.keys} class="ms-1" />
                     {/if}
                 </Button>
                 {#if isEditable && sourceTableColumns.length > 0}
@@ -312,7 +313,7 @@
                         onclick={() => showInsertDialog = true}
                     >
                         <PlusIcon class="size-3" />
-                        Add Row
+                        {m.query_add_row()}
                     </Button>
                 {/if}
                 <Button
@@ -323,9 +324,9 @@
                     disabled={!db.activeQueryTab?.query.trim()}
                 >
                     <SaveIcon class="size-3" />
-                    Save
+                    {m.query_save()}
                     {#if findShortcut('saveQuery')}
-                        <ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ml-1" />
+                        <ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ms-1" />
                     {/if}
                 </Button>
             </div>
@@ -367,68 +368,68 @@
                                     }) + " h-7 gap-1"}
                                 >
                                     <DownloadIcon class="size-3" />
-                                    Export
+                                    {m.query_export()}
                                     <ChevronDownIcon class="size-3" />
                                 </DropdownMenu.Trigger>
                                 <DropdownMenu.Content align="end" class="w-48">
                                     <DropdownMenu.Group>
                                         <DropdownMenu.GroupHeading
-                                            >Download</DropdownMenu.GroupHeading
+                                            >{m.query_download()}</DropdownMenu.GroupHeading
                                         >
                                         <DropdownMenu.Item
                                             onclick={() => handleExport("csv")}
                                         >
-                                            <DownloadIcon class="size-4 mr-2" />
+                                            <DownloadIcon class="size-4 me-2" />
                                             CSV
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() => handleExport("json")}
                                         >
-                                            <DownloadIcon class="size-4 mr-2" />
+                                            <DownloadIcon class="size-4 me-2" />
                                             JSON
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() => handleExport("sql")}
                                         >
-                                            <DownloadIcon class="size-4 mr-2" />
+                                            <DownloadIcon class="size-4 me-2" />
                                             SQL INSERT
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() =>
                                                 handleExport("markdown")}
                                         >
-                                            <DownloadIcon class="size-4 mr-2" />
+                                            <DownloadIcon class="size-4 me-2" />
                                             Markdown
                                         </DropdownMenu.Item>
                                     </DropdownMenu.Group>
                                     <DropdownMenu.Separator />
                                     <DropdownMenu.Group>
                                         <DropdownMenu.GroupHeading
-                                            >Copy to Clipboard</DropdownMenu.GroupHeading
+                                            >{m.query_copy_to_clipboard()}</DropdownMenu.GroupHeading
                                         >
                                         <DropdownMenu.Item
                                             onclick={() => handleCopy("csv")}
                                         >
-                                            <CopyIcon class="size-4 mr-2" />
+                                            <CopyIcon class="size-4 me-2" />
                                             CSV
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() => handleCopy("json")}
                                         >
-                                            <CopyIcon class="size-4 mr-2" />
+                                            <CopyIcon class="size-4 me-2" />
                                             JSON
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() => handleCopy("sql")}
                                         >
-                                            <CopyIcon class="size-4 mr-2" />
+                                            <CopyIcon class="size-4 me-2" />
                                             SQL INSERT
                                         </DropdownMenu.Item>
                                         <DropdownMenu.Item
                                             onclick={() =>
                                                 handleCopy("markdown")}
                                         >
-                                            <CopyIcon class="size-4 mr-2" />
+                                            <CopyIcon class="size-4 me-2" />
                                             Markdown
                                         </DropdownMenu.Item>
                                     </DropdownMenu.Group>
@@ -494,16 +495,16 @@
                                 <ContextMenu.Portal>
                                     <ContextMenu.Content class="w-48">
                                         <ContextMenu.Item onclick={copyCell}>
-                                            <CopyIcon class="size-4 mr-2" />
-                                            Copy Cell Value
+                                            <CopyIcon class="size-4 me-2" />
+                                            {m.query_copy_cell()}
                                         </ContextMenu.Item>
                                         <ContextMenu.Item onclick={copyRowAsJSON}>
-                                            <CopyIcon class="size-4 mr-2" />
-                                            Copy Row as JSON
+                                            <CopyIcon class="size-4 me-2" />
+                                            {m.query_copy_row()}
                                         </ContextMenu.Item>
                                         <ContextMenu.Item onclick={copyColumn}>
-                                            <CopyIcon class="size-4 mr-2" />
-                                            Copy Column Values
+                                            <CopyIcon class="size-4 me-2" />
+                                            {m.query_copy_column()}
                                         </ContextMenu.Item>
                                     </ContextMenu.Content>
                                 </ContextMenu.Portal>
@@ -517,7 +518,7 @@
                             {@const end = Math.min(results.page * results.pageSize, results.totalRows)}
                             <div class="flex items-center justify-between p-2 border-t bg-muted/30 shrink-0 text-xs">
                                 <div class="text-muted-foreground">
-                                    Showing {start}-{end} of {results.totalRows.toLocaleString()} rows
+                                    {m.query_showing_rows({ start, end, total: results.totalRows.toLocaleString() })}
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <DropdownMenu.Root>
@@ -536,7 +537,7 @@
                                                     onclick={() => db.setPageSize(db.activeQueryTabId!, size)}
                                                     class={db.activeQueryTab.results.pageSize === size ? "bg-accent" : ""}
                                                 >
-                                                    {size} rows
+                                                    {m.query_rows_count({ count: size })}
                                                 </DropdownMenu.Item>
                                             {/each}
                                         </DropdownMenu.Content>
@@ -562,7 +563,7 @@
                                             <ChevronLeftIcon class="size-3" />
                                         </Button>
                                         <span class="px-2 text-muted-foreground">
-                                            Page {db.activeQueryTab.results.page} of {db.activeQueryTab.results.totalPages}
+                                            {m.query_page_of({ page: db.activeQueryTab.results.page, total: db.activeQueryTab.results.totalPages })}
                                         </span>
                                         <Button
                                             size="icon"
@@ -595,10 +596,10 @@
                                     class="size-12 mx-auto mb-2 opacity-20"
                                 />
                                 <p class="text-sm">
-                                    Execute a query to see results
+                                    {m.query_no_results()}
                                 </p>
                                 <p class="text-xs mt-1 text-muted-foreground">
-                                    Press ⌘+Enter to run
+                                    {m.query_run_hint({ shortcut: "⌘+Enter" })}
                                 </p>
                             </div>
                         </div>
@@ -612,7 +613,7 @@
         >
             <div class="text-center">
                 <PlayIcon class="size-12 mx-auto mb-2 opacity-20" />
-                <p class="text-sm">Create a new query tab to get started</p>
+                <p class="text-sm">{m.query_create_tab()}</p>
             </div>
         </div>
     {/if}
@@ -630,17 +631,17 @@
 <Dialog.Root bind:open={showDeleteConfirm}>
     <Dialog.Content class="sm:max-w-md">
         <Dialog.Header>
-            <Dialog.Title>Delete Row</Dialog.Title>
+            <Dialog.Title>{m.query_delete_row_title()}</Dialog.Title>
             <Dialog.Description>
-                Are you sure you want to delete this row? This action cannot be undone.
+                {m.query_delete_row_description()}
             </Dialog.Description>
         </Dialog.Header>
         <Dialog.Footer>
             <Button variant="outline" onclick={() => showDeleteConfirm = false}>
-                Cancel
+                {m.query_cancel()}
             </Button>
             <Button variant="destructive" onclick={handleDeleteRow}>
-                Delete
+                {m.query_delete()}
             </Button>
         </Dialog.Footer>
     </Dialog.Content>

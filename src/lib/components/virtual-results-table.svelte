@@ -3,6 +3,7 @@
 	import RowActions from "$lib/components/row-actions.svelte";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import { CopyIcon } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		columns: string[];
@@ -129,16 +130,16 @@
 	<ContextMenu.Portal>
 		<ContextMenu.Content class="w-48">
 			<ContextMenu.Item onclick={onCopyCell}>
-				<CopyIcon class="size-4 mr-2" />
-				Copy Cell Value
+				<CopyIcon class="size-4 me-2" />
+				{m.query_copy_cell()}
 			</ContextMenu.Item>
 			<ContextMenu.Item onclick={onCopyRow}>
-				<CopyIcon class="size-4 mr-2" />
-				Copy Row as JSON
+				<CopyIcon class="size-4 me-2" />
+				{m.query_copy_row()}
 			</ContextMenu.Item>
 			<ContextMenu.Item onclick={onCopyColumn}>
-				<CopyIcon class="size-4 mr-2" />
-				Copy Column Values
+				<CopyIcon class="size-4 me-2" />
+				{m.query_copy_column()}
 			</ContextMenu.Item>
 		</ContextMenu.Content>
 	</ContextMenu.Portal>
