@@ -75,6 +75,11 @@ export class DatabaseState {
     this.queryTabs.find((t) => t.id === this.activeQueryTabId) || null,
   );
 
+  // Derived: active query result (for multi-statement support)
+  activeQueryResult = $derived(
+    this.activeQueryTab?.results?.[this.activeQueryTab.activeResultIndex ?? 0] || null,
+  );
+
   // Derived: schema tabs for active connection
   schemaTabs = $derived(
     this.activeConnectionId

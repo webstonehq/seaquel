@@ -66,7 +66,8 @@ export interface QueryTab {
 	id: string;
 	name: string;
 	query: string;
-	results?: QueryResult;
+	results?: StatementResult[];
+	activeResultIndex?: number;
 	isExecuting: boolean;
 	savedQueryId?: string;
 }
@@ -93,6 +94,13 @@ export interface QueryResult {
 	page: number;
 	pageSize: number;
 	totalPages: number;
+}
+
+export interface StatementResult extends QueryResult {
+	statementIndex: number;
+	statementSql: string;
+	error?: string;
+	isError: boolean;
 }
 
 export interface QueryHistoryItem {

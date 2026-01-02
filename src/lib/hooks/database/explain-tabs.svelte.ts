@@ -4,6 +4,7 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type ExplainNode } from "$lib/db";
 import { setMapValue } from "./map-utils.js";
+import { getStatementAtOffset } from "$lib/db/sql-parser";
 
 /**
  * Manages EXPLAIN/ANALYZE tabs: execute, remove, set active.
@@ -58,22 +59,36 @@ export class ExplainTabManager {
 
   /**
    * Execute EXPLAIN or EXPLAIN ANALYZE on a query tab.
+   * If cursorOffset is provided, explains only the statement at that cursor position.
    */
-  async execute(tabId: string, analyze: boolean = false): Promise<void> {
+  async execute(tabId: string, analyze: boolean = false, cursorOffset?: number): Promise<void> {
     if (!this.state.activeConnectionId || !this.state.activeConnection) return;
 
     const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab || !tab.query.trim()) return;
 
+    // Get the statement to explain based on cursor position
+    const dbType = this.state.activeConnection.type;
+    let queryToExplain = tab.query;
+
+    if (cursorOffset !== undefined) {
+      const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+      if (statement) {
+        queryToExplain = statement.sql;
+      }
+    }
+
+    if (!queryToExplain.trim()) return;
+
     // Create a new explain tab
     const explainTabs = this.state.explainTabsByConnection.get(this.state.activeConnectionId) || [];
     const explainTabId = `explain-${Date.now()}`;
-    const queryPreview = tab.query.substring(0, 30).replace(/\s+/g, " ").trim();
+    const queryPreview = queryToExplain.substring(0, 30).replace(/\s+/g, " ").trim();
     const newExplainTab: ExplainTab = $state({
       id: explainTabId,
       name: analyze ? `Analyze: ${queryPreview}...` : `Explain: ${queryPreview}...`,
-      sourceQuery: tab.query,
+      sourceQuery: queryToExplain,
       result: undefined,
       isExecuting: true,
     });
@@ -93,7 +108,7 @@ export class ExplainTabManager {
 
     try {
       const adapter = getAdapter(this.state.activeConnection.type);
-      const explainQuery = adapter.getExplainQuery(tab.query, analyze);
+      const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
       const result = (await this.state.activeConnection.database!.select(explainQuery)) as unknown[];
 
       // Use adapter to parse the results into common format
