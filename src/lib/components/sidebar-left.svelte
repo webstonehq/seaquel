@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteSet } from "svelte/reactivity";
 	import { getVersion } from "@tauri-apps/api/app";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
@@ -20,24 +21,22 @@
 			version = v;
 		});
 	});
-	let expandedSchemas = $state<Set<string>>(new Set());
+	let expandedSchemas = new SvelteSet<string>();
 	let historyExpanded = $state(true);
 	let savedExpanded = $state(true);
 	let searchQuery = $state("");
 	let schemaSearchQuery = $state("");
 
 	const toggleSchema = (schemaName: string) => {
-		const newExpanded = new Set(expandedSchemas);
-		if (newExpanded.has(schemaName)) {
-			newExpanded.delete(schemaName);
+		if (expandedSchemas.has(schemaName)) {
+			expandedSchemas.delete(schemaName);
 		} else {
-			newExpanded.add(schemaName);
+			expandedSchemas.add(schemaName);
 		}
-		expandedSchemas = newExpanded;
 	};
 
 	// Filter and group tables by schema
-	const tablesBySchema = $derived(() => {
+	const tablesBySchema = $derived.by(() => {
 		const searchLower = schemaSearchQuery.toLowerCase();
 		const filtered = schemaSearchQuery
 			? db.state.activeSchema.filter(table =>
@@ -113,7 +112,7 @@
 					<SidebarGroupLabel>{db.state.activeConnection.name}</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
-							{#each [...tablesBySchema().entries()] as [schemaName, tables] (schemaName)}
+							{#each [...tablesBySchema.entries()] as [schemaName, tables] (schemaName)}
 								<Collapsible open={expandedSchemas.has(schemaName)} onOpenChange={() => toggleSchema(schemaName)}>
 									<SidebarMenuItem>
 										<CollapsibleTrigger>

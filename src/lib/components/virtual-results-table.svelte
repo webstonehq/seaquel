@@ -33,11 +33,29 @@
 
 	// Virtual scrolling state
 	const ROW_HEIGHT = 37;
+	const HEADER_HEIGHT = 37;
 	const OVERSCAN = 10;
+	const DEFAULT_COLUMN_WIDTH = 150;
+	const MIN_COLUMN_WIDTH = 50;
 
 	let scrollTop = $state(0);
 	let containerHeight = $state(0);
 	let scrollContainerRef: HTMLDivElement | undefined = $state();
+
+	// Column widths state - initialize with default width for each column
+	let columnWidths = $state<number[]>([]);
+
+	// Initialize column widths when columns change
+	$effect(() => {
+		if (columns.length !== columnWidths.length) {
+			columnWidths = columns.map(() => DEFAULT_COLUMN_WIDTH);
+		}
+	});
+
+	// Resize state
+	let resizingIndex = $state<number | null>(null);
+	let resizeStartX = $state(0);
+	let resizeStartWidth = $state(0);
 
 	// Calculate visible range
 	const totalHeight = $derived(rows.length * ROW_HEIGHT);
@@ -51,6 +69,11 @@
 			index: startIndex + i,
 			offset: (startIndex + i) * ROW_HEIGHT
 		}))
+	);
+
+	// Grid template for consistent column widths across all rows
+	const gridTemplate = $derived(
+		(isEditable ? '40px ' : '') + columnWidths.map(w => `${w}px`).join(' ')
 	);
 
 	function handleScroll(e: Event) {
@@ -68,41 +91,78 @@
 			return () => observer.disconnect();
 		}
 	});
+
+	// Column resize handlers
+	function startResize(index: number, e: MouseEvent) {
+		e.preventDefault();
+		resizingIndex = index;
+		resizeStartX = e.clientX;
+		resizeStartWidth = columnWidths[index];
+
+		document.addEventListener('mousemove', handleResize);
+		document.addEventListener('mouseup', stopResize);
+		document.body.style.cursor = 'col-resize';
+		document.body.style.userSelect = 'none';
+	}
+
+	function handleResize(e: MouseEvent) {
+		if (resizingIndex === null) return;
+
+		const delta = e.clientX - resizeStartX;
+		const newWidth = Math.max(MIN_COLUMN_WIDTH, resizeStartWidth + delta);
+		columnWidths[resizingIndex] = newWidth;
+	}
+
+	function stopResize() {
+		resizingIndex = null;
+		document.removeEventListener('mousemove', handleResize);
+		document.removeEventListener('mouseup', stopResize);
+		document.body.style.cursor = '';
+		document.body.style.userSelect = '';
+	}
 </script>
 
 <ContextMenu.Root>
-	<ContextMenu.Trigger class="flex-1 overflow-hidden min-h-0 block">
-		<div class="flex flex-col h-full">
-			<!-- Fixed Header -->
-			<div class="shrink-0 bg-muted border-b">
-				<table class="w-full text-sm">
-					<thead>
-						<tr>
-							{#if isEditable}
-								<th class="px-2 py-2 w-8"></th>
-							{/if}
-							{#each columns as column}
-								<th class="px-4 py-2 text-left font-medium">{column}</th>
-							{/each}
-						</tr>
-					</thead>
-				</table>
-			</div>
+	<ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
+		<!-- Single scroll container for both header and body -->
+		<div
+			bind:this={scrollContainerRef}
+			class="h-full overflow-auto"
+			onscroll={handleScroll}
+		>
+			<!-- Inner wrapper that can expand horizontally -->
+			<div class="min-w-fit">
+				<!-- Sticky Header -->
+				<div
+					class="grid bg-muted border-b sticky top-0 z-10 text-sm"
+					style="height: {HEADER_HEIGHT}px; grid-template-columns: {gridTemplate};"
+				>
+					{#if isEditable}
+						<div class="px-2 py-2 flex items-center"></div>
+					{/if}
+					{#each columns as column, i}
+						<div class="relative flex items-center group">
+							<div class="px-4 py-2 font-medium flex-1 truncate">{column}</div>
+							<!-- Resize handle -->
+							<div
+								class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 group-hover:bg-border transition-colors"
+								onmousedown={(e) => startResize(i, e)}
+								role="separator"
+								aria-orientation="vertical"
+							></div>
+						</div>
+					{/each}
+				</div>
 
-			<!-- Scrollable Virtualized Body -->
-			<div
-				bind:this={scrollContainerRef}
-				class="flex-1 overflow-auto min-h-0"
-				onscroll={handleScroll}
-			>
+				<!-- Virtual Body -->
 				<div style="height: {totalHeight}px; position: relative;">
 					{#each visibleRows as { row, index: rowIndex, offset } (rowIndex)}
 						<div
-							class={["border-b hover:bg-muted/50 flex", rowIndex % 2 === 0 && "bg-muted/20"]}
-							style="position: absolute; top: {offset}px; left: 0; right: 0; height: {ROW_HEIGHT}px;"
+							class={["border-b hover:bg-muted/50 grid text-sm", rowIndex % 2 === 0 && "bg-muted/20"]}
+							style="position: absolute; top: {offset}px; left: 0; height: {ROW_HEIGHT}px; grid-template-columns: {gridTemplate};"
 						>
 							{#if isEditable}
-								<div class="px-2 py-1 w-8 shrink-0 flex items-center">
+								<div class="px-2 py-1 flex items-center">
 									<RowActions
 										onDelete={async () => onRowDelete(rowIndex, row)}
 										isDeleting={deletingRowIndex === rowIndex}
@@ -111,7 +171,7 @@
 							{/if}
 							{#each columns as column}
 								<div
-									class="px-4 py-2 flex-1 min-w-0 flex items-center"
+									class="px-4 py-2 flex items-center overflow-hidden"
 									oncontextmenu={() => onCellRightClick(row[column], column, row)}
 								>
 									<EditableCell
