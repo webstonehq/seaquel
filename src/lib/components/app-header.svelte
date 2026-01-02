@@ -77,7 +77,7 @@
         data-tauri-drag-region
         class="pl-18 h-(--header-height) flex w-full items-center gap-2 pr-2 justify-between"
     >
-        <div class="flex items-center gap-1 flex-1 min-w-0">
+        <div data-tauri-drag-region class="flex items-center gap-1 flex-1 min-w-0">
             <Button
                 class="size-8 shrink-0"
                 variant="ghost"
