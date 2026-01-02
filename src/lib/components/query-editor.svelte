@@ -170,12 +170,6 @@
 	// Context menu for copying cells
 	let contextCell = $state<{ value: unknown; column: string; row: Record<string, unknown> } | null>(null);
 
-	// Threshold for enabling virtualization (rows)
-	const VIRTUALIZATION_THRESHOLD = 100;
-	const shouldVirtualize = $derived(
-		(db.state.activeQueryTab?.results?.rows.length ?? 0) > VIRTUALIZATION_THRESHOLD
-	);
-
 	const handleCellRightClick = (value: unknown, column: string, row: Record<string, unknown>) => {
 		contextCell = { value, column, row };
 	};
@@ -437,79 +431,18 @@
                             </DropdownMenu.Root>
                         </div>
 
-                        {#if shouldVirtualize}
-                            <VirtualResultsTable
-                                columns={db.state.activeQueryTab.results.columns}
-                                rows={db.state.activeQueryTab.results.rows}
-                                isEditable={!!isEditable}
-                                onCellSave={handleCellSave}
-                                onRowDelete={confirmDeleteRow}
-                                {deletingRowIndex}
-                                onCopyCell={copyCell}
-                                onCopyRow={copyRowAsJSON}
-                                onCopyColumn={copyColumn}
-                                onCellRightClick={handleCellRightClick}
-                            />
-                        {:else}
-                            <ContextMenu.Root>
-                                <ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
-                                    <table class="w-full text-sm">
-                                        <thead class="sticky top-0 bg-muted border-b">
-                                            <tr>
-                                                {#if isEditable}
-                                                    <th class="px-2 py-2 w-8"></th>
-                                                {/if}
-                                                {#each db.state.activeQueryTab.results.columns as column}
-                                                    <th class="px-4 py-2 text-left font-medium">{column}</th>
-                                                {/each}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {#each db.state.activeQueryTab.results.rows as row, i}
-                                                <tr class={["border-b hover:bg-muted/50", i % 2 === 0 && "bg-muted/20"]}>
-                                                    {#if isEditable}
-                                                        <td class="px-2 py-1">
-                                                            <RowActions
-                                                                onDelete={async () => confirmDeleteRow(i, row)}
-                                                                isDeleting={deletingRowIndex === i}
-                                                            />
-                                                        </td>
-                                                    {/if}
-                                                    {#each db.state.activeQueryTab.results.columns as column}
-                                                        <td
-                                                            class="px-4 py-2"
-                                                            oncontextmenu={() => handleCellRightClick(row[column], column, row)}
-                                                        >
-                                                            <EditableCell
-                                                                value={row[column]}
-                                                                isEditable={isEditable}
-                                                                onSave={(newValue) => handleCellSave(i, column, newValue)}
-                                                            />
-                                                        </td>
-                                                    {/each}
-                                                </tr>
-                                            {/each}
-                                        </tbody>
-                                    </table>
-                                </ContextMenu.Trigger>
-                                <ContextMenu.Portal>
-                                    <ContextMenu.Content class="w-48">
-                                        <ContextMenu.Item onclick={copyCell}>
-                                            <CopyIcon class="size-4 me-2" />
-                                            {m.query_copy_cell()}
-                                        </ContextMenu.Item>
-                                        <ContextMenu.Item onclick={copyRowAsJSON}>
-                                            <CopyIcon class="size-4 me-2" />
-                                            {m.query_copy_row()}
-                                        </ContextMenu.Item>
-                                        <ContextMenu.Item onclick={copyColumn}>
-                                            <CopyIcon class="size-4 me-2" />
-                                            {m.query_copy_column()}
-                                        </ContextMenu.Item>
-                                    </ContextMenu.Content>
-                                </ContextMenu.Portal>
-                            </ContextMenu.Root>
-                        {/if}
+                        <VirtualResultsTable
+                            columns={db.state.activeQueryTab.results.columns}
+                            rows={db.state.activeQueryTab.results.rows}
+                            isEditable={!!isEditable}
+                            onCellSave={handleCellSave}
+                            onRowDelete={confirmDeleteRow}
+                            {deletingRowIndex}
+                            onCopyCell={copyCell}
+                            onCopyRow={copyRowAsJSON}
+                            onCopyColumn={copyColumn}
+                            onCellRightClick={handleCellRightClick}
+                        />
 
                         <!-- Pagination Controls -->
                         {#if db.state.activeQueryTab.results.totalPages > 1}
