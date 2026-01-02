@@ -6,11 +6,11 @@
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon, SearchIcon, ActivityIcon } from "@lucide/svelte";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon, SearchIcon, ActivityIcon, XCircleIcon, TableIcon, ZapIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
-	import MonacoEditor from "$lib/components/monaco-editor.svelte";
+	import MonacoEditor, { type MonacoEditorRef } from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
 	import { save } from "@tauri-apps/plugin-dialog";
 	import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -22,6 +22,8 @@
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 	import { m } from "$lib/paraglide/messages.js";
+	import { cn } from "$lib/utils.js";
+	import { splitSqlStatements } from "$lib/db/sql-parser.js";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -30,10 +32,32 @@
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
+	let monacoRef = $state<MonacoEditorRef | null>(null);
+
+	// Get the active result (for multi-statement support)
+	const activeResult = $derived(db.state.activeQueryResult);
+	const activeResultIndex = $derived(db.state.activeQueryTab?.activeResultIndex ?? 0);
+	const allResults = $derived(db.state.activeQueryTab?.results ?? []);
+	const hasMultipleResults = $derived(allResults.length > 1);
+
+	// Track query content for live statement count
+	let currentQuery = $state(db.state.activeQueryTab?.query ?? '');
+
+	// Update currentQuery when active tab changes
+	$effect(() => {
+		currentQuery = db.state.activeQueryTab?.query ?? '';
+	});
+
+	// Live statement count from current query text
+	const liveStatementCount = $derived.by(() => {
+		if (!currentQuery?.trim()) return 0;
+		const dbType = db.state.activeConnection?.type ?? "postgres";
+		return splitSqlStatements(currentQuery, dbType).length;
+	});
 
 	// Get columns for the source table (for insert dialog)
 	const sourceTableColumns = $derived.by(() => {
-		const sourceTable = db.state.activeQueryTab?.results?.sourceTable;
+		const sourceTable = activeResult?.sourceTable;
 		if (!sourceTable || !db.state.activeConnectionId) return [];
 		const tables = db.state.schemas.get(db.state.activeConnectionId) || [];
 		const table = tables.find(t => t.name === sourceTable.name && t.schema === sourceTable.schema);
@@ -42,19 +66,21 @@
 
 	// Check if results are editable (have source table with primary keys)
 	const isEditable = $derived(
-		db.state.activeQueryTab?.results?.sourceTable &&
-		db.state.activeQueryTab?.results?.sourceTable.primaryKeys.length > 0
+		activeResult?.sourceTable &&
+		activeResult?.sourceTable.primaryKeys.length > 0 &&
+		!activeResult?.isError
 	);
 
 	async function handleCellSave(rowIndex: number, column: string, newValue: string) {
-		if (!db.state.activeQueryTabId || !db.state.activeQueryTab?.results?.sourceTable) return;
+		if (!db.state.activeQueryTabId || !activeResult?.sourceTable) return;
 
 		const result = await db.queries.updateCell(
 			db.state.activeQueryTabId,
+			activeResultIndex,
 			rowIndex,
 			column,
 			newValue,
-			db.state.activeQueryTab.results.sourceTable
+			activeResult.sourceTable
 		);
 
 		if (result.success) {
@@ -70,13 +96,13 @@
 	}
 
 	async function handleDeleteRow() {
-		if (!pendingDeleteRow || !db.state.activeQueryTabId || !db.state.activeQueryTab?.results?.sourceTable) return;
+		if (!pendingDeleteRow || !db.state.activeQueryTabId || !activeResult?.sourceTable) return;
 
 		deletingRowIndex = pendingDeleteRow.index;
 		showDeleteConfirm = false;
 
 		const result = await db.queries.deleteRow(
-			db.state.activeQueryTab.results.sourceTable,
+			activeResult.sourceTable,
 			pendingDeleteRow.row
 		);
 
@@ -100,7 +126,8 @@
 
 	const handleExplain = (analyze: boolean) => {
 		if (db.state.activeQueryTabId) {
-			db.explainTabs.execute(db.state.activeQueryTabId, analyze);
+			const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
+			db.explainTabs.execute(db.state.activeQueryTabId, analyze, cursorOffset);
 		}
 	};
 
@@ -124,13 +151,12 @@
 	};
 
 	const getContent = (format: ExportFormat): string => {
-		const results = db.state.activeQueryTab?.results;
-		if (!results) return format === "json" ? "[]" : "";
-		return getExportContent(format, results.columns, results.rows);
+		if (!activeResult) return format === "json" ? "[]" : "";
+		return getExportContent(format, activeResult.columns, activeResult.rows);
 	};
 
 	const handleExport = async (format: ExportFormat) => {
-		if (!db.state.activeQueryTab?.results) return;
+		if (!activeResult) return;
 
 		const config = formatConfig[format];
 		const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
@@ -149,7 +175,7 @@
 	};
 
 	const handleCopy = async (format: ExportFormat) => {
-		if (!db.state.activeQueryTab?.results) return;
+		if (!activeResult) return;
 
 		const content = getContent(format);
 		const formatNames: Record<ExportFormat, string> = {
@@ -188,9 +214,9 @@
 	};
 
 	const copyColumn = async () => {
-		if (!contextCell || !db.state.activeQueryTab?.results) return;
+		if (!contextCell || !activeResult) return;
 		const col = contextCell.column;
-		const values = db.state.activeQueryTab.results.rows
+		const values = activeResult.rows
 			.map(row => row[col])
 			.map(v => v === null || v === undefined ? "" : String(v))
 			.join("\n");
@@ -217,30 +243,34 @@
             class="flex items-center justify-between p-2 border-b bg-muted/30 shrink-0"
         >
             <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                {#if db.state.activeQueryTab.results}
+                <!-- Live statement count (always shown when > 1) -->
+                {#if liveStatementCount > 1}
                     <span class="flex items-center gap-1">
-                        {#if db.state.activeQueryTab.results.queryType && ['insert', 'update', 'delete'].includes(db.state.activeQueryTab.results.queryType)}
-                            <Badge variant="secondary" class="text-xs"
-                                >{db.state.activeQueryTab.results.affectedRows ?? 0}</Badge
-                            >
-                            {m.query_rows_affected()}
-                            {#if db.state.activeQueryTab.results.lastInsertId}
-                                <Badge variant="outline" class="text-xs ms-1"
-                                    >ID: {db.state.activeQueryTab.results.lastInsertId}</Badge
-                                >
-                            {/if}
-                        {:else}
-                            <Badge variant="secondary" class="text-xs"
-                                >{db.state.activeQueryTab.results.totalRows.toLocaleString()}</Badge
-                            >
-                            {m.query_total_rows()}
-                        {/if}
-                    </span>
-                    <span class="flex items-center gap-1">
-                        <Badge variant="secondary" class="text-xs"
-                            >{db.state.activeQueryTab.results.executionTime}ms</Badge
+                        <Badge variant="outline" class="text-xs"
+                            >{m.query_statements_count({ count: liveStatementCount })}</Badge
                         >
                     </span>
+                {/if}
+                <!-- Results stats (shown after execution) -->
+                {#if activeResult}
+                    {#if activeResult.isError}
+                        <span class="flex items-center gap-1 text-destructive">
+                            <XCircleIcon class="size-3" />
+                            {m.query_error()}
+                        </span>
+                    {:else if activeResult.queryType && ['insert', 'update', 'delete'].includes(activeResult.queryType)}
+                        <span class="flex items-center gap-1">
+                            <Badge variant="secondary" class="text-xs"
+                                >{activeResult.affectedRows ?? 0}</Badge
+                            >
+                            {m.query_rows_affected()}
+                            {#if activeResult.lastInsertId}
+                                <Badge variant="outline" class="text-xs ms-1"
+                                    >ID: {activeResult.lastInsertId}</Badge
+                                >
+                            {/if}
+                        </span>
+                    {/if}
                 {/if}
             </div>
             <div class="flex items-center gap-2">
@@ -333,9 +363,11 @@
                     {#key db.state.activeQueryTabId}
                         <MonacoEditor
                             bind:value={db.state.activeQueryTab.query}
+                            bind:ref={monacoRef}
                             schema={db.state.activeSchema}
                             onExecute={handleExecute}
                             onChange={(newValue) => {
+                                currentQuery = newValue;
                                 if (db.state.activeQueryTabId) {
                                     db.queryTabs.updateContent(db.state.activeQueryTabId, newValue);
                                 }
@@ -350,175 +382,232 @@
             <!-- Results Pane -->
             <Resizable.Pane defaultSize={60} minSize={15}>
                 <div class="h-full flex flex-col overflow-hidden">
-                    {#if db.state.activeQueryTab.results}
-                        <div
-                            class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0"
-                        >
-                            <DropdownMenu.Root>
-                                <DropdownMenu.Trigger
-                                    class={buttonVariants({
-                                        variant: "outline",
-                                        size: "sm",
-                                    }) + " h-7 gap-1"}
-                                >
-                                    <DownloadIcon class="size-3" />
-                                    {m.query_export()}
-                                    <ChevronDownIcon class="size-3" />
-                                </DropdownMenu.Trigger>
-                                <DropdownMenu.Content align="end" class="w-48">
-                                    <DropdownMenu.Group>
-                                        <DropdownMenu.GroupHeading
-                                            >{m.query_download()}</DropdownMenu.GroupHeading
-                                        >
-                                        <DropdownMenu.Item
-                                            onclick={() => handleExport("csv")}
-                                        >
-                                            <DownloadIcon class="size-4 me-2" />
-                                            CSV
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() => handleExport("json")}
-                                        >
-                                            <DownloadIcon class="size-4 me-2" />
-                                            JSON
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() => handleExport("sql")}
-                                        >
-                                            <DownloadIcon class="size-4 me-2" />
-                                            SQL INSERT
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() =>
-                                                handleExport("markdown")}
-                                        >
-                                            <DownloadIcon class="size-4 me-2" />
-                                            Markdown
-                                        </DropdownMenu.Item>
-                                    </DropdownMenu.Group>
-                                    <DropdownMenu.Separator />
-                                    <DropdownMenu.Group>
-                                        <DropdownMenu.GroupHeading
-                                            >{m.query_copy_to_clipboard()}</DropdownMenu.GroupHeading
-                                        >
-                                        <DropdownMenu.Item
-                                            onclick={() => handleCopy("csv")}
-                                        >
-                                            <CopyIcon class="size-4 me-2" />
-                                            CSV
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() => handleCopy("json")}
-                                        >
-                                            <CopyIcon class="size-4 me-2" />
-                                            JSON
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() => handleCopy("sql")}
-                                        >
-                                            <CopyIcon class="size-4 me-2" />
-                                            SQL INSERT
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item
-                                            onclick={() =>
-                                                handleCopy("markdown")}
-                                        >
-                                            <CopyIcon class="size-4 me-2" />
-                                            Markdown
-                                        </DropdownMenu.Item>
-                                    </DropdownMenu.Group>
-                                </DropdownMenu.Content>
-                            </DropdownMenu.Root>
-                        </div>
+                    {#if allResults.length > 0}
+                        <!-- Result Tabs (only shown when multiple results) -->
+                        {#if hasMultipleResults}
+                            <div class="flex items-center gap-1 p-2 border-b bg-muted/20 overflow-x-auto shrink-0">
+                                {#each allResults as result, i}
+                                    <button
+                                        class={cn(
+                                            "px-3 py-1.5 text-xs rounded-md shrink-0 flex items-center gap-1.5 transition-colors",
+                                            activeResultIndex === i
+                                                ? "bg-primary text-primary-foreground"
+                                                : "bg-muted hover:bg-muted/80",
+                                            result.isError && activeResultIndex !== i && "text-destructive"
+                                        )}
+                                        onclick={() => db.queries.setActiveResult(db.state.activeQueryTabId!, i)}
+                                    >
+                                        {#if result.isError}
+                                            <XCircleIcon class="size-3" />
+                                        {:else if result.queryType === 'select'}
+                                            <TableIcon class="size-3" />
+                                        {:else}
+                                            <ZapIcon class="size-3" />
+                                        {/if}
+                                        {m.query_statement_n({ n: i + 1 })}
+                                        {#if result.isError}
+                                            <span class="opacity-70">{m.query_result_error()}</span>
+                                        {:else if result.queryType === 'select'}
+                                            <span class="opacity-70">{m.query_result_rows_time({ rows: result.totalRows, time: result.executionTime })}</span>
+                                        {:else if result.affectedRows !== undefined}
+                                            <span class="opacity-70">{m.query_result_affected_time({ affected: result.affectedRows, time: result.executionTime })}</span>
+                                        {:else}
+                                            <span class="opacity-70">{m.query_result_time({ time: result.executionTime })}</span>
+                                        {/if}
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
 
-                        <VirtualResultsTable
-                            columns={db.state.activeQueryTab.results.columns}
-                            rows={db.state.activeQueryTab.results.rows}
-                            isEditable={!!isEditable}
-                            onCellSave={handleCellSave}
-                            onRowDelete={confirmDeleteRow}
-                            {deletingRowIndex}
-                            onCopyCell={copyCell}
-                            onCopyRow={copyRowAsJSON}
-                            onCopyColumn={copyColumn}
-                            onCellRightClick={handleCellRightClick}
-                        />
+                        <!-- Export toolbar -->
+                        {#if activeResult && !activeResult.isError}
+                            <div
+                                class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0"
+                            >
+                                <DropdownMenu.Root>
+                                    <DropdownMenu.Trigger
+                                        class={buttonVariants({
+                                            variant: "outline",
+                                            size: "sm",
+                                        }) + " h-7 gap-1"}
+                                    >
+                                        <DownloadIcon class="size-3" />
+                                        {m.query_export()}
+                                        <ChevronDownIcon class="size-3" />
+                                    </DropdownMenu.Trigger>
+                                    <DropdownMenu.Content align="end" class="w-48">
+                                        <DropdownMenu.Group>
+                                            <DropdownMenu.GroupHeading
+                                                >{m.query_download()}</DropdownMenu.GroupHeading
+                                            >
+                                            <DropdownMenu.Item
+                                                onclick={() => handleExport("csv")}
+                                            >
+                                                <DownloadIcon class="size-4 me-2" />
+                                                CSV
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() => handleExport("json")}
+                                            >
+                                                <DownloadIcon class="size-4 me-2" />
+                                                JSON
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() => handleExport("sql")}
+                                            >
+                                                <DownloadIcon class="size-4 me-2" />
+                                                SQL INSERT
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() =>
+                                                    handleExport("markdown")}
+                                            >
+                                                <DownloadIcon class="size-4 me-2" />
+                                                Markdown
+                                            </DropdownMenu.Item>
+                                        </DropdownMenu.Group>
+                                        <DropdownMenu.Separator />
+                                        <DropdownMenu.Group>
+                                            <DropdownMenu.GroupHeading
+                                                >{m.query_copy_to_clipboard()}</DropdownMenu.GroupHeading
+                                            >
+                                            <DropdownMenu.Item
+                                                onclick={() => handleCopy("csv")}
+                                            >
+                                                <CopyIcon class="size-4 me-2" />
+                                                CSV
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() => handleCopy("json")}
+                                            >
+                                                <CopyIcon class="size-4 me-2" />
+                                                JSON
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() => handleCopy("sql")}
+                                            >
+                                                <CopyIcon class="size-4 me-2" />
+                                                SQL INSERT
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item
+                                                onclick={() =>
+                                                    handleCopy("markdown")}
+                                            >
+                                                <CopyIcon class="size-4 me-2" />
+                                                Markdown
+                                            </DropdownMenu.Item>
+                                        </DropdownMenu.Group>
+                                    </DropdownMenu.Content>
+                                </DropdownMenu.Root>
+                            </div>
+                        {/if}
 
-                        <!-- Pagination Controls -->
-                        {#if db.state.activeQueryTab.results.totalPages > 1}
-                            {@const results = db.state.activeQueryTab.results}
-                            {@const start = (results.page - 1) * results.pageSize + 1}
-                            {@const end = Math.min(results.page * results.pageSize, results.totalRows)}
-                            <div class="flex items-center justify-between p-2 border-t bg-muted/30 shrink-0 text-xs">
-                                <div class="text-muted-foreground">
-                                    {m.query_showing_rows({ start, end, total: results.totalRows.toLocaleString() })}
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <DropdownMenu.Root>
-                                        <DropdownMenu.Trigger
-                                            class={buttonVariants({
-                                                variant: "outline",
-                                                size: "sm",
-                                            }) + " h-7 gap-1 text-xs"}
-                                        >
-                                            {db.state.activeQueryTab.results.pageSize} rows
-                                            <ChevronDownIcon class="size-3" />
-                                        </DropdownMenu.Trigger>
-                                        <DropdownMenu.Content align="end">
-                                            {#each [25, 50, 100, 250, 500, 1000] as size}
-                                                <DropdownMenu.Item
-                                                    onclick={() => db.queries.setPageSize(db.state.activeQueryTabId!, size)}
-                                                    class={db.state.activeQueryTab.results.pageSize === size ? "bg-accent" : ""}
-                                                >
-                                                    {m.query_rows_count({ count: size })}
-                                                </DropdownMenu.Item>
-                                            {/each}
-                                        </DropdownMenu.Content>
-                                    </DropdownMenu.Root>
-
-                                    <div class="flex items-center gap-1">
-                                        <Button
-                                            size="icon"
-                                            variant="outline"
-                                            class="size-7"
-                                            onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, 1)}
-                                            disabled={db.state.activeQueryTab.results.page === 1 || db.state.activeQueryTab.isExecuting}
-                                        >
-                                            <ChevronsLeftIcon class="size-3" />
-                                        </Button>
-                                        <Button
-                                            size="icon"
-                                            variant="outline"
-                                            class="size-7"
-                                            onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, db.state.activeQueryTab!.results!.page - 1)}
-                                            disabled={db.state.activeQueryTab.results.page === 1 || db.state.activeQueryTab.isExecuting}
-                                        >
-                                            <ChevronLeftIcon class="size-3" />
-                                        </Button>
-                                        <span class="px-2 text-muted-foreground">
-                                            {m.query_page_of({ page: db.state.activeQueryTab.results.page, total: db.state.activeQueryTab.results.totalPages })}
-                                        </span>
-                                        <Button
-                                            size="icon"
-                                            variant="outline"
-                                            class="size-7"
-                                            onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, db.state.activeQueryTab!.results!.page + 1)}
-                                            disabled={db.state.activeQueryTab.results.page === db.state.activeQueryTab.results.totalPages || db.state.activeQueryTab.isExecuting}
-                                        >
-                                            <ChevronRightIcon class="size-3" />
-                                        </Button>
-                                        <Button
-                                            size="icon"
-                                            variant="outline"
-                                            class="size-7"
-                                            onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, db.state.activeQueryTab!.results!.totalPages)}
-                                            disabled={db.state.activeQueryTab.results.page === db.state.activeQueryTab.results.totalPages || db.state.activeQueryTab.isExecuting}
-                                        >
-                                            <ChevronsRightIcon class="size-3" />
-                                        </Button>
+                        <!-- Error Display for failed statements -->
+                        {#if activeResult?.isError}
+                            <div class="flex-1 p-4 bg-destructive/10 overflow-auto">
+                                <div class="flex items-start gap-3">
+                                    <XCircleIcon class="size-5 text-destructive shrink-0 mt-0.5" />
+                                    <div class="space-y-3">
+                                        <div>
+                                            <h4 class="font-semibold text-destructive">{m.query_statement_failed({ n: activeResultIndex + 1 })}</h4>
+                                            <pre class="mt-2 text-sm whitespace-pre-wrap text-destructive/90 font-mono">{activeResult.error}</pre>
+                                        </div>
+                                        <details class="text-sm">
+                                            <summary class="cursor-pointer text-muted-foreground hover:text-foreground">{m.query_show_sql()}</summary>
+                                            <pre class="mt-2 text-xs bg-muted p-3 rounded-md overflow-x-auto font-mono">{activeResult.statementSql}</pre>
+                                        </details>
                                     </div>
                                 </div>
                             </div>
+                        {:else if activeResult}
+                            <VirtualResultsTable
+                                columns={activeResult.columns}
+                                rows={activeResult.rows}
+                                isEditable={!!isEditable}
+                                onCellSave={handleCellSave}
+                                onRowDelete={confirmDeleteRow}
+                                {deletingRowIndex}
+                                onCopyCell={copyCell}
+                                onCopyRow={copyRowAsJSON}
+                                onCopyColumn={copyColumn}
+                                onCellRightClick={handleCellRightClick}
+                            />
+
+                            <!-- Pagination Controls -->
+                            {#if activeResult.totalPages > 1}
+                                {@const start = (activeResult.page - 1) * activeResult.pageSize + 1}
+                                {@const end = Math.min(activeResult.page * activeResult.pageSize, activeResult.totalRows)}
+                                <div class="flex items-center justify-between p-2 border-t bg-muted/30 shrink-0 text-xs">
+                                    <div class="text-muted-foreground">
+                                        {m.query_showing_rows({ start, end, total: activeResult.totalRows.toLocaleString() })}
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <DropdownMenu.Root>
+                                            <DropdownMenu.Trigger
+                                                class={buttonVariants({
+                                                    variant: "outline",
+                                                    size: "sm",
+                                                }) + " h-7 gap-1 text-xs"}
+                                            >
+                                                {activeResult.pageSize} rows
+                                                <ChevronDownIcon class="size-3" />
+                                            </DropdownMenu.Trigger>
+                                            <DropdownMenu.Content align="end">
+                                                {#each [25, 50, 100, 250, 500, 1000] as size}
+                                                    <DropdownMenu.Item
+                                                        onclick={() => db.queries.setPageSize(db.state.activeQueryTabId!, size)}
+                                                        class={activeResult.pageSize === size ? "bg-accent" : ""}
+                                                    >
+                                                        {m.query_rows_count({ count: size })}
+                                                    </DropdownMenu.Item>
+                                                {/each}
+                                            </DropdownMenu.Content>
+                                        </DropdownMenu.Root>
+
+                                        <div class="flex items-center gap-1">
+                                            <Button
+                                                size="icon"
+                                                variant="outline"
+                                                class="size-7"
+                                                onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, 1)}
+                                                disabled={activeResult.page === 1 || db.state.activeQueryTab.isExecuting}
+                                            >
+                                                <ChevronsLeftIcon class="size-3" />
+                                            </Button>
+                                            <Button
+                                                size="icon"
+                                                variant="outline"
+                                                class="size-7"
+                                                onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, activeResult.page - 1)}
+                                                disabled={activeResult.page === 1 || db.state.activeQueryTab.isExecuting}
+                                            >
+                                                <ChevronLeftIcon class="size-3" />
+                                            </Button>
+                                            <span class="px-2 text-muted-foreground">
+                                                {m.query_page_of({ page: activeResult.page, total: activeResult.totalPages })}
+                                            </span>
+                                            <Button
+                                                size="icon"
+                                                variant="outline"
+                                                class="size-7"
+                                                onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, activeResult.page + 1)}
+                                                disabled={activeResult.page === activeResult.totalPages || db.state.activeQueryTab.isExecuting}
+                                            >
+                                                <ChevronRightIcon class="size-3" />
+                                            </Button>
+                                            <Button
+                                                size="icon"
+                                                variant="outline"
+                                                class="size-7"
+                                                onclick={() => db.queries.goToPage(db.state.activeQueryTabId!, activeResult.totalPages)}
+                                                disabled={activeResult.page === activeResult.totalPages || db.state.activeQueryTab.isExecuting}
+                                            >
+                                                <ChevronsRightIcon class="size-3" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {/if}
                         {/if}
                     {:else}
                         <div
@@ -581,10 +670,10 @@
 </Dialog.Root>
 
 <!-- Insert Row Dialog -->
-{#if db.state.activeQueryTab?.results?.sourceTable && sourceTableColumns.length > 0}
+{#if activeResult?.sourceTable && sourceTableColumns.length > 0}
     <InsertRowDialog
         bind:open={showInsertDialog}
-        sourceTable={db.state.activeQueryTab.results.sourceTable}
+        sourceTable={activeResult.sourceTable}
         columns={sourceTableColumns}
         onClose={() => showInsertDialog = false}
         onSuccess={() => db.state.activeQueryTabId && db.queries.execute(db.state.activeQueryTabId)}

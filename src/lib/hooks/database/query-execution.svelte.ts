@@ -1,10 +1,11 @@
 import { toast } from "svelte-sonner";
-import type { QueryResult } from "$lib/types";
+import type { QueryResult, StatementResult } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
-import { getAdapter } from "$lib/db";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
+import { splitSqlStatements } from "$lib/db/sql-parser";
 import { updateMapArrayItem } from "./map-utils.js";
+import { m } from "$lib/paraglide/messages.js";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
@@ -30,7 +31,10 @@ export class QueryExecutionManager {
   /**
    * Update a query tab's state with proper Svelte 5 reactivity.
    */
-  private updateQueryTabState(tabId: string, updates: Partial<{ results: QueryResult; isExecuting: boolean }>): void {
+  private updateQueryTabState(
+    tabId: string,
+    updates: Partial<{ results: StatementResult[]; activeResultIndex: number; isExecuting: boolean }>
+  ): void {
     if (!this.state.activeConnectionId) return;
     updateMapArrayItem(
       () => this.state.queryTabsByConnection,
@@ -53,12 +57,115 @@ export class QueryExecutionManager {
   }
 
   /**
-   * Execute a query in the specified tab.
+   * Execute a single SQL statement and return the result.
+   */
+  private async executeStatement(
+    sql: string,
+    page: number,
+    pageSize: number,
+    database: NonNullable<typeof this.state.activeConnection>["database"]
+  ): Promise<QueryResult> {
+    const start = performance.now();
+    const baseQuery = sql.replace(/;$/, "").trim();
+    const queryType = detectQueryType(baseQuery);
+
+    // Handle write queries (INSERT/UPDATE/DELETE)
+    if (isWriteQuery(baseQuery)) {
+      const executeResult = await database!.execute(baseQuery);
+      const totalMs = performance.now() - start;
+
+      return {
+        columns: ["Result"],
+        rows: [{ Result: `${executeResult?.rowsAffected ?? 0} row(s) affected` }],
+        rowCount: 1,
+        totalRows: 1,
+        executionTime: Math.round(totalMs * 100) / 100,
+        affectedRows: executeResult?.rowsAffected ?? 0,
+        lastInsertId: executeResult?.lastInsertId,
+        queryType,
+        page: 1,
+        pageSize: 1,
+        totalPages: 1,
+      };
+    }
+
+    // Handle SELECT queries
+    // Check if query already has LIMIT clause - if so, skip pagination
+    const hasLimit = /\bLIMIT\b/i.test(baseQuery);
+
+    let totalRows = 0;
+    let paginatedQuery = baseQuery;
+
+    if (!hasLimit) {
+      // Get total count first by wrapping in a subquery
+      const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
+      try {
+        const countResult = (await database!.select(countQuery)) as { total: string | number }[];
+        totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
+      } catch {
+        // If count fails, just run the query without pagination
+        totalRows = -1;
+      }
+
+      // Add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
+      if (totalRows >= 0) {
+        const offset = (page - 1) * pageSize;
+        paginatedQuery = `${baseQuery} LIMIT ${pageSize} OFFSET ${offset}`;
+      }
+    } else {
+      // Query has its own LIMIT, don't paginate
+      totalRows = -1;
+    }
+
+    const dbResult = (await database!.select(paginatedQuery)) as Record<string, unknown>[];
+    const totalMs = performance.now() - start;
+
+    // If count failed or query had LIMIT, use result length as total
+    if (totalRows < 0) {
+      totalRows = dbResult?.length ?? 0;
+    }
+
+    const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
+
+    // Try to extract source table info for CRUD operations
+    const tableInfo = extractTableFromSelect(baseQuery);
+    let sourceTable: QueryResult["sourceTable"] | undefined;
+
+    if (tableInfo) {
+      const schema = tableInfo.schema || "public";
+      const primaryKeys = this.getPrimaryKeysForTable(schema, tableInfo.table);
+      if (primaryKeys.length > 0) {
+        sourceTable = {
+          schema,
+          name: tableInfo.table,
+          primaryKeys,
+        };
+      }
+    }
+
+    // Generate results
+    return {
+      columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
+      rows: dbResult || [],
+      rowCount: dbResult?.length ?? 0,
+      totalRows,
+      executionTime: Math.round(totalMs * 100) / 100,
+      queryType,
+      sourceTable,
+      page,
+      pageSize,
+      totalPages,
+    };
+  }
+
+  /**
+   * Execute all statements in a query tab.
    */
   async execute(tabId: string, page: number = 1, pageSize?: number): Promise<void> {
     if (!this.state.activeConnectionId) return;
 
-    const database = this.state.activeConnection?.database;
+    const connection = this.state.activeConnection;
+    const database = connection?.database;
     if (!database) {
       toast.error("Not connected to database. Please reconnect.");
       return;
@@ -70,138 +177,159 @@ export class QueryExecutionManager {
 
     // Mark as executing with proper reactivity
     this.updateQueryTabState(tabId, { isExecuting: true });
-    const effectivePageSize = pageSize ?? tab.results?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
-    try {
-      const start = performance.now();
-      const baseQuery = tab.query.replace(/;$/, "");
-      const queryType = detectQueryType(baseQuery);
+    // Get effective page size from the first result or use default
+    const effectivePageSize = pageSize ?? tab.results?.[0]?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
-      // Handle write queries (INSERT/UPDATE/DELETE)
-      if (isWriteQuery(baseQuery)) {
-        const executeResult = await database.execute(baseQuery);
-        const totalMs = performance.now() - start;
+    // Get database type for parsing
+    const dbType = connection?.type ?? "postgres";
 
-        const results: QueryResult = {
-          columns: ["Result"],
-          rows: [{ Result: `${executeResult?.rowsAffected ?? 0} row(s) affected` }],
+    // Parse SQL into individual statements
+    const statements = splitSqlStatements(tab.query, dbType);
+
+    // Handle case where all statements are comments
+    if (statements.length === 0) {
+      this.updateQueryTabState(tabId, {
+        results: [],
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+      toast.info(m.query_no_executable_statements());
+      return;
+    }
+
+    const results: StatementResult[] = [];
+
+    // Execute each statement
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i];
+      try {
+        const result = await this.executeStatement(stmt.sql, page, effectivePageSize, database);
+        results.push({
+          ...result,
+          statementIndex: i,
+          statementSql: stmt.sql,
+          isError: false,
+        });
+      } catch (error) {
+        // Continue on error - add error result
+        results.push({
+          columns: ["Error"],
+          rows: [{ Error: this.formatError(error) }],
           rowCount: 1,
           totalRows: 1,
-          executionTime: Math.round(totalMs * 100) / 100,
-          affectedRows: executeResult?.rowsAffected ?? 0,
-          lastInsertId: executeResult?.lastInsertId,
-          queryType,
+          executionTime: 0,
           page: 1,
           pageSize: 1,
           totalPages: 1,
-        };
-
-        // Update tab with results using proper reactivity
-        this.updateQueryTabState(tabId, { results, isExecuting: false });
-
-        // Add to history
-        this.queryHistory.addToHistory(tab.query, results);
-        return;
+          statementIndex: i,
+          statementSql: stmt.sql,
+          error: this.formatError(error),
+          isError: true,
+        });
       }
+    }
 
-      // Handle SELECT queries
-      // Check if query already has LIMIT clause - if so, skip pagination
-      const hasLimit = /\bLIMIT\b/i.test(baseQuery);
+    // Update tab with all results
+    this.updateQueryTabState(tabId, {
+      results,
+      activeResultIndex: 0,
+      isExecuting: false,
+    });
 
-      let totalRows = 0;
-      let paginatedQuery = baseQuery;
-
-      if (!hasLimit) {
-        // Get total count first by wrapping in a subquery
-        const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
-        try {
-          const countResult = (await database.select(countQuery)) as { total: string | number }[];
-          totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
-        } catch {
-          // If count fails, just run the query without pagination
-          totalRows = -1;
-        }
-
-        // Add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
-        if (totalRows >= 0) {
-          const offset = (page - 1) * effectivePageSize;
-          paginatedQuery = `${baseQuery} LIMIT ${effectivePageSize} OFFSET ${offset}`;
-        }
-      } else {
-        // Query has its own LIMIT, don't paginate
-        totalRows = -1;
-      }
-
-      const dbResult = (await database.select(paginatedQuery)) as Record<string, unknown>[];
-      const totalMs = performance.now() - start;
-
-      // If count failed or query had LIMIT, use result length as total
-      if (totalRows < 0) {
-        totalRows = dbResult?.length ?? 0;
-      }
-
-      const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
-
-      // Try to extract source table info for CRUD operations
-      const tableInfo = extractTableFromSelect(baseQuery);
-      let sourceTable: QueryResult["sourceTable"] | undefined;
-
-      if (tableInfo) {
-        const schema = tableInfo.schema || "public";
-        const primaryKeys = this.getPrimaryKeysForTable(schema, tableInfo.table);
-        if (primaryKeys.length > 0) {
-          sourceTable = {
-            schema,
-            name: tableInfo.table,
-            primaryKeys,
-          };
-        }
-      }
-
-      // Generate results
-      const results: QueryResult = {
-        columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
-        rows: dbResult || [],
-        rowCount: dbResult?.length ?? 0,
-        totalRows,
-        executionTime: Math.round(totalMs * 100) / 100,
-        queryType,
-        sourceTable,
-        page,
-        pageSize: effectivePageSize,
-        totalPages,
-      };
-
-      // Update tab with results using proper reactivity
-      this.updateQueryTabState(tabId, { results, isExecuting: false });
-
-      // Add to history (only on first page to avoid duplicates)
-      if (page === 1) {
-        this.queryHistory.addToHistory(tab.query, results);
-      }
-    } catch (error) {
-      this.updateQueryTabState(tabId, { isExecuting: false });
-      toast.error(`Query failed: ${error}`);
+    // Add to history (only on first page to avoid duplicates, use first result's timing)
+    if (page === 1 && results.length > 0) {
+      this.queryHistory.addToHistory(tab.query, results[0]);
     }
   }
 
   /**
-   * Navigate to a specific page.
+   * Set the active result tab index.
    */
-  async goToPage(tabId: string, page: number): Promise<void> {
+  setActiveResult(tabId: string, resultIndex: number): void {
+    if (!this.state.activeConnectionId) return;
+
+    const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab?.results || resultIndex < 0 || resultIndex >= tab.results.length) return;
+
+    this.updateQueryTabState(tabId, { activeResultIndex: resultIndex });
+  }
+
+  /**
+   * Navigate to a specific page for a specific result.
+   */
+  async goToPage(tabId: string, page: number, resultIndex?: number): Promise<void> {
     const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId!) || [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results) return;
 
-    const targetPage = Math.max(1, Math.min(page, tab.results.totalPages));
-    await this.execute(tabId, targetPage, tab.results.pageSize);
+    const activeIndex = resultIndex ?? tab.activeResultIndex ?? 0;
+    const result = tab.results[activeIndex];
+    if (!result) return;
+
+    const targetPage = Math.max(1, Math.min(page, result.totalPages));
+
+    // Re-execute the specific statement with new page
+    await this.executeStatementAtIndex(tabId, activeIndex, targetPage, result.pageSize);
+  }
+
+  /**
+   * Re-execute a specific statement at a given index with pagination.
+   */
+  private async executeStatementAtIndex(
+    tabId: string,
+    resultIndex: number,
+    page: number,
+    pageSize: number
+  ): Promise<void> {
+    if (!this.state.activeConnectionId) return;
+
+    const connection = this.state.activeConnection;
+    const database = connection?.database;
+    if (!database) return;
+
+    const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab?.results || resultIndex >= tab.results.length) return;
+
+    const existingResult = tab.results[resultIndex];
+
+    try {
+      const result = await this.executeStatement(existingResult.statementSql, page, pageSize, database);
+
+      // Update only this specific result in the array
+      const newResults = [...tab.results];
+      newResults[resultIndex] = {
+        ...result,
+        statementIndex: resultIndex,
+        statementSql: existingResult.statementSql,
+        isError: false,
+      };
+
+      this.updateQueryTabState(tabId, { results: newResults });
+    } catch (error) {
+      // Update with error
+      const newResults = [...tab.results];
+      newResults[resultIndex] = {
+        ...existingResult,
+        error: this.formatError(error),
+        isError: true,
+      };
+      this.updateQueryTabState(tabId, { results: newResults });
+    }
   }
 
   /**
    * Set page size and re-execute query.
    */
-  async setPageSize(tabId: string, pageSize: number): Promise<void> {
-    await this.execute(tabId, 1, pageSize);
+  async setPageSize(tabId: string, pageSize: number, resultIndex?: number): Promise<void> {
+    const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId!) || [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab?.results) return;
+
+    const activeIndex = resultIndex ?? tab.activeResultIndex ?? 0;
+    await this.executeStatementAtIndex(tabId, activeIndex, 1, pageSize);
   }
 
   /**
@@ -209,6 +337,7 @@ export class QueryExecutionManager {
    */
   async updateCell(
     tabId: string,
+    resultIndex: number,
     rowIndex: number,
     column: string,
     newValue: unknown,
@@ -216,9 +345,12 @@ export class QueryExecutionManager {
   ): Promise<{ success: boolean; error?: string }> {
     const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId!) || [];
     const tab = tabs.find((t) => t.id === tabId);
-    if (!tab?.results) return { success: false, error: "No results" };
+    if (!tab?.results || resultIndex >= tab.results.length) {
+      return { success: false, error: "No results" };
+    }
 
-    const row = tab.results.rows[rowIndex];
+    const result = tab.results[resultIndex];
+    const row = result.rows[rowIndex];
     if (!row) return { success: false, error: "Row not found" };
 
     if (sourceTable.primaryKeys.length === 0) {

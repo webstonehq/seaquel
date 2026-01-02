@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	export interface MonacoEditorRef {
+		getCursorOffset: () => number;
+	}
+</script>
+
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { mode } from "mode-watcher";
@@ -6,12 +12,14 @@
 
 	let {
 		value = $bindable(""),
+		ref = $bindable<MonacoEditorRef | null>(null),
 		schema = [] as SchemaTable[],
 		onExecute = () => {},
 		onChange = (_value: string) => {},
 		class: className = ""
 	}: {
 		value?: string;
+		ref?: MonacoEditorRef | null;
 		schema?: SchemaTable[];
 		onExecute?: () => void;
 		onChange?: (value: string) => void;
@@ -69,6 +77,16 @@
 		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
 			onExecute();
 		});
+
+		// Expose ref for external access
+		ref = {
+			getCursorOffset: () => {
+				if (!editor) return 0;
+				const position = editor.getPosition();
+				if (!position) return 0;
+				return editor.getModel()?.getOffsetAt(position) ?? 0;
+			}
+		};
 	});
 
 	onDestroy(() => {

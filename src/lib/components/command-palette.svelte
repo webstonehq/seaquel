@@ -33,7 +33,8 @@
 	const savedQueries = $derived(db.state.activeConnectionSavedQueries);
 	const recentHistory = $derived(db.state.activeConnectionQueryHistory?.slice(0, 10) || []);
 	const openTabs = $derived(db.tabs.ordered);
-	const hasResults = $derived((db.state.activeQueryTab?.results?.rows?.length ?? 0) > 0);
+	const activeResult = $derived(db.state.activeQueryResult);
+	const hasResults = $derived((activeResult?.rows?.length ?? 0) > 0);
 	const isConnected = $derived(!!db.state.activeConnectionId && !!db.state.activeConnection?.database);
 	const hasActiveQueryTab = $derived(isConnected && !!db.state.activeQueryTab);
 	const hasQueryContent = $derived(hasActiveQueryTab && !!db.state.activeQueryTab?.query?.trim());
@@ -166,19 +167,18 @@
 	}
 
 	function exportResults(format: "csv" | "json") {
-		const results = db.state.activeQueryTab?.results;
-		if (!results) return;
+		if (!activeResult) return;
 
 		let content: string;
 		let filename: string;
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
 		if (format === "csv") {
-			const headers = results.columns.join(",");
-			const rows = results.rows
-				.map((row) =>
-					results.columns
-						.map((col) => {
+			const headers = activeResult.columns.join(",");
+			const rows = activeResult.rows
+				.map((row: Record<string, unknown>) =>
+					activeResult.columns
+						.map((col: string) => {
 							const val = row[col];
 							if (val === null || val === undefined) return "";
 							const str = String(val);
@@ -192,7 +192,7 @@
 			content = `${headers}\n${rows}`;
 			filename = `query-results-${timestamp}.csv`;
 		} else {
-			content = JSON.stringify(results.rows, null, 2);
+			content = JSON.stringify(activeResult.rows, null, 2);
 			filename = `query-results-${timestamp}.json`;
 		}
 
@@ -208,10 +208,9 @@
 	}
 
 	function copyResults() {
-		const results = db.state.activeQueryTab?.results;
-		if (!results) return;
+		if (!activeResult) return;
 
-		const content = JSON.stringify(results.rows, null, 2);
+		const content = JSON.stringify(activeResult.rows, null, 2);
 		navigator.clipboard.writeText(content);
 		open = false;
 	}
