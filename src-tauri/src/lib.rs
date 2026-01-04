@@ -59,6 +59,11 @@ async fn install_update(
     Ok(())
 }
 
+#[tauri::command]
+fn get_test_worker_id() -> Option<String> {
+    std::env::var("SEAQUEL_TEST_WORKER_ID").ok()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -76,6 +81,7 @@ pub fn run() {
             greet,
             copy_image_to_clipboard,
             install_update,
+            get_test_worker_id,
             ssh_tunnel::create_ssh_tunnel,
             ssh_tunnel::close_ssh_tunnel,
             ssh_tunnel::check_tunnel_status,

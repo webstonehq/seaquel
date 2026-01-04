@@ -14,6 +14,24 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
 
 /**
+ * Get filename with optional test worker suffix for parallel test isolation.
+ * In test mode, each worker uses unique filenames to avoid conflicts.
+ */
+function getStoreFilename(basename: string): string {
+  if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).__SEAQUEL_TEST_WORKER_ID__) {
+    const workerId = (window as unknown as Record<string, unknown>).__SEAQUEL_TEST_WORKER_ID__ as string;
+    const lastDot = basename.lastIndexOf(".");
+    if (lastDot > 0) {
+      const name = basename.substring(0, lastDot);
+      const ext = basename.substring(lastDot);
+      return `${name}_${workerId}${ext}`;
+    }
+    return `${basename}_${workerId}`;
+  }
+  return basename;
+}
+
+/**
  * Manages persistence of connection state to Tauri store.
  * Handles serialization, debounced saving, and state loading.
  */
@@ -127,7 +145,7 @@ export class PersistenceManager {
 
   async persistConnectionState(connectionId: string): Promise<void> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await load(getStoreFilename(`connection_state_${connectionId}.json`), {
         autoSave: true,
         defaults: { state: null },
       });
@@ -157,7 +175,7 @@ export class PersistenceManager {
 
   async loadPersistedConnectionState(connectionId: string): Promise<PersistedConnectionState | null> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await load(getStoreFilename(`connection_state_${connectionId}.json`), {
         autoSave: false,
         defaults: { state: null },
       });
@@ -170,7 +188,7 @@ export class PersistenceManager {
 
   async removePersistedConnectionState(connectionId: string): Promise<void> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await load(getStoreFilename(`connection_state_${connectionId}.json`), {
         autoSave: true,
         defaults: { state: null },
       });
@@ -213,7 +231,7 @@ export class PersistenceManager {
 
   async persistConnection(connection: DatabaseConnection): Promise<void> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await load(getStoreFilename("database_connections.json"), {
         autoSave: true,
         defaults: { connections: [] },
       });
@@ -250,7 +268,7 @@ export class PersistenceManager {
 
   async removePersistedConnection(connectionId: string): Promise<void> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await load(getStoreFilename("database_connections.json"), {
         autoSave: true,
         defaults: { connections: [] },
       });
@@ -269,7 +287,7 @@ export class PersistenceManager {
 
   async loadPersistedConnections(): Promise<PersistedConnection[]> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await load(getStoreFilename("database_connections.json"), {
         autoSave: true,
         defaults: { connections: [] },
       });

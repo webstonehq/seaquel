@@ -1,40 +1,50 @@
-name: E2E Tests
+name: WebDriver
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
   test:
+    name: WebDriverIO Test Runner
     runs-on: ubuntu-24.04
+
     steps:
       - uses: actions/checkout@v6
 
+      # install system dependencies that Tauri needs to compile on Linux.
+      # note the extra dependencies for `tauri-driver` to run which are: `webkit2gtk-driver` and `xvfb`
+      - name: Tauri dependencies
+        run: |
+          sudo apt-get update &&
+          sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libayatana-appindicator3-dev \
+          webkit2gtk-driver \
+          xvfb
+
       - uses: jdx/mise-action@v3
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # we run our Rust tests before the webdriver tests to avoid testing a broken application
+      - name: Cargo test
+        run: cargo test
+        working-directory: src-tauri
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      # install the latest version of `tauri-driver`.
+      # note: the tauri-driver version is independent of any other Tauri versions
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
 
-      - name: Run E2E tests
-        run: npm run test:e2e
-
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: test-results/
-          retention-days: 7
+      # run the WebdriverIO test suite on Linux.
+      # we run it through `xvfb-run` (the dependency we installed earlier) to have a fake
+      # display server which allows our application to run headless without any changes to the code
+      - name: WebdriverIO (Linux)
+        run: xvfb-run npm run e2e

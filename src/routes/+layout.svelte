@@ -14,6 +14,18 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
 
+	// For e2e test isolation - get worker ID from Tauri environment before initializing database
+	// This must run synchronously before setDatabase() to ensure worker-specific filenames
+	if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__) {
+		invoke<string | null>("get_test_worker_id").then((id) => {
+			if (id) {
+				(window as unknown as Record<string, unknown>).__SEAQUEL_TEST_WORKER_ID__ = id;
+			}
+		}).catch(() => {
+			// Command doesn't exist in production, ignore
+		});
+	}
+
 	setDatabase();
 
 	const db = useDatabase();
