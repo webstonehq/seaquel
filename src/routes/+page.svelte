@@ -25,6 +25,7 @@
     import UnsavedChangesDialog from "$lib/components/unsaved-changes-dialog.svelte";
     import BatchUnsavedDialog from "$lib/components/batch-unsaved-dialog.svelte";
     import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
+    import { settingsDialogStore } from "$lib/stores/settings-dialog.svelte.js";
     import type { QueryTab, SchemaTab, ExplainTab, ErdTab } from "$lib/types";
 
     const db = useDatabase();
@@ -275,6 +276,11 @@
         for (let i = 1; i <= 9; i++) {
             shortcuts.registerHandler(`goToTab${i}`, () => switchToTab(i - 1));
         }
+
+        // Register settings shortcut
+        shortcuts.registerHandler('openSettings', () => {
+            settingsDialogStore.open();
+        });
     });
 
     onDestroy(() => {
@@ -282,6 +288,7 @@
         shortcuts.unregisterHandler('closeTab');
         shortcuts.unregisterHandler('nextTab');
         shortcuts.unregisterHandler('previousTab');
+        shortcuts.unregisterHandler('openSettings');
         for (let i = 1; i <= 9; i++) {
             shortcuts.unregisterHandler(`goToTab${i}`);
         }

@@ -83,7 +83,7 @@ class ShortcutManager {
 
 	private isGlobalShortcut(shortcut: ShortcutDefinition): boolean {
 		// Shortcuts that should work even in input fields
-		const globalIds = ["toggleSidebar", "showShortcuts", "commandPalette", "saveQuery", "formatSql"];
+		const globalIds = ["toggleSidebar", "showShortcuts", "commandPalette", "saveQuery", "formatSql", "openSettings"];
 		return globalIds.includes(shortcut.id);
 	}
 
