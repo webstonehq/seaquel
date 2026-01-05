@@ -293,5 +293,15 @@
 	"table_viewer_index_columns": "Columns",
 	"table_viewer_index_type": "Type",
 	"table_viewer_index_unique": "Unique",
-	"table_viewer_no_selection": "Select a table from the sidebar to view its schema"
+	"table_viewer_no_selection": "Select a table from the sidebar to view its schema",
+	"settings_title": "Settings",
+	"settings_general": "General",
+	"settings_appearance": "Appearance",
+	"settings_app_info": "Application Information",
+	"settings_version": "Version",
+	"settings_config_dir": "Config Directory",
+	"settings_data_dir": "Data Directory",
+	"settings_theme": "Theme",
+	"settings_theme_label": "Color Theme",
+	"settings_theme_description": "Select your preferred color theme"
 }

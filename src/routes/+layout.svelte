@@ -10,6 +10,8 @@
 	import { setShortcuts } from "$lib/shortcuts/index.js";
 	import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
 	import CommandPalette from "$lib/components/command-palette.svelte";
+	import SettingsDialog from "$lib/components/settings-dialog.svelte";
+	import { settingsDialogStore } from "$lib/stores/settings-dialog.svelte.js";
 	import { listen } from "@tauri-apps/api/event";
 	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
@@ -40,6 +42,17 @@
 			unlisten.then((fn) => fn());
 		};
 	});
+
+	// Listen for Settings menu event from Tauri
+	$effect(() => {
+		const unlisten = listen("menu-settings", () => {
+			settingsDialogStore.open();
+		});
+
+		return () => {
+			unlisten.then((fn) => fn());
+		};
+	});
 </script>
 
 <svelte:window
@@ -50,6 +63,7 @@
 <Toaster position="bottom-right" theme={"dark"} richColors />
 <KeyboardShortcutsDialog />
 <CommandPalette />
+<SettingsDialog />
 
 <Sidebar.Provider
 	class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden"

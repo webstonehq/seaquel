@@ -30,6 +30,12 @@ export const shortcuts: ShortcutDefinition[] = [
 		description: "Show keyboard shortcuts",
 		category: "general",
 	},
+	{
+		id: "openSettings",
+		keys: { mod: true, key: "," },
+		description: "Open settings",
+		category: "general",
+	},
 
 	// Tabs
 	{

@@ -79,6 +79,12 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ..Default::default()
     };
 
+    // Settings menu item with Cmd+, accelerator
+    let settings = MenuItemBuilder::new("Settings...")
+        .id("settings")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+
     // App menu (macOS)
     let app_menu = Submenu::with_items(
         app,
@@ -86,6 +92,8 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[
             &PredefinedMenuItem::about(app, Some("About Seaquel"), Some(about_metadata))?,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,
@@ -171,10 +179,12 @@ pub fn run() {
             let menu = create_menu(app.handle())?;
             app.set_menu(menu)?;
 
-            // Listen for "Close Tab" menu click and emit to frontend
+            // Listen for menu clicks and emit to frontend
             app.on_menu_event(|app, event| {
                 if event.id().as_ref() == "close_tab" {
                     let _ = app.emit("menu-close-tab", ());
+                } else if event.id().as_ref() == "settings" {
+                    let _ = app.emit("menu-settings", ());
                 }
             });
 
