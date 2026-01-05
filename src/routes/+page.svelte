@@ -257,7 +257,10 @@
 
     // Register keyboard shortcuts
     onMount(() => {
-        shortcuts.registerHandler('newTab', () => db.queryTabs.add());
+        shortcuts.registerHandler('newTab', () => {
+            db.queryTabs.add();
+            db.ui.setActiveView("query");
+        });
         shortcuts.registerHandler('closeTab', closeCurrentTab);
         shortcuts.registerHandler('nextTab', () => {
             const idx = currentTabIndex();
@@ -509,7 +512,10 @@
                         size="icon"
                         variant="ghost"
                         class="size-7 shrink-0 [&_svg:not([class*='size-'])]:size-4"
-                        onclick={() => db.queryTabs.add()}
+                        onclick={() => {
+                            db.queryTabs.add();
+                            db.ui.setActiveView("query");
+                        }}
                     >
                         <PlusIcon />
                     </Button>

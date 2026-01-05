@@ -6,7 +6,7 @@
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, PlusIcon, SearchIcon, ActivityIcon, XCircleIcon, TableIcon, ZapIcon } from "@lucide/svelte";
+	import { PlayIcon, SaveIcon, DownloadIcon, LoaderIcon, CopyIcon, ChevronDownIcon, WandSparklesIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsLeftIcon, ChevronsRightIcon, SearchIcon, ActivityIcon, XCircleIcon, TableIcon, ZapIcon } from "@lucide/svelte";
 	import { Badge } from "$lib/components/ui/badge";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -18,7 +18,6 @@
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import EditableCell from "$lib/components/editable-cell.svelte";
 	import RowActions from "$lib/components/row-actions.svelte";
-	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 	import { m } from "$lib/paraglide/messages.js";
@@ -28,7 +27,6 @@
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
 	let showSaveDialog = $state(false);
-	let showInsertDialog = $state(false);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
@@ -38,7 +36,6 @@
 	const activeResult = $derived(db.state.activeQueryResult);
 	const activeResultIndex = $derived(db.state.activeQueryTab?.activeResultIndex ?? 0);
 	const allResults = $derived(db.state.activeQueryTab?.results ?? []);
-	const hasMultipleResults = $derived(allResults.length > 1);
 
 	// Track query content for live statement count
 	let currentQuery = $state(db.state.activeQueryTab?.query ?? '');
@@ -53,15 +50,6 @@
 		if (!currentQuery?.trim()) return 0;
 		const dbType = db.state.activeConnection?.type ?? "postgres";
 		return splitSqlStatements(currentQuery, dbType).length;
-	});
-
-	// Get columns for the source table (for insert dialog)
-	const sourceTableColumns = $derived.by(() => {
-		const sourceTable = activeResult?.sourceTable;
-		if (!sourceTable || !db.state.activeConnectionId) return [];
-		const tables = db.state.schemas.get(db.state.activeConnectionId) || [];
-		const table = tables.find(t => t.name === sourceTable.name && t.schema === sourceTable.schema);
-		return table?.columns || [];
 	});
 
 	// Check if results are editable (have source table with primary keys)
@@ -329,17 +317,6 @@
                         <ShortcutKeys keys={findShortcut('formatSql')!.keys} class="ms-1" />
                     {/if}
                 </Button>
-                {#if isEditable && sourceTableColumns.length > 0}
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        class="h-7 gap-1"
-                        onclick={() => showInsertDialog = true}
-                    >
-                        <PlusIcon class="size-3" />
-                        {m.query_add_row()}
-                    </Button>
-                {/if}
                 <Button
                     size="sm"
                     variant="outline"
@@ -383,41 +360,39 @@
             <Resizable.Pane defaultSize={60} minSize={15}>
                 <div class="h-full flex flex-col overflow-hidden">
                     {#if allResults.length > 0}
-                        <!-- Result Tabs (only shown when multiple results) -->
-                        {#if hasMultipleResults}
-                            <div class="flex items-center gap-1 p-2 border-b bg-muted/20 overflow-x-auto shrink-0">
-                                {#each allResults as result, i}
-                                    <button
-                                        class={cn(
-                                            "px-3 py-1.5 text-xs rounded-md shrink-0 flex items-center gap-1.5 transition-colors",
-                                            activeResultIndex === i
-                                                ? "bg-primary text-primary-foreground"
-                                                : "bg-muted hover:bg-muted/80",
-                                            result.isError && activeResultIndex !== i && "text-destructive"
-                                        )}
-                                        onclick={() => db.queries.setActiveResult(db.state.activeQueryTabId!, i)}
-                                    >
-                                        {#if result.isError}
-                                            <XCircleIcon class="size-3" />
-                                        {:else if result.queryType === 'select'}
-                                            <TableIcon class="size-3" />
-                                        {:else}
-                                            <ZapIcon class="size-3" />
-                                        {/if}
-                                        {m.query_statement_n({ n: i + 1 })}
-                                        {#if result.isError}
-                                            <span class="opacity-70">{m.query_result_error()}</span>
-                                        {:else if result.queryType === 'select'}
-                                            <span class="opacity-70">{m.query_result_rows_time({ rows: result.totalRows, time: result.executionTime })}</span>
-                                        {:else if result.affectedRows !== undefined}
-                                            <span class="opacity-70">{m.query_result_affected_time({ affected: result.affectedRows, time: result.executionTime })}</span>
-                                        {:else}
-                                            <span class="opacity-70">{m.query_result_time({ time: result.executionTime })}</span>
-                                        {/if}
-                                    </button>
-                                {/each}
-                            </div>
-                        {/if}
+                        <!-- Result Tabs -->
+                        <div class="flex items-center gap-1 p-2 border-b bg-muted/20 overflow-x-auto shrink-0">
+                            {#each allResults as result, i}
+                                <button
+                                    class={cn(
+                                        "px-3 py-1.5 text-xs rounded-md shrink-0 flex items-center gap-1.5 transition-colors",
+                                        activeResultIndex === i
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-muted hover:bg-muted/80",
+                                        result.isError && activeResultIndex !== i && "text-destructive"
+                                    )}
+                                    onclick={() => db.queries.setActiveResult(db.state.activeQueryTabId!, i)}
+                                >
+                                    {#if result.isError}
+                                        <XCircleIcon class="size-3" />
+                                    {:else if result.queryType === 'select'}
+                                        <TableIcon class="size-3" />
+                                    {:else}
+                                        <ZapIcon class="size-3" />
+                                    {/if}
+                                    {m.query_statement_n({ n: i + 1 })}
+                                    {#if result.isError}
+                                        <span class="opacity-70">{m.query_result_error()}</span>
+                                    {:else if result.queryType === 'select'}
+                                        <span class="opacity-70">{m.query_result_rows_time({ rows: result.totalRows, time: result.executionTime })}</span>
+                                    {:else if result.affectedRows !== undefined}
+                                        <span class="opacity-70">{m.query_result_affected_time({ affected: result.affectedRows, time: result.executionTime })}</span>
+                                    {:else}
+                                        <span class="opacity-70">{m.query_result_time({ time: result.executionTime })}</span>
+                                    {/if}
+                                </button>
+                            {/each}
+                        </div>
 
                         <!-- Export toolbar -->
                         {#if activeResult && !activeResult.isError}
@@ -668,14 +643,3 @@
         </Dialog.Footer>
     </Dialog.Content>
 </Dialog.Root>
-
-<!-- Insert Row Dialog -->
-{#if activeResult?.sourceTable && sourceTableColumns.length > 0}
-    <InsertRowDialog
-        bind:open={showInsertDialog}
-        sourceTable={activeResult.sourceTable}
-        columns={sourceTableColumns}
-        onClose={() => showInsertDialog = false}
-        onSuccess={() => db.state.activeQueryTabId && db.queries.execute(db.state.activeQueryTabId)}
-    />
-{/if}

@@ -4,16 +4,32 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Separator } from "$lib/components/ui/separator";
-	import { KeyIcon, DatabaseIcon, ListIcon } from "@lucide/svelte";
+	import { KeyIcon, DatabaseIcon, ListIcon, PlusIcon } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
 	import { m } from "$lib/paraglide/messages.js";
+	import InsertRowDialog from "$lib/components/insert-row-dialog.svelte";
 
 	const db = useDatabase();
+	let showInsertDialog = $state(false);
+
+	// Check if the table has primary keys (required for insertable rows)
+	const hasPrimaryKey = $derived(
+		db.state.activeSchemaTab?.table.columns.some(col => col.isPrimaryKey) ?? false
+	);
+
+	// Only allow adding rows to tables (not views) with primary keys
+	const canAddRow = $derived(
+		db.state.activeSchemaTab?.table.type === "table" && hasPrimaryKey
+	);
 
 	const handleQueryTable = () => {
 		if (!db.state.activeSchemaTab) return;
 		db.queryTabs.add(`Query ${db.state.activeSchemaTab.table.name}`, `SELECT * FROM ${db.state.activeSchemaTab.table.schema}.${db.state.activeSchemaTab.table.name} LIMIT 100;`);
 		db.ui.setActiveView("query");
+	};
+
+	const handleAddRow = () => {
+		showInsertDialog = true;
 	};
 </script>
 
@@ -32,7 +48,15 @@
 								{db.state.activeSchemaTab.table.type === "table" ? m.table_viewer_table() : m.table_viewer_view()} • {m.table_viewer_schema({ schema: db.state.activeSchemaTab.table.schema })} • {m.table_viewer_rows({ count: db.state.activeSchemaTab.table.rowCount?.toLocaleString() ?? "0" })}
 							</CardDescription>
 						</div>
-						<Button size="sm" onclick={handleQueryTable}>{m.table_viewer_query_table()}</Button>
+						<div class="flex items-center gap-2">
+							{#if canAddRow}
+								<Button size="sm" variant="outline" onclick={handleAddRow}>
+									<PlusIcon class="size-3 me-1" />
+									{m.query_add_row()}
+								</Button>
+							{/if}
+							<Button size="sm" onclick={handleQueryTable}>{m.table_viewer_query_table()}</Button>
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent class="space-y-6">
@@ -136,3 +160,16 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Insert Row Dialog -->
+{#if db.state.activeSchemaTab && canAddRow}
+	{@const table = db.state.activeSchemaTab.table}
+	{@const primaryKeys = table.columns.filter(c => c.isPrimaryKey).map(c => c.name)}
+	<InsertRowDialog
+		bind:open={showInsertDialog}
+		sourceTable={{ schema: table.schema, name: table.name, primaryKeys }}
+		columns={table.columns}
+		onClose={() => showInsertDialog = false}
+		onSuccess={() => showInsertDialog = false}
+	/>
+{/if}
