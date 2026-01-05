@@ -19,7 +19,7 @@
 
 	let queryName = $state("");
 
-	// Pre-populate query name when dialog opens for an existing saved query
+	// Pre-populate query name when dialog opens
 	$effect(() => {
 		if (open && tabId) {
 			const tab = db.state.queryTabs.find(t => t.id === tabId);
@@ -28,6 +28,9 @@
 				if (savedQuery) {
 					queryName = savedQuery.name;
 				}
+			} else if (tab) {
+				// Pre-populate with tab name for new queries
+				queryName = tab.name;
 			}
 		}
 	});
