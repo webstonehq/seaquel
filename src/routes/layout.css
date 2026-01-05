@@ -114,9 +114,25 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-user-select: none;
+    user-select: none;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  input,
+  textarea,
+  pre,
+  code,
+  table,
+  th,
+  td,
+  .cm-editor,
+  .cm-editor *,
+  .monaco-editor,
+  .monaco-editor * {
+    -webkit-user-select: text;
+    user-select: text;
   }
 }
 

@@ -158,13 +158,23 @@ export class ConnectionManager {
       this.state.connections.push(newConnection);
     }
 
-    this.state.activeConnectionId = newConnection.id;
     this.stateRestoration.initializeConnectionMaps(newConnection.id);
 
+    // Load schema - wrap in try-catch to handle failures gracefully
     const adapter = getAdapter(newConnection.type);
-    const schemasWithTablesDbResult = await newConnection.database!.select(adapter.getSchemaQuery());
+    let schemasWithTables: SchemaTable[];
+    try {
+      const schemasWithTablesDbResult = await newConnection.database!.select(adapter.getSchemaQuery());
+      schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    } catch (error) {
+      // Cleanup: remove the connection we just added
+      this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
+      this.stateRestoration.cleanupConnectionMaps(newConnection.id);
+      throw new Error(`Failed to load database schema: ${error}`);
+    }
 
-    const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    // Only set active connection after schema loading succeeds
+    this.state.activeConnectionId = newConnection.id;
 
     // Store tables immediately (without column metadata) so UI is responsive
     const newSchemas = new Map(this.state.schemas);
@@ -231,11 +241,19 @@ export class ConnectionManager {
 
     this.stateRestoration.ensureConnectionMapsExist(connectionId);
 
-    // Fetch schemas
+    // Fetch schemas - wrap in try-catch to handle failures gracefully
     const adapter = getAdapter(existingConnection.type);
-    const schemasWithTablesDbResult = await database!.select(adapter.getSchemaQuery());
-
-    const schemasWithTables: SchemaTable[] = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    let schemasWithTables: SchemaTable[];
+    try {
+      const schemasWithTablesDbResult = await database!.select(adapter.getSchemaQuery());
+      schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    } catch (error) {
+      // Revert: set database back to undefined on the connection
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? { ...c, database: undefined } : c
+      );
+      throw new Error(`Failed to load database schema: ${error}`);
+    }
 
     // Store tables immediately (without column metadata) so UI is responsive
     const newSchemas = new Map(this.state.schemas);
@@ -245,7 +263,7 @@ export class ConnectionManager {
     // Load column metadata asynchronously in the background
     this.onSchemaLoaded(connectionId, schemasWithTables, adapter, database!);
 
-    // Set this as the active connection
+    // Set this as the active connection (only after schema loading succeeds)
     this.state.activeConnectionId = connectionId;
 
     // Try to restore tabs from persisted state

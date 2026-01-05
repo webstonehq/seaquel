@@ -374,7 +374,12 @@
                 await db.connections.add(connectionData);
             }
 
-            toast.success("Connected successfully");
+            // Show appropriate toast based on whether database has tables
+            if (db.state.activeSchema.length === 0) {
+                toast.warning("Connected, but database is empty - no tables found");
+            } else {
+                toast.success("Connected successfully");
+            }
             open = false;
             resetForm();
             activeTab = "connection-string";
