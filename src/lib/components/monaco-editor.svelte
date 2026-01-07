@@ -15,6 +15,7 @@
 		ref = $bindable<MonacoEditorRef | null>(null),
 		schema = [] as SchemaTable[],
 		onExecute = () => {},
+		onToggleSidebar = () => {},
 		onChange = (_value: string) => {},
 		class: className = ""
 	}: {
@@ -22,6 +23,7 @@
 		ref?: MonacoEditorRef | null;
 		schema?: SchemaTable[];
 		onExecute?: () => void;
+		onToggleSidebar?: () => void;
 		onChange?: (value: string) => void;
 		class?: string;
 	} = $props();
@@ -78,6 +80,11 @@
 			onExecute();
 		});
 
+		// Add Cmd/Ctrl+B keybinding to toggle sidebar (override Monaco's default bracket jump)
+		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB, () => {
+			onToggleSidebar();
+		});
+
 		// Expose ref for external access
 		ref = {
 			getCursorOffset: () => {
@@ -107,8 +114,10 @@
 
 	// React to theme changes
 	$effect(() => {
+		// Explicitly access mode.current to ensure reactivity
+		const theme = mode.current === "dark" ? "vs-dark" : "vs";
 		if (editor) {
-			monaco.editor.setTheme(editorTheme);
+			monaco.editor.setTheme(theme);
 		}
 	});
 </script>

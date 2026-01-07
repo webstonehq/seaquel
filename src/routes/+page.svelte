@@ -19,6 +19,7 @@
     import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon, NetworkIcon } from "@lucide/svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
+    import { useSidebar } from "$lib/components/ui/sidebar/context.svelte.js";
     import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
     import * as Tooltip from "$lib/components/ui/tooltip/index.js";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
@@ -30,6 +31,7 @@
 
     const db = useDatabase();
     const shortcuts = useShortcuts();
+    const sidebar = useSidebar();
 
     // Track which type of tab is active: 'query' or 'schema'
     let activeTabType = $derived(db.state.activeView);
@@ -281,6 +283,11 @@
         shortcuts.registerHandler('openSettings', () => {
             settingsDialogStore.open();
         });
+
+        // Register sidebar toggle shortcut
+        shortcuts.registerHandler('toggleSidebar', () => {
+            sidebar.toggle();
+        });
     });
 
     onDestroy(() => {
@@ -289,6 +296,7 @@
         shortcuts.unregisterHandler('nextTab');
         shortcuts.unregisterHandler('previousTab');
         shortcuts.unregisterHandler('openSettings');
+        shortcuts.unregisterHandler('toggleSidebar');
         for (let i = 1; i <= 9; i++) {
             shortcuts.unregisterHandler(`goToTab${i}`);
         }
