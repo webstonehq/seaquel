@@ -9,6 +9,7 @@
     import DatabaseIcon from "@lucide/svelte/icons/database";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import ConnectionDialog from "$lib/components/connection-dialog.svelte";
+    import ConnectionWizard from "$lib/components/connection-wizard/connection-wizard.svelte";
     import PlusIcon from "@lucide/svelte/icons/plus";
     import BotIcon from "@lucide/svelte/icons/bot";
     import NetworkIcon from "@lucide/svelte/icons/network";
@@ -197,6 +198,7 @@
 </header>
 
 <ConnectionDialog bind:open={connectionDialogStore.isOpen} prefill={connectionDialogStore.prefill} />
+<ConnectionWizard />
 
 <Dialog.Root bind:open={showRemoveDialog}>
     <Dialog.Content class="max-w-md">

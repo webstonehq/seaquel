@@ -1,4 +1,7 @@
 import type { DatabaseType, SSHAuthMethod } from "$lib/types";
+import { connectionWizardStore } from "./connection-wizard.svelte.js";
+
+export type ConnectionDialogMode = "wizard" | "quick" | "reconnect";
 
 export interface ConnectionDialogPrefill {
 	id?: string;
@@ -22,9 +25,27 @@ export interface ConnectionDialogPrefill {
 class ConnectionDialogStore {
 	isOpen = $state(false);
 	prefill = $state<ConnectionDialogPrefill | undefined>(undefined);
+	mode = $state<ConnectionDialogMode>("wizard");
 
-	open(prefill?: ConnectionDialogPrefill) {
+	/**
+	 * Opens the connection dialog.
+	 * - New connections default to wizard mode
+	 * - Reconnections use reconnect mode (password-only prompt)
+	 * - Use mode: "quick" for power users who want the classic form
+	 */
+	open(prefill?: ConnectionDialogPrefill, mode?: ConnectionDialogMode) {
+		// Determine mode based on context
+		const resolvedMode = mode ?? (prefill?.id ? "reconnect" : "wizard");
+
+		// Route to wizard for new connections and reconnections
+		if (resolvedMode === "wizard" || resolvedMode === "reconnect") {
+			connectionWizardStore.open(resolvedMode, prefill);
+			return;
+		}
+
+		// Quick mode uses classic dialog
 		this.prefill = prefill;
+		this.mode = resolvedMode;
 		this.isOpen = true;
 	}
 

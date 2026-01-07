@@ -8,7 +8,12 @@
 	import BotIcon from "@lucide/svelte/icons/bot";
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
+	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
+	import MigrationTrackSelector from "$lib/components/onboarding/migration-track-selector.svelte";
 	import { m } from "$lib/paraglide/messages.js";
+
+	// Only show migration selector on first run
+	const showMigrationSelector = $derived(onboardingStore.isFirstRun);
 
 	const features = [
 		{
@@ -34,7 +39,7 @@
 	];
 </script>
 
-<div class="flex-1 flex items-center justify-center p-8">
+<div class="flex-1 flex items-center justify-center p-8 overflow-y-auto">
 	<div class="max-w-2xl w-full space-y-8">
 		<div class="text-center space-y-4">
 			<div class="flex justify-center">
@@ -67,5 +72,11 @@
 				</Card.Root>
 			{/each}
 		</div>
+
+		{#if showMigrationSelector}
+			<div class="pt-4 border-t">
+				<MigrationTrackSelector />
+			</div>
+		{/if}
 	</div>
 </div>
