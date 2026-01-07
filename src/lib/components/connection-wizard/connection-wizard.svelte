@@ -23,7 +23,6 @@
 	import WizardStepHost from "./wizard-step-host.svelte";
 	import WizardStepCredentials from "./wizard-step-credentials.svelte";
 	import WizardStepAdvanced from "./wizard-step-advanced.svelte";
-	import WizardStepSuccess from "./wizard-step-success.svelte";
 
 	const db = useDatabase();
 	const wizard = connectionWizardStore;
@@ -104,15 +103,13 @@
 			// Mark onboarding as complete
 			onboardingStore.completeWizard();
 
-			// Show success step
-			wizard.markSuccess();
-
-			// Show toast
+			// Show toast and close wizard
 			if (db.state.activeSchema.length === 0) {
 				toast.warning(m.wizard_connect_empty());
 			} else {
 				toast.success(m.wizard_connect_success());
 			}
+			wizard.close();
 		} catch (error) {
 			wizard.setError(extractErrorMessage(error));
 		} finally {
@@ -124,31 +121,10 @@
 		return wizard.parseConnectionString(connStr);
 	};
 
-	const handleBrowseTables = () => {
-		db.ui.setActiveView("schema");
-		wizard.close();
-	};
-
-	const handleWriteQuery = () => {
-		db.ui.setActiveView("query");
-		if (!db.state.activeQueryTab) {
-			db.queryTabs.add();
-		}
-		wizard.close();
-	};
-
-	const handleViewErd = () => {
-		db.erdTabs.add();
-		wizard.close();
-	};
-
 	// Determine if we should show navigation buttons
-	const showBack = $derived(
-		wizard.currentStep !== "string-choice" && wizard.currentStep !== "success",
-	);
+	const showBack = $derived(wizard.currentStep !== "string-choice");
 	const showNext = $derived(
 		wizard.currentStep !== "string-choice" &&
-			wizard.currentStep !== "success" &&
 			wizard.currentStep !== "credentials" &&
 			wizard.currentStep !== "string-paste",
 	);
@@ -166,15 +142,13 @@
 	<DialogContent class="max-w-md max-h-[90vh] overflow-y-auto">
 		<DialogHeader>
 			<DialogTitle>
-				{#if wizard.currentStep === "success"}
-					<!-- No title on success -->
-				{:else if isReconnecting}
+				{#if isReconnecting}
 					{m.connection_dialog_title_reconnect()}
 				{:else}
 					{m.wizard_dialog_title()}
 				{/if}
 			</DialogTitle>
-			{#if wizard.currentStep !== "string-choice" && wizard.currentStep !== "success"}
+			{#if wizard.currentStep !== "string-choice"}
 				<div class="pt-2">
 					<WizardProgress currentStep={wizard.stepNumber} totalSteps={wizard.totalSteps} />
 				</div>
@@ -217,21 +191,11 @@
 					selectedDbType={wizard.selectedDbType}
 					{isReconnecting}
 				/>
-			{:else if wizard.currentStep === "success"}
-				<WizardStepSuccess
-					formData={wizard.formData}
-					selectedDbType={wizard.selectedDbType}
-					schemaCount={db.state.activeSchema.length}
-					onBrowseTables={handleBrowseTables}
-					onWriteQuery={handleWriteQuery}
-					onViewErd={handleViewErd}
-					onClose={() => wizard.close()}
-				/>
 			{/if}
 		</div>
 
 		<!-- Footer -->
-		{#if wizard.currentStep !== "string-choice" && wizard.currentStep !== "success"}
+		{#if wizard.currentStep !== "string-choice"}
 			<DialogFooter class="flex-row justify-between gap-2">
 				<div>
 					{#if showBack}
