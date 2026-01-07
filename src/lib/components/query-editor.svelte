@@ -24,6 +24,9 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { cn } from "$lib/utils.js";
 	import { splitSqlStatements } from "$lib/db/sql-parser.js";
+	import QueryExampleCard from "$lib/components/empty-states/query-example-card.svelte";
+	import { sampleQueries } from "$lib/config/sample-queries.js";
+	import PlusIcon from "@lucide/svelte/icons/plus";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -60,6 +63,21 @@
 		activeResult?.sourceTable.primaryKeys.length > 0 &&
 		!activeResult?.isError
 	);
+
+	// Get sample queries for the active connection type
+	const activeSampleQueries = $derived(
+		sampleQueries[db.state.activeConnection?.type ?? "postgres"]?.slice(0, 2) ?? []
+	);
+
+	// Handle trying a sample query
+	const handleTrySampleQuery = (query: string) => {
+		if (db.state.activeQueryTabId) {
+			db.queryTabs.updateContent(db.state.activeQueryTabId, query);
+		} else {
+			// Create a new tab with the sample query
+			db.queryTabs.add(undefined, query);
+		}
+	};
 
 	async function handleCellSave(rowIndex: number, column: string, newValue: string) {
 		if (!db.state.activeQueryTabId || !activeResult?.sourceTable) return;
@@ -588,19 +606,29 @@
                             {/if}
                         {/if}
                     {:else}
-                        <div
-                            class="flex-1 flex items-center justify-center text-muted-foreground"
-                        >
-                            <div class="text-center">
-                                <PlayIcon
-                                    class="size-12 mx-auto mb-2 opacity-20"
-                                />
-                                <p class="text-sm">
-                                    {m.query_no_results()}
-                                </p>
-                                <p class="text-xs mt-1 text-muted-foreground">
-                                    {m.query_run_hint({ shortcut: "⌘+Enter" })}
-                                </p>
+                        <div class="flex-1 flex items-center justify-center p-6 overflow-auto">
+                            <div class="w-full max-w-md space-y-6">
+                                <div class="text-center">
+                                    <PlayIcon class="size-10 mx-auto mb-2 opacity-20" />
+                                    <p class="font-medium">{m.query_no_results()}</p>
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        {m.query_run_hint({ shortcut: "⌘+Enter" })}
+                                    </p>
+                                </div>
+
+                                {#if activeSampleQueries.length > 0}
+                                    <div class="space-y-3">
+                                        <p class="text-xs text-muted-foreground text-center">
+                                            {m.empty_query_sample_title()}
+                                        </p>
+                                        {#each activeSampleQueries as sampleQuery}
+                                            <QueryExampleCard
+                                                query={sampleQuery}
+                                                onTry={handleTrySampleQuery}
+                                            />
+                                        {/each}
+                                    </div>
+                                {/if}
                             </div>
                         </div>
                     {/if}
@@ -608,12 +636,16 @@
             </Resizable.Pane>
         </Resizable.PaneGroup>
     {:else}
-        <div
-            class="flex-1 flex items-center justify-center text-muted-foreground"
-        >
-            <div class="text-center">
-                <PlayIcon class="size-12 mx-auto mb-2 opacity-20" />
-                <p class="text-sm">{m.query_create_tab()}</p>
+        <div class="flex-1 flex items-center justify-center p-6">
+            <div class="w-full max-w-md space-y-6">
+                <div class="text-center">
+                    <PlayIcon class="size-10 mx-auto mb-2 opacity-20" />
+                    <p class="font-medium">{m.query_create_tab()}</p>
+                </div>
+                <Button class="w-full" onclick={() => db.queryTabs.add()}>
+                    <PlusIcon class="size-4 me-2" />
+                    {m.empty_query_new()}
+                </Button>
             </div>
         </div>
     {/if}
