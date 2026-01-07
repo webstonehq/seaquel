@@ -9,15 +9,69 @@
 		/>
 		<title>Tauri + SvelteKit + Typescript App</title>
 		<script>
-			// Prevent flash of light mode when in dark mode
+			// Prevent flash of wrong theme on initial load
 			(function() {
-				const mode = localStorage.getItem('mode-watcher-mode');
-				const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-				const isDark = mode === 'dark' || (mode === 'system' && prefersDark) || (!mode && prefersDark);
+				var root = document.documentElement;
+
+				// Handle dark mode
+				var mode = localStorage.getItem('mode-watcher-mode');
+				var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				var isDark = mode === 'dark' || (mode === 'system' && prefersDark) || (!mode && prefersDark);
 				if (isDark) {
-					document.documentElement.classList.add('dark');
-					document.documentElement.style.colorScheme = 'dark';
-					document.documentElement.style.backgroundColor = 'hsl(240 10% 3.9%)';
+					root.classList.add('dark');
+					root.style.colorScheme = 'dark';
+				}
+
+				// Apply cached theme colors
+				try {
+					var cached = localStorage.getItem('seaquel-theme-cache');
+					if (cached) {
+						var theme = JSON.parse(cached);
+						if (theme.colors) {
+							// Map of property names to CSS variable names
+							var varMap = {
+								background: '--background',
+								foreground: '--foreground',
+								card: '--card',
+								cardForeground: '--card-foreground',
+								popover: '--popover',
+								popoverForeground: '--popover-foreground',
+								primary: '--primary',
+								primaryForeground: '--primary-foreground',
+								secondary: '--secondary',
+								secondaryForeground: '--secondary-foreground',
+								muted: '--muted',
+								mutedForeground: '--muted-foreground',
+								accent: '--accent',
+								accentForeground: '--accent-foreground',
+								destructive: '--destructive',
+								border: '--border',
+								input: '--input',
+								ring: '--ring',
+								chart1: '--chart-1',
+								chart2: '--chart-2',
+								chart3: '--chart-3',
+								chart4: '--chart-4',
+								chart5: '--chart-5',
+								sidebar: '--sidebar',
+								sidebarForeground: '--sidebar-foreground',
+								sidebarPrimary: '--sidebar-primary',
+								sidebarPrimaryForeground: '--sidebar-primary-foreground',
+								sidebarAccent: '--sidebar-accent',
+								sidebarAccentForeground: '--sidebar-accent-foreground',
+								sidebarBorder: '--sidebar-border',
+								sidebarRing: '--sidebar-ring'
+							};
+
+							for (var key in varMap) {
+								if (theme.colors[key]) {
+									root.style.setProperty(varMap[key], theme.colors[key]);
+								}
+							}
+						}
+					}
+				} catch (e) {
+					// Ignore cache errors
 				}
 			})();
 		</script>

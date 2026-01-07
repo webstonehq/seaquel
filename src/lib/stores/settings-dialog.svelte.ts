@@ -1,4 +1,4 @@
-export type SettingsSection = "app-info" | "theme";
+export type SettingsSection = "app-info" | "theme" | "themes";
 export type SettingsGroup = "general" | "appearance";
 export type SettingsView = SettingsGroup | SettingsSection;
 
@@ -6,12 +6,13 @@ export type SettingsView = SettingsGroup | SettingsSection;
 export const sectionToGroup: Record<SettingsSection, SettingsGroup> = {
 	"app-info": "general",
 	"theme": "appearance",
+	"themes": "appearance",
 };
 
 // Map groups to their sections
 export const groupSections: Record<SettingsGroup, SettingsSection[]> = {
 	"general": ["app-info"],
-	"appearance": ["theme"],
+	"appearance": ["theme", "themes"],
 };
 
 class SettingsDialogStore {
