@@ -12,9 +12,14 @@
 	import CommandPalette from "$lib/components/command-palette.svelte";
 	import SettingsDialog from "$lib/components/settings-dialog.svelte";
 	import { settingsDialogStore } from "$lib/stores/settings-dialog.svelte.js";
+	import { themeStore } from "$lib/stores/theme.svelte.js";
+	import { applyThemeColors } from "$lib/themes/apply";
+	import type { ThemeColors } from "$lib/types/theme";
 	import { listen } from "@tauri-apps/api/event";
 	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
+	import { m } from "$lib/paraglide/messages.js";
+	import { onMount } from "svelte";
 
 	setDatabase();
 
@@ -22,8 +27,24 @@
 	const shortcuts = setShortcuts();
 	let { children } = $props();
 
+	// Check if we're in the theme editor window (no app shell needed)
+	const isThemeEditor = $derived(page.url.pathname.startsWith("/windows/theme-editor"));
+
+	// Initialize theme store on mount
+	onMount(async () => {
+		await themeStore.initialize();
+	});
+
+	// Apply active theme whenever it changes
+	$effect(() => {
+		if (themeStore.isLoaded) {
+			themeStore.applyActiveTheme();
+		}
+	});
+
 	function handleBeforeUnload() {
 		db.persistence.flush();
+		themeStore.flush();
 	}
 
 	$effect(() => {
@@ -53,6 +74,50 @@
 			unlisten.then((fn) => fn());
 		};
 	});
+
+	// Listen for theme editor color updates (real-time preview)
+	$effect(() => {
+		const unlisten = listen<{ colors: ThemeColors }>("theme-editor:color-update", (event) => {
+			applyThemeColors(event.payload.colors);
+		});
+
+		return () => {
+			unlisten.then((fn) => fn());
+		};
+	});
+
+	// Listen for theme save from editor
+	$effect(() => {
+		const unlisten = listen<{
+			themeId: string | null;
+			name: string;
+			isDark: boolean;
+			colors: ThemeColors;
+		}>("theme-editor:save", (event) => {
+			const { themeId, name, isDark, colors } = event.payload;
+			if (themeId) {
+				themeStore.updateTheme(themeId, { name, isDark, colors });
+			} else {
+				themeStore.addTheme({ name, isDark, colors });
+			}
+			toast.success(m.theme_save_success());
+		});
+
+		return () => {
+			unlisten.then((fn) => fn());
+		};
+	});
+
+	// Listen for theme editor cancel (restore original theme)
+	$effect(() => {
+		const unlisten = listen("theme-editor:cancel", () => {
+			themeStore.applyActiveTheme();
+		});
+
+		return () => {
+			unlisten.then((fn) => fn());
+		};
+	});
 </script>
 
 <svelte:window
@@ -61,26 +126,33 @@
 ></svelte:window>
 <ModeWatcher />
 <Toaster position="bottom-right" theme={"dark"} richColors />
-<KeyboardShortcutsDialog />
-<CommandPalette />
-<SettingsDialog />
 
-<Sidebar.Provider
-	class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden"
->
-	<AppHeader />
-	<div
-		class="flex w-full flex-1 min-h-0 overflow-hidden"
+{#if isThemeEditor}
+	<!-- Theme editor window: minimal layout, no app shell -->
+	{@render children()}
+{:else}
+	<!-- Main app window: full app shell with header and sidebars -->
+	<KeyboardShortcutsDialog />
+	<CommandPalette />
+	<SettingsDialog />
+
+	<Sidebar.Provider
+		class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden"
 	>
-		{@render children()}
-	</div>
-</Sidebar.Provider>
-<div style="display:none">
-	{#each locales as locale}
-		<a
-			href={localizeHref(page.url.pathname, { locale })}
+		<AppHeader />
+		<div
+			class="flex w-full flex-1 min-h-0 overflow-hidden"
 		>
-			{locale}
-		</a>
-	{/each}
-</div>
+			{@render children()}
+		</div>
+	</Sidebar.Provider>
+	<div style="display:none">
+		{#each locales as locale}
+			<a
+				href={localizeHref(page.url.pathname, { locale })}
+			>
+				{locale}
+			</a>
+		{/each}
+	</div>
+{/if}
