@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
+	import { useSidebar } from "$lib/components/ui/sidebar/context.svelte.js";
 	import ShortcutKeys from "$lib/components/shortcut-keys.svelte";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
@@ -26,6 +27,7 @@
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
+	const sidebar = useSidebar();
 	let showSaveDialog = $state(false);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
@@ -343,6 +345,7 @@
                             bind:ref={monacoRef}
                             schema={db.state.activeSchema}
                             onExecute={handleExecute}
+                            onToggleSidebar={() => sidebar.toggle()}
                             onChange={(newValue) => {
                                 currentQuery = newValue;
                                 if (db.state.activeQueryTabId) {

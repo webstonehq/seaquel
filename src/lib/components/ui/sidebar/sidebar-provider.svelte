@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { cn, type WithElementRef } from "$lib/utils.js";
 	import type { HTMLAttributes } from "svelte/elements";
@@ -10,7 +9,6 @@
 		SIDEBAR_WIDTH_ICON,
 	} from "./constants.js";
 	import { setSidebar } from "./context.svelte.js";
-	import { useShortcuts } from "$lib/shortcuts/index.js";
 
 	let {
 		ref = $bindable(null),
@@ -25,7 +23,7 @@
 		onOpenChange?: (open: boolean) => void;
 	} = $props();
 
-	const sidebar = setSidebar({
+	setSidebar({
 		open: () => open,
 		setOpen: (value: boolean) => {
 			open = value;
@@ -34,16 +32,6 @@
 			// This sets the cookie to keep the sidebar state.
 			document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
 		},
-	});
-
-	const shortcuts = useShortcuts();
-
-	onMount(() => {
-		shortcuts.registerHandler('toggleSidebar', () => sidebar.toggle());
-	});
-
-	onDestroy(() => {
-		shortcuts.unregisterHandler('toggleSidebar');
 	});
 </script>
 
