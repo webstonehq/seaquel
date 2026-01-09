@@ -3,6 +3,7 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
 	import ConnectionCard from "./connection-card.svelte";
+	import MigrationTrackSelector from "$lib/components/onboarding/migration-track-selector.svelte";
 	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
@@ -40,6 +41,10 @@
 					<ConnectionCard {connection} />
 				</div>
 			{/each}
+		</div>
+
+		<div class="pt-4 border-t">
+			<MigrationTrackSelector />
 		</div>
 	</div>
 </div>

@@ -398,5 +398,15 @@
 	"migration_description": "سنساعدك في التعرف على الأماكن",
 	"migration_skip": "تخطي، أنا جديد في أدوات قواعد البيانات",
 	"migration_ui_mapping": "إليك الاختلاف",
-	"migration_change": "تغيير التحديد"
+	"migration_change": "تغيير التحديد",
+	"dbeaver_import_title": "استيراد اتصالات DBeaver",
+	"dbeaver_import_description": "وجدنا اتصالات DBeaver على نظامك. هل تريد استيرادها إلى Seaquel؟",
+	"dbeaver_import_found": "تم العثور على {count} اتصال(ات)",
+	"dbeaver_import_select_all": "تحديد الكل",
+	"dbeaver_import_deselect_all": "إلغاء تحديد الكل",
+	"dbeaver_import_duplicate": "موجود بالفعل",
+	"dbeaver_import_password_note": "لأسباب أمنية، لا يتم استيراد كلمات المرور. ستحتاج إلى إدخالها عند الاتصال.",
+	"dbeaver_import_skip": "تخطي",
+	"dbeaver_import_button": "استيراد {count} اتصال(ات)",
+	"dbeaver_import_success": "تم استيراد {count} اتصال(ات) بنجاح"
 }

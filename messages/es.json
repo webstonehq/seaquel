@@ -398,5 +398,15 @@
 	"migration_description": "Te ayudaremos a orientarte",
 	"migration_skip": "Omitir, soy nuevo en herramientas de bases de datos",
 	"migration_ui_mapping": "Aquí está la diferencia",
-	"migration_change": "Cambiar selección"
+	"migration_change": "Cambiar selección",
+	"dbeaver_import_title": "Importar conexiones de DBeaver",
+	"dbeaver_import_description": "Encontramos conexiones de DBeaver en tu sistema. ¿Te gustaría importarlas a Seaquel?",
+	"dbeaver_import_found": "Se encontraron {count} conexión(es)",
+	"dbeaver_import_select_all": "Seleccionar todo",
+	"dbeaver_import_deselect_all": "Deseleccionar todo",
+	"dbeaver_import_duplicate": "Ya existe",
+	"dbeaver_import_password_note": "Por seguridad, las contraseñas no se importan. Deberás ingresarlas al conectar.",
+	"dbeaver_import_skip": "Omitir",
+	"dbeaver_import_button": "Importar {count} conexión(es)",
+	"dbeaver_import_success": "Se importaron {count} conexión(es) exitosamente"
 }
