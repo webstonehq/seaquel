@@ -232,6 +232,7 @@
 	"query_cell_copied": "Zellwert kopiert",
 	"query_row_copied": "Zeile als JSON kopiert",
 	"query_column_copied": "Spaltenwerte kopiert",
+	"query_error_copied": "Fehler in Zwischenablage kopiert",
 	"query_copy_cell": "Zellwert kopieren",
 	"query_copy_row": "Zeile als JSON kopieren",
 	"query_copy_column": "Spaltenwerte kopieren",

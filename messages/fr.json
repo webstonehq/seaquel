@@ -232,6 +232,7 @@
 	"query_cell_copied": "Valeur de la cellule copiée",
 	"query_row_copied": "Ligne copiée en JSON",
 	"query_column_copied": "Valeurs de la colonne copiées",
+	"query_error_copied": "Erreur copiée dans le presse-papiers",
 	"query_copy_cell": "Copier la valeur de la cellule",
 	"query_copy_row": "Copier la ligne en JSON",
 	"query_copy_column": "Copier les valeurs de la colonne",

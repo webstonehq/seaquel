@@ -232,6 +232,7 @@
 	"query_cell_copied": "تم نسخ قيمة الخلية",
 	"query_row_copied": "تم نسخ الصف كـ JSON",
 	"query_column_copied": "تم نسخ قيم العمود",
+	"query_error_copied": "تم نسخ الخطأ إلى الحافظة",
 	"query_copy_cell": "نسخ قيمة الخلية",
 	"query_copy_row": "نسخ الصف كـ JSON",
 	"query_copy_column": "نسخ قيم العمود",

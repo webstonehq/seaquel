@@ -232,6 +232,7 @@
 	"query_cell_copied": "셀 값이 복사되었습니다",
 	"query_row_copied": "행이 JSON으로 복사되었습니다",
 	"query_column_copied": "열 값이 복사되었습니다",
+	"query_error_copied": "오류가 클립보드에 복사되었습니다",
 	"query_copy_cell": "셀 값 복사",
 	"query_copy_row": "행을 JSON으로 복사",
 	"query_copy_column": "열 값 복사",
