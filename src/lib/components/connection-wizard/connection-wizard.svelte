@@ -121,21 +121,27 @@
 		return wizard.parseConnectionString(connStr);
 	};
 
+	const isReconnecting = $derived(wizard.reconnectingConnectionId !== null);
+
 	// Determine if we should show navigation buttons
-	const showBack = $derived(wizard.currentStep !== "string-choice");
+	const showBack = $derived(
+		wizard.currentStep !== "string-choice" &&
+			(!isReconnecting || wizard.currentStep === "advanced"),
+	);
 	const showNext = $derived(
 		wizard.currentStep !== "string-choice" &&
 			wizard.currentStep !== "credentials" &&
-			wizard.currentStep !== "string-paste",
+			wizard.currentStep !== "string-paste" &&
+			wizard.currentStep !== "advanced",
 	);
 	const showConnect = $derived(
 		wizard.currentStep === "credentials" ||
 			wizard.currentStep === "advanced" ||
 			(wizard.currentStep === "string-paste" && wizard.formData.name.trim()),
 	);
-	const showSkipAdvanced = $derived(wizard.currentStep === "credentials");
-
-	const isReconnecting = $derived(wizard.reconnectingConnectionId !== null);
+	const showSkipAdvanced = $derived(
+		wizard.currentStep === "credentials" && wizard.formData.type !== "sqlite",
+	);
 </script>
 
 <Dialog bind:open={wizard.isOpen}>
