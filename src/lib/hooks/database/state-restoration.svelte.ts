@@ -11,7 +11,6 @@ import type {
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
-import { setMapValue, deleteMapKey } from "./map-utils.js";
 
 /**
  * Manages restoration of persisted state when reconnecting to a database.
@@ -24,77 +23,169 @@ export class StateRestorationManager {
   ) {}
 
   /**
-   * Initialize all per-connection maps for a new connection.
+   * Initialize all per-connection records for a new connection.
    */
   initializeConnectionMaps(connectionId: string): void {
-    setMapValue(() => this.state.queryTabsByConnection, (m) => (this.state.queryTabsByConnection = m), connectionId, []);
-    setMapValue(() => this.state.schemaTabsByConnection, (m) => (this.state.schemaTabsByConnection = m), connectionId, []);
-    setMapValue(() => this.state.activeQueryTabIdByConnection, (m) => (this.state.activeQueryTabIdByConnection = m), connectionId, null);
-    setMapValue(() => this.state.activeSchemaTabIdByConnection, (m) => (this.state.activeSchemaTabIdByConnection = m), connectionId, null);
-    setMapValue(() => this.state.queryHistoryByConnection, (m) => (this.state.queryHistoryByConnection = m), connectionId, []);
-    setMapValue(() => this.state.savedQueriesByConnection, (m) => (this.state.savedQueriesByConnection = m), connectionId, []);
-    setMapValue(() => this.state.explainTabsByConnection, (m) => (this.state.explainTabsByConnection = m), connectionId, []);
-    setMapValue(() => this.state.activeExplainTabIdByConnection, (m) => (this.state.activeExplainTabIdByConnection = m), connectionId, null);
-    setMapValue(() => this.state.erdTabsByConnection, (m) => (this.state.erdTabsByConnection = m), connectionId, []);
-    setMapValue(() => this.state.activeErdTabIdByConnection, (m) => (this.state.activeErdTabIdByConnection = m), connectionId, null);
-    setMapValue(() => this.state.tabOrderByConnection, (m) => (this.state.tabOrderByConnection = m), connectionId, []);
-    setMapValue(() => this.state.schemas, (m) => (this.state.schemas = m), connectionId, []);
+    this.state.queryTabsByConnection = {
+      ...this.state.queryTabsByConnection,
+      [connectionId]: [],
+    };
+    this.state.schemaTabsByConnection = {
+      ...this.state.schemaTabsByConnection,
+      [connectionId]: [],
+    };
+    this.state.activeQueryTabIdByConnection = {
+      ...this.state.activeQueryTabIdByConnection,
+      [connectionId]: null,
+    };
+    this.state.activeSchemaTabIdByConnection = {
+      ...this.state.activeSchemaTabIdByConnection,
+      [connectionId]: null,
+    };
+    this.state.queryHistoryByConnection = {
+      ...this.state.queryHistoryByConnection,
+      [connectionId]: [],
+    };
+    this.state.savedQueriesByConnection = {
+      ...this.state.savedQueriesByConnection,
+      [connectionId]: [],
+    };
+    this.state.explainTabsByConnection = {
+      ...this.state.explainTabsByConnection,
+      [connectionId]: [],
+    };
+    this.state.activeExplainTabIdByConnection = {
+      ...this.state.activeExplainTabIdByConnection,
+      [connectionId]: null,
+    };
+    this.state.erdTabsByConnection = {
+      ...this.state.erdTabsByConnection,
+      [connectionId]: [],
+    };
+    this.state.activeErdTabIdByConnection = {
+      ...this.state.activeErdTabIdByConnection,
+      [connectionId]: null,
+    };
+    this.state.tabOrderByConnection = {
+      ...this.state.tabOrderByConnection,
+      [connectionId]: [],
+    };
+    this.state.schemas = {
+      ...this.state.schemas,
+      [connectionId]: [],
+    };
   }
 
   /**
-   * Clean up all per-connection maps when removing a connection.
+   * Clean up all per-connection records when removing a connection.
    */
   cleanupConnectionMaps(connectionId: string): void {
-    deleteMapKey(() => this.state.queryTabsByConnection, (m) => (this.state.queryTabsByConnection = m), connectionId);
-    deleteMapKey(() => this.state.schemaTabsByConnection, (m) => (this.state.schemaTabsByConnection = m), connectionId);
-    deleteMapKey(() => this.state.activeQueryTabIdByConnection, (m) => (this.state.activeQueryTabIdByConnection = m), connectionId);
-    deleteMapKey(() => this.state.activeSchemaTabIdByConnection, (m) => (this.state.activeSchemaTabIdByConnection = m), connectionId);
-    deleteMapKey(() => this.state.queryHistoryByConnection, (m) => (this.state.queryHistoryByConnection = m), connectionId);
-    deleteMapKey(() => this.state.savedQueriesByConnection, (m) => (this.state.savedQueriesByConnection = m), connectionId);
-    deleteMapKey(() => this.state.explainTabsByConnection, (m) => (this.state.explainTabsByConnection = m), connectionId);
-    deleteMapKey(() => this.state.activeExplainTabIdByConnection, (m) => (this.state.activeExplainTabIdByConnection = m), connectionId);
-    deleteMapKey(() => this.state.erdTabsByConnection, (m) => (this.state.erdTabsByConnection = m), connectionId);
-    deleteMapKey(() => this.state.activeErdTabIdByConnection, (m) => (this.state.activeErdTabIdByConnection = m), connectionId);
-    deleteMapKey(() => this.state.tabOrderByConnection, (m) => (this.state.tabOrderByConnection = m), connectionId);
-    deleteMapKey(() => this.state.schemas, (m) => (this.state.schemas = m), connectionId);
+    const { [connectionId]: _, ...restQueryTabs } = this.state.queryTabsByConnection;
+    this.state.queryTabsByConnection = restQueryTabs;
+
+    const { [connectionId]: _2, ...restSchemaTabs } = this.state.schemaTabsByConnection;
+    this.state.schemaTabsByConnection = restSchemaTabs;
+
+    const { [connectionId]: _3, ...restActiveQueryTab } = this.state.activeQueryTabIdByConnection;
+    this.state.activeQueryTabIdByConnection = restActiveQueryTab;
+
+    const { [connectionId]: _4, ...restActiveSchemaTab } = this.state.activeSchemaTabIdByConnection;
+    this.state.activeSchemaTabIdByConnection = restActiveSchemaTab;
+
+    const { [connectionId]: _5, ...restQueryHistory } = this.state.queryHistoryByConnection;
+    this.state.queryHistoryByConnection = restQueryHistory;
+
+    const { [connectionId]: _6, ...restSavedQueries } = this.state.savedQueriesByConnection;
+    this.state.savedQueriesByConnection = restSavedQueries;
+
+    const { [connectionId]: _7, ...restExplainTabs } = this.state.explainTabsByConnection;
+    this.state.explainTabsByConnection = restExplainTabs;
+
+    const { [connectionId]: _8, ...restActiveExplainTab } = this.state.activeExplainTabIdByConnection;
+    this.state.activeExplainTabIdByConnection = restActiveExplainTab;
+
+    const { [connectionId]: _9, ...restErdTabs } = this.state.erdTabsByConnection;
+    this.state.erdTabsByConnection = restErdTabs;
+
+    const { [connectionId]: _10, ...restActiveErdTab } = this.state.activeErdTabIdByConnection;
+    this.state.activeErdTabIdByConnection = restActiveErdTab;
+
+    const { [connectionId]: _11, ...restTabOrder } = this.state.tabOrderByConnection;
+    this.state.tabOrderByConnection = restTabOrder;
+
+    const { [connectionId]: _12, ...restSchemas } = this.state.schemas;
+    this.state.schemas = restSchemas;
   }
 
   /**
-   * Ensure maps exist for a connection (used during reconnect to preserve existing state).
+   * Ensure records exist for a connection (used during reconnect to preserve existing state).
    */
   ensureConnectionMapsExist(connectionId: string): void {
-    if (!this.state.queryTabsByConnection.has(connectionId)) {
-      setMapValue(() => this.state.queryTabsByConnection, (m) => (this.state.queryTabsByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.queryTabsByConnection)) {
+      this.state.queryTabsByConnection = {
+        ...this.state.queryTabsByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.schemaTabsByConnection.has(connectionId)) {
-      setMapValue(() => this.state.schemaTabsByConnection, (m) => (this.state.schemaTabsByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.schemaTabsByConnection)) {
+      this.state.schemaTabsByConnection = {
+        ...this.state.schemaTabsByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.activeQueryTabIdByConnection.has(connectionId)) {
-      setMapValue(() => this.state.activeQueryTabIdByConnection, (m) => (this.state.activeQueryTabIdByConnection = m), connectionId, null);
+    if (!(connectionId in this.state.activeQueryTabIdByConnection)) {
+      this.state.activeQueryTabIdByConnection = {
+        ...this.state.activeQueryTabIdByConnection,
+        [connectionId]: null,
+      };
     }
-    if (!this.state.activeSchemaTabIdByConnection.has(connectionId)) {
-      setMapValue(() => this.state.activeSchemaTabIdByConnection, (m) => (this.state.activeSchemaTabIdByConnection = m), connectionId, null);
+    if (!(connectionId in this.state.activeSchemaTabIdByConnection)) {
+      this.state.activeSchemaTabIdByConnection = {
+        ...this.state.activeSchemaTabIdByConnection,
+        [connectionId]: null,
+      };
     }
-    if (!this.state.queryHistoryByConnection.has(connectionId)) {
-      setMapValue(() => this.state.queryHistoryByConnection, (m) => (this.state.queryHistoryByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.queryHistoryByConnection)) {
+      this.state.queryHistoryByConnection = {
+        ...this.state.queryHistoryByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.savedQueriesByConnection.has(connectionId)) {
-      setMapValue(() => this.state.savedQueriesByConnection, (m) => (this.state.savedQueriesByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.savedQueriesByConnection)) {
+      this.state.savedQueriesByConnection = {
+        ...this.state.savedQueriesByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.explainTabsByConnection.has(connectionId)) {
-      setMapValue(() => this.state.explainTabsByConnection, (m) => (this.state.explainTabsByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.explainTabsByConnection)) {
+      this.state.explainTabsByConnection = {
+        ...this.state.explainTabsByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.activeExplainTabIdByConnection.has(connectionId)) {
-      setMapValue(() => this.state.activeExplainTabIdByConnection, (m) => (this.state.activeExplainTabIdByConnection = m), connectionId, null);
+    if (!(connectionId in this.state.activeExplainTabIdByConnection)) {
+      this.state.activeExplainTabIdByConnection = {
+        ...this.state.activeExplainTabIdByConnection,
+        [connectionId]: null,
+      };
     }
-    if (!this.state.erdTabsByConnection.has(connectionId)) {
-      setMapValue(() => this.state.erdTabsByConnection, (m) => (this.state.erdTabsByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.erdTabsByConnection)) {
+      this.state.erdTabsByConnection = {
+        ...this.state.erdTabsByConnection,
+        [connectionId]: [],
+      };
     }
-    if (!this.state.activeErdTabIdByConnection.has(connectionId)) {
-      setMapValue(() => this.state.activeErdTabIdByConnection, (m) => (this.state.activeErdTabIdByConnection = m), connectionId, null);
+    if (!(connectionId in this.state.activeErdTabIdByConnection)) {
+      this.state.activeErdTabIdByConnection = {
+        ...this.state.activeErdTabIdByConnection,
+        [connectionId]: null,
+      };
     }
-    if (!this.state.tabOrderByConnection.has(connectionId)) {
-      setMapValue(() => this.state.tabOrderByConnection, (m) => (this.state.tabOrderByConnection = m), connectionId, []);
+    if (!(connectionId in this.state.tabOrderByConnection)) {
+      this.state.tabOrderByConnection = {
+        ...this.state.tabOrderByConnection,
+        [connectionId]: [],
+      };
     }
   }
 
@@ -110,12 +201,10 @@ export class StateRestorationManager {
       createdAt: new Date(q.createdAt),
       updatedAt: new Date(q.updatedAt),
     }));
-    setMapValue(
-      () => this.state.savedQueriesByConnection,
-      (m) => (this.state.savedQueriesByConnection = m),
-      connectionId,
-      savedQueries
-    );
+    this.state.savedQueriesByConnection = {
+      ...this.state.savedQueriesByConnection,
+      [connectionId]: savedQueries,
+    };
   }
 
   /**
@@ -131,19 +220,17 @@ export class StateRestorationManager {
       connectionId: h.connectionId,
       favorite: h.favorite,
     }));
-    setMapValue(
-      () => this.state.queryHistoryByConnection,
-      (m) => (this.state.queryHistoryByConnection = m),
-      connectionId,
-      history
-    );
+    this.state.queryHistoryByConnection = {
+      ...this.state.queryHistoryByConnection,
+      [connectionId]: history,
+    };
   }
 
   /**
    * Restore schema tabs matching current schema.
    */
   private restoreSchemaTabs(connectionId: string, persistedTabs: PersistedSchemaTab[]): void {
-    const schemas = this.state.schemas.get(connectionId) || [];
+    const schemas = this.state.schemas[connectionId] ?? [];
     const schemaTabs: SchemaTab[] = [];
 
     for (const pt of persistedTabs) {
@@ -159,12 +246,10 @@ export class StateRestorationManager {
       // If table no longer exists, skip restoring this tab
     }
 
-    setMapValue(
-      () => this.state.schemaTabsByConnection,
-      (m) => (this.state.schemaTabsByConnection = m),
-      connectionId,
-      schemaTabs
-    );
+    this.state.schemaTabsByConnection = {
+      ...this.state.schemaTabsByConnection,
+      [connectionId]: schemaTabs,
+    };
   }
 
   /**
@@ -184,12 +269,10 @@ export class StateRestorationManager {
       isExecuting: false,
       results: undefined,
     }));
-    setMapValue(
-      () => this.state.queryTabsByConnection,
-      (m) => (this.state.queryTabsByConnection = m),
-      connectionId,
-      queryTabs
-    );
+    this.state.queryTabsByConnection = {
+      ...this.state.queryTabsByConnection,
+      [connectionId]: queryTabs,
+    };
 
     // Restore explain tabs (without results - they'll need to be re-executed)
     const explainTabs: ExplainTab[] = persistedState.explainTabs.map((pt) => ({
@@ -199,74 +282,58 @@ export class StateRestorationManager {
       isExecuting: false,
       result: undefined,
     }));
-    setMapValue(
-      () => this.state.explainTabsByConnection,
-      (m) => (this.state.explainTabsByConnection = m),
-      connectionId,
-      explainTabs
-    );
+    this.state.explainTabsByConnection = {
+      ...this.state.explainTabsByConnection,
+      [connectionId]: explainTabs,
+    };
 
     // Restore schema tabs - need to match against current schema
     this.restoreSchemaTabs(connectionId, persistedState.schemaTabs);
 
     // Restore active tab IDs (only if tabs exist)
     if (persistedState.activeQueryTabId && queryTabs.some((t) => t.id === persistedState.activeQueryTabId)) {
-      setMapValue(
-        () => this.state.activeQueryTabIdByConnection,
-        (m) => (this.state.activeQueryTabIdByConnection = m),
-        connectionId,
-        persistedState.activeQueryTabId
-      );
+      this.state.activeQueryTabIdByConnection = {
+        ...this.state.activeQueryTabIdByConnection,
+        [connectionId]: persistedState.activeQueryTabId,
+      };
     } else if (queryTabs.length > 0) {
-      setMapValue(
-        () => this.state.activeQueryTabIdByConnection,
-        (m) => (this.state.activeQueryTabIdByConnection = m),
-        connectionId,
-        queryTabs[0].id
-      );
+      this.state.activeQueryTabIdByConnection = {
+        ...this.state.activeQueryTabIdByConnection,
+        [connectionId]: queryTabs[0].id,
+      };
     }
 
-    const schemaTabs = this.state.schemaTabsByConnection.get(connectionId) || [];
+    const schemaTabs = this.state.schemaTabsByConnection[connectionId] ?? [];
     if (persistedState.activeSchemaTabId && schemaTabs.some((t) => t.id === persistedState.activeSchemaTabId)) {
-      setMapValue(
-        () => this.state.activeSchemaTabIdByConnection,
-        (m) => (this.state.activeSchemaTabIdByConnection = m),
-        connectionId,
-        persistedState.activeSchemaTabId
-      );
+      this.state.activeSchemaTabIdByConnection = {
+        ...this.state.activeSchemaTabIdByConnection,
+        [connectionId]: persistedState.activeSchemaTabId,
+      };
     } else if (schemaTabs.length > 0) {
-      setMapValue(
-        () => this.state.activeSchemaTabIdByConnection,
-        (m) => (this.state.activeSchemaTabIdByConnection = m),
-        connectionId,
-        schemaTabs[0].id
-      );
+      this.state.activeSchemaTabIdByConnection = {
+        ...this.state.activeSchemaTabIdByConnection,
+        [connectionId]: schemaTabs[0].id,
+      };
     }
 
     if (persistedState.activeExplainTabId && explainTabs.some((t) => t.id === persistedState.activeExplainTabId)) {
-      setMapValue(
-        () => this.state.activeExplainTabIdByConnection,
-        (m) => (this.state.activeExplainTabIdByConnection = m),
-        connectionId,
-        persistedState.activeExplainTabId
-      );
+      this.state.activeExplainTabIdByConnection = {
+        ...this.state.activeExplainTabIdByConnection,
+        [connectionId]: persistedState.activeExplainTabId,
+      };
     } else if (explainTabs.length > 0) {
-      setMapValue(
-        () => this.state.activeExplainTabIdByConnection,
-        (m) => (this.state.activeExplainTabIdByConnection = m),
-        connectionId,
-        explainTabs[0].id
-      );
+      this.state.activeExplainTabIdByConnection = {
+        ...this.state.activeExplainTabIdByConnection,
+        [connectionId]: explainTabs[0].id,
+      };
     }
 
     // Restore tab order (if available, otherwise will use timestamp ordering)
     if (persistedState.tabOrder && persistedState.tabOrder.length > 0) {
-      setMapValue(
-        () => this.state.tabOrderByConnection,
-        (m) => (this.state.tabOrderByConnection = m),
-        connectionId,
-        persistedState.tabOrder
-      );
+      this.state.tabOrderByConnection = {
+        ...this.state.tabOrderByConnection,
+        [connectionId]: persistedState.tabOrder,
+      };
     }
 
     // Restore active view

@@ -27,8 +27,8 @@
     } from "$lib/components/ui/tabs";
     import type { DatabaseType, SSHAuthMethod } from "$lib/types";
     import { toast } from "svelte-sonner";
-    import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
     import CopyIcon from "@lucide/svelte/icons/copy";
+    import { SshTunnelConfig } from "$lib/components/connection-dialog/index.js";
 
     let { open = $bindable(false), prefill = undefined }: Props = $props();
     const db = useDatabase();
@@ -400,20 +400,6 @@
         }
     };
 
-    const selectSshKeyFile = async () => {
-        try {
-            const selected = await openFileDialog({
-                multiple: false,
-                title: "Select SSH Key File",
-            });
-            if (selected && typeof selected === "string") {
-                formData.sshKeyPath = selected;
-            }
-        } catch (error) {
-            console.error("Failed to select file:", error);
-        }
-    };
-
     type Props = {
         open?: boolean;
         prefill?: {
@@ -641,108 +627,25 @@
                     {/if}
 
                     <!-- SSH Tunnel Section -->
-                    <div class="border-t pt-4 mt-2">
-                        <div class="flex items-center gap-3 mb-4">
-                            <input
-                                type="checkbox"
-                                id="ssh-enabled"
-                                bind:checked={formData.sshEnabled}
-                                class="h-4 w-4 rounded border-gray-300"
-                            />
-                            <Label for="ssh-enabled" class="cursor-pointer">{m.connection_dialog_label_ssh_tunnel()}</Label>
-                        </div>
-
-                        {#if formData.sshEnabled}
-                            <div class="flex flex-col gap-4">
-                                <div class="grid grid-cols-3 gap-2">
-                                    <div class="col-span-2 grid gap-2">
-                                        <Label for="ssh-host">{m.connection_dialog_label_ssh_host()}</Label>
-                                        <Input
-                                            id="ssh-host"
-                                            bind:value={formData.sshHost}
-                                            placeholder={m.connection_dialog_placeholder_ssh_host()}
-                                        />
-                                    </div>
-                                    <div class="grid gap-2">
-                                        <Label for="ssh-port">{m.connection_dialog_label_ssh_port()}</Label>
-                                        <Input
-                                            id="ssh-port"
-                                            type="number"
-                                            bind:value={formData.sshPort}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div class="grid gap-2">
-                                    <Label for="ssh-username">{m.connection_dialog_label_ssh_username()}</Label>
-                                    <Input
-                                        id="ssh-username"
-                                        bind:value={formData.sshUsername}
-                                        placeholder={m.connection_dialog_placeholder_ssh_username()}
-                                    />
-                                </div>
-
-                                <div class="grid gap-2">
-                                    <Label>{m.connection_dialog_label_auth_method()}</Label>
-                                    <Select
-                                        type="single"
-                                        value={formData.sshAuthMethod}
-                                        onValueChange={(value) => (formData.sshAuthMethod = value as SSHAuthMethod)}
-                                    >
-                                        <SelectTrigger class="w-full">
-                                            {formData.sshAuthMethod === "password" ? m.connection_dialog_auth_method_password() : m.connection_dialog_auth_method_ssh_key()}
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="password">{m.connection_dialog_auth_method_password()}</SelectItem>
-                                            <SelectItem value="key">{m.connection_dialog_auth_method_ssh_key()}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                {#if formData.sshAuthMethod === "password"}
-                                    <div class="grid gap-2">
-                                        <Label for="ssh-password">{m.connection_dialog_label_ssh_password()}</Label>
-                                        <Input
-                                            id="ssh-password"
-                                            type="password"
-                                            bind:value={formData.sshPassword}
-                                            placeholder={m.connection_dialog_placeholder_ssh_password()}
-                                        />
-                                    </div>
-                                {:else}
-                                    <div class="grid gap-2">
-                                        <Label for="ssh-key-path">{m.connection_dialog_label_ssh_key_file()}</Label>
-                                        <div class="flex gap-2">
-                                            <Input
-                                                id="ssh-key-path"
-                                                bind:value={formData.sshKeyPath}
-                                                placeholder={m.connection_dialog_placeholder_ssh_key_path()}
-                                                class="flex-1"
-                                            />
-                                            <Button variant="outline" type="button" onclick={selectSshKeyFile}>
-                                                {m.connection_dialog_button_browse()}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    <div class="grid gap-2">
-                                        <Label for="ssh-key-passphrase">{m.connection_dialog_label_key_passphrase()}</Label>
-                                        <Input
-                                            id="ssh-key-passphrase"
-                                            type="password"
-                                            bind:value={formData.sshKeyPassphrase}
-                                            placeholder={m.connection_dialog_placeholder_optional()}
-                                        />
-                                    </div>
-                                {/if}
-
-                                {#if isReconnecting && formData.sshEnabled}
-                                    <p class="text-xs text-amber-600 dark:text-amber-500">
-                                        ⚠ {m.connection_dialog_warning_ssh()}
-                                    </p>
-                                {/if}
-                            </div>
-                        {/if}
-                    </div>
+                    <SshTunnelConfig
+                        enabled={formData.sshEnabled}
+                        host={formData.sshHost}
+                        port={formData.sshPort}
+                        username={formData.sshUsername}
+                        authMethod={formData.sshAuthMethod}
+                        password={formData.sshPassword}
+                        keyPath={formData.sshKeyPath}
+                        keyPassphrase={formData.sshKeyPassphrase}
+                        {isReconnecting}
+                        onEnabledChange={(v) => formData.sshEnabled = v}
+                        onHostChange={(v) => formData.sshHost = v}
+                        onPortChange={(v) => formData.sshPort = v}
+                        onUsernameChange={(v) => formData.sshUsername = v}
+                        onAuthMethodChange={(v) => formData.sshAuthMethod = v}
+                        onPasswordChange={(v) => formData.sshPassword = v}
+                        onKeyPathChange={(v) => formData.sshKeyPath = v}
+                        onKeyPassphraseChange={(v) => formData.sshKeyPassphrase = v}
+                    />
                 {/if}
             </TabsContent>
         </Tabs>

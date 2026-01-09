@@ -48,7 +48,7 @@ export class PersistenceManager {
       this.persistenceTimer = null;
     }
     // Persist all connections that have data
-    for (const connectionId of this.state.queryTabsByConnection.keys()) {
+    for (const connectionId of Object.keys(this.state.queryTabsByConnection)) {
       this.persistConnectionState(connectionId);
     }
   }
@@ -63,7 +63,7 @@ export class PersistenceManager {
   // Serialization methods
 
   serializeQueryTabs(connectionId: string): PersistedQueryTab[] {
-    const tabs = this.state.queryTabsByConnection.get(connectionId) || [];
+    const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
@@ -73,7 +73,7 @@ export class PersistenceManager {
   }
 
   serializeSchemaTabs(connectionId: string): PersistedSchemaTab[] {
-    const tabs = this.state.schemaTabsByConnection.get(connectionId) || [];
+    const tabs = this.state.schemaTabsByConnection[connectionId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       tableName: tab.table.name,
@@ -82,7 +82,7 @@ export class PersistenceManager {
   }
 
   serializeExplainTabs(connectionId: string): PersistedExplainTab[] {
-    const tabs = this.state.explainTabsByConnection.get(connectionId) || [];
+    const tabs = this.state.explainTabsByConnection[connectionId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
@@ -91,7 +91,7 @@ export class PersistenceManager {
   }
 
   serializeErdTabs(connectionId: string): PersistedErdTab[] {
-    const tabs = this.state.erdTabsByConnection.get(connectionId) || [];
+    const tabs = this.state.erdTabsByConnection[connectionId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
@@ -99,7 +99,7 @@ export class PersistenceManager {
   }
 
   serializeSavedQueries(connectionId: string): PersistedSavedQuery[] {
-    const queries = this.state.savedQueriesByConnection.get(connectionId) || [];
+    const queries = this.state.savedQueriesByConnection[connectionId] ?? [];
     return queries.map((q) => ({
       id: q.id,
       name: q.name,
@@ -111,7 +111,7 @@ export class PersistenceManager {
   }
 
   serializeQueryHistory(connectionId: string): PersistedQueryHistoryItem[] {
-    const history = this.state.queryHistoryByConnection.get(connectionId) || [];
+    const history = this.state.queryHistoryByConnection[connectionId] ?? [];
     return history.slice(0, this.MAX_HISTORY_ITEMS).map((h) => ({
       id: h.id,
       query: h.query,
@@ -138,11 +138,11 @@ export class PersistenceManager {
         schemaTabs: this.serializeSchemaTabs(connectionId),
         explainTabs: this.serializeExplainTabs(connectionId),
         erdTabs: this.serializeErdTabs(connectionId),
-        tabOrder: this.state.tabOrderByConnection.get(connectionId) || [],
-        activeQueryTabId: this.state.activeQueryTabIdByConnection.get(connectionId) || null,
-        activeSchemaTabId: this.state.activeSchemaTabIdByConnection.get(connectionId) || null,
-        activeExplainTabId: this.state.activeExplainTabIdByConnection.get(connectionId) || null,
-        activeErdTabId: this.state.activeErdTabIdByConnection.get(connectionId) || null,
+        tabOrder: this.state.tabOrderByConnection[connectionId] ?? [],
+        activeQueryTabId: this.state.activeQueryTabIdByConnection[connectionId] ?? null,
+        activeSchemaTabId: this.state.activeSchemaTabIdByConnection[connectionId] ?? null,
+        activeExplainTabId: this.state.activeExplainTabIdByConnection[connectionId] ?? null,
+        activeErdTabId: this.state.activeErdTabIdByConnection[connectionId] ?? null,
         activeView: this.state.activeView,
         savedQueries: this.serializeSavedQueries(connectionId),
         queryHistory: this.serializeQueryHistory(connectionId),

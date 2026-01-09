@@ -14,19 +14,19 @@ export class SavedQueryManager {
   saveQuery(name: string, query: string, tabId?: string): string | null {
     if (!this.state.activeConnectionId) return null;
 
+    const connectionId = this.state.activeConnectionId;
+
     // Check if this tab is already linked to a saved query
     let savedQueryId: string | undefined;
     if (tabId) {
-      const tabs =
-        this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
+      const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
       const tab = tabs.find((t) => t.id === tabId);
       savedQueryId = tab?.savedQueryId;
     }
 
     if (savedQueryId) {
       // Update existing saved query with new object for proper reactivity
-      const savedQueries =
-        this.state.savedQueriesByConnection.get(this.state.activeConnectionId) || [];
+      const savedQueries = this.state.savedQueriesByConnection[connectionId] ?? [];
       const savedQuery = savedQueries.find((q) => q.id === savedQueryId);
       if (savedQuery) {
         const updatedSavedQueries = savedQueries.map((q) =>
@@ -34,26 +34,27 @@ export class SavedQueryManager {
             ? { ...q, name, query, updatedAt: new Date() }
             : q
         );
-        const newSavedQueries = new Map(this.state.savedQueriesByConnection);
-        newSavedQueries.set(this.state.activeConnectionId, updatedSavedQueries);
-        this.state.savedQueriesByConnection = newSavedQueries;
+        this.state.savedQueriesByConnection = {
+          ...this.state.savedQueriesByConnection,
+          [connectionId]: updatedSavedQueries,
+        };
 
         // Also update tab name if it differs
         if (tabId) {
-          const tabs =
-            this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
+          const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
           const tab = tabs.find((t) => t.id === tabId);
           if (tab && tab.name !== name) {
             const updatedTabs = tabs.map((t) =>
               t.id === tabId ? { ...t, name } : t
             );
-            const newQueryTabs = new Map(this.state.queryTabsByConnection);
-            newQueryTabs.set(this.state.activeConnectionId, updatedTabs);
-            this.state.queryTabsByConnection = newQueryTabs;
+            this.state.queryTabsByConnection = {
+              ...this.state.queryTabsByConnection,
+              [connectionId]: updatedTabs,
+            };
           }
         }
 
-        this.schedulePersistence(this.state.activeConnectionId);
+        this.schedulePersistence(connectionId);
         return savedQueryId;
       }
     }
@@ -63,58 +64,57 @@ export class SavedQueryManager {
       id: `saved-${Date.now()}`,
       name,
       query,
-      connectionId: this.state.activeConnectionId,
+      connectionId,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const savedQueries =
-      this.state.savedQueriesByConnection.get(this.state.activeConnectionId) || [];
-    const newSavedQueries = new Map(this.state.savedQueriesByConnection);
-    newSavedQueries.set(this.state.activeConnectionId, [
-      ...savedQueries,
-      newSavedQuery,
-    ]);
-    this.state.savedQueriesByConnection = newSavedQueries;
+    const savedQueries = this.state.savedQueriesByConnection[connectionId] ?? [];
+    this.state.savedQueriesByConnection = {
+      ...this.state.savedQueriesByConnection,
+      [connectionId]: [...savedQueries, newSavedQuery],
+    };
 
     // Link tab to saved query if tabId provided
     if (tabId) {
-      const tabs =
-        this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
+      const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
       const updatedTabs = tabs.map((t) =>
         t.id === tabId
           ? { ...t, savedQueryId: newSavedQuery.id, name }
           : t
       );
-      const newQueryTabs = new Map(this.state.queryTabsByConnection);
-      newQueryTabs.set(this.state.activeConnectionId, updatedTabs);
-      this.state.queryTabsByConnection = newQueryTabs;
+      this.state.queryTabsByConnection = {
+        ...this.state.queryTabsByConnection,
+        [connectionId]: updatedTabs,
+      };
     }
 
-    this.schedulePersistence(this.state.activeConnectionId);
+    this.schedulePersistence(connectionId);
     return newSavedQuery.id;
   }
 
   deleteSavedQuery(id: string) {
     if (!this.state.activeConnectionId) return;
 
-    const savedQueries =
-      this.state.savedQueriesByConnection.get(this.state.activeConnectionId) || [];
+    const connectionId = this.state.activeConnectionId;
+    const savedQueries = this.state.savedQueriesByConnection[connectionId] ?? [];
     const filtered = savedQueries.filter((q) => q.id !== id);
-    const newSavedQueries = new Map(this.state.savedQueriesByConnection);
-    newSavedQueries.set(this.state.activeConnectionId, filtered);
-    this.state.savedQueriesByConnection = newSavedQueries;
+
+    this.state.savedQueriesByConnection = {
+      ...this.state.savedQueriesByConnection,
+      [connectionId]: filtered,
+    };
 
     // Remove savedQueryId from any tabs using this query
-    const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
-    tabs.forEach((tab) => {
-      if (tab.savedQueryId === id) {
-        tab.savedQueryId = undefined;
-      }
-    });
-    const newQueryTabs = new Map(this.state.queryTabsByConnection);
-    newQueryTabs.set(this.state.activeConnectionId, [...tabs]);
-    this.state.queryTabsByConnection = newQueryTabs;
-    this.schedulePersistence(this.state.activeConnectionId);
+    const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
+    const updatedTabs = tabs.map((tab) =>
+      tab.savedQueryId === id ? { ...tab, savedQueryId: undefined } : tab
+    );
+
+    this.state.queryTabsByConnection = {
+      ...this.state.queryTabsByConnection,
+      [connectionId]: updatedTabs,
+    };
+    this.schedulePersistence(connectionId);
   }
 }

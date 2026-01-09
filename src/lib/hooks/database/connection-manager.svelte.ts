@@ -8,7 +8,6 @@ import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
-import { setMapValue } from "./map-utils.js";
 
 type ConnectionInput = Omit<DatabaseConnection, "id"> & {
   sshPassword?: string;
@@ -209,9 +208,10 @@ export class ConnectionManager {
     this.state.activeConnectionId = newConnection.id;
 
     // Store tables immediately (without column metadata) so UI is responsive
-    const newSchemas = new Map(this.state.schemas);
-    newSchemas.set(newConnection.id, schemasWithTables);
-    this.state.schemas = newSchemas;
+    this.state.schemas = {
+      ...this.state.schemas,
+      [newConnection.id]: schemasWithTables,
+    };
 
     // Load column metadata asynchronously in the background
     this.onSchemaLoaded(newConnection.id, schemasWithTables, adapter, newConnection.database, newConnection.mssqlConnectionId);
@@ -321,9 +321,10 @@ export class ConnectionManager {
     }
 
     // Store tables immediately (without column metadata) so UI is responsive
-    const newSchemas = new Map(this.state.schemas);
-    newSchemas.set(connectionId, schemasWithTables);
-    this.state.schemas = newSchemas;
+    this.state.schemas = {
+      ...this.state.schemas,
+      [connectionId]: schemasWithTables,
+    };
 
     // Load column metadata asynchronously in the background
     this.onSchemaLoaded(connectionId, schemasWithTables, adapter, database, mssqlConnectionId);
@@ -336,7 +337,7 @@ export class ConnectionManager {
 
     // Create initial query tab if no tabs were restored
     if (!hasRestoredTabs) {
-      const tabs = this.state.queryTabsByConnection.get(connectionId) || [];
+      const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
       if (tabs.length === 0) {
         this.onCreateInitialTab();
       }
