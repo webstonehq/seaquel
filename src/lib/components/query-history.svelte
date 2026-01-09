@@ -47,7 +47,13 @@
 				<ScrollArea class="h-full">
 					<div class="p-4 flex flex-col gap-2">
 						{#each filteredHistory as item (item.id)}
-							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.queryTabs.loadFromHistory(item.id)}>
+							<div
+								class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group cursor-pointer"
+								role="button"
+								tabindex="0"
+								onclick={() => db.queryTabs.loadFromHistory(item.id)}
+								onkeydown={(e) => e.key === 'Enter' && db.queryTabs.loadFromHistory(item.id)}
+							>
 								<div class="flex items-start justify-between gap-2 mb-2">
 									<div class="flex items-center gap-2 flex-1 min-w-0">
 										<ClockIcon class="size-3 text-muted-foreground shrink-0" />
@@ -59,6 +65,7 @@
 										size="icon"
 										variant="ghost"
 										class={["size-6 shrink-0 [&_svg:not([class*='size-'])]:size-3", item.favorite && "text-yellow-500"]}
+										aria-label={item.favorite ? m.history_remove_favorite() : m.history_add_favorite()}
 										onclick={(e) => {
 											e.stopPropagation();
 											db.history.toggleQueryFavorite(item.id);
@@ -87,7 +94,13 @@
 				<ScrollArea class="h-full">
 					<div class="p-4 flex flex-col gap-2">
 						{#each filteredSavedQueries as item (item.id)}
-							<div class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group" onclick={() => db.queryTabs.loadSaved(item.id)}>
+							<div
+								class="w-full text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors group cursor-pointer"
+								role="button"
+								tabindex="0"
+								onclick={() => db.queryTabs.loadSaved(item.id)}
+								onkeydown={(e) => e.key === 'Enter' && db.queryTabs.loadSaved(item.id)}
+							>
 								<div class="flex items-start justify-between gap-2 mb-2">
 									<div class="flex items-center gap-2 flex-1 min-w-0">
 										<BookmarkIcon class="size-3 text-primary shrink-0" />
@@ -97,6 +110,7 @@
 										size="icon"
 										variant="ghost"
 										class="size-6 shrink-0 [&_svg:not([class*='size-'])]:size-3 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+										aria-label={m.history_delete_saved()}
 										onclick={(e) => {
 											e.stopPropagation();
 											db.savedQueries.deleteSavedQuery(item.id);

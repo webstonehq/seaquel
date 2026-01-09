@@ -201,6 +201,7 @@
 																	"size-5 shrink-0 [&_svg:not([class*='size-'])]:size-3",
 																	item.favorite && "text-yellow-500",
 																]}
+																aria-label={item.favorite ? m.history_remove_favorite() : m.history_add_favorite()}
 																onclick={(e) => {
 																	e.stopPropagation();
 																	db.history.toggleQueryFavorite(item.id);
@@ -255,6 +256,7 @@
 																size="icon"
 																variant="ghost"
 																class="size-5 shrink-0 [&_svg:not([class*='size-'])]:size-3 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+																aria-label={m.history_delete_saved()}
 																onclick={(e) => {
 																	e.stopPropagation();
 																	db.savedQueries.deleteSavedQuery(item.id);

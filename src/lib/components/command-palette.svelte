@@ -27,7 +27,7 @@
 
 	// Derived state for dynamic commands
 	const tables = $derived(
-		db.state.activeConnectionId ? db.state.schemas.get(db.state.activeConnectionId) || [] : []
+		db.state.activeConnectionId ? db.state.schemas[db.state.activeConnectionId] ?? [] : []
 	);
 	const connections = $derived(db.state.connections);
 	const savedQueries = $derived(db.state.activeConnectionSavedQueries);

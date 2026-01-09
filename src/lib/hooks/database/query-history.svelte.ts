@@ -17,22 +17,25 @@ export class QueryHistoryManager {
   addToHistory(query: string, results: QueryResult) {
     if (!this.state.activeConnectionId) return;
 
-    const queryHistory = this.state.queryHistoryByConnection.get(this.state.activeConnectionId) || [];
-    const newQueryHistory = new Map(this.state.queryHistoryByConnection);
-    newQueryHistory.set(this.state.activeConnectionId, [
-      {
-        id: `hist-${Date.now()}`,
-        query,
-        timestamp: new Date(),
-        executionTime: results.executionTime,
-        rowCount: results.affectedRows ?? results.totalRows,
-        connectionId: this.state.activeConnectionId,
-        favorite: false,
-      },
-      ...queryHistory,
-    ]);
-    this.state.queryHistoryByConnection = newQueryHistory;
-    this.schedulePersistence(this.state.activeConnectionId);
+    const connectionId = this.state.activeConnectionId;
+    const queryHistory = this.state.queryHistoryByConnection[connectionId] ?? [];
+
+    this.state.queryHistoryByConnection = {
+      ...this.state.queryHistoryByConnection,
+      [connectionId]: [
+        {
+          id: `hist-${Date.now()}`,
+          query,
+          timestamp: new Date(),
+          executionTime: results.executionTime,
+          rowCount: results.affectedRows ?? results.totalRows,
+          connectionId,
+          favorite: false,
+        },
+        ...queryHistory,
+      ],
+    };
+    this.schedulePersistence(connectionId);
   }
 
   /**
@@ -41,15 +44,19 @@ export class QueryHistoryManager {
   toggleQueryFavorite(id: string) {
     if (!this.state.activeConnectionId) return;
 
-    const queryHistory =
-      this.state.queryHistoryByConnection.get(this.state.activeConnectionId) || [];
+    const connectionId = this.state.activeConnectionId;
+    const queryHistory = this.state.queryHistoryByConnection[connectionId] ?? [];
     const item = queryHistory.find((h: QueryHistoryItem) => h.id === id);
+
     if (item) {
-      item.favorite = !item.favorite;
-      const newQueryHistory = new Map(this.state.queryHistoryByConnection);
-      newQueryHistory.set(this.state.activeConnectionId, [...queryHistory]);
-      this.state.queryHistoryByConnection = newQueryHistory;
-      this.schedulePersistence(this.state.activeConnectionId);
+      const updatedHistory = queryHistory.map((h) =>
+        h.id === id ? { ...h, favorite: !h.favorite } : h
+      );
+      this.state.queryHistoryByConnection = {
+        ...this.state.queryHistoryByConnection,
+        [connectionId]: updatedHistory,
+      };
+      this.schedulePersistence(connectionId);
     }
   }
 }
