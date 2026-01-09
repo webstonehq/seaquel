@@ -232,6 +232,7 @@
 	"query_cell_copied": "Cell value copied",
 	"query_row_copied": "Row copied as JSON",
 	"query_column_copied": "Column values copied",
+	"query_error_copied": "Error copied to clipboard",
 	"query_copy_cell": "Copy Cell Value",
 	"query_copy_row": "Copy Row as JSON",
 	"query_copy_column": "Copy Column Values",

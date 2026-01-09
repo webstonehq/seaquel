@@ -28,6 +28,7 @@
     import type { DatabaseType, SSHAuthMethod } from "$lib/types";
     import { toast } from "svelte-sonner";
     import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+    import CopyIcon from "@lucide/svelte/icons/copy";
 
     let { open = $bindable(false), prefill = undefined }: Props = $props();
     const db = useDatabase();
@@ -312,6 +313,15 @@
                 return match[1];
             }
             return error;
+        }
+        // Handle Tauri error objects with message/code properties
+        if (typeof error === "object" && error !== null) {
+            const errObj = error as Record<string, unknown>;
+            if (typeof errObj.message === "string") {
+                return errObj.code ? `${errObj.code}: ${errObj.message}` : errObj.message;
+            }
+            // Log for debugging
+            console.error("Unknown error object:", error);
         }
         return "An unknown error occurred";
     };
@@ -738,8 +748,23 @@
         </Tabs>
 
         {#if connectionError}
-            <div class="p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
-                {connectionError}
+            <div class="flex items-start gap-2 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
+                <span class="flex-1">{connectionError}</span>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="shrink-0 size-6 text-destructive/70 hover:text-destructive hover:bg-destructive/20"
+                    onclick={async () => {
+                        try {
+                            await navigator.clipboard.writeText(connectionError ?? '');
+                            toast.success(m.query_error_copied());
+                        } catch {
+                            toast.error(m.query_copy_failed());
+                        }
+                    }}
+                >
+                    <CopyIcon class="size-3.5" />
+                </Button>
             </div>
         {/if}
 

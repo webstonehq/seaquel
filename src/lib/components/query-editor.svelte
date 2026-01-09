@@ -503,10 +503,27 @@
                             <div class="flex-1 p-4 bg-destructive/10 overflow-auto">
                                 <div class="flex items-start gap-3">
                                     <XCircleIcon class="size-5 text-destructive shrink-0 mt-0.5" />
-                                    <div class="space-y-3">
-                                        <div>
-                                            <h4 class="font-semibold text-destructive">{m.query_statement_failed({ n: activeResultIndex + 1 })}</h4>
-                                            <pre class="mt-2 text-sm whitespace-pre-wrap text-destructive/90 font-mono">{activeResult.error}</pre>
+                                    <div class="flex-1 space-y-3">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div>
+                                                <h4 class="font-semibold text-destructive">{m.query_statement_failed({ n: activeResultIndex + 1 })}</h4>
+                                                <pre class="mt-2 text-sm whitespace-pre-wrap text-destructive/90 font-mono">{activeResult.error}</pre>
+                                            </div>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                class="shrink-0 size-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                                                onclick={async () => {
+                                                    try {
+                                                        await navigator.clipboard.writeText(activeResult.error ?? '');
+                                                        toast.success(m.query_error_copied());
+                                                    } catch {
+                                                        toast.error(m.query_copy_failed());
+                                                    }
+                                                }}
+                                            >
+                                                <CopyIcon class="size-4" />
+                                            </Button>
                                         </div>
                                         <details class="text-sm">
                                             <summary class="cursor-pointer text-muted-foreground hover:text-foreground">{m.query_show_sql()}</summary>
