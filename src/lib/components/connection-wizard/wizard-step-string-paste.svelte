@@ -6,6 +6,8 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import type { WizardFormData, DatabaseTypeConfig } from "$lib/stores/connection-wizard.svelte.js";
 	import CheckCircleIcon from "@lucide/svelte/icons/check-circle";
+	import CopyIcon from "@lucide/svelte/icons/copy";
+	import { toast } from "svelte-sonner";
 
 	interface Props {
 		formData: WizardFormData;
@@ -113,8 +115,23 @@
 		{/if}
 
 		{#if error}
-			<div class="p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
-				{error}
+			<div class="flex items-start gap-2 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
+				<span class="flex-1">{error}</span>
+				<Button
+					variant="ghost"
+					size="icon"
+					class="shrink-0 size-6 text-destructive/70 hover:text-destructive hover:bg-destructive/20"
+					onclick={async () => {
+						try {
+							await navigator.clipboard.writeText(error ?? '');
+							toast.success(m.query_error_copied());
+						} catch {
+							toast.error(m.query_copy_failed());
+						}
+					}}
+				>
+					<CopyIcon class="size-3.5" />
+				</Button>
 			</div>
 		{/if}
 	</div>
