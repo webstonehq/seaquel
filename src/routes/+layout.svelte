@@ -14,12 +14,15 @@
 	import { settingsDialogStore } from "$lib/stores/settings-dialog.svelte.js";
 	import { themeStore } from "$lib/stores/theme.svelte.js";
 	import { applyThemeColors } from "$lib/themes/apply";
+	import DbeaverImportDialog from "$lib/components/dbeaver-import-dialog.svelte";
 	import type { ThemeColors } from "$lib/types/theme";
 	import { listen } from "@tauri-apps/api/event";
 	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
 	import { m } from "$lib/paraglide/messages.js";
 	import { onMount } from "svelte";
+	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
+	import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
 
 	setDatabase();
 
@@ -30,9 +33,11 @@
 	// Check if we're in the theme editor window (no app shell needed)
 	const isThemeEditor = $derived(page.url.pathname.startsWith("/windows/theme-editor"));
 
-	// Initialize theme store on mount
+	// Initialize stores on mount
 	onMount(async () => {
 		await themeStore.initialize();
+		await onboardingStore.initialize();
+		await dbeaverImportStore.initialize();
 	});
 
 	// Apply active theme whenever it changes
@@ -135,6 +140,7 @@
 	<KeyboardShortcutsDialog />
 	<CommandPalette />
 	<SettingsDialog />
+	<DbeaverImportDialog />
 
 	<Sidebar.Provider
 		class="[--header-height:calc(--spacing(8))] flex-col h-svh overflow-hidden"

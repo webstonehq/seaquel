@@ -1,5 +1,6 @@
 use arboard::Clipboard;
 use image::ImageReader;
+use std::fs;
 use std::sync::Mutex;
 use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
@@ -19,6 +20,28 @@ struct PendingUpdate {
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust! Yep", name)
+}
+
+#[tauri::command]
+fn read_dbeaver_config() -> Result<Option<String>, String> {
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+
+    #[cfg(target_os = "macos")]
+    let config_path = home.join("Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+
+    #[cfg(target_os = "windows")]
+    let config_path = home.join("AppData/Roaming/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+
+    #[cfg(target_os = "linux")]
+    let config_path = home.join(".local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+
+    if config_path.exists() {
+        let content = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read DBeaver config: {}", e))?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
 }
 
 #[tauri::command]
@@ -172,6 +195,7 @@ pub fn run() {
             greet,
             copy_image_to_clipboard,
             install_update,
+            read_dbeaver_config,
             ssh_tunnel::create_ssh_tunnel,
             ssh_tunnel::close_ssh_tunnel,
             ssh_tunnel::check_tunnel_status,

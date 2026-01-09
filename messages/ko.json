@@ -398,5 +398,15 @@
 	"migration_description": "둘러보실 수 있도록 도와드리겠습니다",
 	"migration_skip": "건너뛰기, 데이터베이스 도구는 처음입니다",
 	"migration_ui_mapping": "여기가 다른 점입니다",
-	"migration_change": "선택 변경"
+	"migration_change": "선택 변경",
+	"dbeaver_import_title": "DBeaver 연결 가져오기",
+	"dbeaver_import_description": "시스템에서 DBeaver 연결을 발견했습니다. Seaquel로 가져오시겠습니까?",
+	"dbeaver_import_found": "{count}개 연결 발견",
+	"dbeaver_import_select_all": "전체 선택",
+	"dbeaver_import_deselect_all": "전체 해제",
+	"dbeaver_import_duplicate": "이미 존재함",
+	"dbeaver_import_password_note": "보안을 위해 비밀번호는 가져오지 않습니다. 연결 시 입력해야 합니다.",
+	"dbeaver_import_skip": "건너뛰기",
+	"dbeaver_import_button": "{count}개 연결 가져오기",
+	"dbeaver_import_success": "{count}개 연결을 성공적으로 가져왔습니다"
 }
