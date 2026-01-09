@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { Badge } from "$lib/components/ui/badge";
     import SidebarIcon from "@lucide/svelte/icons/sidebar";
     import { Button } from "$lib/components/ui/button/index.js";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
@@ -87,21 +86,17 @@
             >
                 <SidebarIcon />
             </Button>
-            {#if db.state.connections.length > 0}
+            {#if db.state.activeConnection}
                 <DropdownMenu.Root>
                     <DropdownMenu.Trigger class="flex items-center gap-2 px-3 h-8 text-sm rounded-md bg-background hover:bg-muted transition-colors">
                         <DatabaseIcon class="size-4 text-muted-foreground" />
-                        {#if db.state.activeConnection}
-                            <span
-                                class={[
-                                    "size-2 rounded-full shrink-0",
-                                    (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId) ? "bg-green-500" : "bg-gray-400"
-                                ]}
-                            ></span>
-                            <span class="max-w-32 truncate" title={db.state.activeConnection.name}>{db.state.activeConnection.name}</span>
-                        {:else}
-                            <span class="text-muted-foreground">{m.header_select_connection()}</span>
-                        {/if}
+                        <span
+                            class={[
+                                "size-2 rounded-full shrink-0",
+                                (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId) ? "bg-green-500" : "bg-gray-400"
+                            ]}
+                        ></span>
+                        <span class="max-w-32 truncate" title={db.state.activeConnection.name}>{db.state.activeConnection.name}</span>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Content class="w-56" align="start">
                         {#each sortedConnections as connection (connection.id)}
@@ -158,15 +153,6 @@
                         </DropdownMenu.Item>
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
-            {:else}
-                <Badge
-                    variant="outline"
-                    class="cursor-pointer hover:bg-muted transition-colors"
-                    onclick={() => connectionDialogStore.open()}
-                >
-                    <PlusIcon class="size-3 me-1" />
-                    {m.header_add_new_connection()}
-                </Badge>
             {/if}
         </div>
         <div class="flex items-center gap-1">
@@ -181,16 +167,16 @@
                 >
                     <NetworkIcon class="size-5" />
                 </Button>
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    class="size-8"
+                    aria-label={m.header_toggle_ai()}
+                    onclick={() => db.ui.toggleAI()}
+                >
+                    <BotIcon class="size-5" />
+                </Button>
             {/if}
-            <Button
-                size="icon"
-                variant="ghost"
-                class="size-8"
-                aria-label={m.header_toggle_ai()}
-                onclick={() => db.ui.toggleAI()}
-            >
-                <BotIcon class="size-5" />
-            </Button>
             <LanguageToggle />
             <ThemeToggle />
         </div>

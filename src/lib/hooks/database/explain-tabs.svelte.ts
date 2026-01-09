@@ -111,6 +111,22 @@ export class ExplainTabManager {
 		try {
 			const adapter = getAdapter(this.state.activeConnection.type);
 			const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
+
+			// For SQLite with analyze=true, we need to actually execute the query
+			// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
+			// doesn't provide this information
+			let actualRowCount: number | undefined;
+			let executionTime: number | undefined;
+
+			if (dbType === 'sqlite' && analyze) {
+				const startTime = performance.now();
+				const queryResult = (await this.state.activeConnection.database!.select(
+					queryToExplain
+				)) as unknown[];
+				executionTime = performance.now() - startTime;
+				actualRowCount = queryResult.length;
+			}
+
 			const result = (await this.state.activeConnection.database!.select(
 				explainQuery
 			)) as unknown[];
@@ -118,8 +134,20 @@ export class ExplainTabManager {
 			// Use adapter to parse the results into common format
 			const parsedNode = adapter.parseExplainResult(result, analyze);
 
+			// For SQLite analyze, inject the actual execution stats into the root node
+			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+				parsedNode.actualRows = actualRowCount;
+				parsedNode.rows = actualRowCount;
+				parsedNode.actualTime = executionTime;
+			}
+
 			// Convert to ExplainResult format for rendering
 			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+
+			// For SQLite analyze, set execution time on the result
+			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+				explainResult.executionTime = executionTime;
+			}
 
 			// Update the explain tab with results
 			newExplainTab.result = explainResult;
