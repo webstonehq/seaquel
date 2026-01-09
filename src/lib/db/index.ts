@@ -1,4 +1,5 @@
 import type { DatabaseType, SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
+import { MssqlAdapter } from "./mssql";
 import { PostgresAdapter } from "./postgres";
 import { SqliteAdapter } from "./sqlite";
 
@@ -56,6 +57,7 @@ export function validateIdentifier(name: string): string {
 }
 
 const adapters: Partial<Record<DatabaseType, DatabaseAdapter>> = {
+	mssql: new MssqlAdapter(),
 	postgres: new PostgresAdapter(),
 	sqlite: new SqliteAdapter(),
 };

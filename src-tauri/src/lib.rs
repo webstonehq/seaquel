@@ -5,8 +5,10 @@ use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Subm
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
+mod mssql;
 mod ssh_tunnel;
 
+use mssql::MssqlConnectionManager;
 use ssh_tunnel::TunnelManager;
 
 struct PendingUpdate {
@@ -157,6 +159,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
+        .manage(MssqlConnectionManager::new())
         .manage(PendingUpdate { bytes: Mutex::new(None) })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -173,6 +176,10 @@ pub fn run() {
             ssh_tunnel::close_ssh_tunnel,
             ssh_tunnel::check_tunnel_status,
             ssh_tunnel::list_active_tunnels,
+            mssql::mssql_connect,
+            mssql::mssql_disconnect,
+            mssql::mssql_query,
+            mssql::mssql_execute,
         ])
         .setup(|app| {
             // Set up custom menu

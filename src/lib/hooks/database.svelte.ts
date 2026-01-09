@@ -80,8 +80,8 @@ class UseDatabase {
       this.persistence,
       this._stateRestoration,
       this.tabs,
-      (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database) => {
-        this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, database);
+      (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database | undefined, mssqlConnectionId?: string) => {
+        this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, database, mssqlConnectionId);
       },
       () => this.queryTabs.add()
     );
