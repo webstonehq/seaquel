@@ -26,6 +26,7 @@ export interface DatabaseConnection {
 	connectionString?: string;
 	lastConnected?: Date;
 	database?: Database;
+	mssqlConnectionId?: string; // For MSSQL connections (uses custom Rust backend instead of tauri-plugin-sql)
 	sshTunnel?: SSHTunnelConfig;
 	tunnelLocalPort?: number;
 }

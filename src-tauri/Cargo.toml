@@ -29,6 +29,10 @@ russh = "0.48"
 russh-keys = "0.48"
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "net", "io-util"] }
+tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "native-tls"] }
+async-native-tls = "0.5"
+tokio-util = { version = "0.7", features = ["compat"] }
+base64 = "0.22"
 tauri-plugin-os = "2"
 tauri-plugin-clipboard-manager = "2.3.2"
 arboard = "3.6.1"

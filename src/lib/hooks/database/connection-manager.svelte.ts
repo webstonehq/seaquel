@@ -7,6 +7,7 @@ import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
+import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
 import { setMapValue } from "./map-utils.js";
 
 type ConnectionInput = Omit<DatabaseConnection, "id"> & {
@@ -28,7 +29,7 @@ export class ConnectionManager {
     private persistence: PersistenceManager,
     private stateRestoration: StateRestorationManager,
     private tabOrdering: TabOrderingManager,
-    private onSchemaLoaded: (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database) => void,
+    private onSchemaLoaded: (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database | undefined, mssqlConnectionId?: string) => void,
     private onCreateInitialTab: () => void
   ) {}
 
@@ -146,12 +147,34 @@ export class ConnectionManager {
       connectionId
     );
 
+    // Connect to database - MSSQL uses custom backend, others use tauri-plugin-sql
+    let database: Database | undefined;
+    let mssqlConnectionId: string | undefined;
+
+    if (connection.type === "mssql") {
+      const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
+      const port = tunnelLocalPort || connection.port;
+      const mssqlConn = await mssqlConnect({
+        host,
+        port,
+        database: connection.databaseName,
+        username: connection.username,
+        password: connection.password,
+        encrypt: connection.sslMode === "require",
+        trustCert: connection.sslMode !== "require",
+      });
+      mssqlConnectionId = mssqlConn.connectionId;
+    } else {
+      database = effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined;
+    }
+
     const newConnection: DatabaseConnection = {
       ...connection,
       id: connectionId,
       lastConnected: new Date(),
       tunnelLocalPort,
-      database: effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined,
+      database,
+      mssqlConnectionId,
     };
 
     if (!this.state.connections.find((c) => c.id === newConnection.id)) {
@@ -164,12 +187,21 @@ export class ConnectionManager {
     const adapter = getAdapter(newConnection.type);
     let schemasWithTables: SchemaTable[];
     try {
-      const schemasWithTablesDbResult = await newConnection.database!.select(adapter.getSchemaQuery());
+      let schemasWithTablesDbResult: unknown[];
+      if (connection.type === "mssql" && mssqlConnectionId) {
+        const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
+        schemasWithTablesDbResult = result.rows;
+      } else {
+        schemasWithTablesDbResult = await newConnection.database!.select(adapter.getSchemaQuery());
+      }
       schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
     } catch (error) {
       // Cleanup: remove the connection we just added
       this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
       this.stateRestoration.cleanupConnectionMaps(newConnection.id);
+      if (mssqlConnectionId) {
+        await mssqlDisconnect(mssqlConnectionId).catch(() => {});
+      }
       throw new Error(`Failed to load database schema: ${error}`);
     }
 
@@ -182,7 +214,7 @@ export class ConnectionManager {
     this.state.schemas = newSchemas;
 
     // Load column metadata asynchronously in the background
-    this.onSchemaLoaded(newConnection.id, schemasWithTables, adapter, newConnection.database!);
+    this.onSchemaLoaded(newConnection.id, schemasWithTables, adapter, newConnection.database, newConnection.mssqlConnectionId);
 
     // Create initial query tab for new connection
     this.onCreateInitialTab();
@@ -223,13 +255,37 @@ export class ConnectionManager {
       connectionId
     );
 
-    // Update the existing connection with the new database connection
-    const database = effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined;
+    // Close existing MSSQL connection if any
+    if (existingConnection.mssqlConnectionId) {
+      await mssqlDisconnect(existingConnection.mssqlConnectionId).catch(() => {});
+    }
+
+    // Connect to database - MSSQL uses custom backend, others use tauri-plugin-sql
+    let database: Database | undefined;
+    let mssqlConnectionId: string | undefined;
+
+    if (connection.type === "mssql") {
+      const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
+      const port = tunnelLocalPort || connection.port;
+      const mssqlConn = await mssqlConnect({
+        host,
+        port,
+        database: connection.databaseName,
+        username: connection.username,
+        password: connection.password,
+        encrypt: connection.sslMode === "require",
+        trustCert: connection.sslMode !== "require",
+      });
+      mssqlConnectionId = mssqlConn.connectionId;
+    } else {
+      database = effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined;
+    }
 
     // Create updated connection object to ensure Svelte reactivity sees the change
     const updatedConnection: DatabaseConnection = {
       ...existingConnection,
       database,
+      mssqlConnectionId,
       lastConnected: new Date(),
       password: connection.password,
       tunnelLocalPort,
@@ -245,13 +301,22 @@ export class ConnectionManager {
     const adapter = getAdapter(existingConnection.type);
     let schemasWithTables: SchemaTable[];
     try {
-      const schemasWithTablesDbResult = await database!.select(adapter.getSchemaQuery());
+      let schemasWithTablesDbResult: unknown[];
+      if (connection.type === "mssql" && mssqlConnectionId) {
+        const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
+        schemasWithTablesDbResult = result.rows;
+      } else {
+        schemasWithTablesDbResult = await database!.select(adapter.getSchemaQuery());
+      }
       schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
     } catch (error) {
-      // Revert: set database back to undefined on the connection
+      // Revert: set database/mssqlConnectionId back to undefined on the connection
       this.state.connections = this.state.connections.map((c) =>
-        c.id === connectionId ? { ...c, database: undefined } : c
+        c.id === connectionId ? { ...c, database: undefined, mssqlConnectionId: undefined } : c
       );
+      if (mssqlConnectionId) {
+        await mssqlDisconnect(mssqlConnectionId).catch(() => {});
+      }
       throw new Error(`Failed to load database schema: ${error}`);
     }
 
@@ -261,7 +326,7 @@ export class ConnectionManager {
     this.state.schemas = newSchemas;
 
     // Load column metadata asynchronously in the background
-    this.onSchemaLoaded(connectionId, schemasWithTables, adapter, database!);
+    this.onSchemaLoaded(connectionId, schemasWithTables, adapter, database, mssqlConnectionId);
 
     // Set this as the active connection (only after schema loading succeeds)
     this.state.activeConnectionId = connectionId;
@@ -289,6 +354,7 @@ export class ConnectionManager {
   async test(connection: ConnectionInput): Promise<void> {
     let effectiveConnectionString = connection.connectionString;
     let tunnelId: string | undefined;
+    let tunnelLocalPort: number | undefined;
 
     // Establish SSH tunnel if enabled
     if (connection.sshTunnel?.enabled) {
@@ -305,8 +371,9 @@ export class ConnectionManager {
       });
 
       tunnelId = tunnelResult.tunnelId;
+      tunnelLocalPort = tunnelResult.localPort;
 
-      // Build new connection string using tunnel
+      // Build new connection string using tunnel (for non-MSSQL databases)
       if (effectiveConnectionString) {
         const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
         url.hostname = "127.0.0.1";
@@ -315,11 +382,31 @@ export class ConnectionManager {
       }
     }
 
+    let mssqlTestConnectionId: string | undefined;
+
     try {
-      // Try to connect to the database
-      const database = await Database.load(effectiveConnectionString!);
-      // Close the test connection immediately
-      await database.close();
+      // MSSQL uses custom backend, others use tauri-plugin-sql
+      if (connection.type === "mssql") {
+        const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
+        const port = tunnelLocalPort || connection.port;
+        const mssqlConn = await mssqlConnect({
+          host,
+          port,
+          database: connection.databaseName,
+          username: connection.username,
+          password: connection.password,
+          encrypt: connection.sslMode === "require",
+          trustCert: connection.sslMode !== "require",
+        });
+        mssqlTestConnectionId = mssqlConn.connectionId;
+        // Close the test connection immediately
+        await mssqlDisconnect(mssqlTestConnectionId);
+      } else {
+        // Try to connect to the database
+        const database = await Database.load(effectiveConnectionString!);
+        // Close the test connection immediately
+        await database.close();
+      }
     } finally {
       // Clean up SSH tunnel if we created one
       if (tunnelId) {
@@ -336,6 +423,12 @@ export class ConnectionManager {
    * Remove a connection and all its state.
    */
   remove(id: string): void {
+    // Close MSSQL connection if exists
+    const connection = this.state.connections.find((c) => c.id === id);
+    if (connection?.mssqlConnectionId) {
+      mssqlDisconnect(connection.mssqlConnectionId).catch(console.error);
+    }
+
     // Close SSH tunnel if exists
     const tunnelId = this.tunnelIds.get(id);
     if (tunnelId) {
@@ -350,7 +443,7 @@ export class ConnectionManager {
     this.stateRestoration.cleanupConnectionMaps(id);
 
     if (this.state.activeConnectionId === id) {
-      const nextConnection = this.state.connections.find((c) => c.database);
+      const nextConnection = this.state.connections.find((c) => c.database || c.mssqlConnectionId);
       this.state.activeConnectionId = nextConnection?.id || null;
     }
   }
@@ -368,12 +461,19 @@ export class ConnectionManager {
   toggle(id: string): void {
     const connection = this.state.connections.find((c) => c.id === id);
     if (connection) {
-      const wasConnected = !!connection.database;
+      const wasConnected = !!connection.database || !!connection.mssqlConnectionId;
+
+      // Disconnect MSSQL if connected
+      if (connection.mssqlConnectionId) {
+        mssqlDisconnect(connection.mssqlConnectionId).catch(console.error);
+        connection.mssqlConnectionId = undefined;
+      }
       connection.database = undefined;
+
       if (wasConnected) {
         // If disconnecting the active connection, switch to another connected one
         if (this.state.activeConnectionId === id) {
-          const nextConnection = this.state.connections.find((c) => c.database && c.id !== id);
+          const nextConnection = this.state.connections.find((c) => (c.database || c.mssqlConnectionId) && c.id !== id);
           this.state.activeConnectionId = nextConnection?.id || null;
         }
       }

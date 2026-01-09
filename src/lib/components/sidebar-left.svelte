@@ -97,7 +97,7 @@
 
 	<SidebarContent>
 		{#if sidebarTab === "schema"}
-			{#if db.state.activeConnection && db.state.activeConnection.database}
+			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId)}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -152,7 +152,7 @@
 				</div>
 			{/if}
 		{:else if sidebarTab === "queries"}
-			{#if db.state.activeConnection && db.state.activeConnection.database}
+			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId)}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />

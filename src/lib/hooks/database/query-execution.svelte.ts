@@ -1,11 +1,12 @@
 import { toast } from "svelte-sonner";
-import type { QueryResult, StatementResult } from "$lib/types";
+import type { DatabaseConnection, QueryResult, StatementResult } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
 import { splitSqlStatements } from "$lib/db/sql-parser";
 import { updateMapArrayItem } from "./map-utils.js";
 import { m } from "$lib/paraglide/messages.js";
+import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
@@ -63,25 +64,38 @@ export class QueryExecutionManager {
     sql: string,
     page: number,
     pageSize: number,
-    database: NonNullable<typeof this.state.activeConnection>["database"]
+    connection: DatabaseConnection
   ): Promise<QueryResult> {
     const start = performance.now();
     const baseQuery = sql.replace(/;$/, "").trim();
     const queryType = detectQueryType(baseQuery);
+    const isMssql = connection.type === "mssql" && connection.mssqlConnectionId;
+    const database = connection.database;
 
     // Handle write queries (INSERT/UPDATE/DELETE)
     if (isWriteQuery(baseQuery)) {
-      const executeResult = await database!.execute(baseQuery);
+      let rowsAffected = 0;
+      let lastInsertId: number | undefined;
+
+      if (isMssql) {
+        const result = await mssqlExecute(connection.mssqlConnectionId!, baseQuery);
+        rowsAffected = result.rowsAffected;
+      } else {
+        const executeResult = await database!.execute(baseQuery);
+        rowsAffected = executeResult?.rowsAffected ?? 0;
+        lastInsertId = executeResult?.lastInsertId;
+      }
+
       const totalMs = performance.now() - start;
 
       return {
         columns: ["Result"],
-        rows: [{ Result: `${executeResult?.rowsAffected ?? 0} row(s) affected` }],
+        rows: [{ Result: `${rowsAffected} row(s) affected` }],
         rowCount: 1,
         totalRows: 1,
         executionTime: Math.round(totalMs * 100) / 100,
-        affectedRows: executeResult?.rowsAffected ?? 0,
-        lastInsertId: executeResult?.lastInsertId,
+        affectedRows: rowsAffected,
+        lastInsertId,
         queryType,
         page: 1,
         pageSize: 1,
@@ -90,34 +104,61 @@ export class QueryExecutionManager {
     }
 
     // Handle SELECT queries
-    // Check if query already has LIMIT clause - if so, skip pagination
+    // Check if query already has LIMIT/OFFSET clause - if so, skip pagination
     const hasLimit = /\bLIMIT\b/i.test(baseQuery);
+    const hasOffset = /\bOFFSET\b/i.test(baseQuery);
+    const hasTop = /\bTOP\b/i.test(baseQuery);
+    const hasPagination = hasLimit || (isMssql && (hasOffset || hasTop));
 
     let totalRows = 0;
     let paginatedQuery = baseQuery;
 
-    if (!hasLimit) {
+    if (!hasPagination) {
       // Get total count first by wrapping in a subquery
       const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
       try {
-        const countResult = (await database!.select(countQuery)) as { total: string | number }[];
+        let countResult: { total: string | number }[];
+        if (isMssql) {
+          const result = await mssqlQuery(connection.mssqlConnectionId!, countQuery);
+          countResult = result.rows as { total: string | number }[];
+        } else {
+          countResult = (await database!.select(countQuery)) as { total: string | number }[];
+        }
         totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
       } catch {
         // If count fails, just run the query without pagination
         totalRows = -1;
       }
 
-      // Add LIMIT/OFFSET if we successfully got a count (it's a SELECT)
+      // Add pagination if we successfully got a count (it's a SELECT)
       if (totalRows >= 0) {
         const offset = (page - 1) * pageSize;
-        paginatedQuery = `${baseQuery} LIMIT ${pageSize} OFFSET ${offset}`;
+        if (isMssql) {
+          // SQL Server uses OFFSET FETCH syntax (requires ORDER BY)
+          if (!/\bORDER\s+BY\b/i.test(baseQuery)) {
+            paginatedQuery = `${baseQuery} ORDER BY (SELECT NULL) OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`;
+          } else {
+            paginatedQuery = `${baseQuery} OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`;
+          }
+        } else {
+          paginatedQuery = `${baseQuery} LIMIT ${pageSize} OFFSET ${offset}`;
+        }
       }
     } else {
-      // Query has its own LIMIT, don't paginate
+      // Query has its own pagination, don't add more
       totalRows = -1;
     }
 
-    const dbResult = (await database!.select(paginatedQuery)) as Record<string, unknown>[];
+    let dbResult: Record<string, unknown>[];
+    let resultColumns: string[] = [];
+    if (isMssql) {
+      const result = await mssqlQuery(connection.mssqlConnectionId!, paginatedQuery);
+      dbResult = result.rows as Record<string, unknown>[];
+      resultColumns = result.columns;
+    } else {
+      dbResult = (await database!.select(paginatedQuery)) as Record<string, unknown>[];
+      resultColumns = (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [];
+    }
     const totalMs = performance.now() - start;
 
     // If count failed or query had LIMIT, use result length as total
@@ -125,14 +166,15 @@ export class QueryExecutionManager {
       totalRows = dbResult?.length ?? 0;
     }
 
-    const totalPages = hasLimit ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
+    const totalPages = hasPagination ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
 
     // Try to extract source table info for CRUD operations
     const tableInfo = extractTableFromSelect(baseQuery);
     let sourceTable: QueryResult["sourceTable"] | undefined;
 
     if (tableInfo) {
-      const schema = tableInfo.schema || "public";
+      const defaultSchema = isMssql ? "dbo" : "public";
+      const schema = tableInfo.schema || defaultSchema;
       const primaryKeys = this.getPrimaryKeysForTable(schema, tableInfo.table);
       if (primaryKeys.length > 0) {
         sourceTable = {
@@ -145,7 +187,7 @@ export class QueryExecutionManager {
 
     // Generate results
     return {
-      columns: (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [],
+      columns: resultColumns,
       rows: dbResult || [],
       rowCount: dbResult?.length ?? 0,
       totalRows,
@@ -165,8 +207,8 @@ export class QueryExecutionManager {
     if (!this.state.activeConnectionId) return;
 
     const connection = this.state.activeConnection;
-    const database = connection?.database;
-    if (!database) {
+    const isConnected = connection?.database || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) {
       toast.error("Not connected to database. Please reconnect.");
       return;
     }
@@ -182,7 +224,7 @@ export class QueryExecutionManager {
     const effectivePageSize = pageSize ?? tab.results?.[0]?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
     // Get database type for parsing
-    const dbType = connection?.type ?? "postgres";
+    const dbType = connection.type ?? "postgres";
 
     // Parse SQL into individual statements
     const statements = splitSqlStatements(tab.query, dbType);
@@ -204,7 +246,7 @@ export class QueryExecutionManager {
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i];
       try {
-        const result = await this.executeStatement(stmt.sql, page, effectivePageSize, database);
+        const result = await this.executeStatement(stmt.sql, page, effectivePageSize, connection);
         results.push({
           ...result,
           statementIndex: i,
@@ -286,8 +328,8 @@ export class QueryExecutionManager {
     if (!this.state.activeConnectionId) return;
 
     const connection = this.state.activeConnection;
-    const database = connection?.database;
-    if (!database) return;
+    const isConnected = connection?.database || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) return;
 
     const tabs = this.state.queryTabsByConnection.get(this.state.activeConnectionId) || [];
     const tab = tabs.find((t) => t.id === tabId);
@@ -296,7 +338,7 @@ export class QueryExecutionManager {
     const existingResult = tab.results[resultIndex];
 
     try {
-      const result = await this.executeStatement(existingResult.statementSql, page, pageSize, database);
+      const result = await this.executeStatement(existingResult.statementSql, page, pageSize, connection);
 
       // Update only this specific result in the array
       const newResults = [...tab.results];
@@ -357,13 +399,27 @@ export class QueryExecutionManager {
       return { success: false, error: "No primary key found" };
     }
 
-    // Build parameterized query
-    const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
-    const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
-    const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
+    const connection = this.state.activeConnection;
+    const isMssql = connection?.type === "mssql" && connection?.mssqlConnectionId;
 
     try {
-      await this.state.activeConnection?.database!.execute(query, bindValues);
+      if (isMssql) {
+        // SQL Server: use square brackets for identifiers and inline values
+        const whereConditions = sourceTable.primaryKeys.map((pk) => {
+          const val = row[pk];
+          const escapedVal = typeof val === "string" ? `'${val.replace(/'/g, "''")}'` : val;
+          return `[${pk}] = ${escapedVal}`;
+        });
+        const escapedNewValue = typeof newValue === "string" ? `'${newValue.replace(/'/g, "''")}'` : newValue === null ? "NULL" : newValue;
+        const query = `UPDATE [${sourceTable.schema}].[${sourceTable.name}] SET [${column}] = ${escapedNewValue} WHERE ${whereConditions.join(" AND ")}`;
+        await mssqlExecute(connection.mssqlConnectionId!, query);
+      } else {
+        // PostgreSQL/SQLite: use double quotes and parameterized queries
+        const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
+        const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
+        const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
+        await connection?.database!.execute(query, bindValues);
+      }
       // Update the local row data
       row[column] = newValue;
       return { success: true };
@@ -384,13 +440,29 @@ export class QueryExecutionManager {
       return { success: false, error: "No values provided" };
     }
 
-    const columnNames = columns.map((c) => `"${c}"`).join(", ");
-    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
+    const connection = this.state.activeConnection;
+    const isMssql = connection?.type === "mssql" && connection?.mssqlConnectionId;
 
     try {
-      const result = await this.state.activeConnection?.database!.execute(query, Object.values(values));
-      return { success: true, lastInsertId: result?.lastInsertId };
+      if (isMssql) {
+        // SQL Server: use square brackets for identifiers and inline values
+        const columnNames = columns.map((c) => `[${c}]`).join(", ");
+        const valuesList = Object.values(values).map((v) => {
+          if (v === null || v === undefined) return "NULL";
+          if (typeof v === "string") return `'${v.replace(/'/g, "''")}'`;
+          return v;
+        }).join(", ");
+        const query = `INSERT INTO [${sourceTable.schema}].[${sourceTable.name}] (${columnNames}) VALUES (${valuesList})`;
+        await mssqlExecute(connection.mssqlConnectionId!, query);
+        return { success: true };
+      } else {
+        // PostgreSQL/SQLite: use double quotes and parameterized queries
+        const columnNames = columns.map((c) => `"${c}"`).join(", ");
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
+        const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
+        const result = await connection?.database!.execute(query, Object.values(values));
+        return { success: true, lastInsertId: result?.lastInsertId };
+      }
     } catch (error) {
       return { success: false, error: this.formatError(error) };
     }
@@ -407,12 +479,26 @@ export class QueryExecutionManager {
       return { success: false, error: "No primary key found" };
     }
 
-    const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
-    const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(" AND ")}`;
-    const bindValues = sourceTable.primaryKeys.map((pk) => row[pk]);
+    const connection = this.state.activeConnection;
+    const isMssql = connection?.type === "mssql" && connection?.mssqlConnectionId;
 
     try {
-      await this.state.activeConnection?.database!.execute(query, bindValues);
+      if (isMssql) {
+        // SQL Server: use square brackets for identifiers and inline values
+        const whereConditions = sourceTable.primaryKeys.map((pk) => {
+          const val = row[pk];
+          const escapedVal = typeof val === "string" ? `'${val.replace(/'/g, "''")}'` : val;
+          return `[${pk}] = ${escapedVal}`;
+        });
+        const query = `DELETE FROM [${sourceTable.schema}].[${sourceTable.name}] WHERE ${whereConditions.join(" AND ")}`;
+        await mssqlExecute(connection.mssqlConnectionId!, query);
+      } else {
+        // PostgreSQL/SQLite: use double quotes and parameterized queries
+        const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
+        const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(" AND ")}`;
+        const bindValues = sourceTable.primaryKeys.map((pk) => row[pk]);
+        await connection?.database!.execute(query, bindValues);
+      }
       return { success: true };
     } catch (error) {
       return { success: false, error: this.formatError(error) };

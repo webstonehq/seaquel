@@ -4,6 +4,7 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { setMapValue } from "./map-utils.js";
+import { mssqlQuery } from "$lib/services/mssql";
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -25,22 +26,48 @@ export class SchemaTabManager {
 
     const tabs = this.state.schemaTabsByConnection.get(this.state.activeConnectionId) || [];
     const adapter = getAdapter(this.state.activeConnection.type);
+    const isMssql = this.state.activeConnection.type === "mssql" && this.state.activeConnection.mssqlConnectionId;
 
     // Fetch table metadata - query columns and indexes
-    const columnsResult = (await this.state.activeConnection.database!.select(
-      adapter.getColumnsQuery(table.name, table.schema)
-    )) as unknown[];
-
-    const indexesResult = (await this.state.activeConnection.database!.select(
-      adapter.getIndexesQuery(table.name, table.schema)
-    )) as unknown[];
-
-    // Fetch foreign keys if adapter supports it (needed for SQLite)
+    let columnsResult: unknown[];
+    let indexesResult: unknown[];
     let foreignKeysResult: unknown[] | undefined;
-    if (adapter.getForeignKeysQuery) {
-      foreignKeysResult = (await this.state.activeConnection.database!.select(
-        adapter.getForeignKeysQuery(table.name, table.schema)
+
+    if (isMssql) {
+      const columnsQueryResult = await mssqlQuery(
+        this.state.activeConnection.mssqlConnectionId!,
+        adapter.getColumnsQuery(table.name, table.schema)
+      );
+      columnsResult = columnsQueryResult.rows;
+
+      const indexesQueryResult = await mssqlQuery(
+        this.state.activeConnection.mssqlConnectionId!,
+        adapter.getIndexesQuery(table.name, table.schema)
+      );
+      indexesResult = indexesQueryResult.rows;
+
+      if (adapter.getForeignKeysQuery) {
+        const fkQueryResult = await mssqlQuery(
+          this.state.activeConnection.mssqlConnectionId!,
+          adapter.getForeignKeysQuery(table.name, table.schema)
+        );
+        foreignKeysResult = fkQueryResult.rows;
+      }
+    } else {
+      columnsResult = (await this.state.activeConnection.database!.select(
+        adapter.getColumnsQuery(table.name, table.schema)
       )) as unknown[];
+
+      indexesResult = (await this.state.activeConnection.database!.select(
+        adapter.getIndexesQuery(table.name, table.schema)
+      )) as unknown[];
+
+      // Fetch foreign keys if adapter supports it (needed for SQLite)
+      if (adapter.getForeignKeysQuery) {
+        foreignKeysResult = (await this.state.activeConnection.database!.select(
+          adapter.getForeignKeysQuery(table.name, table.schema)
+        )) as unknown[];
+      }
     }
 
     // Update table with fetched columns and indexes
@@ -136,25 +163,54 @@ export class SchemaTabManager {
     connectionId: string,
     tables: SchemaTable[],
     adapter: DatabaseAdapter,
-    database: Database
+    database: Database | undefined,
+    mssqlConnectionId?: string
   ): Promise<void> {
     // Process tables in parallel but update state as each completes
     const promises = tables.map(async (table, index) => {
       try {
-        const columnsResult = (await database.select(
-          adapter.getColumnsQuery(table.name, table.schema)
-        )) as unknown[];
-
-        const indexesResult = (await database.select(
-          adapter.getIndexesQuery(table.name, table.schema)
-        )) as unknown[];
-
-        // Fetch foreign keys if adapter supports it (needed for SQLite)
+        let columnsResult: unknown[];
+        let indexesResult: unknown[];
         let foreignKeysResult: unknown[] | undefined;
-        if (adapter.getForeignKeysQuery) {
-          foreignKeysResult = (await database.select(
-            adapter.getForeignKeysQuery(table.name, table.schema)
+
+        if (mssqlConnectionId) {
+          const columnsQueryResult = await mssqlQuery(
+            mssqlConnectionId,
+            adapter.getColumnsQuery(table.name, table.schema)
+          );
+          columnsResult = columnsQueryResult.rows;
+
+          const indexesQueryResult = await mssqlQuery(
+            mssqlConnectionId,
+            adapter.getIndexesQuery(table.name, table.schema)
+          );
+          indexesResult = indexesQueryResult.rows;
+
+          if (adapter.getForeignKeysQuery) {
+            const fkQueryResult = await mssqlQuery(
+              mssqlConnectionId,
+              adapter.getForeignKeysQuery(table.name, table.schema)
+            );
+            foreignKeysResult = fkQueryResult.rows;
+          }
+        } else if (database) {
+          columnsResult = (await database.select(
+            adapter.getColumnsQuery(table.name, table.schema)
           )) as unknown[];
+
+          indexesResult = (await database.select(
+            adapter.getIndexesQuery(table.name, table.schema)
+          )) as unknown[];
+
+          // Fetch foreign keys if adapter supports it (needed for SQLite)
+          if (adapter.getForeignKeysQuery) {
+            foreignKeysResult = (await database.select(
+              adapter.getForeignKeysQuery(table.name, table.schema)
+            )) as unknown[];
+          }
+        } else {
+          // No valid connection, skip
+          return;
         }
 
         const updatedTable: SchemaTable = {
