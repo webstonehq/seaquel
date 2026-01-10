@@ -1,4 +1,3 @@
-import { load } from "@tauri-apps/plugin-store";
 import { toast } from "svelte-sonner";
 import type {
   PersistedConnectionState,
@@ -12,6 +11,7 @@ import type {
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
+import { loadStore, type Store } from "$lib/storage";
 
 /**
  * Manages persistence of connection state to Tauri store.
@@ -127,7 +127,7 @@ export class PersistenceManager {
 
   async persistConnectionState(connectionId: string): Promise<void> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await loadStore(`connection_state_${connectionId}.json`, {
         autoSave: true,
         defaults: { state: null },
       });
@@ -157,7 +157,7 @@ export class PersistenceManager {
 
   async loadPersistedConnectionState(connectionId: string): Promise<PersistedConnectionState | null> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await loadStore(`connection_state_${connectionId}.json`, {
         autoSave: false,
         defaults: { state: null },
       });
@@ -170,7 +170,7 @@ export class PersistenceManager {
 
   async removePersistedConnectionState(connectionId: string): Promise<void> {
     try {
-      const store = await load(`connection_state_${connectionId}.json`, {
+      const store = await loadStore(`connection_state_${connectionId}.json`, {
         autoSave: true,
         defaults: { state: null },
       });
@@ -213,7 +213,7 @@ export class PersistenceManager {
 
   async persistConnection(connection: DatabaseConnection): Promise<void> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await loadStore("database_connections.json", {
         autoSave: true,
         defaults: { connections: [] },
       });
@@ -250,7 +250,7 @@ export class PersistenceManager {
 
   async removePersistedConnection(connectionId: string): Promise<void> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await loadStore("database_connections.json", {
         autoSave: true,
         defaults: { connections: [] },
       });
@@ -269,7 +269,7 @@ export class PersistenceManager {
 
   async loadPersistedConnections(): Promise<PersistedConnection[]> {
     try {
-      const store = await load("database_connections.json", {
+      const store = await loadStore("database_connections.json", {
         autoSave: true,
         defaults: { connections: [] },
       });

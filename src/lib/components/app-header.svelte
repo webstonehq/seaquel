@@ -16,8 +16,10 @@
     import LanguageToggle from "./language-toggle.svelte";
     import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
     import { m } from "$lib/paraglide/messages.js";
+    import { getFeatures } from "$lib/features";
 
     const db = useDatabase();
+    const features = getFeatures();
     const sidebar = Sidebar.useSidebar();
 
     // Sort connections by last connected (most recent first)
@@ -36,7 +38,7 @@
 
     const handleConnectionClick = (connection: typeof db.state.connections[0]) => {
         // If connection has a database instance, just activate it
-        if (connection.database || connection.mssqlConnectionId) {
+        if (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) {
             db.connections.setActive(connection.id);
         } else {
             // If no database (persisted connection), open dialog with prefilled values
@@ -93,7 +95,7 @@
                         <span
                             class={[
                                 "size-2 rounded-full shrink-0",
-                                (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId) ? "bg-green-500" : "bg-gray-400"
+                                (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId || db.state.activeConnection.providerConnectionId) ? "bg-green-500" : "bg-gray-400"
                             ]}
                         ></span>
                         <span class="max-w-32 truncate" title={db.state.activeConnection.name}>{db.state.activeConnection.name}</span>
@@ -112,9 +114,9 @@
                                         <span
                                             class={[
                                                 "size-2 rounded-full shrink-0",
-                                                (connection.database || connection.mssqlConnectionId) ? "bg-green-500" : "bg-gray-400"
+                                                (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) ? "bg-green-500" : "bg-gray-400"
                                             ]}
-                                            title={(connection.database || connection.mssqlConnectionId) ? m.header_connected() : m.header_disconnected()}
+                                            title={(connection.database || connection.mssqlConnectionId || connection.providerConnectionId) ? m.header_connected() : m.header_disconnected()}
                                         ></span>
                                         <span class="flex-1 truncate">{connection.name}</span>
                                         {#if db.state.activeConnectionId === connection.id}
@@ -123,7 +125,7 @@
                                     </DropdownMenu.Item>
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Content class="w-40">
-                                    {#if connection.database || connection.mssqlConnectionId}
+                                    {#if connection.database || connection.mssqlConnectionId || connection.providerConnectionId}
                                         <ContextMenu.Item onclick={() => db.connections.toggle(connection.id)}>
                                             {m.header_disconnect()}
                                         </ContextMenu.Item>
@@ -143,20 +145,22 @@
                                 </ContextMenu.Content>
                             </ContextMenu.Root>
                         {/each}
-                        <DropdownMenu.Separator />
-                        <DropdownMenu.Item
-                            class="flex items-center gap-2 cursor-pointer"
-                            onclick={() => connectionDialogStore.open()}
-                        >
-                            <PlusIcon class="size-4" />
-                            {m.header_add_connection()}
-                        </DropdownMenu.Item>
+                        {#if features.newConnections}
+                            <DropdownMenu.Separator />
+                            <DropdownMenu.Item
+                                class="flex items-center gap-2 cursor-pointer"
+                                onclick={() => connectionDialogStore.open()}
+                            >
+                                <PlusIcon class="size-4" />
+                                {m.header_add_connection()}
+                            </DropdownMenu.Item>
+                        {/if}
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
             {/if}
         </div>
         <div class="flex items-center gap-1">
-            {#if db.state.activeConnection?.database || db.state.activeConnection?.mssqlConnectionId}
+            {#if db.state.activeConnection?.database || db.state.activeConnection?.mssqlConnectionId || db.state.activeConnection?.providerConnectionId}
                 <Button
                     size="icon"
                     variant="ghost"

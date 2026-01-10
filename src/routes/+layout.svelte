@@ -16,13 +16,13 @@
 	import { applyThemeColors } from "$lib/themes/apply";
 	import DbeaverImportDialog from "$lib/components/dbeaver-import-dialog.svelte";
 	import type { ThemeColors } from "$lib/types/theme";
-	import { listen } from "@tauri-apps/api/event";
-	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
 	import { m } from "$lib/paraglide/messages.js";
 	import { onMount } from "svelte";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
+	import { isTauri } from "$lib/utils/environment";
+	import { initializeDemo } from "$lib/demo/init";
 
 	setDatabase();
 
@@ -36,8 +36,24 @@
 	// Initialize stores on mount
 	onMount(async () => {
 		await themeStore.initialize();
-		await onboardingStore.initialize();
-		await dbeaverImportStore.initialize();
+
+		if (isTauri()) {
+			// Desktop app: initialize onboarding and dbeaver import
+			await onboardingStore.initialize();
+			await dbeaverImportStore.initialize();
+		} else {
+			// Browser demo: initialize DuckDB with sample data
+			try {
+				const providerConnectionId = await initializeDemo();
+				if (providerConnectionId) {
+					await db.connections.addDemoConnection(providerConnectionId);
+					toast.success("Demo database loaded with sample data");
+				}
+			} catch (error) {
+				console.error("[Demo] Failed to initialize:", error);
+				toast.error("Failed to initialize demo database");
+			}
+		}
 	});
 
 	// Apply active theme whenever it changes
@@ -52,75 +68,67 @@
 		themeStore.flush();
 	}
 
+	// Tauri-only event listeners
 	$effect(() => {
-		const unlisten = listen<string>("update-downloaded", (event) => {
-			toast.success(`Update v${event.payload} downloaded`, {
-				action: {
-					label: "Install & Restart",
-					onClick: () => invoke("install_update")
-				},
+		if (!isTauri()) return;
 
-				duration: Infinity
+		// Dynamically import Tauri APIs only in desktop mode
+		let cleanupFns: (() => void)[] = [];
+
+		(async () => {
+			const { listen } = await import("@tauri-apps/api/event");
+			const { invoke } = await import("@tauri-apps/api/core");
+
+			// Listen for app updates
+			const unlistenUpdate = await listen<string>("update-downloaded", (event) => {
+				toast.success(`Update v${event.payload} downloaded`, {
+					action: {
+						label: "Install & Restart",
+						onClick: () => invoke("install_update")
+					},
+					duration: Infinity
+				});
 			});
-		});
+			cleanupFns.push(unlistenUpdate);
+
+			// Listen for Settings menu event
+			const unlistenSettings = await listen("menu-settings", () => {
+				settingsDialogStore.open();
+			});
+			cleanupFns.push(unlistenSettings);
+
+			// Listen for theme editor color updates (real-time preview)
+			const unlistenColorUpdate = await listen<{ colors: ThemeColors }>("theme-editor:color-update", (event) => {
+				applyThemeColors(event.payload.colors);
+			});
+			cleanupFns.push(unlistenColorUpdate);
+
+			// Listen for theme save from editor
+			const unlistenThemeSave = await listen<{
+				themeId: string | null;
+				name: string;
+				isDark: boolean;
+				colors: ThemeColors;
+			}>("theme-editor:save", (event) => {
+				const { themeId, name, isDark, colors } = event.payload;
+				if (themeId) {
+					themeStore.updateTheme(themeId, { name, isDark, colors });
+				} else {
+					themeStore.addTheme({ name, isDark, colors });
+				}
+				toast.success(m.theme_save_success());
+			});
+			cleanupFns.push(unlistenThemeSave);
+
+			// Listen for theme editor cancel (restore original theme)
+			const unlistenThemeCancel = await listen("theme-editor:cancel", () => {
+				themeStore.applyActiveTheme();
+			});
+			cleanupFns.push(unlistenThemeCancel);
+		})();
 
 		return () => {
-			unlisten.then((fn) => fn());
-		};
-	});
-
-	// Listen for Settings menu event from Tauri
-	$effect(() => {
-		const unlisten = listen("menu-settings", () => {
-			settingsDialogStore.open();
-		});
-
-		return () => {
-			unlisten.then((fn) => fn());
-		};
-	});
-
-	// Listen for theme editor color updates (real-time preview)
-	$effect(() => {
-		const unlisten = listen<{ colors: ThemeColors }>("theme-editor:color-update", (event) => {
-			applyThemeColors(event.payload.colors);
-		});
-
-		return () => {
-			unlisten.then((fn) => fn());
-		};
-	});
-
-	// Listen for theme save from editor
-	$effect(() => {
-		const unlisten = listen<{
-			themeId: string | null;
-			name: string;
-			isDark: boolean;
-			colors: ThemeColors;
-		}>("theme-editor:save", (event) => {
-			const { themeId, name, isDark, colors } = event.payload;
-			if (themeId) {
-				themeStore.updateTheme(themeId, { name, isDark, colors });
-			} else {
-				themeStore.addTheme({ name, isDark, colors });
-			}
-			toast.success(m.theme_save_success());
-		});
-
-		return () => {
-			unlisten.then((fn) => fn());
-		};
-	});
-
-	// Listen for theme editor cancel (restore original theme)
-	$effect(() => {
-		const unlisten = listen("theme-editor:cancel", () => {
-			themeStore.applyActiveTheme();
-		});
-
-		return () => {
-			unlisten.then((fn) => fn());
+			cleanupFns.forEach(fn => fn());
 		};
 	});
 </script>

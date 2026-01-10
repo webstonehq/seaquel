@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:demo": "BUILD_TARGET=demo vite build --mode demo",
     "preview": "vite preview",
+    "preview:demo": "vite preview --outDir build-demo",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
@@ -17,6 +19,7 @@
   "license": "MIT",
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
+    "@duckdb/duckdb-wasm": "^1.32.0",
     "@tanstack/svelte-virtual": "^3.13.13",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",

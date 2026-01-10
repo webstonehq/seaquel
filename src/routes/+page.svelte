@@ -2,8 +2,8 @@
     import { onMount, onDestroy } from "svelte";
     import { flip } from "svelte/animate";
     import { dndzone } from "svelte-dnd-action";
-    import { listen } from "@tauri-apps/api/event";
     import { Toaster } from "$lib/components/ui/sonner";
+    import { isTauri } from "$lib/utils/environment";
     import { SidebarInset } from "$lib/components/ui/sidebar";
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
     import QueryEditor from "$lib/components/query-editor.svelte";
@@ -304,12 +304,20 @@
 
     // Listen for "Close Tab" menu event from Tauri (Cmd+W intercepted by native menu)
     $effect(() => {
-        const unlisten = listen("menu-close-tab", () => {
-            closeCurrentTab();
+        if (!isTauri()) return;
+
+        let cleanup: (() => void) | undefined;
+
+        import("@tauri-apps/api/event").then(({ listen }) => {
+            listen("menu-close-tab", () => {
+                closeCurrentTab();
+            }).then((unlisten) => {
+                cleanup = unlisten;
+            });
         });
 
         return () => {
-            unlisten.then((fn) => fn());
+            cleanup?.();
         };
     });
 </script>

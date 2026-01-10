@@ -6,17 +6,29 @@ import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/q
 import { splitSqlStatements } from "$lib/db/sql-parser";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
+import { getProvider, type DatabaseProvider } from "$lib/providers";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
  */
 export class QueryExecutionManager {
   private readonly DEFAULT_PAGE_SIZE = 100;
+  private provider: DatabaseProvider | null = null;
 
   constructor(
     private state: DatabaseState,
     private queryHistory: QueryHistoryManager
   ) {}
+
+  /**
+   * Get or create the database provider.
+   */
+  private async getOrCreateProvider(): Promise<DatabaseProvider> {
+    if (!this.provider) {
+      this.provider = await getProvider();
+    }
+    return this.provider;
+  }
 
   /**
    * Formats an unknown error into a user-friendly string message.
@@ -73,7 +85,7 @@ export class QueryExecutionManager {
     const baseQuery = sql.replace(/;$/, "").trim();
     const queryType = detectQueryType(baseQuery);
     const isMssql = connection.type === "mssql" && connection.mssqlConnectionId;
-    const database = connection.database;
+    const providerConnectionId = connection.providerConnectionId;
 
     // Handle write queries (INSERT/UPDATE/DELETE)
     if (isWriteQuery(baseQuery)) {
@@ -83,10 +95,13 @@ export class QueryExecutionManager {
       if (isMssql) {
         const result = await mssqlExecute(connection.mssqlConnectionId!, baseQuery);
         rowsAffected = result.rowsAffected;
-      } else {
-        const executeResult = await database!.execute(baseQuery);
+      } else if (providerConnectionId) {
+        const provider = await this.getOrCreateProvider();
+        const executeResult = await provider.execute(providerConnectionId, baseQuery);
         rowsAffected = executeResult?.rowsAffected ?? 0;
         lastInsertId = executeResult?.lastInsertId;
+      } else {
+        throw new Error("No connection established");
       }
 
       const totalMs = performance.now() - start;
@@ -124,8 +139,11 @@ export class QueryExecutionManager {
         if (isMssql) {
           const result = await mssqlQuery(connection.mssqlConnectionId!, countQuery);
           countResult = result.rows as { total: string | number }[];
+        } else if (providerConnectionId) {
+          const provider = await this.getOrCreateProvider();
+          countResult = await provider.select<{ total: string | number }>(providerConnectionId, countQuery);
         } else {
-          countResult = (await database!.select(countQuery)) as { total: string | number }[];
+          throw new Error("No connection established");
         }
         totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
       } catch {
@@ -158,9 +176,12 @@ export class QueryExecutionManager {
       const result = await mssqlQuery(connection.mssqlConnectionId!, paginatedQuery);
       dbResult = result.rows as Record<string, unknown>[];
       resultColumns = result.columns;
-    } else {
-      dbResult = (await database!.select(paginatedQuery)) as Record<string, unknown>[];
+    } else if (providerConnectionId) {
+      const provider = await this.getOrCreateProvider();
+      dbResult = await provider.select<Record<string, unknown>>(providerConnectionId, paginatedQuery);
       resultColumns = (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [];
+    } else {
+      throw new Error("No connection established");
     }
     const totalMs = performance.now() - start;
 
@@ -210,7 +231,7 @@ export class QueryExecutionManager {
     if (!this.state.activeConnectionId) return;
 
     const connection = this.state.activeConnection;
-    const isConnected = connection?.database || connection?.mssqlConnectionId;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) {
       toast.error("Not connected to database. Please reconnect.");
       return;
@@ -331,7 +352,7 @@ export class QueryExecutionManager {
     if (!this.state.activeConnectionId) return;
 
     const connection = this.state.activeConnection;
-    const isConnected = connection?.database || connection?.mssqlConnectionId;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) return;
 
     const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
@@ -416,12 +437,15 @@ export class QueryExecutionManager {
         const escapedNewValue = typeof newValue === "string" ? `'${newValue.replace(/'/g, "''")}'` : newValue === null ? "NULL" : newValue;
         const query = `UPDATE [${sourceTable.schema}].[${sourceTable.name}] SET [${column}] = ${escapedNewValue} WHERE ${whereConditions.join(" AND ")}`;
         await mssqlExecute(connection.mssqlConnectionId!, query);
-      } else {
-        // PostgreSQL/SQLite: use double quotes and parameterized queries
+      } else if (connection?.providerConnectionId) {
+        // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
+        const provider = await this.getOrCreateProvider();
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
         const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
-        await connection?.database!.execute(query, bindValues);
+        await provider.execute(connection.providerConnectionId, query, bindValues);
+      } else {
+        return { success: false, error: "No connection established" };
       }
       // Update the local row data
       row[column] = newValue;
@@ -458,13 +482,16 @@ export class QueryExecutionManager {
         const query = `INSERT INTO [${sourceTable.schema}].[${sourceTable.name}] (${columnNames}) VALUES (${valuesList})`;
         await mssqlExecute(connection.mssqlConnectionId!, query);
         return { success: true };
-      } else {
-        // PostgreSQL/SQLite: use double quotes and parameterized queries
+      } else if (connection?.providerConnectionId) {
+        // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
+        const provider = await this.getOrCreateProvider();
         const columnNames = columns.map((c) => `"${c}"`).join(", ");
         const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
         const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
-        const result = await connection?.database!.execute(query, Object.values(values));
+        const result = await provider.execute(connection.providerConnectionId, query, Object.values(values));
         return { success: true, lastInsertId: result?.lastInsertId };
+      } else {
+        return { success: false, error: "No connection established" };
       }
     } catch (error) {
       return { success: false, error: this.formatError(error) };
@@ -495,12 +522,15 @@ export class QueryExecutionManager {
         });
         const query = `DELETE FROM [${sourceTable.schema}].[${sourceTable.name}] WHERE ${whereConditions.join(" AND ")}`;
         await mssqlExecute(connection.mssqlConnectionId!, query);
-      } else {
-        // PostgreSQL/SQLite: use double quotes and parameterized queries
+      } else if (connection?.providerConnectionId) {
+        // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
+        const provider = await this.getOrCreateProvider();
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
         const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = sourceTable.primaryKeys.map((pk) => row[pk]);
-        await connection?.database!.execute(query, bindValues);
+        await provider.execute(connection.providerConnectionId, query, bindValues);
+      } else {
+        return { success: false, error: "No connection established" };
       }
       return { success: true };
     } catch (error) {

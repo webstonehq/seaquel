@@ -1,4 +1,3 @@
-import Database from "@tauri-apps/plugin-sql";
 import { toast } from "svelte-sonner";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
@@ -8,6 +7,8 @@ import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
+import { getProvider, type DatabaseProvider } from "$lib/providers";
+import { isTauri } from "$lib/utils/environment";
 
 type ConnectionInput = Omit<DatabaseConnection, "id"> & {
   sshPassword?: string;
@@ -22,15 +23,26 @@ type ConnectionInput = Omit<DatabaseConnection, "id"> & {
 export class ConnectionManager {
   // Map connection IDs to their SSH tunnel IDs for cleanup
   private tunnelIds = new Map<string, string>();
+  private provider: DatabaseProvider | null = null;
 
   constructor(
     private state: DatabaseState,
     private persistence: PersistenceManager,
     private stateRestoration: StateRestorationManager,
     private tabOrdering: TabOrderingManager,
-    private onSchemaLoaded: (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database | undefined, mssqlConnectionId?: string) => void,
+    private onSchemaLoaded: (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, providerConnectionId?: string, mssqlConnectionId?: string) => void,
     private onCreateInitialTab: () => void
   ) {}
+
+  /**
+   * Get or create the database provider.
+   */
+  private async getOrCreateProvider(): Promise<DatabaseProvider> {
+    if (!this.provider) {
+      this.provider = await getProvider();
+    }
+    return this.provider;
+  }
 
   /**
    * Initialize persisted connections on app startup.
@@ -146,11 +158,15 @@ export class ConnectionManager {
       connectionId
     );
 
-    // Connect to database - MSSQL uses custom backend, others use tauri-plugin-sql
-    let database: Database | undefined;
+    // Connect to database - MSSQL uses custom backend, others use provider
+    let providerConnectionId: string | undefined;
     let mssqlConnectionId: string | undefined;
 
     if (connection.type === "mssql") {
+      // MSSQL uses custom Tauri backend (only available in desktop)
+      if (!isTauri()) {
+        throw new Error("MSSQL connections are only available in the desktop app");
+      }
       const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
       const port = tunnelLocalPort || connection.port;
       const mssqlConn = await mssqlConnect({
@@ -163,8 +179,14 @@ export class ConnectionManager {
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
-    } else {
-      database = effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined;
+    } else if (effectiveConnectionString) {
+      // Use provider for PostgreSQL, SQLite, DuckDB
+      const provider = await this.getOrCreateProvider();
+      providerConnectionId = await provider.connect({
+        type: connection.type,
+        connectionString: effectiveConnectionString,
+        databaseName: connection.databaseName,
+      });
     }
 
     const newConnection: DatabaseConnection = {
@@ -172,7 +194,7 @@ export class ConnectionManager {
       id: connectionId,
       lastConnected: new Date(),
       tunnelLocalPort,
-      database,
+      providerConnectionId,
       mssqlConnectionId,
     };
 
@@ -190,8 +212,11 @@ export class ConnectionManager {
       if (connection.type === "mssql" && mssqlConnectionId) {
         const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
         schemasWithTablesDbResult = result.rows;
+      } else if (providerConnectionId) {
+        const provider = await this.getOrCreateProvider();
+        schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
       } else {
-        schemasWithTablesDbResult = await newConnection.database!.select(adapter.getSchemaQuery());
+        throw new Error("No connection established");
       }
       schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
     } catch (error) {
@@ -200,6 +225,10 @@ export class ConnectionManager {
       this.stateRestoration.cleanupConnectionMaps(newConnection.id);
       if (mssqlConnectionId) {
         await mssqlDisconnect(mssqlConnectionId).catch(() => {});
+      }
+      if (providerConnectionId) {
+        const provider = await this.getOrCreateProvider();
+        await provider.disconnect(providerConnectionId).catch(() => {});
       }
       throw new Error(`Failed to load database schema: ${error}`);
     }
@@ -214,7 +243,7 @@ export class ConnectionManager {
     };
 
     // Load column metadata asynchronously in the background
-    this.onSchemaLoaded(newConnection.id, schemasWithTables, adapter, newConnection.database, newConnection.mssqlConnectionId);
+    this.onSchemaLoaded(newConnection.id, schemasWithTables, adapter, newConnection.providerConnectionId, newConnection.mssqlConnectionId);
 
     // Create initial query tab for new connection
     this.onCreateInitialTab();
@@ -255,16 +284,24 @@ export class ConnectionManager {
       connectionId
     );
 
-    // Close existing MSSQL connection if any
+    // Close existing connections
     if (existingConnection.mssqlConnectionId) {
       await mssqlDisconnect(existingConnection.mssqlConnectionId).catch(() => {});
     }
+    if (existingConnection.providerConnectionId) {
+      const provider = await this.getOrCreateProvider();
+      await provider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+    }
 
-    // Connect to database - MSSQL uses custom backend, others use tauri-plugin-sql
-    let database: Database | undefined;
+    // Connect to database - MSSQL uses custom backend, others use provider
+    let providerConnectionId: string | undefined;
     let mssqlConnectionId: string | undefined;
 
     if (connection.type === "mssql") {
+      // MSSQL uses custom Tauri backend (only available in desktop)
+      if (!isTauri()) {
+        throw new Error("MSSQL connections are only available in the desktop app");
+      }
       const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
       const port = tunnelLocalPort || connection.port;
       const mssqlConn = await mssqlConnect({
@@ -277,14 +314,20 @@ export class ConnectionManager {
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
-    } else {
-      database = effectiveConnectionString ? await Database.load(effectiveConnectionString) : undefined;
+    } else if (effectiveConnectionString) {
+      // Use provider for PostgreSQL, SQLite, DuckDB
+      const provider = await this.getOrCreateProvider();
+      providerConnectionId = await provider.connect({
+        type: connection.type,
+        connectionString: effectiveConnectionString,
+        databaseName: connection.databaseName,
+      });
     }
 
     // Create updated connection object to ensure Svelte reactivity sees the change
     const updatedConnection: DatabaseConnection = {
       ...existingConnection,
-      database,
+      providerConnectionId,
       mssqlConnectionId,
       lastConnected: new Date(),
       password: connection.password,
@@ -305,17 +348,24 @@ export class ConnectionManager {
       if (connection.type === "mssql" && mssqlConnectionId) {
         const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
         schemasWithTablesDbResult = result.rows;
+      } else if (providerConnectionId) {
+        const provider = await this.getOrCreateProvider();
+        schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
       } else {
-        schemasWithTablesDbResult = await database!.select(adapter.getSchemaQuery());
+        throw new Error("No connection established");
       }
       schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
     } catch (error) {
-      // Revert: set database/mssqlConnectionId back to undefined on the connection
+      // Revert: set providerConnectionId/mssqlConnectionId back to undefined on the connection
       this.state.connections = this.state.connections.map((c) =>
-        c.id === connectionId ? { ...c, database: undefined, mssqlConnectionId: undefined } : c
+        c.id === connectionId ? { ...c, providerConnectionId: undefined, mssqlConnectionId: undefined } : c
       );
       if (mssqlConnectionId) {
         await mssqlDisconnect(mssqlConnectionId).catch(() => {});
+      }
+      if (providerConnectionId) {
+        const provider = await this.getOrCreateProvider();
+        await provider.disconnect(providerConnectionId).catch(() => {});
       }
       throw new Error(`Failed to load database schema: ${error}`);
     }
@@ -327,7 +377,7 @@ export class ConnectionManager {
     };
 
     // Load column metadata asynchronously in the background
-    this.onSchemaLoaded(connectionId, schemasWithTables, adapter, database, mssqlConnectionId);
+    this.onSchemaLoaded(connectionId, schemasWithTables, adapter, providerConnectionId, mssqlConnectionId);
 
     // Set this as the active connection (only after schema loading succeeds)
     this.state.activeConnectionId = connectionId;
@@ -357,8 +407,11 @@ export class ConnectionManager {
     let tunnelId: string | undefined;
     let tunnelLocalPort: number | undefined;
 
-    // Establish SSH tunnel if enabled
+    // Establish SSH tunnel if enabled (only in Tauri)
     if (connection.sshTunnel?.enabled) {
+      if (!isTauri()) {
+        throw new Error("SSH tunnels are only available in the desktop app");
+      }
       const tunnelResult = await createSshTunnel({
         sshHost: connection.sshTunnel.host,
         sshPort: connection.sshTunnel.port,
@@ -384,10 +437,14 @@ export class ConnectionManager {
     }
 
     let mssqlTestConnectionId: string | undefined;
+    let providerTestConnectionId: string | undefined;
 
     try {
-      // MSSQL uses custom backend, others use tauri-plugin-sql
+      // MSSQL uses custom backend, others use provider
       if (connection.type === "mssql") {
+        if (!isTauri()) {
+          throw new Error("MSSQL connections are only available in the desktop app");
+        }
         const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
         const port = tunnelLocalPort || connection.port;
         const mssqlConn = await mssqlConnect({
@@ -402,11 +459,16 @@ export class ConnectionManager {
         mssqlTestConnectionId = mssqlConn.connectionId;
         // Close the test connection immediately
         await mssqlDisconnect(mssqlTestConnectionId);
-      } else {
-        // Try to connect to the database
-        const database = await Database.load(effectiveConnectionString!);
+      } else if (effectiveConnectionString) {
+        // Use provider for PostgreSQL, SQLite, DuckDB
+        const provider = await this.getOrCreateProvider();
+        providerTestConnectionId = await provider.connect({
+          type: connection.type,
+          connectionString: effectiveConnectionString,
+          databaseName: connection.databaseName,
+        });
         // Close the test connection immediately
-        await database.close();
+        await provider.disconnect(providerTestConnectionId);
       }
     } finally {
       // Clean up SSH tunnel if we created one
@@ -424,8 +486,16 @@ export class ConnectionManager {
    * Remove a connection and all its state.
    */
   remove(id: string): void {
-    // Close MSSQL connection if exists
     const connection = this.state.connections.find((c) => c.id === id);
+
+    // Close provider connection if exists
+    if (connection?.providerConnectionId) {
+      this.getOrCreateProvider().then(provider => {
+        provider.disconnect(connection.providerConnectionId!).catch(console.error);
+      });
+    }
+
+    // Close MSSQL connection if exists
     if (connection?.mssqlConnectionId) {
       mssqlDisconnect(connection.mssqlConnectionId).catch(console.error);
     }
@@ -444,7 +514,7 @@ export class ConnectionManager {
     this.stateRestoration.cleanupConnectionMaps(id);
 
     if (this.state.activeConnectionId === id) {
-      const nextConnection = this.state.connections.find((c) => c.database || c.mssqlConnectionId);
+      const nextConnection = this.state.connections.find((c) => c.providerConnectionId || c.mssqlConnectionId);
       this.state.activeConnectionId = nextConnection?.id || null;
     }
   }
@@ -457,24 +527,90 @@ export class ConnectionManager {
   }
 
   /**
+   * Add a demo connection that's already established.
+   * Used in browser demo mode where the provider connection is pre-established.
+   */
+  async addDemoConnection(providerConnectionId: string): Promise<string> {
+    const connectionId = "demo-connection";
+
+    const newConnection: DatabaseConnection = {
+      id: connectionId,
+      name: "Demo Database",
+      type: "duckdb",
+      host: "browser",
+      port: 0,
+      databaseName: "demo",
+      username: "",
+      password: "",
+      lastConnected: new Date(),
+      providerConnectionId,
+    };
+
+    // Check if connection already exists (from persisted storage) and update it,
+    // otherwise add new connection
+    const existingIndex = this.state.connections.findIndex(c => c.id === connectionId);
+    if (existingIndex >= 0) {
+      // Update existing connection with providerConnectionId
+      this.state.connections = this.state.connections.map(c =>
+        c.id === connectionId ? newConnection : c
+      );
+    } else {
+      // Add new connection
+      this.state.connections = [...this.state.connections, newConnection];
+    }
+
+    this.stateRestoration.initializeConnectionMaps(connectionId);
+
+    // Load schema
+    const adapter = getAdapter("duckdb");
+    const provider = await this.getOrCreateProvider();
+    const schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
+    const schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+
+    // Set active connection
+    this.state.activeConnectionId = connectionId;
+
+    // Store tables
+    this.state.schemas = {
+      ...this.state.schemas,
+      [connectionId]: schemasWithTables,
+    };
+
+    // Load column metadata asynchronously
+    this.onSchemaLoaded(connectionId, schemasWithTables, adapter, providerConnectionId);
+
+    // Create initial query tab
+    this.onCreateInitialTab();
+
+    return connectionId;
+  }
+
+  /**
    * Toggle connection state (disconnect if connected).
    */
   toggle(id: string): void {
     const connection = this.state.connections.find((c) => c.id === id);
     if (connection) {
-      const wasConnected = !!connection.database || !!connection.mssqlConnectionId;
+      const wasConnected = !!connection.providerConnectionId || !!connection.mssqlConnectionId;
+
+      // Disconnect provider connection if connected
+      if (connection.providerConnectionId) {
+        this.getOrCreateProvider().then(provider => {
+          provider.disconnect(connection.providerConnectionId!).catch(console.error);
+        });
+        connection.providerConnectionId = undefined;
+      }
 
       // Disconnect MSSQL if connected
       if (connection.mssqlConnectionId) {
         mssqlDisconnect(connection.mssqlConnectionId).catch(console.error);
         connection.mssqlConnectionId = undefined;
       }
-      connection.database = undefined;
 
       if (wasConnected) {
         // If disconnecting the active connection, switch to another connected one
         if (this.state.activeConnectionId === id) {
-          const nextConnection = this.state.connections.find((c) => (c.database || c.mssqlConnectionId) && c.id !== id);
+          const nextConnection = this.state.connections.find((c) => (c.providerConnectionId || c.mssqlConnectionId) && c.id !== id);
           this.state.activeConnectionId = nextConnection?.id || null;
         }
       }

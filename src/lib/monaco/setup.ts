@@ -13,7 +13,13 @@ export async function initMonaco(): Promise<void> {
 				"monaco-editor/esm/vs/editor/editor.worker.js",
 				import.meta.url
 			);
-			return new Worker(workerUrl, { type: "module" });
+			const worker = new Worker(workerUrl, { type: "module" });
+			// Suppress worker errors (Monaco still works, just without some features)
+			worker.onerror = (e) => {
+				e.preventDefault();
+				console.debug("[Monaco] Worker failed to load, some features may be limited");
+			};
+			return worker;
 		}
 	};
 
