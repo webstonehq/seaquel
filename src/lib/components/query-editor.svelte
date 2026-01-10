@@ -39,6 +39,8 @@
 	let showSaveDialog = $state(false);
 	let showParamsDialog = $state(false);
 	let pendingParams = $state<QueryParameter[]>([]);
+	// Track pending action type: 'query' for regular execute, or explain details
+	let pendingAction = $state<'query' | { type: 'explain'; analyze: boolean; cursorOffset: number } | null>(null);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
@@ -131,6 +133,25 @@
 		pendingDeleteRow = null;
 	}
 
+	/**
+	 * Get parameter definitions for the active query.
+	 * Uses linked saved query parameters if available, otherwise creates defaults.
+	 */
+	const getParameterDefinitions = (query: string): QueryParameter[] => {
+		const savedQueryId = db.state.activeQueryTab?.savedQueryId;
+		const savedQuery = savedQueryId
+			? db.state.activeConnectionSavedQueries.find((q) => q.id === savedQueryId)
+			: null;
+
+		if (savedQuery?.parameters && savedQuery.parameters.length > 0) {
+			return savedQuery.parameters;
+		}
+
+		// Create default parameters from extracted names
+		const paramNames = extractParameters(query);
+		return createDefaultParameters(paramNames);
+	};
+
 	const handleExecute = () => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
 
@@ -138,20 +159,8 @@
 
 		// Check if query has parameters
 		if (hasParameters(query)) {
-			// Get parameter definitions from linked saved query if available
-			const savedQueryId = db.state.activeQueryTab.savedQueryId;
-			const savedQuery = savedQueryId
-				? db.state.activeConnectionSavedQueries.find((q) => q.id === savedQueryId)
-				: null;
-
-			if (savedQuery?.parameters && savedQuery.parameters.length > 0) {
-				pendingParams = savedQuery.parameters;
-			} else {
-				// Create default parameters from extracted names
-				const paramNames = extractParameters(query);
-				pendingParams = createDefaultParameters(paramNames);
-			}
-
+			pendingParams = getParameterDefinitions(query);
+			pendingAction = 'query';
 			showParamsDialog = true;
 		} else {
 			// No parameters, execute directly
@@ -160,18 +169,38 @@
 	};
 
 	const handleParamExecute = (values: ParameterValue[]) => {
-		if (db.state.activeQueryTabId) {
+		if (!db.state.activeQueryTabId) return;
+
+		if (pendingAction === 'query') {
 			db.queries.executeWithParams(db.state.activeQueryTabId, values);
+		} else if (pendingAction && pendingAction.type === 'explain') {
+			db.explainTabs.executeWithParams(
+				db.state.activeQueryTabId,
+				values,
+				pendingAction.analyze,
+				pendingAction.cursorOffset
+			);
 		}
+		pendingAction = null;
 	};
 
 	const handleParamCancel = () => {
-		// Dialog closed without executing
+		pendingAction = null;
 	};
 
 	const handleExplain = (analyze: boolean) => {
-		if (db.state.activeQueryTabId) {
-			const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
+		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
+
+		// Check if query has parameters
+		if (hasParameters(query)) {
+			pendingParams = getParameterDefinitions(query);
+			pendingAction = { type: 'explain', analyze, cursorOffset };
+			showParamsDialog = true;
+		} else {
+			// No parameters, execute directly
 			db.explainTabs.execute(db.state.activeQueryTabId, analyze, cursorOffset);
 		}
 	};
