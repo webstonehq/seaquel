@@ -1,4 +1,4 @@
-import type { SavedQuery } from "$lib/types";
+import type { SavedQuery, QueryParameter } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 
 /**
@@ -11,7 +11,7 @@ export class SavedQueryManager {
     private schedulePersistence: (connectionId: string | null) => void
   ) {}
 
-  saveQuery(name: string, query: string, tabId?: string): string | null {
+  saveQuery(name: string, query: string, tabId?: string, parameters?: QueryParameter[]): string | null {
     if (!this.state.activeConnectionId) return null;
 
     const connectionId = this.state.activeConnectionId;
@@ -31,7 +31,7 @@ export class SavedQueryManager {
       if (savedQuery) {
         const updatedSavedQueries = savedQueries.map((q) =>
           q.id === savedQueryId
-            ? { ...q, name, query, updatedAt: new Date() }
+            ? { ...q, name, query, parameters, updatedAt: new Date() }
             : q
         );
         this.state.savedQueriesByConnection = {
@@ -67,6 +67,7 @@ export class SavedQueryManager {
       connectionId,
       createdAt: new Date(),
       updatedAt: new Date(),
+      parameters,
     };
 
     const savedQueries = this.state.savedQueriesByConnection[connectionId] ?? [];

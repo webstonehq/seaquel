@@ -55,6 +55,20 @@ export interface PersistedErdTab {
 }
 
 /**
+ * Persisted query parameter definition.
+ */
+export interface PersistedQueryParameter {
+	/** Parameter name */
+	name: string;
+	/** Data type */
+	type: 'text' | 'number' | 'date' | 'datetime' | 'boolean';
+	/** Optional default value */
+	defaultValue?: string;
+	/** Description/label */
+	description?: string;
+}
+
+/**
  * Persisted saved query.
  * Uses ISO strings for dates.
  */
@@ -71,6 +85,8 @@ export interface PersistedSavedQuery {
 	createdAt: string;
 	/** When last modified (ISO 8601 string) */
 	updatedAt: string;
+	/** Optional parameter definitions */
+	parameters?: PersistedQueryParameter[];
 }
 
 /**

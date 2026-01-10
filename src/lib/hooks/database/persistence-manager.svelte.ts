@@ -108,6 +108,7 @@ export class PersistenceManager {
       connectionId: q.connectionId,
       createdAt: q.createdAt.toISOString(),
       updatedAt: q.updatedAt.toISOString(),
+      parameters: q.parameters,
     }));
   }
 

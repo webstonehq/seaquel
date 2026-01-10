@@ -39,12 +39,12 @@ export class TauriDatabaseProvider implements DatabaseProvider {
 		}
 	}
 
-	async select<T = Record<string, unknown>>(connectionId: string, sql: string): Promise<T[]> {
+	async select<T = Record<string, unknown>>(connectionId: string, sql: string, params?: unknown[]): Promise<T[]> {
 		const db = this.connections.get(connectionId);
 		if (!db) {
 			throw new Error(`Connection not found: ${connectionId}`);
 		}
-		return db.select(sql) as Promise<T[]>;
+		return db.select(sql, params) as Promise<T[]>;
 	}
 
 	async execute(connectionId: string, sql: string, params?: unknown[]): Promise<ExecuteResult> {
