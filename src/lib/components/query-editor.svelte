@@ -8,6 +8,7 @@
 	import { PlayIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
+	import ParameterInputDialog from "$lib/components/parameter-input-dialog.svelte";
 	import MonacoEditor, { type MonacoEditorRef } from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
 	import { save } from "@tauri-apps/plugin-dialog";
@@ -17,6 +18,8 @@
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 	import { m } from "$lib/paraglide/messages.js";
 	import { splitSqlStatements } from "$lib/db/sql-parser.js";
+	import { hasParameters, extractParameters, createDefaultParameters } from "$lib/db/query-params.js";
+	import type { QueryParameter, ParameterValue } from "$lib/types";
 	import QueryExampleCard from "$lib/components/empty-states/query-example-card.svelte";
 	import { sampleQueries } from "$lib/config/sample-queries.js";
 	import PlusIcon from "@lucide/svelte/icons/plus";
@@ -34,6 +37,8 @@
 	const shortcuts = useShortcuts();
 	const sidebar = useSidebar();
 	let showSaveDialog = $state(false);
+	let showParamsDialog = $state(false);
+	let pendingParams = $state<QueryParameter[]>([]);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
@@ -127,9 +132,41 @@
 	}
 
 	const handleExecute = () => {
-		if (db.state.activeQueryTabId) {
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
+
+		// Check if query has parameters
+		if (hasParameters(query)) {
+			// Get parameter definitions from linked saved query if available
+			const savedQueryId = db.state.activeQueryTab.savedQueryId;
+			const savedQuery = savedQueryId
+				? db.state.activeConnectionSavedQueries.find((q) => q.id === savedQueryId)
+				: null;
+
+			if (savedQuery?.parameters && savedQuery.parameters.length > 0) {
+				pendingParams = savedQuery.parameters;
+			} else {
+				// Create default parameters from extracted names
+				const paramNames = extractParameters(query);
+				pendingParams = createDefaultParameters(paramNames);
+			}
+
+			showParamsDialog = true;
+		} else {
+			// No parameters, execute directly
 			db.queries.execute(db.state.activeQueryTabId);
 		}
+	};
+
+	const handleParamExecute = (values: ParameterValue[]) => {
+		if (db.state.activeQueryTabId) {
+			db.queries.executeWithParams(db.state.activeQueryTabId, values);
+		}
+	};
+
+	const handleParamCancel = () => {
+		// Dialog closed without executing
 	};
 
 	const handleExplain = (analyze: boolean) => {
@@ -375,6 +412,13 @@
 		bind:open={showSaveDialog}
 		query={db.state.activeQueryTab.query}
 		tabId={db.state.activeQueryTab.id}
+	/>
+
+	<ParameterInputDialog
+		bind:open={showParamsDialog}
+		parameters={pendingParams}
+		onExecute={handleParamExecute}
+		onCancel={handleParamCancel}
 	/>
 {/if}
 

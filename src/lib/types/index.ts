@@ -18,6 +18,9 @@ export type {
 
 // Query execution types
 export type {
+	QueryParameterType,
+	QueryParameter,
+	ParameterValue,
 	SourceTableInfo,
 	QueryResult,
 	StatementResult,
@@ -39,6 +42,7 @@ export type {
 	PersistedSchemaTab,
 	PersistedExplainTab,
 	PersistedErdTab,
+	PersistedQueryParameter,
 	PersistedSavedQuery,
 	PersistedQueryHistoryItem,
 	PersistedConnectionState,

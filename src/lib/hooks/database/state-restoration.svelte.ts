@@ -200,6 +200,7 @@ export class StateRestorationManager {
       connectionId: q.connectionId,
       createdAt: new Date(q.createdAt),
       updatedAt: new Date(q.updatedAt),
+      parameters: q.parameters,
     }));
     this.state.savedQueriesByConnection = {
       ...this.state.savedQueriesByConnection,

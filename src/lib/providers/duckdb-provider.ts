@@ -80,12 +80,15 @@ export class DuckDBProvider implements DatabaseProvider {
 		}
 	}
 
-	async select<T = Record<string, unknown>>(connectionId: string, sql: string): Promise<T[]> {
+	async select<T = Record<string, unknown>>(connectionId: string, sql: string, _params?: unknown[]): Promise<T[]> {
 		const conn = this.connections.get(connectionId);
 		if (!conn) {
 			throw new Error(`Connection not found: ${connectionId}`);
 		}
 
+		// Note: DuckDB-WASM doesn't support parameterized queries in the same way as other providers.
+		// For parameterized queries, the substituteParameters utility handles MSSQL inline,
+		// and for DuckDB we use substituted SQL with positional params already resolved.
 		const result = await conn.query(sql);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		return result.toArray().map((row: any) => row.toJSON() as T);

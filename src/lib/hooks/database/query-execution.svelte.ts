@@ -1,9 +1,10 @@
 import { toast } from "svelte-sonner";
-import type { DatabaseConnection, QueryResult, StatementResult } from "$lib/types";
+import type { DatabaseConnection, QueryResult, StatementResult, ParameterValue } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
 import { splitSqlStatements } from "$lib/db/sql-parser";
+import { substituteParameters } from "$lib/db/query-params";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
 import { getProvider, type DatabaseProvider } from "$lib/providers";
@@ -74,12 +75,18 @@ export class QueryExecutionManager {
 
   /**
    * Execute a single SQL statement and return the result.
+   * @param sql The SQL statement to execute (may contain $1, $2, etc. placeholders)
+   * @param page Page number for pagination
+   * @param pageSize Number of rows per page
+   * @param connection Database connection to use
+   * @param bindValues Optional bind values for parameterized queries (PostgreSQL/SQLite only)
    */
   private async executeStatement(
     sql: string,
     page: number,
     pageSize: number,
-    connection: DatabaseConnection
+    connection: DatabaseConnection,
+    bindValues?: unknown[]
   ): Promise<QueryResult> {
     const start = performance.now();
     const baseQuery = sql.replace(/;$/, "").trim();
@@ -93,11 +100,12 @@ export class QueryExecutionManager {
       let lastInsertId: number | undefined;
 
       if (isMssql) {
+        // MSSQL: bind values are already inlined via substituteParameters
         const result = await mssqlExecute(connection.mssqlConnectionId!, baseQuery);
         rowsAffected = result.rowsAffected;
       } else if (providerConnectionId) {
         const provider = await this.getOrCreateProvider();
-        const executeResult = await provider.execute(providerConnectionId, baseQuery);
+        const executeResult = await provider.execute(providerConnectionId, baseQuery, bindValues);
         rowsAffected = executeResult?.rowsAffected ?? 0;
         lastInsertId = executeResult?.lastInsertId;
       } else {
@@ -137,11 +145,13 @@ export class QueryExecutionManager {
       try {
         let countResult: { total: string | number }[];
         if (isMssql) {
+          // MSSQL: bind values are already inlined
           const result = await mssqlQuery(connection.mssqlConnectionId!, countQuery);
           countResult = result.rows as { total: string | number }[];
         } else if (providerConnectionId) {
           const provider = await this.getOrCreateProvider();
-          countResult = await provider.select<{ total: string | number }>(providerConnectionId, countQuery);
+          // Pass bind values since count query wraps the parameterized query
+          countResult = await provider.select<{ total: string | number }>(providerConnectionId, countQuery, bindValues);
         } else {
           throw new Error("No connection established");
         }
@@ -173,12 +183,14 @@ export class QueryExecutionManager {
     let dbResult: Record<string, unknown>[];
     let resultColumns: string[] = [];
     if (isMssql) {
+      // MSSQL: bind values are already inlined
       const result = await mssqlQuery(connection.mssqlConnectionId!, paginatedQuery);
       dbResult = result.rows as Record<string, unknown>[];
       resultColumns = result.columns;
     } else if (providerConnectionId) {
       const provider = await this.getOrCreateProvider();
-      dbResult = await provider.select<Record<string, unknown>>(providerConnectionId, paginatedQuery);
+      // Pass bind values for parameterized queries
+      dbResult = await provider.select<Record<string, unknown>>(providerConnectionId, paginatedQuery, bindValues);
       resultColumns = (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [];
     } else {
       throw new Error("No connection established");
@@ -304,6 +316,99 @@ export class QueryExecutionManager {
     });
 
     // Add to history (only on first page to avoid duplicates, use first result's timing)
+    if (page === 1 && results.length > 0) {
+      this.queryHistory.addToHistory(tab.query, results[0]);
+    }
+  }
+
+  /**
+   * Execute a parameterized query with user-provided values.
+   * Substitutes {{param}} placeholders with values before execution.
+   */
+  async executeWithParams(
+    tabId: string,
+    parameterValues: ParameterValue[],
+    page: number = 1,
+    pageSize?: number
+  ): Promise<void> {
+    if (!this.state.activeConnectionId) return;
+
+    const connection = this.state.activeConnection;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) {
+      toast.error("Not connected to database. Please reconnect.");
+      return;
+    }
+
+    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    // Mark as executing
+    this.updateQueryTabState(tabId, { isExecuting: true });
+
+    // Get effective page size
+    const effectivePageSize = pageSize ?? tab.results?.[0]?.pageSize ?? this.DEFAULT_PAGE_SIZE;
+
+    // Get database type
+    const dbType = connection.type ?? "postgres";
+
+    // Parse SQL into individual statements
+    const statements = splitSqlStatements(tab.query, dbType);
+
+    // Handle case where all statements are comments
+    if (statements.length === 0) {
+      this.updateQueryTabState(tabId, {
+        results: [],
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+      toast.info(m.query_no_executable_statements());
+      return;
+    }
+
+    const results: StatementResult[] = [];
+
+    // Execute each statement with parameter substitution
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i];
+      try {
+        // Substitute parameters for this statement
+        const { sql, bindValues } = substituteParameters(stmt.sql, parameterValues, dbType);
+
+        const result = await this.executeStatement(sql, page, effectivePageSize, connection, bindValues);
+        results.push({
+          ...result,
+          statementIndex: i,
+          statementSql: stmt.sql, // Keep original SQL with {{}} for display
+          isError: false,
+        });
+      } catch (error) {
+        results.push({
+          columns: ["Error"],
+          rows: [{ Error: this.formatError(error) }],
+          rowCount: 1,
+          totalRows: 1,
+          executionTime: 0,
+          page: 1,
+          pageSize: 1,
+          totalPages: 1,
+          statementIndex: i,
+          statementSql: stmt.sql,
+          error: this.formatError(error),
+          isError: true,
+        });
+      }
+    }
+
+    // Update tab with all results
+    this.updateQueryTabState(tabId, {
+      results,
+      activeResultIndex: 0,
+      isExecuting: false,
+    });
+
+    // Add to history (only on first page, use first result's timing)
     if (page === 1 && results.length > 0) {
       this.queryHistory.addToHistory(tab.query, results[0]);
     }

@@ -67,9 +67,10 @@ export interface DatabaseProvider {
 	 * Execute a SELECT query and return rows.
 	 * @param connectionId Connection ID from connect()
 	 * @param sql SQL query to execute
+	 * @param params Optional parameterized query values
 	 * @returns Array of result rows
 	 */
-	select<T = Record<string, unknown>>(connectionId: string, sql: string): Promise<T[]>;
+	select<T = Record<string, unknown>>(connectionId: string, sql: string, params?: unknown[]): Promise<T[]>;
 
 	/**
 	 * Execute a write query (INSERT, UPDATE, DELETE).

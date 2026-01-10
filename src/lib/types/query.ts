@@ -6,6 +6,36 @@
 import type { QueryType } from '../db/query-utils';
 
 /**
+ * Supported data types for query parameters.
+ */
+export type QueryParameterType = 'text' | 'number' | 'date' | 'datetime' | 'boolean';
+
+/**
+ * Definition of a query parameter.
+ * Used for parameterized queries with {{name}} placeholders.
+ */
+export interface QueryParameter {
+	/** Parameter name (extracted from {{name}} placeholder) */
+	name: string;
+	/** Data type of the parameter */
+	type: QueryParameterType;
+	/** Optional default value */
+	defaultValue?: string;
+	/** Description/label for the parameter */
+	description?: string;
+}
+
+/**
+ * Runtime parameter value for query execution.
+ */
+export interface ParameterValue {
+	/** Parameter name */
+	name: string;
+	/** The value entered by the user */
+	value: unknown;
+}
+
+/**
  * Source table information for editable query results.
  * Used to identify which table a result set came from for UPDATE/DELETE operations.
  */
@@ -119,6 +149,8 @@ export interface SavedQuery {
 	createdAt: Date;
 	/** When the query was last modified */
 	updatedAt: Date;
+	/** Optional parameter definitions for parameterized queries */
+	parameters?: QueryParameter[];
 }
 
 /**
