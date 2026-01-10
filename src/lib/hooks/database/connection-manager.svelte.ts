@@ -134,7 +134,7 @@ export class ConnectionManager {
     const connectionId =
       connection.type === "sqlite"
         ? `conn-sqlite-${connection.databaseName}`
-        : `conn-${connection.host}-${connection.port}`;
+        : `conn-${connection.host}-${connection.port}-${connection.databaseName}`;
 
     const { effectiveConnectionString, tunnelLocalPort } = await this.setupSshTunnel(
       connection,
