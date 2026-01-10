@@ -12,6 +12,7 @@ import type {
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
 import { loadStore, type Store } from "$lib/storage";
+import { getKeyringService } from "$lib/services/keyring";
 
 /**
  * Manages persistence of connection state to Tauri store.
@@ -171,11 +172,10 @@ export class PersistenceManager {
   async removePersistedConnectionState(connectionId: string): Promise<void> {
     try {
       const store = await loadStore(`connection_state_${connectionId}.json`, {
-        autoSave: true,
+        autoSave: false,
         defaults: { state: null },
       });
-      await store.clear();
-      await store.save();
+      await store.delete();
     } catch (error) {
       console.error(`Failed to remove persisted state for ${connectionId}:`, error);
     }
@@ -211,7 +211,16 @@ export class PersistenceManager {
     }
   }
 
-  async persistConnection(connection: DatabaseConnection): Promise<void> {
+  async persistConnection(
+    connection: DatabaseConnection,
+    options?: {
+      savePassword?: boolean;
+      saveSshPassword?: boolean;
+      saveSshKeyPassphrase?: boolean;
+      sshPassword?: string;
+      sshKeyPassphrase?: string;
+    }
+  ): Promise<void> {
     try {
       const store = await loadStore("database_connections.json", {
         autoSave: true,
@@ -237,11 +246,42 @@ export class PersistenceManager {
         connectionString: this.stripPasswordFromConnectionString(connection.connectionString),
         lastConnected: connection.lastConnected,
         sshTunnel: connection.sshTunnel,
+        savePassword: options?.savePassword,
+        saveSshPassword: options?.saveSshPassword,
+        saveSshKeyPassphrase: options?.saveSshKeyPassphrase,
       };
 
       filtered.push(persistedConnection);
       await store.set("connections", filtered);
       await store.save();
+
+      // Save passwords to keyring if enabled
+      const keyring = getKeyringService();
+      if (keyring.isAvailable()) {
+        try {
+          if (options?.savePassword && connection.password) {
+            await keyring.setDbPassword(connection.id, connection.password);
+          } else if (!options?.savePassword) {
+            // Delete existing password if save is disabled
+            await keyring.deleteDbPassword(connection.id);
+          }
+
+          if (options?.saveSshPassword && options.sshPassword) {
+            await keyring.setSshPassword(connection.id, options.sshPassword);
+          } else if (!options?.saveSshPassword) {
+            await keyring.deleteSshPassword(connection.id);
+          }
+
+          if (options?.saveSshKeyPassphrase && options.sshKeyPassphrase) {
+            await keyring.setSshKeyPassphrase(connection.id, options.sshKeyPassphrase);
+          } else if (!options?.saveSshKeyPassphrase) {
+            await keyring.deleteSshKeyPassphrase(connection.id);
+          }
+        } catch (error) {
+          console.warn("Failed to save credentials to keyring:", error);
+          toast.error("Could not save password to system keychain");
+        }
+      }
     } catch (error) {
       console.error("Failed to persist connection:", error);
       toast.error("Failed to save connection to storage");
@@ -261,6 +301,16 @@ export class PersistenceManager {
       const filtered = connections.filter((c) => c.id !== connectionId);
       await store.set("connections", filtered);
       await store.save();
+
+      // Delete passwords from keyring
+      const keyring = getKeyringService();
+      if (keyring.isAvailable()) {
+        try {
+          await keyring.deleteAllForConnection(connectionId);
+        } catch (error) {
+          console.warn("Failed to delete credentials from keyring:", error);
+        }
+      }
     } catch (error) {
       console.error("Failed to remove persisted connection:", error);
       toast.error("Failed to remove connection from storage");

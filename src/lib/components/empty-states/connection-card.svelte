@@ -15,12 +15,18 @@
 	const { connection }: Props = $props();
 	const db = useDatabase();
 
-	const handleClick = () => {
+	const handleClick = async () => {
 		if (connection.database || connection.providerConnectionId) {
 			// Already connected, just activate
 			db.connections.setActive(connection.id);
 		} else {
-			// Need to reconnect - open dialog with prefill
+			// Try auto-reconnect first if password is saved
+			const autoReconnected = await db.connections.autoReconnect(connection.id);
+			if (autoReconnected) {
+				return; // Successfully reconnected
+			}
+
+			// Fall back to dialog if auto-reconnect fails or password not saved
 			connectionDialogStore.open({
 				id: connection.id,
 				name: connection.name,
@@ -31,6 +37,10 @@
 				username: connection.username,
 				sslMode: connection.sslMode,
 				connectionString: connection.connectionString,
+				sshTunnel: connection.sshTunnel,
+				savePassword: connection.savePassword,
+				saveSshPassword: connection.saveSshPassword,
+				saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
 			});
 		}
 	};

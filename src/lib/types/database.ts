@@ -80,4 +80,10 @@ export interface DatabaseConnection {
 	sshTunnel?: SSHTunnelConfig;
 	/** Local port for SSH tunnel forwarding */
 	tunnelLocalPort?: number;
+	/** Whether the database password is saved in keychain */
+	savePassword?: boolean;
+	/** Whether the SSH password is saved in keychain */
+	saveSshPassword?: boolean;
+	/** Whether the SSH key passphrase is saved in keychain */
+	saveSshKeyPassphrase?: boolean;
 }

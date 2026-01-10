@@ -133,7 +133,7 @@
 		runAndClose(() => db.erdTabs.add());
 	}
 
-	function switchConnection(id: string) {
+	async function switchConnection(id: string) {
 		const connection = connections.find((c) => c.id === id);
 		if (!connection) return;
 
@@ -141,8 +141,14 @@
 			// Already connected, just switch to it
 			runAndClose(() => db.connections.setActive(id));
 		} else {
-			// Disconnected, open the reconnect dialog
+			// Try auto-reconnect first if password is saved
 			open = false;
+			const autoReconnected = await db.connections.autoReconnect(id);
+			if (autoReconnected) {
+				return; // Successfully reconnected
+			}
+
+			// Fall back to dialog if auto-reconnect fails or password not saved
 			connectionDialogStore.open({
 				id: connection.id,
 				name: connection.name,
@@ -154,6 +160,9 @@
 				sslMode: connection.sslMode,
 				connectionString: connection.connectionString,
 				sshTunnel: connection.sshTunnel,
+				savePassword: connection.savePassword,
+				saveSshPassword: connection.saveSshPassword,
+				saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
 			});
 		}
 	}

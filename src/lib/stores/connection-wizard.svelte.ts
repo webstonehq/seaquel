@@ -1,5 +1,6 @@
 import type { DatabaseType, SSHAuthMethod } from "$lib/types";
 import type { ConnectionDialogPrefill } from "./connection-dialog.svelte.js";
+import { getKeyringService } from "$lib/services/keyring";
 
 export type WizardStep =
 	| "string-choice"
@@ -31,6 +32,10 @@ export interface WizardFormData {
 	sshPassword: string;
 	sshKeyPath: string;
 	sshKeyPassphrase: string;
+	// Password storage flags (checked by default)
+	savePassword: boolean;
+	saveSshPassword: boolean;
+	saveSshKeyPassphrase: boolean;
 }
 
 export interface DatabaseTypeConfig {
@@ -111,6 +116,10 @@ const defaultFormData: WizardFormData = {
 	sshPassword: "",
 	sshKeyPath: "",
 	sshKeyPassphrase: "",
+	// Password storage flags (checked by default)
+	savePassword: true,
+	saveSshPassword: true,
+	saveSshKeyPassphrase: true,
 };
 
 // Step order for manual flow (after choosing "No" for connection string)
@@ -200,7 +209,7 @@ class ConnectionWizardStore {
 				port: prefill.port || 5432,
 				databaseName: prefill.databaseName || "",
 				username: prefill.username || "",
-				password: "", // Always empty for security
+				password: prefill.password || "", // May be pre-populated from connection state
 				sslMode: prefill.sslMode || "disable",
 				connectionString: prefill.connectionString || "",
 				sshEnabled: prefill.sshTunnel?.enabled || false,
@@ -211,8 +220,17 @@ class ConnectionWizardStore {
 				sshPassword: "",
 				sshKeyPath: "",
 				sshKeyPassphrase: "",
+				// Password storage flags
+				savePassword: prefill.savePassword ?? true,
+				saveSshPassword: prefill.saveSshPassword ?? true,
+				saveSshKeyPassphrase: prefill.saveSshKeyPassphrase ?? true,
 			};
 			this.reconnectingConnectionId = prefill.id || null;
+
+			// Load saved credentials from keyring
+			if (prefill.id) {
+				this.loadSavedCredentials(prefill.id, prefill);
+			}
 
 			if (mode === "reconnect") {
 				// For reconnect, go straight to credentials
@@ -234,6 +252,35 @@ class ConnectionWizardStore {
 		}
 
 		this.isOpen = true;
+	}
+
+	// Load saved credentials from keyring
+	private async loadSavedCredentials(connectionId: string, prefill: ConnectionDialogPrefill): Promise<void> {
+		const keyring = getKeyringService();
+		if (!keyring.isAvailable()) return;
+
+		try {
+			if (prefill.savePassword) {
+				const savedPassword = await keyring.getDbPassword(connectionId);
+				if (savedPassword) {
+					this.formData.password = savedPassword;
+				}
+			}
+			if (prefill.saveSshPassword) {
+				const savedSshPassword = await keyring.getSshPassword(connectionId);
+				if (savedSshPassword) {
+					this.formData.sshPassword = savedSshPassword;
+				}
+			}
+			if (prefill.saveSshKeyPassphrase) {
+				const savedPassphrase = await keyring.getSshKeyPassphrase(connectionId);
+				if (savedPassphrase) {
+					this.formData.sshKeyPassphrase = savedPassphrase;
+				}
+			}
+		} catch (error) {
+			console.warn("Failed to load credentials from keyring:", error);
+		}
 	}
 
 	// Close the wizard
@@ -406,6 +453,9 @@ class ConnectionWizardStore {
 			connString = this.buildConnectionString();
 		}
 
+		const keyring = getKeyringService();
+		const keychainAvailable = keyring.isAvailable();
+
 		return {
 			name: this.formData.name,
 			type: this.formData.type,
@@ -428,6 +478,10 @@ class ConnectionWizardStore {
 			sshPassword: this.formData.sshPassword,
 			sshKeyPath: this.formData.sshKeyPath,
 			sshKeyPassphrase: this.formData.sshKeyPassphrase,
+			// Password storage flags (only if keychain is available)
+			savePassword: keychainAvailable ? this.formData.savePassword : false,
+			saveSshPassword: keychainAvailable ? this.formData.saveSshPassword : false,
+			saveSshKeyPassphrase: keychainAvailable ? this.formData.saveSshKeyPassphrase : false,
 		};
 	}
 

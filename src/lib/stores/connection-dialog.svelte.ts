@@ -1,7 +1,5 @@
 import type { DatabaseType, SSHAuthMethod } from "$lib/types";
-import { connectionWizardStore } from "./connection-wizard.svelte.js";
-
-export type ConnectionDialogMode = "wizard" | "quick" | "reconnect";
+import { connectionWizardStore, type WizardMode } from "./connection-wizard.svelte.js";
 
 export interface ConnectionDialogPrefill {
 	id?: string;
@@ -11,6 +9,7 @@ export interface ConnectionDialogPrefill {
 	port?: number;
 	databaseName?: string;
 	username?: string;
+	password?: string;
 	sslMode?: string;
 	connectionString?: string;
 	sshTunnel?: {
@@ -20,38 +19,24 @@ export interface ConnectionDialogPrefill {
 		username: string;
 		authMethod: SSHAuthMethod;
 	};
+	savePassword?: boolean;
+	saveSshPassword?: boolean;
+	saveSshKeyPassphrase?: boolean;
 }
 
 class ConnectionDialogStore {
-	isOpen = $state(false);
-	prefill = $state<ConnectionDialogPrefill | undefined>(undefined);
-	mode = $state<ConnectionDialogMode>("wizard");
-
 	/**
-	 * Opens the connection dialog.
+	 * Opens the connection wizard.
 	 * - New connections default to wizard mode
 	 * - Reconnections use reconnect mode (password-only prompt)
-	 * - Use mode: "quick" for power users who want the classic form
 	 */
-	open(prefill?: ConnectionDialogPrefill, mode?: ConnectionDialogMode) {
-		// Determine mode based on context
+	open(prefill?: ConnectionDialogPrefill, mode?: WizardMode) {
 		const resolvedMode = mode ?? (prefill?.id ? "reconnect" : "wizard");
-
-		// Route to wizard for new connections and reconnections
-		if (resolvedMode === "wizard" || resolvedMode === "reconnect") {
-			connectionWizardStore.open(resolvedMode, prefill);
-			return;
-		}
-
-		// Quick mode uses classic dialog
-		this.prefill = prefill;
-		this.mode = resolvedMode;
-		this.isOpen = true;
+		connectionWizardStore.open(resolvedMode, prefill);
 	}
 
 	close() {
-		this.isOpen = false;
-		this.prefill = undefined;
+		connectionWizardStore.close();
 	}
 }
 

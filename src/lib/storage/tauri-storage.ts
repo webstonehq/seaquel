@@ -4,6 +4,8 @@
  */
 
 import { load as tauriLoad } from '@tauri-apps/plugin-store';
+import { appDataDir } from '@tauri-apps/api/path';
+import { remove } from '@tauri-apps/plugin-fs';
 import type { StorageProvider, Store, StoreLoadOptions } from './types';
 
 /**
@@ -12,7 +14,8 @@ import type { StorageProvider, Store, StoreLoadOptions } from './types';
 class TauriStore implements Store {
 	constructor(
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		private store: Awaited<ReturnType<typeof tauriLoad>>
+		private store: Awaited<ReturnType<typeof tauriLoad>>,
+		private filename: string
 	) {}
 
 	async get<T>(key: string): Promise<T | null> {
@@ -29,6 +32,17 @@ class TauriStore implements Store {
 
 	async clear(): Promise<void> {
 		await this.store.clear();
+	}
+
+	async delete(): Promise<void> {
+		await this.store.clear();
+		await this.store.save();
+		try {
+			const dataDir = await appDataDir();
+			await remove(`${dataDir}${this.filename}`);
+		} catch {
+			// File might not exist, ignore errors
+		}
 	}
 }
 
@@ -48,6 +62,6 @@ export class TauriStorageProvider implements StorageProvider {
 			autoSave: options?.autoSave ?? true,
 			defaults: options?.defaults ?? {}
 		});
-		return new TauriStore(store);
+		return new TauriStore(store, name);
 	}
 }
