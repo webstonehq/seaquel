@@ -4,6 +4,7 @@ import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { getAdapter, type ExplainNode } from '$lib/db';
 import { getStatementAtOffset } from '$lib/db/sql-parser';
+import { getProvider } from '$lib/providers';
 
 /**
  * Manages EXPLAIN/ANALYZE tabs: execute, remove, set active.
@@ -111,6 +112,13 @@ export class ExplainTabManager {
 		try {
 			const adapter = getAdapter(this.state.activeConnection.type);
 			const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
+			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+
+			if (!providerConnectionId) {
+				throw new Error('No connection established');
+			}
+
+			const provider = await getProvider();
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
@@ -120,16 +128,12 @@ export class ExplainTabManager {
 
 			if (dbType === 'sqlite' && analyze) {
 				const startTime = performance.now();
-				const queryResult = (await this.state.activeConnection.database!.select(
-					queryToExplain
-				)) as unknown[];
+				const queryResult = await provider.select(providerConnectionId, queryToExplain);
 				executionTime = performance.now() - startTime;
 				actualRowCount = queryResult.length;
 			}
 
-			const result = (await this.state.activeConnection.database!.select(
-				explainQuery
-			)) as unknown[];
+			const result = await provider.select(providerConnectionId, explainQuery);
 
 			// Use adapter to parse the results into common format
 			const parsedNode = adapter.parseExplainResult(result, analyze);

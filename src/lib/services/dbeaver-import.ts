@@ -30,6 +30,7 @@ const DEFAULT_PORTS: Record<DatabaseType, number> = {
 	sqlite: 0,
 	mongodb: 27017,
 	mssql: 1433,
+	duckdb: 0,
 };
 
 /**

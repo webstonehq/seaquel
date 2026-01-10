@@ -1,5 +1,4 @@
 import { setContext, getContext } from "svelte";
-import type Database from "@tauri-apps/plugin-sql";
 import type { SchemaTable } from "$lib/types";
 import type { DatabaseAdapter } from "$lib/db";
 import { DatabaseState } from "./database/state.svelte.js";
@@ -80,8 +79,8 @@ class UseDatabase {
       this.persistence,
       this._stateRestoration,
       this.tabs,
-      (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, database: Database | undefined, mssqlConnectionId?: string) => {
-        this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, database, mssqlConnectionId);
+      (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, providerConnectionId?: string, mssqlConnectionId?: string) => {
+        this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, providerConnectionId, mssqlConnectionId);
       },
       () => this.queryTabs.add()
     );

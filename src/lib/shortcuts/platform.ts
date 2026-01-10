@@ -1,10 +1,38 @@
-import { platform } from "@tauri-apps/plugin-os";
+import { isTauri } from "$lib/utils/environment";
 
 let cachedPlatform: string | null = null;
 
+function detectPlatform(): string {
+	if (isTauri()) {
+		// Use Tauri plugin for accurate detection in desktop app
+		// This will be called synchronously, so we need to handle it carefully
+		try {
+			// Dynamic import won't work synchronously, so use navigator as fallback
+			if (typeof navigator !== "undefined") {
+				const ua = navigator.userAgent.toLowerCase();
+				if (ua.includes("mac")) return "macos";
+				if (ua.includes("win")) return "windows";
+				if (ua.includes("linux")) return "linux";
+			}
+		} catch {
+			// Fall through to browser detection
+		}
+	}
+
+	// Browser detection using navigator
+	if (typeof navigator !== "undefined") {
+		const ua = navigator.userAgent.toLowerCase();
+		if (ua.includes("mac")) return "macos";
+		if (ua.includes("win")) return "windows";
+		if (ua.includes("linux")) return "linux";
+	}
+
+	return "unknown";
+}
+
 export function isMac(): boolean {
 	if (cachedPlatform === null) {
-		cachedPlatform = platform();
+		cachedPlatform = detectPlatform();
 	}
 	return cachedPlatform === "macos";
 }

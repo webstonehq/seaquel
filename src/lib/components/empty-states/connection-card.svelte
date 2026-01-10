@@ -16,7 +16,7 @@
 	const db = useDatabase();
 
 	const handleClick = () => {
-		if (connection.database) {
+		if (connection.database || connection.providerConnectionId) {
 			// Already connected, just activate
 			db.connections.setActive(connection.id);
 		} else {
@@ -52,9 +52,9 @@
 				<span
 					class={[
 						"size-2 rounded-full shrink-0",
-						connection.database ? "bg-green-500" : "bg-gray-400",
+						(connection.database || connection.providerConnectionId) ? "bg-green-500" : "bg-gray-400",
 					]}
-					title={connection.database ? m.empty_states_connection_card_connected() : m.empty_states_connection_card_disconnected()}
+					title={(connection.database || connection.providerConnectionId) ? m.empty_states_connection_card_connected() : m.empty_states_connection_card_disconnected()}
 				></span>
 				<DatabaseIcon class="size-4 text-muted-foreground" />
 				<Card.Title class="text-sm font-medium truncate">{connection.name}</Card.Title>

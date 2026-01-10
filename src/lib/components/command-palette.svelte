@@ -35,7 +35,7 @@
 	const openTabs = $derived(db.tabs.ordered);
 	const activeResult = $derived(db.state.activeQueryResult);
 	const hasResults = $derived((activeResult?.rows?.length ?? 0) > 0);
-	const isConnected = $derived(!!db.state.activeConnectionId && !!(db.state.activeConnection?.database || db.state.activeConnection?.mssqlConnectionId));
+	const isConnected = $derived(!!db.state.activeConnectionId && !!(db.state.activeConnection?.database || db.state.activeConnection?.mssqlConnectionId || db.state.activeConnection?.providerConnectionId));
 	const hasActiveQueryTab = $derived(isConnected && !!db.state.activeQueryTab);
 	const hasQueryContent = $derived(hasActiveQueryTab && !!db.state.activeQueryTab?.query?.trim());
 	const hasConnections = $derived(connections.length > 0);
@@ -137,7 +137,7 @@
 		const connection = connections.find((c) => c.id === id);
 		if (!connection) return;
 
-		if (connection.database || connection.mssqlConnectionId) {
+		if (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) {
 			// Already connected, just switch to it
 			runAndClose(() => db.connections.setActive(id));
 		} else {
@@ -370,7 +370,7 @@
 						</span>
 						{#if connection.id === db.state.activeConnectionId}
 							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_active()}</span>
-						{:else if !(connection.database || connection.mssqlConnectionId)}
+						{:else if !(connection.database || connection.mssqlConnectionId || connection.providerConnectionId)}
 							<span class="text-muted-foreground ms-auto text-xs">{m.command_status_disconnected()}</span>
 						{/if}
 					</Command.Item>

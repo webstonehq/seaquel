@@ -145,6 +145,26 @@ FROM your_table;`,
 			requiresTable: true,
 		},
 	],
+	duckdb: [
+		{
+			id: "duckdb-list-tables",
+			name: "List all tables",
+			description: "View all tables in your database",
+			query: `SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE'
+ORDER BY table_schema, table_name;`,
+		},
+		{
+			id: "duckdb-sample-data",
+			name: "Preview table data",
+			description: "View sample rows from a table",
+			query: `SELECT *
+FROM your_table
+LIMIT 10;`,
+			requiresTable: true,
+		},
+	],
 };
 
 export const savedQueryExample: SampleQuery = {

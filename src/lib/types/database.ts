@@ -8,7 +8,7 @@ import type Database from '@tauri-apps/plugin-sql';
 /**
  * Supported database engine types.
  */
-export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb' | 'mariadb' | 'mssql';
+export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb' | 'mariadb' | 'mssql' | 'duckdb';
 
 /**
  * SSH tunnel authentication methods.
@@ -70,7 +70,9 @@ export interface DatabaseConnection {
 	connectionString?: string;
 	/** Timestamp of last successful connection */
 	lastConnected?: Date;
-	/** Active database connection handle (tauri-plugin-sql) */
+	/** Provider connection ID for database operations */
+	providerConnectionId?: string;
+	/** @deprecated Use providerConnectionId. Active database connection handle (tauri-plugin-sql) */
 	database?: Database;
 	/** Connection ID for MSSQL (uses custom Rust backend) */
 	mssqlConnectionId?: string;

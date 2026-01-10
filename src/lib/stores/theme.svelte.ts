@@ -1,4 +1,4 @@
-import { load } from "@tauri-apps/plugin-store";
+import { loadStore } from "$lib/storage";
 import { mode } from "mode-watcher";
 import type {
 	Theme,
@@ -54,7 +54,7 @@ class ThemeStore {
 	 */
 	async initialize(): Promise<void> {
 		try {
-			const store = await load(STORE_FILE, {
+			const store = await loadStore(STORE_FILE, {
 				autoSave: false,
 				defaults: {
 					preferences: DEFAULT_PREFERENCES,
@@ -284,7 +284,7 @@ class ThemeStore {
 
 	private async persist(): Promise<void> {
 		try {
-			const store = await load(STORE_FILE, {
+			const store = await loadStore(STORE_FILE, {
 				autoSave: true,
 				defaults: {
 					preferences: DEFAULT_PREFERENCES,

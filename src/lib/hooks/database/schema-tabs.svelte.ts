@@ -1,9 +1,9 @@
-import type Database from '@tauri-apps/plugin-sql';
 import type { SchemaTable, SchemaTab } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { getAdapter, type DatabaseAdapter } from '$lib/db';
 import { mssqlQuery } from '$lib/services/mssql';
+import { getProvider } from '$lib/providers';
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -29,6 +29,7 @@ export class SchemaTabManager {
 		const isMssql =
 			this.state.activeConnection.type === 'mssql' &&
 			this.state.activeConnection.mssqlConnectionId;
+		const providerConnectionId = this.state.activeConnection.providerConnectionId;
 
 		// Fetch table metadata - query columns and indexes
 		let columnsResult: unknown[];
@@ -55,21 +56,27 @@ export class SchemaTabManager {
 				);
 				foreignKeysResult = fkQueryResult.rows;
 			}
-		} else {
-			columnsResult = (await this.state.activeConnection.database!.select(
+		} else if (providerConnectionId) {
+			const provider = await getProvider();
+			columnsResult = await provider.select(
+				providerConnectionId,
 				adapter.getColumnsQuery(table.name, table.schema)
-			)) as unknown[];
+			);
 
-			indexesResult = (await this.state.activeConnection.database!.select(
+			indexesResult = await provider.select(
+				providerConnectionId,
 				adapter.getIndexesQuery(table.name, table.schema)
-			)) as unknown[];
+			);
 
-			// Fetch foreign keys if adapter supports it (needed for SQLite)
+			// Fetch foreign keys if adapter supports it (needed for SQLite, DuckDB)
 			if (adapter.getForeignKeysQuery) {
-				foreignKeysResult = (await this.state.activeConnection.database!.select(
+				foreignKeysResult = await provider.select(
+					providerConnectionId,
 					adapter.getForeignKeysQuery(table.name, table.schema)
-				)) as unknown[];
+				);
 			}
+		} else {
+			return null;
 		}
 
 		// Update table with fetched columns and indexes
@@ -171,9 +178,12 @@ export class SchemaTabManager {
 		connectionId: string,
 		tables: SchemaTable[],
 		adapter: DatabaseAdapter,
-		database: Database | undefined,
+		providerConnectionId?: string,
 		mssqlConnectionId?: string
 	): Promise<void> {
+		// Get provider once for all tables
+		const provider = providerConnectionId ? await getProvider() : null;
+
 		// Process tables in parallel but update state as each completes
 		const promises = tables.map(async (table, index) => {
 			try {
@@ -201,20 +211,23 @@ export class SchemaTabManager {
 						);
 						foreignKeysResult = fkQueryResult.rows;
 					}
-				} else if (database) {
-					columnsResult = (await database.select(
+				} else if (provider && providerConnectionId) {
+					columnsResult = await provider.select(
+						providerConnectionId,
 						adapter.getColumnsQuery(table.name, table.schema)
-					)) as unknown[];
+					);
 
-					indexesResult = (await database.select(
+					indexesResult = await provider.select(
+						providerConnectionId,
 						adapter.getIndexesQuery(table.name, table.schema)
-					)) as unknown[];
+					);
 
-					// Fetch foreign keys if adapter supports it (needed for SQLite)
+					// Fetch foreign keys if adapter supports it (needed for SQLite, DuckDB)
 					if (adapter.getForeignKeysQuery) {
-						foreignKeysResult = (await database.select(
+						foreignKeysResult = await provider.select(
+							providerConnectionId,
 							adapter.getForeignKeysQuery(table.name, table.schema)
-						)) as unknown[];
+						);
 					}
 				} else {
 					// No valid connection, skip

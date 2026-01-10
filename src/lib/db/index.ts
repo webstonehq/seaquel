@@ -2,6 +2,7 @@ import type { DatabaseType, SchemaTable, SchemaColumn, SchemaIndex } from "$lib/
 import { MssqlAdapter } from "./mssql";
 import { PostgresAdapter } from "./postgres";
 import { SqliteAdapter } from "./sqlite";
+import { DuckDBAdapter } from "./duckdb";
 
 export interface ExplainNode {
 	type: string;
@@ -60,6 +61,7 @@ const adapters: Partial<Record<DatabaseType, DatabaseAdapter>> = {
 	mssql: new MssqlAdapter(),
 	postgres: new PostgresAdapter(),
 	sqlite: new SqliteAdapter(),
+	duckdb: new DuckDBAdapter(),
 };
 
 export function getAdapter(type: DatabaseType): DatabaseAdapter {

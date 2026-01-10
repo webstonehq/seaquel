@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { SvelteSet } from "svelte/reactivity";
-	import { getVersion } from "@tauri-apps/api/app";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
 	import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "$lib/components/ui/sidebar";
@@ -11,15 +10,21 @@
 	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import { m } from "$lib/paraglide/messages.js";
+	import { isTauri } from "$lib/utils/environment";
+	import { isDemo } from "$lib/features";
 
 	const db = useDatabase();
 	let sidebarTab = $state<"schema" | "queries">("schema");
 	let version = $state("");
 
 	$effect(() => {
-		getVersion().then((v) => {
-			version = v;
-		});
+		if (isTauri()) {
+			import("@tauri-apps/api/app").then(({ getVersion }) => {
+				getVersion().then((v) => {
+					version = v;
+				});
+			});
+		}
 	});
 	let expandedSchemas = new SvelteSet<string>();
 	let historyExpanded = $state(true);
@@ -97,7 +102,7 @@
 
 	<SidebarContent>
 		{#if sidebarTab === "schema"}
-			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId)}
+			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId || db.state.activeConnection.providerConnectionId)}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -152,7 +157,7 @@
 				</div>
 			{/if}
 		{:else if sidebarTab === "queries"}
-			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId)}
+			{#if db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId || db.state.activeConnection.providerConnectionId)}
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -310,7 +315,9 @@
 					{m.sidebar_no_connection_footer()}
 				{/if}
 			</span>
-			{#if version}
+			{#if isDemo()}
+				<Badge variant="secondary" class="text-xs">Demo</Badge>
+			{:else if version}
 				<span>v{version}</span>
 			{/if}
 		</div>

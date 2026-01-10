@@ -29,8 +29,10 @@
     import { toast } from "svelte-sonner";
     import CopyIcon from "@lucide/svelte/icons/copy";
     import { SshTunnelConfig } from "$lib/components/connection-dialog/index.js";
+    import { getFeatures } from "$lib/features";
 
     let { open = $bindable(false), prefill = undefined }: Props = $props();
+    const features = getFeatures();
     const db = useDatabase();
 
     let formData = $state({
@@ -123,7 +125,7 @@
 
     const sslModes = ["disable", "allow", "prefer", "require"];
 
-    const databaseTypes: {
+    const allDatabaseTypes: {
         value: DatabaseType;
         label: string;
         defaultPort: number;
@@ -166,6 +168,11 @@
             protocol: ["mssql", "sqlserver"],
         },
     ];
+
+    // Filter database types based on feature flags
+    const databaseTypes = features.mssqlSupport
+        ? allDatabaseTypes
+        : allDatabaseTypes.filter(t => t.value !== "mssql");
 
     const selectedDbType = $derived(
         databaseTypes.find((t) => t.value === formData.type),
@@ -626,26 +633,28 @@
                         </div>
                     {/if}
 
-                    <!-- SSH Tunnel Section -->
-                    <SshTunnelConfig
-                        enabled={formData.sshEnabled}
-                        host={formData.sshHost}
-                        port={formData.sshPort}
-                        username={formData.sshUsername}
-                        authMethod={formData.sshAuthMethod}
-                        password={formData.sshPassword}
-                        keyPath={formData.sshKeyPath}
-                        keyPassphrase={formData.sshKeyPassphrase}
-                        {isReconnecting}
-                        onEnabledChange={(v) => formData.sshEnabled = v}
-                        onHostChange={(v) => formData.sshHost = v}
-                        onPortChange={(v) => formData.sshPort = v}
-                        onUsernameChange={(v) => formData.sshUsername = v}
-                        onAuthMethodChange={(v) => formData.sshAuthMethod = v}
-                        onPasswordChange={(v) => formData.sshPassword = v}
-                        onKeyPathChange={(v) => formData.sshKeyPath = v}
-                        onKeyPassphraseChange={(v) => formData.sshKeyPassphrase = v}
-                    />
+                    <!-- SSH Tunnel Section (desktop only) -->
+                    {#if features.sshTunnels}
+                        <SshTunnelConfig
+                            enabled={formData.sshEnabled}
+                            host={formData.sshHost}
+                            port={formData.sshPort}
+                            username={formData.sshUsername}
+                            authMethod={formData.sshAuthMethod}
+                            password={formData.sshPassword}
+                            keyPath={formData.sshKeyPath}
+                            keyPassphrase={formData.sshKeyPassphrase}
+                            {isReconnecting}
+                            onEnabledChange={(v) => formData.sshEnabled = v}
+                            onHostChange={(v) => formData.sshHost = v}
+                            onPortChange={(v) => formData.sshPort = v}
+                            onUsernameChange={(v) => formData.sshUsername = v}
+                            onAuthMethodChange={(v) => formData.sshAuthMethod = v}
+                            onPasswordChange={(v) => formData.sshPassword = v}
+                            onKeyPathChange={(v) => formData.sshKeyPath = v}
+                            onKeyPassphraseChange={(v) => formData.sshKeyPassphrase = v}
+                        />
+                    {/if}
                 {/if}
             </TabsContent>
         </Tabs>
