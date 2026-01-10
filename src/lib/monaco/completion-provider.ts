@@ -241,32 +241,56 @@ export function createSchemaCompletionProvider(
         return { suggestions };
       }
 
-      // Add table suggestions
-      schema.forEach((table) => {
+      // Determine current clause context
+      const currentClause = getCurrentClause(textBeforeCursorFull);
+
+      // Add schema suggestions (unique schema names) - Group 0: Schemas
+      const uniqueSchemas = [...new Set(schema.map((t) => t.schema))].sort();
+      uniqueSchemas.forEach((schemaName, idx) => {
+        suggestions.push({
+          label: schemaName,
+          kind: monaco.languages.CompletionItemKind.Folder,
+          detail: "schema",
+          insertText: schemaName,
+          range,
+          sortText: `0-schema-${String(idx).padStart(3, "0")}`,
+        });
+      });
+
+      // Add table suggestions - Group 1: Tables
+      const sortedTables = [...schema].sort((a, b) => a.name.localeCompare(b.name));
+      sortedTables.forEach((table, idx) => {
         // Table name only
         suggestions.push({
           label: table.name,
           kind:
-            table.type === "table"
-              ? monaco.languages.CompletionItemKind.Class
-              : monaco.languages.CompletionItemKind.Interface,
+            table.type === "view"
+              ? monaco.languages.CompletionItemKind.Interface
+              : monaco.languages.CompletionItemKind.Struct,
           detail: `${table.schema}.${table.name} (${table.type})`,
           insertText: table.name,
           range,
+          sortText: `1-table-${String(idx).padStart(3, "0")}`,
         });
 
         // Schema-qualified table name
         suggestions.push({
           label: `${table.schema}.${table.name}`,
           kind:
-            table.type === "table"
-              ? monaco.languages.CompletionItemKind.Class
-              : monaco.languages.CompletionItemKind.Interface,
+            table.type === "view"
+              ? monaco.languages.CompletionItemKind.Interface
+              : monaco.languages.CompletionItemKind.Struct,
           detail: table.columns.length ? `${table.columns.length} columns` : "",
           insertText: `${table.schema}.${table.name}`,
           range,
+          sortText: `1-table-${String(idx).padStart(3, "0")}-qualified`,
         });
       });
+
+      // In FROM context, only show table names (no keywords or types)
+      if (currentClause === "from") {
+        return { suggestions };
+      }
 
       // Add SQL keywords
       const keywords = [

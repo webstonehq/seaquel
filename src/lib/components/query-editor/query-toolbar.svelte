@@ -23,6 +23,7 @@
 		activeResult: StatementResult | null | undefined;
 		liveStatementCount: number;
 		onExecute: () => void;
+		onExecuteCurrent: () => void;
 		onExplain: (analyze: boolean) => void;
 		onFormat: () => void;
 		onSave: () => void;
@@ -34,6 +35,7 @@
 		activeResult,
 		liveStatementCount,
 		onExecute,
+		onExecuteCurrent,
 		onExplain,
 		onFormat,
 		onSave
@@ -75,7 +77,7 @@
 			<Button
 				size="sm"
 				class="h-8 gap-1 rounded-r-none border-r-0"
-				onclick={onExecute}
+				onclick={onExecuteCurrent}
 				disabled={isExecuting}
 			>
 				{#if isExecuting}
@@ -94,13 +96,19 @@
 					<ChevronDownIcon class="size-3" />
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="end">
-					<DropdownMenu.Item onclick={onExecute}>
+					<DropdownMenu.Item onclick={onExecuteCurrent}>
 						<PlayIcon class="size-4 me-2" />
-						{m.query_execute()}
+						{m.query_execute_current()}
 						{#if findShortcut('executeQuery')}
 							<ShortcutKeys keys={findShortcut('executeQuery')!.keys} class="ms-auto" />
 						{/if}
 					</DropdownMenu.Item>
+					{#if liveStatementCount > 1}
+						<DropdownMenu.Item onclick={onExecute}>
+							<PlayIcon class="size-4 me-2" />
+							{m.query_execute_all()}
+						</DropdownMenu.Item>
+					{/if}
 					<DropdownMenu.Separator />
 					<DropdownMenu.Item onclick={() => onExplain(false)}>
 						<SearchIcon class="size-4 me-2" />

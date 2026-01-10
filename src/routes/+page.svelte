@@ -568,6 +568,8 @@
                 <ErdViewer />
             {/if}
         </div>
+    {:else if db.state.connectionsLoading}
+        <!-- Loading state - show nothing to prevent flash of empty state -->
     {:else if db.state.connections.length === 0}
         <WelcomeScreen />
     {:else}

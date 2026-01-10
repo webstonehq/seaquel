@@ -116,6 +116,8 @@ export class ConnectionManager {
     } catch (error) {
       console.error("Failed to load persisted connections:", error);
       // Silently fail - app will continue with no persisted connections
+    } finally {
+      this.state.connectionsLoading = false;
     }
   }
 
@@ -447,6 +449,49 @@ export class ConnectionManager {
   }
 
   /**
+   * Update connection settings without reconnecting.
+   * Used for editing connection details while preserving the connection state.
+   */
+  async update(connectionId: string, connection: ConnectionInput): Promise<void> {
+    const existingConnection = this.state.connections.find((c) => c.id === connectionId);
+    if (!existingConnection) {
+      throw new Error(`Connection with id ${connectionId} not found`);
+    }
+
+    // Update connection properties (but preserve connection state like providerConnectionId)
+    const updatedConnection: DatabaseConnection = {
+      ...existingConnection,
+      name: connection.name,
+      type: connection.type,
+      host: connection.host,
+      port: connection.port,
+      databaseName: connection.databaseName,
+      username: connection.username,
+      password: connection.password,
+      sslMode: connection.sslMode,
+      connectionString: connection.connectionString,
+      sshTunnel: connection.sshTunnel,
+      savePassword: connection.savePassword,
+      saveSshPassword: connection.saveSshPassword,
+      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+    };
+
+    // Replace the connection in the array
+    this.state.connections = this.state.connections.map((c) =>
+      c.id === connectionId ? updatedConnection : c
+    );
+
+    // Persist the updated connection
+    this.persistence.persistConnection(updatedConnection, {
+      savePassword: connection.savePassword,
+      saveSshPassword: connection.saveSshPassword,
+      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+      sshPassword: connection.sshPassword,
+      sshKeyPassphrase: connection.sshKeyPassphrase,
+    });
+  }
+
+  /**
    * Test a connection without persisting it.
    */
   async test(connection: ConnectionInput): Promise<void> {
@@ -697,8 +742,9 @@ export class ConnectionManager {
         if (connection.sshTunnel.authMethod === "password" && !sshPassword) {
           return false;
         }
-        if (connection.sshTunnel.authMethod === "key" && !sshKeyPassphrase) {
-          // Key passphrase might be optional, so we'll try anyway
+        if (connection.sshTunnel.authMethod === "key" && !connection.sshTunnel.keyPath) {
+          // SSH key auth requires keyPath to be stored
+          return false;
         }
       }
 
@@ -715,6 +761,7 @@ export class ConnectionManager {
         connectionString: connection.connectionString,
         sshTunnel: connection.sshTunnel,
         sshPassword,
+        sshKeyPath: connection.sshTunnel?.keyPath,
         sshKeyPassphrase,
         savePassword: connection.savePassword,
         saveSshPassword: connection.saveSshPassword,

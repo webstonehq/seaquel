@@ -30,6 +30,8 @@ export interface SSHTunnelConfig {
 	username: string;
 	/** Authentication method: password or SSH key */
 	authMethod: SSHAuthMethod;
+	/** Path to SSH private key file (for key auth) */
+	keyPath?: string;
 }
 
 /**

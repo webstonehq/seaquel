@@ -27,6 +27,46 @@
 	const db = useDatabase();
 	const wizard = connectionWizardStore;
 
+	// Auto-connect when all credentials are loaded in reconnect mode
+	$effect(() => {
+		if (wizard.shouldAutoConnect && wizard.credentialsLoaded && !wizard.isConnecting) {
+			// Reset the flag immediately to prevent re-triggering
+			wizard.shouldAutoConnect = false;
+
+			if (wizard.hasAllCredentials) {
+				// All credentials available - attempt auto-connect
+				handleAutoConnect();
+			} else {
+				// Missing credentials - show the dialog
+				wizard.showDialog();
+			}
+		}
+	});
+
+	const handleAutoConnect = async () => {
+		wizard.isConnecting = true;
+		try {
+			const connectionData = wizard.getConnectionData();
+			if (wizard.reconnectingConnectionId) {
+				await db.connections.reconnect(wizard.reconnectingConnectionId, connectionData);
+			}
+			// Mark onboarding as complete
+			onboardingStore.completeWizard();
+			// Show toast and close wizard without showing the dialog
+			if (db.state.activeSchema.length === 0) {
+				toast.warning(m.wizard_connect_empty());
+			} else {
+				toast.success(m.wizard_connect_success());
+			}
+			wizard.close();
+		} catch (error) {
+			// Auto-connect failed, show the dialog so user can fix the issue
+			wizard.isConnecting = false;
+			wizard.setError(extractErrorMessage(error));
+			wizard.showDialog();
+		}
+	};
+
 	const extractErrorMessage = (error: unknown): string => {
 		if (error instanceof Error) {
 			return error.message;
@@ -94,21 +134,32 @@
 		try {
 			const connectionData = wizard.getConnectionData();
 
-			if (wizard.reconnectingConnectionId) {
+			if (wizard.mode === "edit" && wizard.reconnectingConnectionId) {
+				// Edit mode - just update settings without reconnecting
+				await db.connections.update(wizard.reconnectingConnectionId, connectionData);
+				toast.success(m.wizard_edit_success());
+			} else if (wizard.reconnectingConnectionId) {
 				await db.connections.reconnect(wizard.reconnectingConnectionId, connectionData);
+				// Mark onboarding as complete
+				onboardingStore.completeWizard();
+				// Show toast
+				if (db.state.activeSchema.length === 0) {
+					toast.warning(m.wizard_connect_empty());
+				} else {
+					toast.success(m.wizard_connect_success());
+				}
 			} else {
 				await db.connections.add(connectionData);
+				// Mark onboarding as complete
+				onboardingStore.completeWizard();
+				// Show toast
+				if (db.state.activeSchema.length === 0) {
+					toast.warning(m.wizard_connect_empty());
+				} else {
+					toast.success(m.wizard_connect_success());
+				}
 			}
 
-			// Mark onboarding as complete
-			onboardingStore.completeWizard();
-
-			// Show toast and close wizard
-			if (db.state.activeSchema.length === 0) {
-				toast.warning(m.wizard_connect_empty());
-			} else {
-				toast.success(m.wizard_connect_success());
-			}
 			wizard.close();
 		} catch (error) {
 			wizard.setError(extractErrorMessage(error));
@@ -121,12 +172,14 @@
 		return wizard.parseConnectionString(connStr);
 	};
 
-	const isReconnecting = $derived(wizard.reconnectingConnectionId !== null);
+	const isReconnecting = $derived(wizard.reconnectingConnectionId !== null && wizard.mode !== "edit");
+	const isEditing = $derived(wizard.mode === "edit");
 
 	// Determine if we should show navigation buttons
 	const showBack = $derived(
 		wizard.currentStep !== "string-choice" &&
-			(!isReconnecting || wizard.currentStep === "advanced"),
+			wizard.currentStep !== "type" &&
+			(isEditing || !isReconnecting || wizard.currentStep === "advanced"),
 	);
 	const showNext = $derived(
 		wizard.currentStep !== "string-choice" &&
@@ -148,7 +201,9 @@
 	<DialogContent class="max-w-md max-h-[90vh] overflow-y-auto">
 		<DialogHeader>
 			<DialogTitle>
-				{#if isReconnecting}
+				{#if isEditing}
+					{m.wizard_dialog_title_edit()}
+				{:else if isReconnecting}
 					{m.connection_dialog_title_reconnect()}
 				{:else}
 					{m.wizard_dialog_title()}
@@ -244,6 +299,8 @@
 						>
 							{#if wizard.isConnecting}
 								{m.connection_dialog_button_connecting()}
+							{:else if isEditing}
+								{m.wizard_save()}
 							{:else if isReconnecting}
 								{m.connection_dialog_button_reconnect()}
 							{:else}
