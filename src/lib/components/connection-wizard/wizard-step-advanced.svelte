@@ -2,6 +2,7 @@
 	import { Input } from "$lib/components/ui/input";
 	import { Label } from "$lib/components/ui/label";
 	import { Button } from "$lib/components/ui/button";
+	import { Checkbox } from "$lib/components/ui/checkbox";
 	import {
 		Select,
 		SelectContent,
@@ -12,9 +13,13 @@
 	import type { WizardFormData, DatabaseTypeConfig } from "$lib/stores/connection-wizard.svelte.js";
 	import type { SSHAuthMethod } from "$lib/types";
 	import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+	import { getKeyringService } from "$lib/services/keyring";
 	import ShieldIcon from "@lucide/svelte/icons/shield";
 	import NetworkIcon from "@lucide/svelte/icons/network";
 	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+
+	const keyring = getKeyringService();
+	const keychainAvailable = keyring.isAvailable();
 
 	interface Props {
 		formData: WizardFormData;
@@ -188,6 +193,18 @@
 									bind:value={formData.sshPassword}
 									placeholder={m.connection_dialog_placeholder_ssh_password()}
 								/>
+								{#if keychainAvailable}
+									<div class="flex items-center gap-2 mt-1">
+										<Checkbox
+											id="save-ssh-password"
+											checked={formData.saveSshPassword}
+											onCheckedChange={(checked) => formData.saveSshPassword = !!checked}
+										/>
+										<Label for="save-ssh-password" class="text-xs font-normal cursor-pointer">
+											{m.connection_dialog_save_ssh_password()}
+										</Label>
+									</div>
+								{/if}
 							</div>
 						{:else}
 							<div class="grid gap-2">
@@ -212,10 +229,22 @@
 									bind:value={formData.sshKeyPassphrase}
 									placeholder={m.connection_dialog_placeholder_optional()}
 								/>
+								{#if keychainAvailable}
+									<div class="flex items-center gap-2 mt-1">
+										<Checkbox
+											id="save-ssh-passphrase"
+											checked={formData.saveSshKeyPassphrase}
+											onCheckedChange={(checked) => formData.saveSshKeyPassphrase = !!checked}
+										/>
+										<Label for="save-ssh-passphrase" class="text-xs font-normal cursor-pointer">
+											{m.connection_dialog_save_ssh_passphrase()}
+										</Label>
+									</div>
+								{/if}
 							</div>
 						{/if}
 
-						{#if isReconnecting}
+						{#if isReconnecting && (!formData.sshPassword && !formData.sshKeyPassphrase)}
 							<p class="text-xs text-amber-600 dark:text-amber-500">
 								{m.connection_dialog_warning_ssh()}
 							</p>

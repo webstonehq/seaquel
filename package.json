@@ -30,6 +30,7 @@
     "@tauri-apps/plugin-sql": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.4.1",
     "@tauri-apps/plugin-updater": "^2.9.0",
+    "tauri-plugin-keyring-api": "^0.1.1",
     "@xyflow/svelte": "^1.5.0",
     "html-to-image": "^1.11.13",
     "monaco-editor": "^0.55.1",

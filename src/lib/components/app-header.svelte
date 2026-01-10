@@ -7,7 +7,6 @@
     import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
     import DatabaseIcon from "@lucide/svelte/icons/database";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
-    import ConnectionDialog from "$lib/components/connection-dialog.svelte";
     import ConnectionWizard from "$lib/components/connection-wizard/connection-wizard.svelte";
     import PlusIcon from "@lucide/svelte/icons/plus";
     import BotIcon from "@lucide/svelte/icons/bot";
@@ -36,12 +35,18 @@
     let connectionToRemove = $state<string | null>(null);
     let connectionToRemoveName = $state("");
 
-    const handleConnectionClick = (connection: typeof db.state.connections[0]) => {
+    const handleConnectionClick = async (connection: typeof db.state.connections[0]) => {
         // If connection has a database instance, just activate it
         if (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) {
             db.connections.setActive(connection.id);
         } else {
-            // If no database (persisted connection), open dialog with prefilled values
+            // Try auto-reconnect first if password is saved
+            const autoReconnected = await db.connections.autoReconnect(connection.id);
+            if (autoReconnected) {
+                return; // Successfully reconnected
+            }
+
+            // Fall back to dialog if auto-reconnect fails or password not saved
             connectionDialogStore.open({
                 id: connection.id,
                 name: connection.name,
@@ -52,6 +57,10 @@
                 username: connection.username,
                 sslMode: connection.sslMode,
                 connectionString: connection.connectionString,
+                sshTunnel: connection.sshTunnel,
+                savePassword: connection.savePassword,
+                saveSshPassword: connection.saveSshPassword,
+                saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
             });
         }
     };
@@ -187,7 +196,6 @@
     </div>
 </header>
 
-<ConnectionDialog bind:open={connectionDialogStore.isOpen} prefill={connectionDialogStore.prefill} />
 <ConnectionWizard />
 
 <Dialog.Root bind:open={showRemoveDialog}>

@@ -98,6 +98,11 @@ class WebStore implements Store {
 			console.error('Failed to clear localStorage:', error);
 		}
 	}
+
+	async delete(): Promise<void> {
+		// For web storage, delete is the same as clear
+		await this.clear();
+	}
 }
 
 /**

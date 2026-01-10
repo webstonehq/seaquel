@@ -32,6 +32,12 @@ export interface Store {
 	 * Clear all data in the store.
 	 */
 	clear(): Promise<void>;
+
+	/**
+	 * Delete the store file entirely.
+	 * After calling this, the store should not be used.
+	 */
+	delete(): Promise<void>;
 }
 
 /**

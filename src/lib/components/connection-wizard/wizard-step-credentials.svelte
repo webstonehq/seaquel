@@ -2,15 +2,20 @@
 	import { Input } from "$lib/components/ui/input";
 	import { Label } from "$lib/components/ui/label";
 	import { Button } from "$lib/components/ui/button";
+	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { WizardFormData, DatabaseTypeConfig } from "$lib/stores/connection-wizard.svelte.js";
 	import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+	import { getKeyringService } from "$lib/services/keyring";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import UserIcon from "@lucide/svelte/icons/user";
 	import KeyIcon from "@lucide/svelte/icons/key";
 	import FolderIcon from "@lucide/svelte/icons/folder";
 	import CopyIcon from "@lucide/svelte/icons/copy";
 	import { toast } from "svelte-sonner";
+
+	const keyring = getKeyringService();
+	const keychainAvailable = keyring.isAvailable();
 
 	interface Props {
 		formData: WizardFormData;
@@ -120,10 +125,22 @@
 						class="pl-9"
 					/>
 				</div>
-				{#if isReconnecting}
+				{#if isReconnecting && !formData.password}
 					<p class="text-xs text-amber-600 dark:text-amber-500">
 						{m.connection_dialog_warning_password()}
 					</p>
+				{/if}
+				{#if keychainAvailable}
+					<div class="flex items-center gap-2 mt-1">
+						<Checkbox
+							id="save-password"
+							checked={formData.savePassword}
+							onCheckedChange={(checked) => formData.savePassword = !!checked}
+						/>
+						<Label for="save-password" class="text-xs font-normal cursor-pointer">
+							{m.connection_dialog_save_password()}
+						</Label>
+					</div>
 				{/if}
 			</div>
 		{/if}

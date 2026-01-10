@@ -9,11 +9,15 @@ import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
 import { getProvider, type DatabaseProvider } from "$lib/providers";
 import { isTauri } from "$lib/utils/environment";
+import { getKeyringService } from "$lib/services/keyring";
 
 type ConnectionInput = Omit<DatabaseConnection, "id"> & {
   sshPassword?: string;
   sshKeyPath?: string;
   sshKeyPassphrase?: string;
+  savePassword?: boolean;
+  saveSshPassword?: boolean;
+  saveSshKeyPassphrase?: boolean;
 };
 
 /**
@@ -50,9 +54,37 @@ export class ConnectionManager {
   async initializePersistedConnections(): Promise<void> {
     try {
       const persistedConnections = await this.persistence.loadPersistedConnections();
+      const keyring = getKeyringService();
 
       for (const persisted of persistedConnections) {
-        // Load the connection without connecting (password is not persisted)
+        // Try to load password from keyring if it was saved
+        let password = "";
+        if (persisted.savePassword && keyring.isAvailable()) {
+          try {
+            const savedPassword = await keyring.getDbPassword(persisted.id);
+            if (savedPassword) {
+              password = savedPassword;
+            }
+          } catch (error) {
+            console.warn("Failed to load password from keyring:", error);
+          }
+        }
+
+        // Extract username from connection string if not stored separately (backwards compat)
+        let username = persisted.username ?? "";
+        if (!username && persisted.connectionString) {
+          try {
+            const connStr = persisted.connectionString.replace("postgresql://", "postgres://");
+            if (!connStr.startsWith("sqlite")) {
+              const url = new URL(connStr);
+              username = url.username ? decodeURIComponent(url.username) : "";
+            }
+          } catch {
+            // Ignore parsing errors
+          }
+        }
+
+        // Load the connection without connecting
         const connection: DatabaseConnection = {
           id: persisted.id,
           name: persisted.name,
@@ -60,12 +92,15 @@ export class ConnectionManager {
           host: persisted.host,
           port: persisted.port,
           databaseName: persisted.databaseName,
-          username: persisted.username,
-          password: "", // Password not persisted - user must enter it
+          username,
+          password, // Load from keyring if available
           sslMode: persisted.sslMode,
           connectionString: persisted.connectionString,
           lastConnected: persisted.lastConnected ? new Date(persisted.lastConnected) : undefined,
           sshTunnel: persisted.sshTunnel,
+          savePassword: persisted.savePassword,
+          saveSshPassword: persisted.saveSshPassword,
+          saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
           // database is undefined - user needs to provide password to connect
         };
         this.state.connections.push(connection);
@@ -143,10 +178,7 @@ export class ConnectionManager {
    * Add a new database connection.
    */
   async add(connection: ConnectionInput): Promise<string> {
-    const connectionId =
-      connection.type === "sqlite"
-        ? `conn-sqlite-${connection.databaseName}`
-        : `conn-${connection.host}-${connection.port}-${connection.databaseName}`;
+    const connectionId = crypto.randomUUID();
 
     const { effectiveConnectionString, tunnelLocalPort } = await this.setupSshTunnel(
       connection,
@@ -248,8 +280,14 @@ export class ConnectionManager {
     // Create initial query tab for new connection
     this.onCreateInitialTab();
 
-    // Persist the connection to store (without password)
-    this.persistence.persistConnection(newConnection);
+    // Persist the connection to store (password saved to keyring if enabled)
+    this.persistence.persistConnection(newConnection, {
+      savePassword: connection.savePassword,
+      saveSshPassword: connection.saveSshPassword,
+      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+      sshPassword: connection.sshPassword,
+      sshKeyPassphrase: connection.sshKeyPassphrase,
+    });
 
     return newConnection.id;
   }
@@ -333,6 +371,9 @@ export class ConnectionManager {
       password: connection.password,
       tunnelLocalPort,
       sshTunnel: connection.sshTunnel,
+      savePassword: connection.savePassword,
+      saveSshPassword: connection.saveSshPassword,
+      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
     };
 
     // Replace the old connection with the updated one in the connections array
@@ -393,8 +434,14 @@ export class ConnectionManager {
       }
     }
 
-    // Persist the connection to store (without password for security)
-    this.persistence.persistConnection(updatedConnection);
+    // Persist the connection to store (password saved to keyring if enabled)
+    this.persistence.persistConnection(updatedConnection, {
+      savePassword: connection.savePassword,
+      saveSshPassword: connection.saveSshPassword,
+      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+      sshPassword: connection.sshPassword,
+      sshKeyPassphrase: connection.sshKeyPassphrase,
+    });
 
     return connectionId;
   }
@@ -583,6 +630,102 @@ export class ConnectionManager {
     this.onCreateInitialTab();
 
     return connectionId;
+  }
+
+  /**
+   * Attempt to auto-reconnect using saved keychain credentials.
+   * Returns true if successful, false if credentials are missing or connection fails.
+   * Use this to reconnect without showing a dialog when password is saved.
+   */
+  async autoReconnect(connectionId: string): Promise<boolean> {
+    const connection = this.state.connections.find((c) => c.id === connectionId);
+    if (!connection) {
+      return false;
+    }
+
+    // SQLite doesn't require passwords, always auto-reconnect
+    if (connection.type === "sqlite") {
+      try {
+        await this.reconnect(connectionId, {
+          name: connection.name,
+          type: connection.type,
+          host: connection.host,
+          port: connection.port,
+          databaseName: connection.databaseName,
+          username: connection.username,
+          password: "",
+          sslMode: connection.sslMode,
+          connectionString: connection.connectionString,
+        });
+        return true;
+      } catch (error) {
+        console.warn("Auto-reconnect failed for SQLite:", error);
+        return false;
+      }
+    }
+
+    // For other databases, check if password is saved
+    if (!connection.savePassword) {
+      return false;
+    }
+
+    const keyring = getKeyringService();
+    if (!keyring.isAvailable()) {
+      return false;
+    }
+
+    try {
+      // Load credentials from keyring
+      const password = await keyring.getDbPassword(connectionId);
+      if (!password) {
+        return false;
+      }
+
+      // Load SSH credentials if needed
+      let sshPassword: string | undefined;
+      let sshKeyPassphrase: string | undefined;
+
+      if (connection.sshTunnel?.enabled) {
+        if (connection.saveSshPassword) {
+          sshPassword = (await keyring.getSshPassword(connectionId)) || undefined;
+        }
+        if (connection.saveSshKeyPassphrase) {
+          sshKeyPassphrase = (await keyring.getSshKeyPassphrase(connectionId)) || undefined;
+        }
+
+        // If SSH is enabled but credentials not saved, we can't auto-reconnect
+        if (connection.sshTunnel.authMethod === "password" && !sshPassword) {
+          return false;
+        }
+        if (connection.sshTunnel.authMethod === "key" && !sshKeyPassphrase) {
+          // Key passphrase might be optional, so we'll try anyway
+        }
+      }
+
+      // Attempt reconnection
+      await this.reconnect(connectionId, {
+        name: connection.name,
+        type: connection.type,
+        host: connection.host,
+        port: connection.port,
+        databaseName: connection.databaseName,
+        username: connection.username,
+        password,
+        sslMode: connection.sslMode,
+        connectionString: connection.connectionString,
+        sshTunnel: connection.sshTunnel,
+        sshPassword,
+        sshKeyPassphrase,
+        savePassword: connection.savePassword,
+        saveSshPassword: connection.saveSshPassword,
+        saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+      });
+
+      return true;
+    } catch (error) {
+      console.warn("Auto-reconnect failed:", error);
+      return false;
+    }
   }
 
   /**
