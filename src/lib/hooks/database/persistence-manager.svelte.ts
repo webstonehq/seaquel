@@ -313,8 +313,8 @@ export class PersistenceManager {
         }
       }
     } catch (error) {
-      console.error("Failed to remove persisted connection:", error);
-      toast.error("Failed to remove connection from storage");
+      console.error("Failed to delete persisted connection:", error);
+      toast.error("Failed to delete connection from storage");
     }
   }
 

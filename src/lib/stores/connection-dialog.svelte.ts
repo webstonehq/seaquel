@@ -18,6 +18,7 @@ export interface ConnectionDialogPrefill {
 		port: number;
 		username: string;
 		authMethod: SSHAuthMethod;
+		keyPath?: string;
 	};
 	savePassword?: boolean;
 	saveSshPassword?: boolean;

@@ -17,7 +17,7 @@
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 	import { m } from "$lib/paraglide/messages.js";
-	import { splitSqlStatements } from "$lib/db/sql-parser.js";
+	import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser.js";
 	import { hasParameters, extractParameters, createDefaultParameters } from "$lib/db/query-params.js";
 	import type { QueryParameter, ParameterValue } from "$lib/types";
 	import QueryExampleCard from "$lib/components/empty-states/query-example-card.svelte";
@@ -39,8 +39,8 @@
 	let showSaveDialog = $state(false);
 	let showParamsDialog = $state(false);
 	let pendingParams = $state<QueryParameter[]>([]);
-	// Track pending action type: 'query' for regular execute, or explain details
-	let pendingAction = $state<'query' | { type: 'explain'; analyze: boolean; cursorOffset: number } | null>(null);
+	// Track pending action type: 'query' for execute all, 'query-current' for current statement, or explain details
+	let pendingAction = $state<'query' | { type: 'query-current'; cursorOffset: number } | { type: 'explain'; analyze: boolean; cursorOffset: number } | null>(null);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
@@ -168,12 +168,39 @@
 		}
 	};
 
+	const handleExecuteCurrent = () => {
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
+		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
+		const dbType = db.state.activeConnection?.type ?? "postgres";
+
+		// Get the current statement to check for parameters
+		const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+
+		// Only check parameters on the current statement, not the entire query
+		if (currentStatement && hasParameters(currentStatement.sql)) {
+			pendingParams = getParameterDefinitions(currentStatement.sql);
+			pendingAction = { type: 'query-current', cursorOffset };
+			showParamsDialog = true;
+		} else {
+			// No parameters in current statement, execute directly
+			db.queries.executeCurrent(db.state.activeQueryTabId, cursorOffset);
+		}
+	};
+
 	const handleParamExecute = (values: ParameterValue[]) => {
 		if (!db.state.activeQueryTabId) return;
 
 		if (pendingAction === 'query') {
 			db.queries.executeWithParams(db.state.activeQueryTabId, values);
-		} else if (pendingAction && pendingAction.type === 'explain') {
+		} else if (pendingAction && typeof pendingAction === 'object' && pendingAction.type === 'query-current') {
+			db.queries.executeCurrentWithParams(
+				db.state.activeQueryTabId,
+				pendingAction.cursorOffset,
+				values
+			);
+		} else if (pendingAction && typeof pendingAction === 'object' && pendingAction.type === 'explain') {
 			db.explainTabs.executeWithParams(
 				db.state.activeQueryTabId,
 				values,
@@ -318,6 +345,7 @@
 			{activeResult}
 			{liveStatementCount}
 			onExecute={handleExecute}
+			onExecuteCurrent={handleExecuteCurrent}
 			onExplain={handleExplain}
 			onFormat={handleFormat}
 			onSave={handleSave}
@@ -332,7 +360,7 @@
 							bind:value={db.state.activeQueryTab.query}
 							bind:ref={monacoRef}
 							schema={db.state.activeSchema}
-							onExecute={handleExecute}
+							onExecute={handleExecuteCurrent}
 							onToggleSidebar={() => sidebar.toggle()}
 							onChange={(newValue) => {
 								currentQuery = newValue;

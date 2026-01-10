@@ -3,7 +3,7 @@ import type { DatabaseConnection, QueryResult, StatementResult, ParameterValue }
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import { detectQueryType, isWriteQuery, extractTableFromSelect } from "$lib/db/query-utils";
-import { splitSqlStatements } from "$lib/db/sql-parser";
+import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser";
 import { substituteParameters } from "$lib/db/query-params";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
@@ -234,6 +234,167 @@ export class QueryExecutionManager {
       pageSize,
       totalPages,
     };
+  }
+
+  /**
+   * Execute only the statement at the cursor position.
+   */
+  async executeCurrent(tabId: string, cursorOffset: number, page: number = 1, pageSize?: number): Promise<void> {
+    if (!this.state.activeConnectionId) return;
+
+    const connection = this.state.activeConnection;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) {
+      toast.error("Not connected to database. Please reconnect.");
+      return;
+    }
+
+    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    // Get database type for parsing
+    const dbType = connection.type ?? "postgres";
+
+    // Get the statement at cursor position
+    const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+    if (!statement) {
+      toast.info(m.query_no_executable_statements());
+      return;
+    }
+
+    // Mark as executing
+    this.updateQueryTabState(tabId, { isExecuting: true });
+
+    // Get effective page size
+    const effectivePageSize = pageSize ?? tab.results?.[0]?.pageSize ?? this.DEFAULT_PAGE_SIZE;
+
+    try {
+      const result = await this.executeStatement(statement.sql, page, effectivePageSize, connection);
+      const results: StatementResult[] = [{
+        ...result,
+        statementIndex: 0,
+        statementSql: statement.sql,
+        isError: false,
+      }];
+
+      this.updateQueryTabState(tabId, {
+        results,
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+
+      // Add to history
+      if (page === 1) {
+        this.queryHistory.addToHistory(statement.sql, results[0]);
+      }
+    } catch (error) {
+      const results: StatementResult[] = [{
+        columns: ["Error"],
+        rows: [{ Error: this.formatError(error) }],
+        rowCount: 1,
+        totalRows: 1,
+        executionTime: 0,
+        page: 1,
+        pageSize: 1,
+        totalPages: 1,
+        statementIndex: 0,
+        statementSql: statement.sql,
+        error: this.formatError(error),
+        isError: true,
+      }];
+
+      this.updateQueryTabState(tabId, {
+        results,
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+    }
+  }
+
+  /**
+   * Execute only the statement at cursor position with parameters.
+   */
+  async executeCurrentWithParams(
+    tabId: string,
+    cursorOffset: number,
+    parameterValues: ParameterValue[],
+    page: number = 1,
+    pageSize?: number
+  ): Promise<void> {
+    if (!this.state.activeConnectionId) return;
+
+    const connection = this.state.activeConnection;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) {
+      toast.error("Not connected to database. Please reconnect.");
+      return;
+    }
+
+    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    // Get database type for parsing
+    const dbType = connection.type ?? "postgres";
+
+    // Get the statement at cursor position
+    const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+    if (!statement) {
+      toast.info(m.query_no_executable_statements());
+      return;
+    }
+
+    // Mark as executing
+    this.updateQueryTabState(tabId, { isExecuting: true });
+
+    // Get effective page size
+    const effectivePageSize = pageSize ?? tab.results?.[0]?.pageSize ?? this.DEFAULT_PAGE_SIZE;
+
+    try {
+      // Substitute parameters
+      const { sql, bindValues } = substituteParameters(statement.sql, parameterValues, dbType);
+
+      const result = await this.executeStatement(sql, page, effectivePageSize, connection, bindValues);
+      const results: StatementResult[] = [{
+        ...result,
+        statementIndex: 0,
+        statementSql: statement.sql, // Keep original SQL for display
+        isError: false,
+      }];
+
+      this.updateQueryTabState(tabId, {
+        results,
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+
+      // Add to history
+      if (page === 1) {
+        this.queryHistory.addToHistory(statement.sql, results[0]);
+      }
+    } catch (error) {
+      const results: StatementResult[] = [{
+        columns: ["Error"],
+        rows: [{ Error: this.formatError(error) }],
+        rowCount: 1,
+        totalRows: 1,
+        executionTime: 0,
+        page: 1,
+        pageSize: 1,
+        totalPages: 1,
+        statementIndex: 0,
+        statementSql: statement.sql,
+        error: this.formatError(error),
+        isError: true,
+      }];
+
+      this.updateQueryTabState(tabId, {
+        results,
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+    }
   }
 
   /**

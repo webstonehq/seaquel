@@ -21,6 +21,7 @@ import type {
 export class DatabaseState {
 	// Core state
 	connections = $state<DatabaseConnection[]>([]);
+	connectionsLoading = $state(true);
 	activeConnectionId = $state<string | null>(null);
 	schemas = $state<Record<string, SchemaTable[]>>({});
 

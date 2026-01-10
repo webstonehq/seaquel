@@ -149,7 +149,7 @@
                                         class="text-destructive focus:text-destructive"
                                         onclick={() => confirmRemoveConnection(connection.id, connection.name)}
                                     >
-                                        {m.header_remove_connection()}
+                                        {m.header_delete_connection()}
                                     </ContextMenu.Item>
                                 </ContextMenu.Content>
                             </ContextMenu.Root>
@@ -201,9 +201,9 @@
 <Dialog.Root bind:open={showRemoveDialog}>
     <Dialog.Content class="max-w-md">
         <Dialog.Header>
-            <Dialog.Title>{m.header_remove_dialog_title()}</Dialog.Title>
+            <Dialog.Title>{m.header_delete_dialog_title()}</Dialog.Title>
             <Dialog.Description>
-                {m.header_remove_dialog_description({ name: connectionToRemoveName })}
+                {m.header_delete_dialog_description({ name: connectionToRemoveName })}
             </Dialog.Description>
         </Dialog.Header>
         <Dialog.Footer class="gap-2">

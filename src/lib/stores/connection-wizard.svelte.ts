@@ -11,7 +11,7 @@ export type WizardStep =
 	| "advanced"
 	| "success";
 
-export type WizardMode = "wizard" | "quick" | "reconnect";
+export type WizardMode = "wizard" | "quick" | "reconnect" | "edit";
 
 export interface WizardFormData {
 	name: string;
@@ -143,6 +143,11 @@ class ConnectionWizardStore {
 	connectionError = $state<string | null>(null);
 	connectionSuccess = $state(false);
 
+	// Flag to indicate that auto-connect should be attempted after credentials are loaded
+	shouldAutoConnect = $state(false);
+	// Flag to indicate credentials have been loaded from keyring
+	credentialsLoaded = $state(false);
+
 	// Track which flow path the user chose
 	private usingConnectionString = $state(false);
 
@@ -192,6 +197,32 @@ class ConnectionWizardStore {
 		}
 	}
 
+	// Check if all required credentials are present for auto-connect
+	get hasAllCredentials(): boolean {
+		// Basic requirements
+		if (!this.formData.name.trim()) return false;
+		if (!this.formData.databaseName.trim()) return false;
+		if (this.formData.type !== "sqlite" && !this.formData.host.trim()) return false;
+
+		// Password requirement (SQLite doesn't need password)
+		if (this.formData.type !== "sqlite" && !this.formData.password) return false;
+
+		// SSH requirements
+		if (this.formData.sshEnabled) {
+			if (!this.formData.sshHost.trim()) return false;
+			if (!this.formData.sshUsername.trim()) return false;
+
+			if (this.formData.sshAuthMethod === "password" && !this.formData.sshPassword) {
+				return false;
+			}
+			if (this.formData.sshAuthMethod === "key" && !this.formData.sshKeyPath) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	// Open the wizard
 	open(mode: WizardMode = "wizard", prefill?: ConnectionDialogPrefill): void {
 		this.mode = mode;
@@ -199,6 +230,8 @@ class ConnectionWizardStore {
 		this.connectionSuccess = false;
 		this.isConnecting = false;
 		this.isTesting = false;
+		this.credentialsLoaded = false;
+		this.shouldAutoConnect = false;
 
 		if (prefill) {
 			// Reconnecting to existing connection
@@ -218,7 +251,7 @@ class ConnectionWizardStore {
 				sshUsername: prefill.sshTunnel?.username || "",
 				sshAuthMethod: prefill.sshTunnel?.authMethod || "password",
 				sshPassword: "",
-				sshKeyPath: "",
+				sshKeyPath: prefill.sshTunnel?.keyPath || "",
 				sshKeyPassphrase: "",
 				// Password storage flags
 				savePassword: prefill.savePassword ?? true,
@@ -230,11 +263,22 @@ class ConnectionWizardStore {
 			// Load saved credentials from keyring
 			if (prefill.id) {
 				this.loadSavedCredentials(prefill.id, prefill);
+			} else {
+				// No credentials to load
+				this.credentialsLoaded = true;
 			}
 
 			if (mode === "reconnect") {
 				// For reconnect, go straight to credentials
 				this.currentStep = "credentials";
+				this.usingConnectionString = false;
+				// Enable auto-connect attempt when credentials are loaded
+				// Don't open dialog yet - wait for auto-connect attempt
+				this.shouldAutoConnect = true;
+				return; // Don't set isOpen = true yet
+			} else if (mode === "edit") {
+				// For edit, start at type step to allow modifying all settings
+				this.currentStep = "type";
 				this.usingConnectionString = false;
 			} else if (prefill.connectionString) {
 				this.usingConnectionString = true;
@@ -254,10 +298,18 @@ class ConnectionWizardStore {
 		this.isOpen = true;
 	}
 
+	// Open the dialog (called after auto-connect fails or credentials are incomplete)
+	showDialog(): void {
+		this.isOpen = true;
+	}
+
 	// Load saved credentials from keyring
 	private async loadSavedCredentials(connectionId: string, prefill: ConnectionDialogPrefill): Promise<void> {
 		const keyring = getKeyringService();
-		if (!keyring.isAvailable()) return;
+		if (!keyring.isAvailable()) {
+			this.credentialsLoaded = true;
+			return;
+		}
 
 		try {
 			if (prefill.savePassword) {
@@ -280,6 +332,8 @@ class ConnectionWizardStore {
 			}
 		} catch (error) {
 			console.warn("Failed to load credentials from keyring:", error);
+		} finally {
+			this.credentialsLoaded = true;
 		}
 	}
 
@@ -292,6 +346,8 @@ class ConnectionWizardStore {
 		this.connectionSuccess = false;
 		this.currentStep = "string-choice";
 		this.usingConnectionString = false;
+		this.shouldAutoConnect = false;
+		this.credentialsLoaded = false;
 	}
 
 	// Choose to use connection string (from string-choice step)
@@ -473,6 +529,7 @@ class ConnectionWizardStore {
 						port: this.formData.sshPort,
 						username: this.formData.sshUsername,
 						authMethod: this.formData.sshAuthMethod,
+						keyPath: this.formData.sshKeyPath || undefined,
 					}
 				: undefined,
 			sshPassword: this.formData.sshPassword,
