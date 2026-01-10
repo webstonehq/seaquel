@@ -116,7 +116,9 @@
 							: m.empty_states_connection_card_disconnected()}
 					></span>
 					<DatabaseIcon class="size-4 text-muted-foreground" />
-					<Card.Title class="text-sm font-medium truncate flex-1">{connection.name}</Card.Title>
+					<Card.Title class="text-sm font-medium truncate line-clamp-1 text-ellipsis flex-1">
+						{connection.name}
+					</Card.Title>
 				</div>
 			</Card.Header>
 			<Card.Content class="pt-0 space-y-2">
