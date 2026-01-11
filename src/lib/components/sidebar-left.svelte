@@ -242,14 +242,16 @@
 											<TagIcon class="size-4 me-2" />
 											{m.sidebar_connection_labels()}
 										</ContextMenu.Item>
-										<ContextMenu.Separator />
-										<ContextMenu.Item
-											class="text-destructive focus:text-destructive"
-											onclick={() => confirmRemoveConnection(connection.id, connection.name)}
-										>
-											<Trash2Icon class="size-4 me-2" />
-											{m.sidebar_connection_delete()}
-										</ContextMenu.Item>
+										{#if !(isDemo() && connection.id === "demo-connection")}
+											<ContextMenu.Separator />
+											<ContextMenu.Item
+												class="text-destructive focus:text-destructive"
+												onclick={() => confirmRemoveConnection(connection.id, connection.name)}
+											>
+												<Trash2Icon class="size-4 me-2" />
+												{m.sidebar_connection_delete()}
+											</ContextMenu.Item>
+										{/if}
 									</ContextMenu.Content>
 								</ContextMenu.Root>
 							{/each}

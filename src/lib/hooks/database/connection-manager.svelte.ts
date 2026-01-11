@@ -9,7 +9,7 @@ import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
 import { getProvider, type DatabaseProvider } from "$lib/providers";
-import { isTauri } from "$lib/utils/environment";
+import { isTauri, isDemo } from "$lib/utils/environment";
 import { getKeyringService } from "$lib/services/keyring";
 
 type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
@@ -578,6 +578,11 @@ export class ConnectionManager {
    * Remove a connection and all its state.
    */
   remove(id: string): void {
+    // Prevent deletion of demo connection in demo mode
+    if (isDemo() && id === "demo-connection") {
+      return;
+    }
+
     const connection = this.state.connections.find((c) => c.id === id);
 
     // Close provider connection if exists
