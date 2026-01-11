@@ -55,6 +55,39 @@ Core interfaces: `DatabaseConnection`, `SchemaTable`, `QueryTab`, `QueryResult`,
 - `svelte.config.js` - SvelteKit config with static adapter
 - `vite.config.js` - Vite bundler config
 
+## Updating the Demo
+
+The demo is a browser-based version using DuckDB WASM (instead of PostgreSQL) hosted at `seaquel.app/demo`.
+
+From the website repo (`seaquel-app/main`), run:
+```bash
+npm run demo:update
+```
+
+This script removes old demo files, builds the demo with `BUILD_TARGET=demo`, and copies the output to `static/demo/`. Commit and deploy the website changes afterward.
+
+## Releasing a New Version
+
+Version format: `YYYY.release.patch` (e.g., `2026.1.1`)
+
+1. Update version in these files:
+   - `package.json`
+   - `src-tauri/Cargo.toml`
+   - `src-tauri/tauri.conf.json`
+   - `src-tauri/Cargo.lock` (auto-updates when running cargo commands)
+
+2. Commit: `Bump version to X.Y.Z`
+
+3. Create and push tag:
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+4. GitHub Actions builds for macOS (Intel + ARM) and Linux (x86_64 + ARM64), signs binaries, and creates a draft release
+
+5. Review and publish the draft release on GitHub
+
 ## Tools
 Use 'bd' for task tracking
 
