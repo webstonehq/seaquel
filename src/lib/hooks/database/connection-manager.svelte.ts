@@ -659,7 +659,7 @@ export class ConnectionManager {
       lastConnected: new Date(),
       providerConnectionId,
       projectId,
-      labelIds: [],
+      labelIds: ["prod"],
     };
 
     // Check if connection already exists (from persisted storage) and update it,
