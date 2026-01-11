@@ -4,6 +4,7 @@
  */
 
 import type { QueryType } from '../db/query-utils';
+import type { ConnectionLabel } from './project';
 
 /**
  * Supported data types for query parameters.
@@ -131,6 +132,10 @@ export interface QueryHistoryItem {
 	connectionId: string;
 	/** Whether this query is marked as a favorite */
 	favorite: boolean;
+	/** Snapshot of connection labels at execution time */
+	connectionLabelsSnapshot: ConnectionLabel[];
+	/** Connection name at execution time (in case it changes later) */
+	connectionNameSnapshot: string;
 }
 
 /**

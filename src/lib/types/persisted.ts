@@ -4,6 +4,8 @@
  * @module types/persisted
  */
 
+import type { ConnectionLabel } from './project';
+
 /**
  * Persisted query tab state.
  * Stores query content but not execution results.
@@ -52,6 +54,20 @@ export interface PersistedErdTab {
 	id: string;
 	/** Tab display name */
 	name: string;
+}
+
+/**
+ * Persisted starter tab state.
+ */
+export interface PersistedStarterTab {
+	/** Tab identifier */
+	id: string;
+	/** Type of starter tab */
+	type: 'getting-started' | 'migration-tips';
+	/** Tab display name */
+	name: string;
+	/** Whether the tab can be closed */
+	closable: boolean;
 }
 
 /**
@@ -108,6 +124,10 @@ export interface PersistedQueryHistoryItem {
 	connectionId: string;
 	/** Whether marked as favorite */
 	favorite: boolean;
+	/** Snapshot of connection labels at execution time */
+	connectionLabelsSnapshot: ConnectionLabel[];
+	/** Connection name at execution time */
+	connectionNameSnapshot: string;
 }
 
 /**

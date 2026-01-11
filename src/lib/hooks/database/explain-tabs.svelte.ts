@@ -9,12 +9,13 @@ import { getProvider } from '$lib/providers';
 
 /**
  * Manages EXPLAIN/ANALYZE tabs: execute, remove, set active.
+ * Tabs are organized per-project.
  */
 export class ExplainTabManager {
 	constructor(
 		private state: DatabaseState,
 		private tabOrdering: TabOrderingManager,
-		private schedulePersistence: (connectionId: string | null) => void,
+		private schedulePersistence: (projectId: string | null) => void,
 		private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd') => void
 	) {}
 
@@ -63,10 +64,10 @@ export class ExplainTabManager {
 	 * If cursorOffset is provided, explains only the statement at that cursor position.
 	 */
 	async execute(tabId: string, analyze: boolean = false, cursorOffset?: number): Promise<void> {
-		if (!this.state.activeConnectionId || !this.state.activeConnection) return;
+		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return;
 
-		const connectionId = this.state.activeConnectionId;
-		const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
 		const tab = tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.query.trim()) return;
 
@@ -84,7 +85,7 @@ export class ExplainTabManager {
 		if (!queryToExplain.trim()) return;
 
 		// Create a new explain tab
-		const explainTabs = this.state.explainTabsByConnection[connectionId] ?? [];
+		const explainTabs = this.state.explainTabsByProject[projectId] ?? [];
 		const explainTabId = `explain-${Date.now()}`;
 		const queryPreview = queryToExplain.substring(0, 30).replace(/\s+/g, ' ').trim();
 		const newExplainTab: ExplainTab = $state({
@@ -95,20 +96,20 @@ export class ExplainTabManager {
 			isExecuting: true
 		});
 
-		this.state.explainTabsByConnection = {
-			...this.state.explainTabsByConnection,
-			[connectionId]: [...explainTabs, newExplainTab]
+		this.state.explainTabsByProject = {
+			...this.state.explainTabsByProject,
+			[projectId]: [...explainTabs, newExplainTab]
 		};
 
 		this.tabOrdering.add(explainTabId);
 
 		// Set as active and switch view
-		this.state.activeExplainTabIdByConnection = {
-			...this.state.activeExplainTabIdByConnection,
-			[connectionId]: explainTabId
+		this.state.activeExplainTabIdByProject = {
+			...this.state.activeExplainTabIdByProject,
+			[projectId]: explainTabId
 		};
 		this.setActiveView('explain');
-		this.schedulePersistence(connectionId);
+		this.schedulePersistence(projectId);
 
 		try {
 			const adapter = getAdapter(this.state.activeConnection.type);
@@ -159,17 +160,17 @@ export class ExplainTabManager {
 			newExplainTab.isExecuting = false;
 
 			// Trigger reactivity by creating new array
-			const currentTabs = this.state.explainTabsByConnection[connectionId] ?? [];
-			this.state.explainTabsByConnection = {
-				...this.state.explainTabsByConnection,
-				[connectionId]: [...currentTabs]
+			const currentTabs = this.state.explainTabsByProject[projectId] ?? [];
+			this.state.explainTabsByProject = {
+				...this.state.explainTabsByProject,
+				[projectId]: [...currentTabs]
 			};
 		} catch (error) {
 			// Remove failed explain tab
-			const currentTabs = this.state.explainTabsByConnection[connectionId] ?? [];
-			this.state.explainTabsByConnection = {
-				...this.state.explainTabsByConnection,
-				[connectionId]: currentTabs.filter((t) => t.id !== explainTabId)
+			const currentTabs = this.state.explainTabsByProject[projectId] ?? [];
+			this.state.explainTabsByProject = {
+				...this.state.explainTabsByProject,
+				[projectId]: currentTabs.filter((t) => t.id !== explainTabId)
 			};
 
 			// Switch back to query view
@@ -188,10 +189,10 @@ export class ExplainTabManager {
 		analyze: boolean = false,
 		cursorOffset?: number
 	): Promise<void> {
-		if (!this.state.activeConnectionId || !this.state.activeConnection) return;
+		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return;
 
-		const connectionId = this.state.activeConnectionId;
-		const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
 		const tab = tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.query.trim()) return;
 
@@ -216,7 +217,7 @@ export class ExplainTabManager {
 		);
 
 		// Create a new explain tab
-		const explainTabs = this.state.explainTabsByConnection[connectionId] ?? [];
+		const explainTabs = this.state.explainTabsByProject[projectId] ?? [];
 		const explainTabId = `explain-${Date.now()}`;
 		const queryPreview = queryToExplain.substring(0, 30).replace(/\s+/g, ' ').trim();
 		const newExplainTab: ExplainTab = $state({
@@ -227,20 +228,20 @@ export class ExplainTabManager {
 			isExecuting: true
 		});
 
-		this.state.explainTabsByConnection = {
-			...this.state.explainTabsByConnection,
-			[connectionId]: [...explainTabs, newExplainTab]
+		this.state.explainTabsByProject = {
+			...this.state.explainTabsByProject,
+			[projectId]: [...explainTabs, newExplainTab]
 		};
 
 		this.tabOrdering.add(explainTabId);
 
 		// Set as active and switch view
-		this.state.activeExplainTabIdByConnection = {
-			...this.state.activeExplainTabIdByConnection,
-			[connectionId]: explainTabId
+		this.state.activeExplainTabIdByProject = {
+			...this.state.activeExplainTabIdByProject,
+			[projectId]: explainTabId
 		};
 		this.setActiveView('explain');
-		this.schedulePersistence(connectionId);
+		this.schedulePersistence(projectId);
 
 		try {
 			const adapter = getAdapter(this.state.activeConnection.type);
@@ -297,17 +298,17 @@ export class ExplainTabManager {
 			newExplainTab.isExecuting = false;
 
 			// Trigger reactivity by creating new array
-			const currentTabs = this.state.explainTabsByConnection[connectionId] ?? [];
-			this.state.explainTabsByConnection = {
-				...this.state.explainTabsByConnection,
-				[connectionId]: [...currentTabs]
+			const currentTabs = this.state.explainTabsByProject[projectId] ?? [];
+			this.state.explainTabsByProject = {
+				...this.state.explainTabsByProject,
+				[projectId]: [...currentTabs]
 			};
 		} catch (error) {
 			// Remove failed explain tab
-			const currentTabs = this.state.explainTabsByConnection[connectionId] ?? [];
-			this.state.explainTabsByConnection = {
-				...this.state.explainTabsByConnection,
-				[connectionId]: currentTabs.filter((t) => t.id !== explainTabId)
+			const currentTabs = this.state.explainTabsByProject[projectId] ?? [];
+			this.state.explainTabsByProject = {
+				...this.state.explainTabsByProject,
+				[projectId]: currentTabs.filter((t) => t.id !== explainTabId)
 			};
 
 			// Switch back to query view
@@ -321,15 +322,15 @@ export class ExplainTabManager {
 	 */
 	remove(id: string): void {
 		this.tabOrdering.removeTabGeneric(
-			() => this.state.explainTabsByConnection,
-			(r) => (this.state.explainTabsByConnection = r),
-			() => this.state.activeExplainTabIdByConnection,
-			(r) => (this.state.activeExplainTabIdByConnection = r),
+			() => this.state.explainTabsByProject,
+			(r) => (this.state.explainTabsByProject = r),
+			() => this.state.activeExplainTabIdByProject,
+			(r) => (this.state.activeExplainTabIdByProject = r),
 			id
 		);
-		this.schedulePersistence(this.state.activeConnectionId);
+		this.schedulePersistence(this.state.activeProjectId);
 		// Switch to query view if no explain tabs left
-		if (this.state.activeConnectionId && this.state.explainTabs.length === 0) {
+		if (this.state.activeProjectId && this.state.explainTabs.length === 0) {
 			this.setActiveView('query');
 		}
 	}
@@ -338,12 +339,12 @@ export class ExplainTabManager {
 	 * Set the active explain tab by ID.
 	 */
 	setActive(id: string): void {
-		if (!this.state.activeConnectionId) return;
+		if (!this.state.activeProjectId) return;
 
-		this.state.activeExplainTabIdByConnection = {
-			...this.state.activeExplainTabIdByConnection,
-			[this.state.activeConnectionId]: id
+		this.state.activeExplainTabIdByProject = {
+			...this.state.activeExplainTabIdByProject,
+			[this.state.activeProjectId]: id
 		};
-		this.schedulePersistence(this.state.activeConnectionId);
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 }

@@ -13,6 +13,9 @@
     import AIAssistant from "$lib/components/ai-assistant.svelte";
     import WelcomeScreen from "$lib/components/empty-states/welcome-screen.svelte";
     import ConnectionsGrid from "$lib/components/empty-states/connections-grid.svelte";
+    import StarterTabContent from "$lib/components/starter-tabs/starter-tab-content.svelte";
+    import NoTabsEmptyState from "$lib/components/starter-tabs/no-tabs-empty-state.svelte";
+    import { RocketIcon } from "@lucide/svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -324,11 +327,13 @@
 
 <Toaster position="bottom-right" richColors />
 
-{#if db.state.activeConnectionId}
-    <SidebarLeft />
-{/if}
+<!-- Sidebar always visible -->
+<SidebarLeft />
+
 <SidebarInset class="flex flex-col h-full overflow-hidden">
-    {#if db.state.activeConnectionId}
+    {#if db.state.connectionsLoading || db.state.projectsLoading}
+        <!-- Loading state - show nothing to prevent flash -->
+    {:else if db.state.activeConnectionId}
         <!-- Unified Tab Bar -->
         <div class="flex items-center gap-2 p-2 border-b bg-muted/30">
             <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
@@ -568,12 +573,51 @@
                 <ErdViewer />
             {/if}
         </div>
-    {:else if db.state.connectionsLoading}
-        <!-- Loading state - show nothing to prevent flash of empty state -->
-    {:else if db.state.connections.length === 0}
-        <WelcomeScreen />
     {:else}
-        <ConnectionsGrid />
+        <!-- No active connection - show starter tabs -->
+        <div class="flex items-center gap-2 p-2 border-b bg-muted/30">
+            <div class="flex-1 overflow-x-auto overflow-y-hidden min-w-0 scrollbar-hide">
+                <div class="flex items-center gap-1 w-max">
+                    {#each db.state.starterTabs as starterTab (starterTab.id)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                        <div
+                            class={[
+                                "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors cursor-pointer",
+                                db.state.activeStarterTabId === starterTab.id
+                                    ? "bg-background shadow-sm"
+                                    : "hover:bg-muted",
+                            ]}
+                            onclick={() => db.starterTabs.setActive(starterTab.id)}
+                        >
+                            <RocketIcon class="size-3 text-muted-foreground" />
+                            <span class="pr-4">{starterTab.name}</span>
+                            {#if starterTab.closable}
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                    onclick={(e) => {
+                                        e.stopPropagation();
+                                        db.starterTabs.remove(starterTab.id);
+                                    }}
+                                >
+                                    <XIcon />
+                                </Button>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        </div>
+
+        <!-- Starter Tab Content Area -->
+        <div class="flex-1 min-h-0 flex flex-col">
+            {#if db.state.activeStarterTab}
+                <StarterTabContent tab={db.state.activeStarterTab} />
+            {:else}
+                <NoTabsEmptyState />
+            {/if}
+        </div>
     {/if}
 </SidebarInset>
 

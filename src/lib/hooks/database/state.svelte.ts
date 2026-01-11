@@ -7,7 +7,9 @@ import type {
 	SchemaTab,
 	SavedQuery,
 	ExplainTab,
-	ErdTab
+	ErdTab,
+	Project,
+	StarterTab
 } from '$lib/types';
 
 /**
@@ -17,58 +19,102 @@ import type {
  *
  * State is organized using Records (objects) instead of Maps for simpler
  * reactivity updates using spread syntax.
+ *
+ * Tabs are organized per-PROJECT (not per-connection) to allow:
+ * - Switching between projects with separate tab sets
+ * - Executing queries against different connections within the same project
+ *
+ * Query history and saved queries remain per-CONNECTION since they are
+ * tied to the specific connection that executed them.
  */
 export class DatabaseState {
-	// Core state
+	// === PROJECT STATE ===
+	projects = $state<Project[]>([]);
+	projectsLoading = $state(true);
+	activeProjectId = $state<string | null>(null);
+
+	// === CONNECTION STATE ===
 	connections = $state<DatabaseConnection[]>([]);
 	connectionsLoading = $state(true);
-	activeConnectionId = $state<string | null>(null);
 	schemas = $state<Record<string, SchemaTable[]>>({});
 
-	// Query tabs state
-	queryTabsByConnection = $state<Record<string, QueryTab[]>>({});
-	activeQueryTabIdByConnection = $state<Record<string, string | null>>({});
+	// Active connection tracked per project
+	activeConnectionIdByProject = $state<Record<string, string | null>>({});
 
-	// Schema tabs state
-	schemaTabsByConnection = $state<Record<string, SchemaTab[]>>({});
-	activeSchemaTabIdByConnection = $state<Record<string, string | null>>({});
+	// === TABS STATE (per-project) ===
+	queryTabsByProject = $state<Record<string, QueryTab[]>>({});
+	activeQueryTabIdByProject = $state<Record<string, string | null>>({});
 
-	// Query history and saved queries
+	schemaTabsByProject = $state<Record<string, SchemaTab[]>>({});
+	activeSchemaTabIdByProject = $state<Record<string, string | null>>({});
+
+	explainTabsByProject = $state<Record<string, ExplainTab[]>>({});
+	activeExplainTabIdByProject = $state<Record<string, string | null>>({});
+
+	erdTabsByProject = $state<Record<string, ErdTab[]>>({});
+	activeErdTabIdByProject = $state<Record<string, string | null>>({});
+
+	// === STARTER TABS STATE (per-project) ===
+	// Shown when no connection is active
+	starterTabsByProject = $state<Record<string, StarterTab[]>>({});
+	activeStarterTabIdByProject = $state<Record<string, string | null>>({});
+
+	// Tab ordering state (stores ordered array of all tab IDs per project)
+	tabOrderByProject = $state<Record<string, string[]>>({});
+
+	// === QUERY DATA STATE (per-connection) ===
 	queryHistoryByConnection = $state<Record<string, QueryHistoryItem[]>>({});
 	savedQueriesByConnection = $state<Record<string, SavedQuery[]>>({});
 
-	// Explain tabs state
-	explainTabsByConnection = $state<Record<string, ExplainTab[]>>({});
-	activeExplainTabIdByConnection = $state<Record<string, string | null>>({});
-
-	// ERD tabs state
-	erdTabsByConnection = $state<Record<string, ErdTab[]>>({});
-	activeErdTabIdByConnection = $state<Record<string, string | null>>({});
-
-	// Tab ordering state (stores ordered array of all tab IDs per connection)
-	tabOrderByConnection = $state<Record<string, string[]>>({});
-
-	// AI state
+	// === AI STATE ===
 	aiMessages = $state<AIMessage[]>([]);
 	isAIOpen = $state(false);
 
-	// View state
+	// === VIEW STATE ===
 	activeView = $state<'query' | 'schema' | 'explain' | 'erd'>('query');
+
+	// === PROJECT DERIVED VALUES ===
+
+	// Derived: active project object
+	activeProject = $derived(this.projects.find((p) => p.id === this.activeProjectId) || null);
+
+	// Derived: connections for active project
+	projectConnections = $derived(
+		this.activeProjectId
+			? this.connections.filter((c) => c.projectId === this.activeProjectId)
+			: []
+	);
+
+	// === CONNECTION DERIVED VALUES ===
+
+	// Derived: active connection ID for current project
+	activeConnectionId = $derived(
+		this.activeProjectId
+			? (this.activeConnectionIdByProject[this.activeProjectId] ?? null)
+			: null
+	);
 
 	// Derived: active connection object
 	activeConnection = $derived(
 		this.connections.find((c) => c.id === this.activeConnectionId) || null
 	);
 
-	// Derived: query tabs for active connection
-	queryTabs = $derived(
-		this.activeConnectionId ? (this.queryTabsByConnection[this.activeConnectionId] ?? []) : []
+	// Derived: schema for active connection
+	activeSchema = $derived(
+		this.activeConnectionId ? (this.schemas[this.activeConnectionId] ?? []) : []
 	);
 
-	// Derived: active query tab ID for active connection
+	// === QUERY TAB DERIVED VALUES ===
+
+	// Derived: query tabs for active project
+	queryTabs = $derived(
+		this.activeProjectId ? (this.queryTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active query tab ID for active project
 	activeQueryTabId = $derived(
-		this.activeConnectionId
-			? (this.activeQueryTabIdByConnection[this.activeConnectionId] ?? null)
+		this.activeProjectId
+			? (this.activeQueryTabIdByProject[this.activeProjectId] ?? null)
 			: null
 	);
 
@@ -80,25 +126,77 @@ export class DatabaseState {
 		this.activeQueryTab?.results?.[this.activeQueryTab.activeResultIndex ?? 0] || null
 	);
 
-	// Derived: schema tabs for active connection
+	// === SCHEMA TAB DERIVED VALUES ===
+
+	// Derived: schema tabs for active project
 	schemaTabs = $derived(
-		this.activeConnectionId ? (this.schemaTabsByConnection[this.activeConnectionId] ?? []) : []
+		this.activeProjectId ? (this.schemaTabsByProject[this.activeProjectId] ?? []) : []
 	);
 
-	// Derived: active schema tab ID for active connection
+	// Derived: active schema tab ID for active project
 	activeSchemaTabId = $derived(
-		this.activeConnectionId
-			? (this.activeSchemaTabIdByConnection[this.activeConnectionId] ?? null)
+		this.activeProjectId
+			? (this.activeSchemaTabIdByProject[this.activeProjectId] ?? null)
 			: null
 	);
 
 	// Derived: active schema tab object
 	activeSchemaTab = $derived(this.schemaTabs.find((t) => t.id === this.activeSchemaTabId) || null);
 
-	// Derived: schema for active connection
-	activeSchema = $derived(
-		this.activeConnectionId ? (this.schemas[this.activeConnectionId] ?? []) : []
+	// === EXPLAIN TAB DERIVED VALUES ===
+
+	// Derived: explain tabs for active project
+	explainTabs = $derived(
+		this.activeProjectId ? (this.explainTabsByProject[this.activeProjectId] ?? []) : []
 	);
+
+	// Derived: active explain tab ID for active project
+	activeExplainTabId = $derived(
+		this.activeProjectId
+			? (this.activeExplainTabIdByProject[this.activeProjectId] ?? null)
+			: null
+	);
+
+	// Derived: active explain tab object
+	activeExplainTab = $derived(
+		this.explainTabs.find((t) => t.id === this.activeExplainTabId) || null
+	);
+
+	// === ERD TAB DERIVED VALUES ===
+
+	// Derived: ERD tabs for active project
+	erdTabs = $derived(
+		this.activeProjectId ? (this.erdTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active ERD tab ID for active project
+	activeErdTabId = $derived(
+		this.activeProjectId ? (this.activeErdTabIdByProject[this.activeProjectId] ?? null) : null
+	);
+
+	// Derived: active ERD tab object
+	activeErdTab = $derived(this.erdTabs.find((t) => t.id === this.activeErdTabId) || null);
+
+	// === STARTER TAB DERIVED VALUES ===
+
+	// Derived: starter tabs for active project
+	starterTabs = $derived(
+		this.activeProjectId ? (this.starterTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active starter tab ID for active project
+	activeStarterTabId = $derived(
+		this.activeProjectId
+			? (this.activeStarterTabIdByProject[this.activeProjectId] ?? null)
+			: null
+	);
+
+	// Derived: active starter tab object
+	activeStarterTab = $derived(
+		this.starterTabs.find((t) => t.id === this.activeStarterTabId) || null
+	);
+
+	// === QUERY DATA DERIVED VALUES ===
 
 	// Derived: query history for active connection
 	activeConnectionQueryHistory = $derived(
@@ -109,36 +207,4 @@ export class DatabaseState {
 	activeConnectionSavedQueries = $derived(
 		this.activeConnectionId ? (this.savedQueriesByConnection[this.activeConnectionId] ?? []) : []
 	);
-
-	// Derived: explain tabs for active connection
-	explainTabs = $derived(
-		this.activeConnectionId ? (this.explainTabsByConnection[this.activeConnectionId] ?? []) : []
-	);
-
-	// Derived: active explain tab ID for active connection
-	activeExplainTabId = $derived(
-		this.activeConnectionId
-			? (this.activeExplainTabIdByConnection[this.activeConnectionId] ?? null)
-			: null
-	);
-
-	// Derived: active explain tab object
-	activeExplainTab = $derived(
-		this.explainTabs.find((t) => t.id === this.activeExplainTabId) || null
-	);
-
-	// Derived: ERD tabs for active connection
-	erdTabs = $derived(
-		this.activeConnectionId ? (this.erdTabsByConnection[this.activeConnectionId] ?? []) : []
-	);
-
-	// Derived: active ERD tab ID for active connection
-	activeErdTabId = $derived(
-		this.activeConnectionId
-			? (this.activeErdTabIdByConnection[this.activeConnectionId] ?? null)
-			: null
-	);
-
-	// Derived: active ERD tab object
-	activeErdTab = $derived(this.erdTabs.find((t) => t.id === this.activeErdTabId) || null);
 }

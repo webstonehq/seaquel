@@ -19,4 +19,8 @@ export interface PersistedConnection {
   saveSshPassword?: boolean;
   /** Whether the SSH key passphrase is saved in keychain */
   saveSshKeyPassphrase?: boolean;
+  /** ID of the project this connection belongs to */
+  projectId: string;
+  /** Array of label IDs assigned to this connection */
+  labelIds: string[];
 }

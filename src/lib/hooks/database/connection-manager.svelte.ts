@@ -1,5 +1,6 @@
 import { toast } from "svelte-sonner";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
+import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
@@ -11,7 +12,9 @@ import { getProvider, type DatabaseProvider } from "$lib/providers";
 import { isTauri } from "$lib/utils/environment";
 import { getKeyringService } from "$lib/services/keyring";
 
-type ConnectionInput = Omit<DatabaseConnection, "id"> & {
+type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
+  projectId?: string;
+  labelIds?: string[];
   sshPassword?: string;
   sshKeyPath?: string;
   sshKeyPassphrase?: string;
@@ -101,17 +104,15 @@ export class ConnectionManager {
           savePassword: persisted.savePassword,
           saveSshPassword: persisted.saveSshPassword,
           saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
+          projectId: persisted.projectId || DEFAULT_PROJECT_ID,
+          labelIds: persisted.labelIds || [],
           // database is undefined - user needs to provide password to connect
         };
         this.state.connections.push(connection);
         this.stateRestoration.initializeConnectionMaps(connection.id);
 
         // Pre-load saved queries and history (doesn't require active DB connection)
-        const persistedState = await this.persistence.loadPersistedConnectionState(connection.id);
-        if (persistedState) {
-          this.stateRestoration.restoreSavedQueries(connection.id, persistedState.savedQueries);
-          this.stateRestoration.restoreQueryHistory(connection.id, persistedState.queryHistory);
-        }
+        await this.stateRestoration.loadConnectionData(connection.id);
       }
     } catch (error) {
       console.error("Failed to load persisted connections:", error);
@@ -223,9 +224,12 @@ export class ConnectionManager {
       });
     }
 
+    const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
     const newConnection: DatabaseConnection = {
       ...connection,
       id: connectionId,
+      projectId,
+      labelIds: connection.labelIds || [],
       lastConnected: new Date(),
       tunnelLocalPort,
       providerConnectionId,
@@ -268,7 +272,7 @@ export class ConnectionManager {
     }
 
     // Only set active connection after schema loading succeeds
-    this.state.activeConnectionId = newConnection.id;
+    this.setActiveForProject(newConnection.id, projectId);
 
     // Store tables immediately (without column metadata) so UI is responsive
     this.state.schemas = {
@@ -423,17 +427,13 @@ export class ConnectionManager {
     this.onSchemaLoaded(connectionId, schemasWithTables, adapter, providerConnectionId, mssqlConnectionId);
 
     // Set this as the active connection (only after schema loading succeeds)
-    this.state.activeConnectionId = connectionId;
+    this.setActiveForProject(connectionId, existingConnection.projectId);
 
-    // Try to restore tabs from persisted state
-    const hasRestoredTabs = await this.stateRestoration.restoreConnectionTabs(connectionId);
-
-    // Create initial query tab if no tabs were restored
-    if (!hasRestoredTabs) {
-      const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
-      if (tabs.length === 0) {
-        this.onCreateInitialTab();
-      }
+    // Create initial query tab if no tabs exist for the project
+    const projectId = existingConnection.projectId;
+    const tabs = this.state.queryTabsByProject[projectId] ?? [];
+    if (tabs.length === 0) {
+      this.onCreateInitialTab();
     }
 
     // Persist the connection to store (password saved to keyring if enabled)
@@ -599,23 +599,39 @@ export class ConnectionManager {
       this.tunnelIds.delete(id);
     }
 
-    // Remove from persistence (both connection and its state)
+    // Remove from persistence (both connection and its data)
     this.persistence.removePersistedConnection(id);
-    this.persistence.removePersistedConnectionState(id);
     this.state.connections = this.state.connections.filter((c) => c.id !== id);
     this.stateRestoration.cleanupConnectionMaps(id);
 
-    if (this.state.activeConnectionId === id) {
-      const nextConnection = this.state.connections.find((c) => c.providerConnectionId || c.mssqlConnectionId);
-      this.state.activeConnectionId = nextConnection?.id || null;
+    // If this was the active connection for its project, switch to another
+    if (connection && this.state.activeConnectionIdByProject[connection.projectId] === id) {
+      const nextConnection = this.state.connections.find(
+        (c) => c.projectId === connection.projectId && (c.providerConnectionId || c.mssqlConnectionId)
+      );
+      this.setActiveForProject(nextConnection?.id || "", connection.projectId);
     }
   }
 
   /**
-   * Set the active connection by ID.
+   * Set the active connection for the current project.
    */
   setActive(id: string): void {
-    this.state.activeConnectionId = id;
+    const connection = this.state.connections.find((c) => c.id === id);
+    if (connection) {
+      this.setActiveForProject(id, connection.projectId);
+    }
+  }
+
+  /**
+   * Set the active connection for a specific project.
+   */
+  setActiveForProject(connectionId: string, projectId: string): void {
+    this.state.activeConnectionIdByProject = {
+      ...this.state.activeConnectionIdByProject,
+      [projectId]: connectionId,
+    };
+    this.persistence.scheduleProject(projectId);
   }
 
   /**
@@ -624,6 +640,7 @@ export class ConnectionManager {
    */
   async addDemoConnection(providerConnectionId: string): Promise<string> {
     const connectionId = "demo-connection";
+    const projectId = this.state.activeProjectId || DEFAULT_PROJECT_ID;
 
     const newConnection: DatabaseConnection = {
       id: connectionId,
@@ -636,6 +653,8 @@ export class ConnectionManager {
       password: "",
       lastConnected: new Date(),
       providerConnectionId,
+      projectId,
+      labelIds: [],
     };
 
     // Check if connection already exists (from persisted storage) and update it,
@@ -660,7 +679,7 @@ export class ConnectionManager {
     const schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
 
     // Set active connection
-    this.state.activeConnectionId = connectionId;
+    this.setActiveForProject(connectionId, projectId);
 
     // Store tables
     this.state.schemas = {
@@ -798,10 +817,12 @@ export class ConnectionManager {
       }
 
       if (wasConnected) {
-        // If disconnecting the active connection, switch to another connected one
-        if (this.state.activeConnectionId === id) {
-          const nextConnection = this.state.connections.find((c) => (c.providerConnectionId || c.mssqlConnectionId) && c.id !== id);
-          this.state.activeConnectionId = nextConnection?.id || null;
+        // If disconnecting the active connection for its project, switch to another connected one
+        if (this.state.activeConnectionIdByProject[connection.projectId] === id) {
+          const nextConnection = this.state.connections.find(
+            (c) => c.projectId === connection.projectId && (c.providerConnectionId || c.mssqlConnectionId) && c.id !== id
+          );
+          this.setActiveForProject(nextConnection?.id || "", connection.projectId);
         }
       }
     }

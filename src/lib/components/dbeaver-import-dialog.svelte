@@ -9,6 +9,7 @@
 	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
 	import type { DatabaseConnection } from "$lib/types";
+	import { DEFAULT_PROJECT_ID } from "$lib/types";
 
 	const db = useDatabase();
 
@@ -45,6 +46,8 @@
 					databaseName: conn.databaseName,
 					username: conn.username,
 					password: "", // User must enter this when connecting
+					projectId: db.state.activeProjectId || DEFAULT_PROJECT_ID,
+					labelIds: [],
 				};
 
 				// Add to state

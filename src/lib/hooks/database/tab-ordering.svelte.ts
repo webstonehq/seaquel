@@ -3,12 +3,13 @@ import type { DatabaseState } from './state.svelte.js';
 
 /**
  * Manages tab ordering across all tab types (query, schema, explain, ERD).
+ * Tabs are now organized per-project instead of per-connection.
  * Provides generic tab removal logic and ordered tab computation.
  */
 export class TabOrderingManager {
 	constructor(
 		private state: DatabaseState,
-		private schedulePersistence: (connectionId: string | null) => void
+		private schedulePersistence: (projectId: string | null) => void
 	) {}
 
 	/**
@@ -22,27 +23,27 @@ export class TabOrderingManager {
 		activeIdSetter: (r: Record<string, string | null>) => void,
 		tabId: string
 	): void {
-		if (!this.state.activeConnectionId) return;
+		if (!this.state.activeProjectId) return;
 
-		const connectionId = this.state.activeConnectionId;
-		const tabs = tabsGetter()[connectionId] ?? [];
+		const projectId = this.state.activeProjectId;
+		const tabs = tabsGetter()[projectId] ?? [];
 		const index = tabs.findIndex((t) => t.id === tabId);
 		const newTabs = tabs.filter((t) => t.id !== tabId);
 
 		// Update tabs using spread syntax
-		tabsSetter({ ...tabsGetter(), [connectionId]: newTabs });
+		tabsSetter({ ...tabsGetter(), [projectId]: newTabs });
 
 		// Remove from tab order
 		this.removeFromTabOrder(tabId);
 
-		const currentActiveId = activeIdGetter()[connectionId];
+		const currentActiveId = activeIdGetter()[projectId];
 		if (currentActiveId === tabId) {
 			let newActiveId: string | null = null;
 			if (newTabs.length > 0) {
 				const newIndex = Math.min(index, newTabs.length - 1);
 				newActiveId = newTabs[newIndex]?.id || null;
 			}
-			activeIdSetter({ ...activeIdGetter(), [connectionId]: newActiveId });
+			activeIdSetter({ ...activeIdGetter(), [projectId]: newActiveId });
 		}
 	}
 
@@ -50,13 +51,13 @@ export class TabOrderingManager {
 	 * Add a tab ID to the ordering array.
 	 */
 	add(tabId: string): void {
-		if (!this.state.activeConnectionId) return;
-		const connectionId = this.state.activeConnectionId;
-		const order = this.state.tabOrderByConnection[connectionId] ?? [];
+		if (!this.state.activeProjectId) return;
+		const projectId = this.state.activeProjectId;
+		const order = this.state.tabOrderByProject[projectId] ?? [];
 		if (!order.includes(tabId)) {
-			this.state.tabOrderByConnection = {
-				...this.state.tabOrderByConnection,
-				[connectionId]: [...order, tabId]
+			this.state.tabOrderByProject = {
+				...this.state.tabOrderByProject,
+				[projectId]: [...order, tabId]
 			};
 		}
 	}
@@ -65,12 +66,12 @@ export class TabOrderingManager {
 	 * Remove a tab ID from the ordering array.
 	 */
 	removeFromTabOrder(tabId: string): void {
-		if (!this.state.activeConnectionId) return;
-		const connectionId = this.state.activeConnectionId;
-		const order = this.state.tabOrderByConnection[connectionId] ?? [];
-		this.state.tabOrderByConnection = {
-			...this.state.tabOrderByConnection,
-			[connectionId]: order.filter((id) => id !== tabId)
+		if (!this.state.activeProjectId) return;
+		const projectId = this.state.activeProjectId;
+		const order = this.state.tabOrderByProject[projectId] ?? [];
+		this.state.tabOrderByProject = {
+			...this.state.tabOrderByProject,
+			[projectId]: order.filter((id: string) => id !== tabId)
 		};
 	}
 
@@ -78,12 +79,12 @@ export class TabOrderingManager {
 	 * Reorder tabs to match the provided order array.
 	 */
 	reorder(newOrder: string[]): void {
-		if (!this.state.activeConnectionId) return;
-		this.state.tabOrderByConnection = {
-			...this.state.tabOrderByConnection,
-			[this.state.activeConnectionId]: newOrder
+		if (!this.state.activeProjectId) return;
+		this.state.tabOrderByProject = {
+			...this.state.tabOrderByProject,
+			[this.state.activeProjectId]: newOrder
 		};
-		this.schedulePersistence(this.state.activeConnectionId);
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -102,7 +103,7 @@ export class TabOrderingManager {
 		type: 'query' | 'schema' | 'explain' | 'erd';
 		tab: QueryTab | SchemaTab | ExplainTab | ErdTab;
 	}> {
-		if (!this.state.activeConnectionId) return [];
+		if (!this.state.activeProjectId) return [];
 
 		// Ensure we have arrays (defensive against undefined)
 		const queryTabs = this.state.queryTabs || [];
@@ -129,7 +130,7 @@ export class TabOrderingManager {
 			allTabsUnordered.push({ id: t.id, type: 'erd', tab: t });
 		}
 
-		const order = this.state.tabOrderByConnection[this.state.activeConnectionId] ?? [];
+		const order = this.state.tabOrderByProject[this.state.activeProjectId] ?? [];
 
 		// Sort by order array, falling back to timestamp for new tabs
 		return allTabsUnordered.sort((a, b) => {

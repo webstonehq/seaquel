@@ -8,9 +8,9 @@
 
 	const db = useDatabase();
 
-	// Sort connections by last connected (most recent first)
+	// Sort connections by last connected (most recent first), filtered by active project
 	const sortedConnections = $derived(
-		[...db.state.connections].sort((a, b) => {
+		[...db.state.projectConnections].sort((a, b) => {
 			const aTime = a.lastConnected?.getTime() ?? 0;
 			const bTime = b.lastConnected?.getTime() ?? 0;
 			return bTime - aTime;

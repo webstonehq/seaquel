@@ -1,22 +1,32 @@
 import { toast } from "svelte-sonner";
 import type {
-  PersistedConnectionState,
   PersistedQueryTab,
   PersistedSchemaTab,
   PersistedExplainTab,
   PersistedErdTab,
+  PersistedStarterTab,
   PersistedSavedQuery,
   PersistedQueryHistoryItem,
   DatabaseConnection,
+  PersistedProject,
+  PersistedProjectState,
+  ConnectionLabel,
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
-import { loadStore, type Store } from "$lib/storage";
+import { loadStore } from "$lib/storage";
 import { getKeyringService } from "$lib/services/keyring";
 
 /**
- * Manages persistence of connection state to Tauri store.
+ * Manages persistence of projects, connections, and their state to Tauri store.
  * Handles serialization, debounced saving, and state loading.
+ *
+ * Storage structure:
+ * - projects.json: All projects
+ * - app_state.json: Global app state (last active project, etc.)
+ * - database_connections.json: All connections (with projectId)
+ * - project_state_{projectId}.json: Tabs and UI state per project
+ * - connection_data_{connectionId}.json: Query history and saved queries per connection
  */
 export class PersistenceManager {
   private persistenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -27,15 +37,31 @@ export class PersistenceManager {
 
   /**
    * Schedule persistence with debouncing to avoid excessive I/O.
+   * Now persists project state instead of connection state.
    */
-  schedule(connectionId: string | null): void {
+  scheduleProject(projectId: string | null): void {
+    if (!projectId) return;
+
+    if (this.persistenceTimer) {
+      clearTimeout(this.persistenceTimer);
+    }
+    this.persistenceTimer = setTimeout(() => {
+      this.persistProjectState(projectId);
+      this.persistenceTimer = null;
+    }, this.PERSISTENCE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Schedule connection data persistence (history, saved queries).
+   */
+  scheduleConnectionData(connectionId: string | null): void {
     if (!connectionId) return;
 
     if (this.persistenceTimer) {
       clearTimeout(this.persistenceTimer);
     }
     this.persistenceTimer = setTimeout(() => {
-      this.persistConnectionState(connectionId);
+      this.persistConnectionData(connectionId);
       this.persistenceTimer = null;
     }, this.PERSISTENCE_DEBOUNCE_MS);
   }
@@ -48,9 +74,13 @@ export class PersistenceManager {
       clearTimeout(this.persistenceTimer);
       this.persistenceTimer = null;
     }
-    // Persist all connections that have data
-    for (const connectionId of Object.keys(this.state.queryTabsByConnection)) {
-      this.persistConnectionState(connectionId);
+    // Persist all projects that have data
+    for (const projectId of Object.keys(this.state.queryTabsByProject)) {
+      this.persistProjectState(projectId);
+    }
+    // Persist all connection data
+    for (const connectionId of Object.keys(this.state.queryHistoryByConnection)) {
+      this.persistConnectionData(connectionId);
     }
   }
 
@@ -61,10 +91,10 @@ export class PersistenceManager {
     this.flush();
   }
 
-  // Serialization methods
+  // === SERIALIZATION METHODS ===
 
-  serializeQueryTabs(connectionId: string): PersistedQueryTab[] {
-    const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
+  serializeQueryTabs(projectId: string): PersistedQueryTab[] {
+    const tabs = this.state.queryTabsByProject[projectId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
@@ -73,8 +103,8 @@ export class PersistenceManager {
     }));
   }
 
-  serializeSchemaTabs(connectionId: string): PersistedSchemaTab[] {
-    const tabs = this.state.schemaTabsByConnection[connectionId] ?? [];
+  serializeSchemaTabs(projectId: string): PersistedSchemaTab[] {
+    const tabs = this.state.schemaTabsByProject[projectId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       tableName: tab.table.name,
@@ -82,8 +112,8 @@ export class PersistenceManager {
     }));
   }
 
-  serializeExplainTabs(connectionId: string): PersistedExplainTab[] {
-    const tabs = this.state.explainTabsByConnection[connectionId] ?? [];
+  serializeExplainTabs(projectId: string): PersistedExplainTab[] {
+    const tabs = this.state.explainTabsByProject[projectId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
@@ -91,11 +121,21 @@ export class PersistenceManager {
     }));
   }
 
-  serializeErdTabs(connectionId: string): PersistedErdTab[] {
-    const tabs = this.state.erdTabsByConnection[connectionId] ?? [];
+  serializeErdTabs(projectId: string): PersistedErdTab[] {
+    const tabs = this.state.erdTabsByProject[projectId] ?? [];
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
+    }));
+  }
+
+  serializeStarterTabs(projectId: string): PersistedStarterTab[] {
+    const tabs = this.state.starterTabsByProject[projectId] ?? [];
+    return tabs.map((tab) => ({
+      id: tab.id,
+      type: tab.type,
+      name: tab.name,
+      closable: tab.closable,
     }));
   }
 
@@ -122,67 +162,239 @@ export class PersistenceManager {
       rowCount: h.rowCount,
       connectionId: h.connectionId,
       favorite: h.favorite,
+      connectionLabelsSnapshot: h.connectionLabelsSnapshot,
+      connectionNameSnapshot: h.connectionNameSnapshot,
     }));
   }
 
-  // Persistence methods
+  // === PROJECT PERSISTENCE ===
 
-  async persistConnectionState(connectionId: string): Promise<void> {
+  async persistProjects(): Promise<void> {
     try {
-      const store = await loadStore(`connection_state_${connectionId}.json`, {
+      const store = await loadStore("projects.json", {
+        autoSave: true,
+        defaults: { projects: [] },
+      });
+
+      const projects: PersistedProject[] = this.state.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        createdAt: p.createdAt.toISOString(),
+        updatedAt: p.updatedAt.toISOString(),
+        customLabels: p.customLabels,
+      }));
+
+      await store.set("projects", projects);
+      await store.save();
+    } catch (error) {
+      console.error("Failed to persist projects:", error);
+    }
+  }
+
+  async loadProjects(): Promise<PersistedProject[]> {
+    try {
+      const store = await loadStore("projects.json", {
+        autoSave: false,
+        defaults: { projects: [] },
+      });
+      return (await store.get("projects")) as PersistedProject[] || [];
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+      return [];
+    }
+  }
+
+  // === APP STATE PERSISTENCE ===
+
+  async persistAppState(): Promise<void> {
+    try {
+      const store = await loadStore("app_state.json", {
+        autoSave: true,
+        defaults: {},
+      });
+
+      await store.set("lastActiveProjectId", this.state.activeProjectId);
+      await store.save();
+    } catch (error) {
+      console.error("Failed to persist app state:", error);
+    }
+  }
+
+  async getLastActiveProjectId(): Promise<string | null> {
+    try {
+      const store = await loadStore("app_state.json", {
+        autoSave: false,
+        defaults: {},
+      });
+      return (await store.get("lastActiveProjectId")) as string | null;
+    } catch (error) {
+      console.error("Failed to load last active project:", error);
+      return null;
+    }
+  }
+
+  // === PROJECT STATE PERSISTENCE (tabs, active IDs) ===
+
+  async persistProjectState(projectId: string): Promise<void> {
+    try {
+      const store = await loadStore(`project_state_${projectId}.json`, {
         autoSave: true,
         defaults: { state: null },
       });
 
-      const state: PersistedConnectionState = {
-        connectionId,
-        queryTabs: this.serializeQueryTabs(connectionId),
-        schemaTabs: this.serializeSchemaTabs(connectionId),
-        explainTabs: this.serializeExplainTabs(connectionId),
-        erdTabs: this.serializeErdTabs(connectionId),
-        tabOrder: this.state.tabOrderByConnection[connectionId] ?? [],
-        activeQueryTabId: this.state.activeQueryTabIdByConnection[connectionId] ?? null,
-        activeSchemaTabId: this.state.activeSchemaTabIdByConnection[connectionId] ?? null,
-        activeExplainTabId: this.state.activeExplainTabIdByConnection[connectionId] ?? null,
-        activeErdTabId: this.state.activeErdTabIdByConnection[connectionId] ?? null,
+      const state: PersistedProjectState = {
+        projectId,
+        queryTabs: this.serializeQueryTabs(projectId),
+        schemaTabs: this.serializeSchemaTabs(projectId),
+        explainTabs: this.serializeExplainTabs(projectId),
+        erdTabs: this.serializeErdTabs(projectId),
+        tabOrder: this.state.tabOrderByProject[projectId] ?? [],
+        activeQueryTabId: this.state.activeQueryTabIdByProject[projectId] ?? null,
+        activeSchemaTabId: this.state.activeSchemaTabIdByProject[projectId] ?? null,
+        activeExplainTabId: this.state.activeExplainTabIdByProject[projectId] ?? null,
+        activeErdTabId: this.state.activeErdTabIdByProject[projectId] ?? null,
         activeView: this.state.activeView,
-        savedQueries: this.serializeSavedQueries(connectionId),
-        queryHistory: this.serializeQueryHistory(connectionId),
+        activeConnectionId: this.state.activeConnectionIdByProject[projectId] ?? null,
+        starterTabs: this.serializeStarterTabs(projectId),
+        activeStarterTabId: this.state.activeStarterTabIdByProject[projectId] ?? null,
       };
 
       await store.set("state", state);
       await store.save();
     } catch (error) {
-      console.error(`Failed to persist state for connection ${connectionId}:`, error);
+      console.error(`Failed to persist state for project ${projectId}:`, error);
     }
   }
 
-  async loadPersistedConnectionState(connectionId: string): Promise<PersistedConnectionState | null> {
+  async loadProjectState(projectId: string): Promise<PersistedProjectState | null> {
+    try {
+      const store = await loadStore(`project_state_${projectId}.json`, {
+        autoSave: false,
+        defaults: { state: null },
+      });
+      return (await store.get("state")) as PersistedProjectState | null;
+    } catch (error) {
+      console.error(`Failed to load persisted state for project ${projectId}:`, error);
+      return null;
+    }
+  }
+
+  async removeProjectState(projectId: string): Promise<void> {
+    try {
+      const store = await loadStore(`project_state_${projectId}.json`, {
+        autoSave: false,
+        defaults: { state: null },
+      });
+      await store.delete();
+    } catch (error) {
+      console.error(`Failed to remove persisted state for project ${projectId}:`, error);
+    }
+  }
+
+  // === CONNECTION DATA PERSISTENCE (history, saved queries) ===
+
+  async persistConnectionData(connectionId: string): Promise<void> {
+    try {
+      const store = await loadStore(`connection_data_${connectionId}.json`, {
+        autoSave: true,
+        defaults: {},
+      });
+
+      await store.set("savedQueries", this.serializeSavedQueries(connectionId));
+      await store.set("queryHistory", this.serializeQueryHistory(connectionId));
+      await store.save();
+    } catch (error) {
+      console.error(`Failed to persist data for connection ${connectionId}:`, error);
+    }
+  }
+
+  async loadConnectionData(connectionId: string): Promise<{
+    savedQueries: PersistedSavedQuery[];
+    queryHistory: PersistedQueryHistoryItem[];
+  }> {
+    try {
+      const store = await loadStore(`connection_data_${connectionId}.json`, {
+        autoSave: false,
+        defaults: {},
+      });
+      return {
+        savedQueries: (await store.get("savedQueries")) as PersistedSavedQuery[] || [],
+        queryHistory: (await store.get("queryHistory")) as PersistedQueryHistoryItem[] || [],
+      };
+    } catch (error) {
+      console.error(`Failed to load data for connection ${connectionId}:`, error);
+      return { savedQueries: [], queryHistory: [] };
+    }
+  }
+
+  async removeConnectionData(connectionId: string): Promise<void> {
+    try {
+      const store = await loadStore(`connection_data_${connectionId}.json`, {
+        autoSave: false,
+        defaults: {},
+      });
+      await store.delete();
+    } catch (error) {
+      console.error(`Failed to remove data for connection ${connectionId}:`, error);
+    }
+  }
+
+  // === LEGACY CONNECTION STATE (for migration) ===
+
+  async loadLegacyConnectionState(connectionId: string): Promise<{
+    queryTabs: PersistedQueryTab[];
+    schemaTabs: PersistedSchemaTab[];
+    explainTabs: PersistedExplainTab[];
+    erdTabs: PersistedErdTab[];
+    tabOrder: string[];
+    activeQueryTabId: string | null;
+    activeSchemaTabId: string | null;
+    activeExplainTabId: string | null;
+    activeErdTabId: string | null;
+    activeView: 'query' | 'schema' | 'explain' | 'erd';
+    savedQueries: PersistedSavedQuery[];
+    queryHistory: PersistedQueryHistoryItem[];
+  } | null> {
     try {
       const store = await loadStore(`connection_state_${connectionId}.json`, {
         autoSave: false,
         defaults: { state: null },
       });
-      return (await store.get("state")) as PersistedConnectionState | null;
-    } catch (error) {
-      console.error(`Failed to load persisted state for ${connectionId}:`, error);
+      const state = await store.get("state");
+      if (!state) return null;
+      return state as {
+        queryTabs: PersistedQueryTab[];
+        schemaTabs: PersistedSchemaTab[];
+        explainTabs: PersistedExplainTab[];
+        erdTabs: PersistedErdTab[];
+        tabOrder: string[];
+        activeQueryTabId: string | null;
+        activeSchemaTabId: string | null;
+        activeExplainTabId: string | null;
+        activeErdTabId: string | null;
+        activeView: 'query' | 'schema' | 'explain' | 'erd';
+        savedQueries: PersistedSavedQuery[];
+        queryHistory: PersistedQueryHistoryItem[];
+      };
+    } catch {
       return null;
     }
   }
 
-  async removePersistedConnectionState(connectionId: string): Promise<void> {
+  async removeLegacyConnectionState(connectionId: string): Promise<void> {
     try {
       const store = await loadStore(`connection_state_${connectionId}.json`, {
         autoSave: false,
         defaults: { state: null },
       });
       await store.delete();
-    } catch (error) {
-      console.error(`Failed to remove persisted state for ${connectionId}:`, error);
+    } catch {
+      // Ignore errors when removing legacy state
     }
   }
 
-  // Connection persistence (separate from connection state)
+  // === CONNECTION PERSISTENCE ===
 
   stripPasswordFromConnectionString(connectionString?: string): string | undefined {
     if (!connectionString) return undefined;
@@ -250,6 +462,8 @@ export class PersistenceManager {
         savePassword: options?.savePassword,
         saveSshPassword: options?.saveSshPassword,
         saveSshKeyPassphrase: options?.saveSshKeyPassphrase,
+        projectId: connection.projectId,
+        labelIds: connection.labelIds,
       };
 
       filtered.push(persistedConnection);
@@ -312,6 +526,9 @@ export class PersistenceManager {
           console.warn("Failed to delete credentials from keyring:", error);
         }
       }
+
+      // Remove connection data
+      await this.removeConnectionData(connectionId);
     } catch (error) {
       console.error("Failed to delete persisted connection:", error);
       toast.error("Failed to delete connection from storage");
@@ -329,6 +546,33 @@ export class PersistenceManager {
     } catch (error) {
       console.error("Failed to load persisted connections:", error);
       return [];
+    }
+  }
+
+  // === STORAGE VERSION ===
+
+  async getStorageVersion(): Promise<number> {
+    try {
+      const store = await loadStore("app_state.json", {
+        autoSave: false,
+        defaults: {},
+      });
+      return (await store.get("storageVersion")) as number || 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  async setStorageVersion(version: number): Promise<void> {
+    try {
+      const store = await loadStore("app_state.json", {
+        autoSave: true,
+        defaults: {},
+      });
+      await store.set("storageVersion", version);
+      await store.save();
+    } catch (error) {
+      console.error("Failed to set storage version:", error);
     }
   }
 }
