@@ -4,6 +4,10 @@
  * @module types
  */
 
+// Project and label types
+export type { PredefinedLabel, ConnectionLabel, Project, PersistedProject, PersistedProjectState } from './project';
+export { PREDEFINED_LABELS, DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from './project';
+
 // Database connection types
 export type { DatabaseType, SSHAuthMethod, SSHTunnelConfig, DatabaseConnection } from './database';
 
@@ -36,12 +40,17 @@ export type { ExplainPlanNode, ExplainResult, ExplainTab } from './explain';
 // ERD types
 export type { ErdTab } from './erd';
 
+// Starter tab types
+export type { StarterTabType, StarterTab } from './starter-tabs';
+export { DEFAULT_STARTER_TABS } from './starter-tabs';
+
 // Persisted state types
 export type {
 	PersistedQueryTab,
 	PersistedSchemaTab,
 	PersistedExplainTab,
 	PersistedErdTab,
+	PersistedStarterTab,
 	PersistedQueryParameter,
 	PersistedSavedQuery,
 	PersistedQueryHistoryItem,

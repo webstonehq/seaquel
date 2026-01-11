@@ -7,7 +7,7 @@ import type { DatabaseState } from "./state.svelte.js";
 export class UIStateManager {
   constructor(
     private state: DatabaseState,
-    private schedulePersistence: (connectionId: string | null) => void
+    private schedulePersistence: (projectId: string | null) => void
   ) {}
 
   toggleAI() {
@@ -41,6 +41,6 @@ export class UIStateManager {
 
   setActiveView(view: "query" | "schema" | "explain" | "erd") {
     this.state.activeView = view;
-    this.schedulePersistence(this.state.activeConnectionId);
+    this.schedulePersistence(this.state.activeProjectId);
   }
 }

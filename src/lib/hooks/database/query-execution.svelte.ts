@@ -48,17 +48,17 @@ export class QueryExecutionManager {
     tabId: string,
     updates: Partial<{ results: StatementResult[]; activeResultIndex: number; isExecuting: boolean }>
   ): void {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
-    const connectionId = this.state.activeConnectionId;
-    const tabs = this.state.queryTabsByConnection[connectionId] ?? [];
+    const projectId = this.state.activeProjectId;
+    const tabs = this.state.queryTabsByProject[projectId] ?? [];
     const updatedTabs = tabs.map((tab) =>
       tab.id === tabId ? { ...tab, ...updates } : tab
     );
 
-    this.state.queryTabsByConnection = {
-      ...this.state.queryTabsByConnection,
-      [connectionId]: updatedTabs,
+    this.state.queryTabsByProject = {
+      ...this.state.queryTabsByProject,
+      [projectId]: updatedTabs,
     };
   }
 
@@ -240,7 +240,7 @@ export class QueryExecutionManager {
    * Execute only the statement at the cursor position.
    */
   async executeCurrent(tabId: string, cursorOffset: number, page: number = 1, pageSize?: number): Promise<void> {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
@@ -249,7 +249,7 @@ export class QueryExecutionManager {
       return;
     }
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -322,7 +322,7 @@ export class QueryExecutionManager {
     page: number = 1,
     pageSize?: number
   ): Promise<void> {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
@@ -331,7 +331,7 @@ export class QueryExecutionManager {
       return;
     }
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -401,7 +401,7 @@ export class QueryExecutionManager {
    * Execute all statements in a query tab.
    */
   async execute(tabId: string, page: number = 1, pageSize?: number): Promise<void> {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
@@ -410,7 +410,7 @@ export class QueryExecutionManager {
       return;
     }
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -492,7 +492,7 @@ export class QueryExecutionManager {
     page: number = 1,
     pageSize?: number
   ): Promise<void> {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
@@ -501,7 +501,7 @@ export class QueryExecutionManager {
       return;
     }
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -579,9 +579,9 @@ export class QueryExecutionManager {
    * Set the active result tab index.
    */
   setActiveResult(tabId: string, resultIndex: number): void {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results || resultIndex < 0 || resultIndex >= tab.results.length) return;
 
@@ -592,7 +592,7 @@ export class QueryExecutionManager {
    * Navigate to a specific page for a specific result.
    */
   async goToPage(tabId: string, page: number, resultIndex?: number): Promise<void> {
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId!] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId!] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results) return;
 
@@ -615,13 +615,13 @@ export class QueryExecutionManager {
     page: number,
     pageSize: number
   ): Promise<void> {
-    if (!this.state.activeConnectionId) return;
+    if (!this.state.activeProjectId) return;
 
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) return;
 
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results || resultIndex >= tab.results.length) return;
 
@@ -656,7 +656,7 @@ export class QueryExecutionManager {
    * Set page size and re-execute query.
    */
   async setPageSize(tabId: string, pageSize: number, resultIndex?: number): Promise<void> {
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId!] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId!] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results) return;
 
@@ -675,7 +675,7 @@ export class QueryExecutionManager {
     newValue: unknown,
     sourceTable: { schema: string; name: string; primaryKeys: string[] }
   ): Promise<{ success: boolean; error?: string }> {
-    const tabs = this.state.queryTabsByConnection[this.state.activeConnectionId!] ?? [];
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId!] ?? [];
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab?.results || resultIndex >= tab.results.length) {
       return { success: false, error: "No results" };

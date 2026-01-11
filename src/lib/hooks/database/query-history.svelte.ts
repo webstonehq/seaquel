@@ -1,4 +1,4 @@
-import type { QueryResult, QueryHistoryItem } from "$lib/types";
+import type { QueryResult, QueryHistoryItem, ConnectionLabel } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 
 /**
@@ -8,17 +8,24 @@ import type { DatabaseState } from "./state.svelte.js";
 export class QueryHistoryManager {
   constructor(
     private state: DatabaseState,
-    private schedulePersistence: (connectionId: string | null) => void
+    private schedulePersistence: (connectionId: string | null) => void,
+    private getConnectionLabels: (connectionId: string) => ConnectionLabel[],
+    private getConnectionName: (connectionId: string) => string
   ) {}
 
   /**
    * Add a query to the history for the active connection.
+   * Captures a snapshot of the connection's labels and name at execution time.
    */
   addToHistory(query: string, results: QueryResult) {
     if (!this.state.activeConnectionId) return;
 
     const connectionId = this.state.activeConnectionId;
     const queryHistory = this.state.queryHistoryByConnection[connectionId] ?? [];
+
+    // Create snapshots of labels and connection name at execution time
+    const connectionLabelsSnapshot = this.getConnectionLabels(connectionId).map((l) => ({ ...l }));
+    const connectionNameSnapshot = this.getConnectionName(connectionId);
 
     this.state.queryHistoryByConnection = {
       ...this.state.queryHistoryByConnection,
@@ -31,6 +38,8 @@ export class QueryHistoryManager {
           rowCount: results.affectedRows ?? results.totalRows,
           connectionId,
           favorite: false,
+          connectionLabelsSnapshot,
+          connectionNameSnapshot,
         },
         ...queryHistory,
       ],

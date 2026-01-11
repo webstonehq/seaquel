@@ -5,7 +5,7 @@
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-    import DatabaseIcon from "@lucide/svelte/icons/database";
+    import CheckIcon from "@lucide/svelte/icons/check";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import ConnectionWizard from "$lib/components/connection-wizard/connection-wizard.svelte";
     import PlusIcon from "@lucide/svelte/icons/plus";
@@ -13,71 +13,56 @@
     import NetworkIcon from "@lucide/svelte/icons/network";
     import ThemeToggle from "./theme-toggle.svelte";
     import LanguageToggle from "./language-toggle.svelte";
-    import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte.js";
     import { m } from "$lib/paraglide/messages.js";
-    import { getFeatures } from "$lib/features";
+    import { DEFAULT_PROJECT_ID } from "$lib/types";
 
     const db = useDatabase();
-    const features = getFeatures();
     const sidebar = Sidebar.useSidebar();
 
-    // Sort connections by last connected (most recent first)
-    const sortedConnections = $derived(
-        [...db.state.connections].sort((a, b) => {
-            const aTime = a.lastConnected?.getTime() ?? 0;
-            const bTime = b.lastConnected?.getTime() ?? 0;
-            return bTime - aTime;
-        })
-    );
+    // Project management state
+    let showNewProjectDialog = $state(false);
+    let showEditProjectDialog = $state(false);
+    let showRemoveProjectDialog = $state(false);
+    let newProjectName = $state("");
+    let editProjectName = $state("");
+    let projectToEdit = $state<string | null>(null);
+    let projectToRemove = $state<string | null>(null);
+    let projectToRemoveName = $state("");
 
-    // Remove connection confirmation dialog state
-    let showRemoveDialog = $state(false);
-    let connectionToRemove = $state<string | null>(null);
-    let connectionToRemoveName = $state("");
-
-    const handleConnectionClick = async (connection: typeof db.state.connections[0]) => {
-        // If connection has a database instance, just activate it
-        if (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) {
-            db.connections.setActive(connection.id);
-        } else {
-            // Try auto-reconnect first if password is saved
-            const autoReconnected = await db.connections.autoReconnect(connection.id);
-            if (autoReconnected) {
-                return; // Successfully reconnected
-            }
-
-            // Fall back to dialog if auto-reconnect fails or password not saved
-            connectionDialogStore.open({
-                id: connection.id,
-                name: connection.name,
-                type: connection.type,
-                host: connection.host,
-                port: connection.port,
-                databaseName: connection.databaseName,
-                username: connection.username,
-                sslMode: connection.sslMode,
-                connectionString: connection.connectionString,
-                sshTunnel: connection.sshTunnel,
-                savePassword: connection.savePassword,
-                saveSshPassword: connection.saveSshPassword,
-                saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-            });
-        }
+    const handleCreateProject = async () => {
+        if (!newProjectName.trim()) return;
+        await db.projects.add(newProjectName.trim());
+        newProjectName = "";
+        showNewProjectDialog = false;
     };
 
-    const confirmRemoveConnection = (connectionId: string, name: string) => {
-        connectionToRemove = connectionId;
-        connectionToRemoveName = name;
-        showRemoveDialog = true;
+    const handleEditProject = async () => {
+        if (!projectToEdit || !editProjectName.trim()) return;
+        db.projects.update(projectToEdit, { name: editProjectName.trim() });
+        projectToEdit = null;
+        editProjectName = "";
+        showEditProjectDialog = false;
     };
 
-    const handleRemoveConnection = () => {
-        if (connectionToRemove) {
-            db.connections.remove(connectionToRemove);
-            connectionToRemove = null;
-            connectionToRemoveName = "";
+    const openEditDialog = (projectId: string, name: string) => {
+        projectToEdit = projectId;
+        editProjectName = name;
+        showEditProjectDialog = true;
+    };
+
+    const confirmRemoveProject = (projectId: string, name: string) => {
+        projectToRemove = projectId;
+        projectToRemoveName = name;
+        showRemoveProjectDialog = true;
+    };
+
+    const handleRemoveProject = async () => {
+        if (projectToRemove) {
+            await db.projects.remove(projectToRemove);
+            projectToRemove = null;
+            projectToRemoveName = "";
         }
-        showRemoveDialog = false;
+        showRemoveProjectDialog = false;
     };
 </script>
 
@@ -97,76 +82,55 @@
             >
                 <SidebarIcon />
             </Button>
-            {#if db.state.activeConnection}
-                <DropdownMenu.Root>
-                    <DropdownMenu.Trigger class="flex items-center gap-2 px-3 h-8 text-sm rounded-md bg-background hover:bg-muted transition-colors">
-                        <DatabaseIcon class="size-4 text-muted-foreground" />
-                        <span
-                            class={[
-                                "size-2 rounded-full shrink-0",
-                                (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId || db.state.activeConnection.providerConnectionId) ? "bg-green-500" : "bg-gray-400"
-                            ]}
-                        ></span>
-                        <span class="max-w-32 truncate" title={db.state.activeConnection.name}>{db.state.activeConnection.name}</span>
-                    </DropdownMenu.Trigger>
-                    <DropdownMenu.Content class="w-56" align="start">
-                        {#each sortedConnections as connection (connection.id)}
-                            <ContextMenu.Root>
-                                <ContextMenu.Trigger class="w-full">
-                                    <DropdownMenu.Item
-                                        class={[
-                                            "flex items-center gap-2 cursor-pointer",
-                                            db.state.activeConnectionId === connection.id && "bg-accent"
-                                        ]}
-                                        onclick={() => handleConnectionClick(connection)}
-                                    >
-                                        <span
-                                            class={[
-                                                "size-2 rounded-full shrink-0",
-                                                (connection.database || connection.mssqlConnectionId || connection.providerConnectionId) ? "bg-green-500" : "bg-gray-400"
-                                            ]}
-                                            title={(connection.database || connection.mssqlConnectionId || connection.providerConnectionId) ? m.header_connected() : m.header_disconnected()}
-                                        ></span>
-                                        <span class="flex-1 truncate">{connection.name}</span>
-                                        {#if db.state.activeConnectionId === connection.id}
-                                            <span class="text-xs text-muted-foreground">{m.header_active()}</span>
+            <!-- Project Dropdown -->
+            <DropdownMenu.Root>
+                <DropdownMenu.Trigger class="flex items-center gap-2 px-3 h-8 text-sm rounded-md bg-background hover:bg-muted transition-colors">
+                    <span class="max-w-40 truncate" title={db.state.activeProject?.name || m.project_default_name()}>
+                        {db.state.activeProject?.name || m.project_default_name()}
+                    </span>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content class="w-56" align="start">
+                    {#each db.state.projects as project (project.id)}
+                        <ContextMenu.Root>
+                            <ContextMenu.Trigger class="w-full">
+                                <DropdownMenu.Item
+                                    class="flex items-center gap-2 cursor-pointer"
+                                    onclick={() => db.projects.setActive(project.id)}
+                                >
+                                    <span class="w-4">
+                                        {#if db.state.activeProjectId === project.id}
+                                            <CheckIcon class="size-4" />
                                         {/if}
-                                    </DropdownMenu.Item>
-                                </ContextMenu.Trigger>
-                                <ContextMenu.Content class="w-40">
-                                    {#if connection.database || connection.mssqlConnectionId || connection.providerConnectionId}
-                                        <ContextMenu.Item onclick={() => db.connections.toggle(connection.id)}>
-                                            {m.header_disconnect()}
-                                        </ContextMenu.Item>
-                                        <ContextMenu.Separator />
-                                    {:else}
-                                        <ContextMenu.Item onclick={() => handleConnectionClick(connection)}>
-                                            {m.header_connect()}
-                                        </ContextMenu.Item>
-                                        <ContextMenu.Separator />
-                                    {/if}
+                                    </span>
+                                    <span class="flex-1 truncate">{project.name}</span>
+                                </DropdownMenu.Item>
+                            </ContextMenu.Trigger>
+                            <ContextMenu.Content class="w-40">
+                                <ContextMenu.Item onclick={() => openEditDialog(project.id, project.name)}>
+                                    {m.project_edit()}
+                                </ContextMenu.Item>
+                                {#if project.id !== DEFAULT_PROJECT_ID && db.state.projects.length > 1}
+                                    <ContextMenu.Separator />
                                     <ContextMenu.Item
                                         class="text-destructive focus:text-destructive"
-                                        onclick={() => confirmRemoveConnection(connection.id, connection.name)}
+                                        onclick={() => confirmRemoveProject(project.id, project.name)}
                                     >
-                                        {m.header_delete_connection()}
+                                        {m.project_delete()}
                                     </ContextMenu.Item>
-                                </ContextMenu.Content>
-                            </ContextMenu.Root>
-                        {/each}
-                        {#if features.newConnections}
-                            <DropdownMenu.Separator />
-                            <DropdownMenu.Item
-                                class="flex items-center gap-2 cursor-pointer"
-                                onclick={() => connectionDialogStore.open()}
-                            >
-                                <PlusIcon class="size-4" />
-                                {m.header_add_connection()}
-                            </DropdownMenu.Item>
-                        {/if}
-                    </DropdownMenu.Content>
-                </DropdownMenu.Root>
-            {/if}
+                                {/if}
+                            </ContextMenu.Content>
+                        </ContextMenu.Root>
+                    {/each}
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item
+                        class="flex items-center gap-2 cursor-pointer"
+                        onclick={() => showNewProjectDialog = true}
+                    >
+                        <PlusIcon class="size-4" />
+                        {m.project_new()}
+                    </DropdownMenu.Item>
+                </DropdownMenu.Content>
+            </DropdownMenu.Root>
         </div>
         <div class="flex items-center gap-1">
             {#if db.state.activeConnection?.database || db.state.activeConnection?.mssqlConnectionId || db.state.activeConnection?.providerConnectionId}
@@ -198,20 +162,76 @@
 
 <ConnectionWizard />
 
-<Dialog.Root bind:open={showRemoveDialog}>
+<!-- New Project Dialog -->
+<Dialog.Root bind:open={showNewProjectDialog}>
     <Dialog.Content class="max-w-md">
         <Dialog.Header>
-            <Dialog.Title>{m.header_delete_dialog_title()}</Dialog.Title>
+            <Dialog.Title>{m.project_new_dialog_title()}</Dialog.Title>
             <Dialog.Description>
-                {m.header_delete_dialog_description({ name: connectionToRemoveName })}
+                {m.project_new_dialog_description()}
+            </Dialog.Description>
+        </Dialog.Header>
+        <div class="py-4">
+            <input
+                type="text"
+                class="w-full px-3 py-2 border rounded-md bg-background"
+                placeholder={m.project_name_placeholder()}
+                bind:value={newProjectName}
+                onkeydown={(e) => e.key === "Enter" && handleCreateProject()}
+            />
+        </div>
+        <Dialog.Footer class="gap-2">
+            <Button variant="outline" onclick={() => { showNewProjectDialog = false; newProjectName = ""; }}>
+                {m.header_button_cancel()}
+            </Button>
+            <Button onclick={handleCreateProject} disabled={!newProjectName.trim()}>
+                {m.project_create()}
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
+
+<!-- Edit Project Dialog -->
+<Dialog.Root bind:open={showEditProjectDialog}>
+    <Dialog.Content class="max-w-md">
+        <Dialog.Header>
+            <Dialog.Title>{m.project_edit_dialog_title()}</Dialog.Title>
+        </Dialog.Header>
+        <div class="py-4">
+            <input
+                type="text"
+                class="w-full px-3 py-2 border rounded-md bg-background"
+                placeholder={m.project_name_placeholder()}
+                bind:value={editProjectName}
+                onkeydown={(e) => e.key === "Enter" && handleEditProject()}
+            />
+        </div>
+        <Dialog.Footer class="gap-2">
+            <Button variant="outline" onclick={() => { showEditProjectDialog = false; editProjectName = ""; projectToEdit = null; }}>
+                {m.header_button_cancel()}
+            </Button>
+            <Button onclick={handleEditProject} disabled={!editProjectName.trim()}>
+                {m.project_save()}
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
+
+<!-- Remove Project Dialog -->
+<Dialog.Root bind:open={showRemoveProjectDialog}>
+    <Dialog.Content class="max-w-md">
+        <Dialog.Header>
+            <Dialog.Title>{m.project_delete_dialog_title()}</Dialog.Title>
+            <Dialog.Description>
+                {m.project_delete_dialog_description({ name: projectToRemoveName })}
             </Dialog.Description>
         </Dialog.Header>
         <Dialog.Footer class="gap-2">
-            <Button variant="outline" onclick={() => showRemoveDialog = false}>
+            <Button variant="outline" onclick={() => showRemoveProjectDialog = false}>
                 {m.header_button_cancel()}
             </Button>
-            <Button variant="destructive" onclick={handleRemoveConnection}>
-                {m.header_button_remove()}
+            <Button variant="destructive" onclick={handleRemoveProject}>
+                {m.project_delete_confirm()}
             </Button>
         </Dialog.Footer>
     </Dialog.Content>

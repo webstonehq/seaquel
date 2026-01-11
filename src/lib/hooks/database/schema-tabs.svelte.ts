@@ -8,12 +8,13 @@ import { getProvider } from '$lib/providers';
 /**
  * Manages schema tabs: add, remove, set active.
  * Handles table metadata loading.
+ * Tabs are organized per-project.
  */
 export class SchemaTabManager {
 	constructor(
 		private state: DatabaseState,
 		private tabOrdering: TabOrderingManager,
-		private schedulePersistence: (connectionId: string | null) => void
+		private schedulePersistence: (projectId: string | null) => void
 	) {}
 
 	/**
@@ -21,10 +22,11 @@ export class SchemaTabManager {
 	 * Fetches table metadata (columns, indexes, foreign keys).
 	 */
 	async add(table: SchemaTable): Promise<string | null> {
-		if (!this.state.activeConnectionId || !this.state.activeConnection) return null;
+		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return null;
 
+		const projectId = this.state.activeProjectId;
 		const connectionId = this.state.activeConnectionId;
-		const tabs = this.state.schemaTabsByConnection[connectionId] ?? [];
+		const tabs = this.state.schemaTabsByProject[projectId] ?? [];
 		const adapter = getAdapter(this.state.activeConnection.type);
 		const isMssql =
 			this.state.activeConnection.type === 'mssql' &&
@@ -108,16 +110,16 @@ export class SchemaTabManager {
 			const updatedTabs = tabs.map((t) =>
 				t.id === existingTab.id ? { ...t, table: updatedTable } : t
 			);
-			this.state.schemaTabsByConnection = {
-				...this.state.schemaTabsByConnection,
-				[connectionId]: updatedTabs
+			this.state.schemaTabsByProject = {
+				...this.state.schemaTabsByProject,
+				[projectId]: updatedTabs
 			};
 
-			this.state.activeSchemaTabIdByConnection = {
-				...this.state.activeSchemaTabIdByConnection,
-				[connectionId]: existingTab.id
+			this.state.activeSchemaTabIdByProject = {
+				...this.state.activeSchemaTabIdByProject,
+				[projectId]: existingTab.id
 			};
-			this.schedulePersistence(connectionId);
+			this.schedulePersistence(projectId);
 			return existingTab.id;
 		}
 
@@ -127,19 +129,19 @@ export class SchemaTabManager {
 		};
 
 		// Update state using spread syntax
-		this.state.schemaTabsByConnection = {
-			...this.state.schemaTabsByConnection,
-			[connectionId]: [...tabs, newTab]
+		this.state.schemaTabsByProject = {
+			...this.state.schemaTabsByProject,
+			[projectId]: [...tabs, newTab]
 		};
 
 		this.tabOrdering.add(newTab.id);
 
-		this.state.activeSchemaTabIdByConnection = {
-			...this.state.activeSchemaTabIdByConnection,
-			[connectionId]: newTab.id
+		this.state.activeSchemaTabIdByProject = {
+			...this.state.activeSchemaTabIdByProject,
+			[projectId]: newTab.id
 		};
 
-		this.schedulePersistence(connectionId);
+		this.schedulePersistence(projectId);
 		return newTab.id;
 	}
 
@@ -148,26 +150,26 @@ export class SchemaTabManager {
 	 */
 	remove(id: string): void {
 		this.tabOrdering.removeTabGeneric(
-			() => this.state.schemaTabsByConnection,
-			(r) => (this.state.schemaTabsByConnection = r),
-			() => this.state.activeSchemaTabIdByConnection,
-			(r) => (this.state.activeSchemaTabIdByConnection = r),
+			() => this.state.schemaTabsByProject,
+			(r) => (this.state.schemaTabsByProject = r),
+			() => this.state.activeSchemaTabIdByProject,
+			(r) => (this.state.activeSchemaTabIdByProject = r),
 			id
 		);
-		this.schedulePersistence(this.state.activeConnectionId);
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
 	 * Set the active schema tab by ID.
 	 */
 	setActive(id: string): void {
-		if (!this.state.activeConnectionId) return;
+		if (!this.state.activeProjectId) return;
 
-		this.state.activeSchemaTabIdByConnection = {
-			...this.state.activeSchemaTabIdByConnection,
-			[this.state.activeConnectionId]: id
+		this.state.activeSchemaTabIdByProject = {
+			...this.state.activeSchemaTabIdByProject,
+			[this.state.activeProjectId]: id
 		};
-		this.schedulePersistence(this.state.activeConnectionId);
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**

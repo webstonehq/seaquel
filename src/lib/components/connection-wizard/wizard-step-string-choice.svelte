@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Button } from "$lib/components/ui/button";
 	import { m } from "$lib/paraglide/messages.js";
 	import LinkIcon from "@lucide/svelte/icons/link";
 	import ListIcon from "@lucide/svelte/icons/list";
@@ -31,7 +30,6 @@
 			</div>
 			<div class="space-y-1">
 				<h3 class="font-medium">{m.wizard_string_choice_yes()}</h3>
-				<p class="text-xs text-muted-foreground">{m.wizard_string_choice_yes_hint()}</p>
 			</div>
 		</button>
 
@@ -45,7 +43,6 @@
 			</div>
 			<div class="space-y-1">
 				<h3 class="font-medium">{m.wizard_string_choice_no()}</h3>
-				<p class="text-xs text-muted-foreground">{m.wizard_string_choice_no_hint()}</p>
 			</div>
 		</button>
 	</div>
