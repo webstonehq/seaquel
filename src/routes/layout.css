@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../node_modules/layerchart/**/*.{svelte,js}";
+@source "../../node_modules/svelte-ux/**/*.{svelte,js}";
 
 @import "tw-animate-css";
 

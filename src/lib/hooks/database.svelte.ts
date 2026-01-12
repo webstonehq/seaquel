@@ -14,6 +14,7 @@ import { SavedQueryManager } from "./database/saved-queries.svelte.js";
 import { SchemaTabManager } from "./database/schema-tabs.svelte.js";
 import { ExplainTabManager } from "./database/explain-tabs.svelte.js";
 import { ErdTabManager } from "./database/erd-tabs.svelte.js";
+import { StatisticsTabManager } from "./database/statistics-tabs.svelte.js";
 import { ProjectManager } from "./database/project-manager.svelte.js";
 import { LabelManager } from "./database/label-manager.svelte.js";
 import { StarterTabManager } from "./database/starter-tabs.svelte.js";
@@ -45,6 +46,7 @@ class UseDatabase {
   readonly schemaTabs: SchemaTabManager;
   readonly explainTabs: ExplainTabManager;
   readonly erdTabs: ErdTabManager;
+  readonly statisticsTabs: StatisticsTabManager;
   readonly starterTabs: StarterTabManager;
 
   private _stateRestoration: StateRestorationManager;
@@ -60,7 +62,7 @@ class UseDatabase {
       this.persistence.scheduleConnectionData(connectionId);
     };
 
-    const setActiveView = (view: "query" | "schema" | "explain" | "erd") => {
+    const setActiveView = (view: "query" | "schema" | "explain" | "erd" | "statistics") => {
       this.ui.setActiveView(view);
     };
 
@@ -81,6 +83,17 @@ class UseDatabase {
     this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence);
     this.explainTabs = new ExplainTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
     this.erdTabs = new ErdTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
+    this.statisticsTabs = new StatisticsTabManager(
+      this.state,
+      this.tabs,
+      scheduleProjectPersistence,
+      setActiveView,
+      async (query: string) => {
+        // Execute query on the active connection and return raw results
+        const result = await this.queries.executeRaw(query);
+        return result;
+      }
+    );
     this.starterTabs = new StarterTabManager(this.state, scheduleProjectPersistence);
 
     // Query-related

@@ -7,7 +7,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon } from "@lucide/svelte";
+	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -225,11 +225,26 @@
 											</SidebarMenuButton>
 										</SidebarMenuItem>
 									</ContextMenu.Trigger>
-									<ContextMenu.Content class="w-40">
+									<ContextMenu.Content class="w-48">
 										{#if connection.database || connection.mssqlConnectionId || connection.providerConnectionId}
 											<ContextMenu.Item onclick={() => db.connections.toggle(connection.id)}>
 												<UnplugIcon class="size-4 me-2" />
 												{m.sidebar_connection_disconnect()}
+											</ContextMenu.Item>
+											<ContextMenu.Separator />
+											<ContextMenu.Item onclick={() => {
+												db.connections.setActive(connection.id);
+												db.statisticsTabs.add();
+											}}>
+												<BarChart3Icon class="size-4 me-2" />
+												Database Statistics
+											</ContextMenu.Item>
+											<ContextMenu.Item onclick={() => {
+												db.connections.setActive(connection.id);
+												db.erdTabs.add();
+											}}>
+												<NetworkIcon class="size-4 me-2" />
+												Entity Relationship Diagram
 											</ContextMenu.Item>
 										{:else}
 											<ContextMenu.Item onclick={() => handleConnectionClick(connection)}>

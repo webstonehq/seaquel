@@ -59,6 +59,18 @@ export interface PersistedErdTab {
 }
 
 /**
+ * Persisted statistics tab state.
+ */
+export interface PersistedStatisticsTab {
+	/** Tab identifier */
+	id: string;
+	/** Tab display name */
+	name: string;
+	/** Connection ID this statistics tab belongs to */
+	connectionId: string;
+}
+
+/**
  * Persisted starter tab state.
  */
 export interface PersistedStarterTab {
@@ -135,7 +147,7 @@ export interface PersistedQueryHistoryItem {
 /**
  * View type options for the main workspace.
  */
-export type ActiveViewType = 'query' | 'schema' | 'explain' | 'erd';
+export type ActiveViewType = 'query' | 'schema' | 'explain' | 'erd' | 'statistics';
 
 /**
  * Complete persisted state for a single connection.
@@ -152,6 +164,8 @@ export interface PersistedConnectionState {
 	explainTabs: PersistedExplainTab[];
 	/** ERD viewer tabs */
 	erdTabs: PersistedErdTab[];
+	/** Statistics dashboard tabs */
+	statisticsTabs: PersistedStatisticsTab[];
 	/** Ordered list of all tab IDs for drag-drop ordering */
 	tabOrder: string[];
 	/** Currently active query tab */
@@ -162,6 +176,8 @@ export interface PersistedConnectionState {
 	activeExplainTabId: string | null;
 	/** Currently active ERD tab */
 	activeErdTabId: string | null;
+	/** Currently active statistics tab */
+	activeStatisticsTabId: string | null;
 	/** Which view type is currently active */
 	activeView: ActiveViewType;
 	/** Saved queries for this connection */

@@ -17,6 +17,7 @@
 		Copy,
 		GitBranch,
 		Code,
+		BarChart3,
 	} from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 
@@ -78,7 +79,7 @@
 		runAndClose(() => db.ui.toggleAI());
 	}
 
-	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd") {
+	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd" | "statistics") {
 		runAndClose(() => {
 			switch (type) {
 				case "query":
@@ -96,6 +97,10 @@
 				case "erd":
 					db.erdTabs.setActive(tabId);
 					db.ui.setActiveView("erd");
+					break;
+				case "statistics":
+					db.statisticsTabs.setActive(tabId);
+					db.ui.setActiveView("statistics");
 					break;
 			}
 		});
@@ -248,6 +253,8 @@
 				return tab.tab.name || "Explain";
 			case "erd":
 				return tab.tab.name || "ERD";
+			case "statistics":
+				return tab.tab.name || "Statistics";
 			default:
 				return "Tab";
 		}
@@ -263,6 +270,8 @@
 				return GitBranch;
 			case "erd":
 				return GitBranch;
+			case "statistics":
+				return BarChart3;
 			default:
 				return FileText;
 		}

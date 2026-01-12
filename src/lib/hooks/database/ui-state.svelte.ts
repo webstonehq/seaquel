@@ -39,7 +39,7 @@ export class UIStateManager {
     }, 1000);
   }
 
-  setActiveView(view: "query" | "schema" | "explain" | "erd") {
+  setActiveView(view: "query" | "schema" | "explain" | "erd" | "statistics") {
     this.state.activeView = view;
     this.schedulePersistence(this.state.activeProjectId);
   }

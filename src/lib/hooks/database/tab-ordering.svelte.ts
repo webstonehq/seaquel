@@ -1,4 +1,4 @@
-import type { QueryTab, SchemaTab, ExplainTab, ErdTab } from '$lib/types';
+import type { QueryTab, SchemaTab, ExplainTab, ErdTab, StatisticsTab } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 
 /**
@@ -100,8 +100,8 @@ export class TabOrderingManager {
 	 */
 	get ordered(): Array<{
 		id: string;
-		type: 'query' | 'schema' | 'explain' | 'erd';
-		tab: QueryTab | SchemaTab | ExplainTab | ErdTab;
+		type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics';
+		tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab;
 	}> {
 		if (!this.state.activeProjectId) return [];
 
@@ -110,11 +110,12 @@ export class TabOrderingManager {
 		const schemaTabs = this.state.schemaTabs || [];
 		const explainTabs = this.state.explainTabs || [];
 		const erdTabs = this.state.erdTabs || [];
+		const statisticsTabs = this.state.statisticsTabs || [];
 
 		const allTabsUnordered: Array<{
 			id: string;
-			type: 'query' | 'schema' | 'explain' | 'erd';
-			tab: QueryTab | SchemaTab | ExplainTab | ErdTab;
+			type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics';
+			tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab;
 		}> = [];
 
 		for (const t of queryTabs) {
@@ -128,6 +129,9 @@ export class TabOrderingManager {
 		}
 		for (const t of erdTabs) {
 			allTabsUnordered.push({ id: t.id, type: 'erd', tab: t });
+		}
+		for (const t of statisticsTabs) {
+			allTabsUnordered.push({ id: t.id, type: 'statistics', tab: t });
 		}
 
 		const order = this.state.tabOrderByProject[this.state.activeProjectId] ?? [];
