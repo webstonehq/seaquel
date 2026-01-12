@@ -81,12 +81,12 @@ export const databaseTypes: DatabaseTypeConfig[] = [
 		icon: "sqlite",
 	},
 	{
-		value: "mongodb",
-		label: "MongoDB",
-		defaultPort: 27017,
-		protocol: ["mongodb", "mongodb+srv"],
-		description: "Document-oriented NoSQL database",
-		icon: "mongodb",
+		value: "duckdb",
+		label: "DuckDB",
+		defaultPort: 0,
+		protocol: ["duckdb"],
+		description: "In-process analytical database",
+		icon: "duckdb",
 	},
 	{
 		value: "mssql",
@@ -181,7 +181,7 @@ class ConnectionWizardStore {
 			case "type":
 				return true; // Type is always selected
 			case "host":
-				if (this.formData.type === "sqlite") return true;
+				if (this.formData.type === "sqlite" || this.formData.type === "duckdb") return true;
 				return this.formData.host.trim().length > 0;
 			case "credentials":
 				return (
@@ -202,10 +202,11 @@ class ConnectionWizardStore {
 		// Basic requirements
 		if (!this.formData.name.trim()) return false;
 		if (!this.formData.databaseName.trim()) return false;
-		if (this.formData.type !== "sqlite" && !this.formData.host.trim()) return false;
+		const isFileBasedDb = this.formData.type === "sqlite" || this.formData.type === "duckdb";
+		if (!isFileBasedDb && !this.formData.host.trim()) return false;
 
-		// Password requirement (SQLite doesn't need password)
-		if (this.formData.type !== "sqlite" && !this.formData.password) return false;
+		// Password requirement (SQLite and DuckDB don't need password)
+		if (!isFileBasedDb && !this.formData.password) return false;
 
 		// SSH requirements
 		if (this.formData.sshEnabled) {
@@ -368,9 +369,10 @@ class ConnectionWizardStore {
 		const currentIndex = steps.indexOf(this.currentStep);
 
 		if (currentIndex >= 0 && currentIndex < steps.length - 1) {
-			// Skip host step for SQLite
+			// Skip host step for SQLite and DuckDB
 			let nextIndex = currentIndex + 1;
-			if (steps[nextIndex] === "host" && this.formData.type === "sqlite") {
+			const isFileBasedDb = this.formData.type === "sqlite" || this.formData.type === "duckdb";
+			if (steps[nextIndex] === "host" && isFileBasedDb) {
 				nextIndex++;
 			}
 			this.currentStep = steps[nextIndex];
@@ -392,9 +394,10 @@ class ConnectionWizardStore {
 		const currentIndex = steps.indexOf(this.currentStep);
 
 		if (currentIndex > 0) {
-			// Skip host step for SQLite when going back
+			// Skip host step for SQLite and DuckDB when going back
 			let prevIndex = currentIndex - 1;
-			if (steps[prevIndex] === "host" && this.formData.type === "sqlite") {
+			const isFileBasedDb = this.formData.type === "sqlite" || this.formData.type === "duckdb";
+			if (steps[prevIndex] === "host" && isFileBasedDb) {
 				prevIndex--;
 			}
 			if (prevIndex >= 0) {
@@ -426,6 +429,18 @@ class ConnectionWizardStore {
 				this.formData.type = "sqlite";
 				this.formData.databaseName = dbPath;
 				this.formData.name = `SQLite - ${dbPath.split("/").pop() || "database"}`;
+				return true;
+			}
+
+			// Handle DuckDB
+			if (connStr.startsWith("duckdb://") || connStr.startsWith("duckdb:")) {
+				const dbPath = connStr.replace(/^duckdb:\/\//, "").replace(/^duckdb:/, "");
+				this.formData.type = "duckdb";
+				this.formData.databaseName = dbPath || ":memory:";
+				const isMemory = dbPath === ":memory:" || dbPath === "";
+				this.formData.name = isMemory
+					? "DuckDB - In-Memory"
+					: `DuckDB - ${dbPath.split("/").pop() || "database"}`;
 				return true;
 			}
 
@@ -472,6 +487,10 @@ class ConnectionWizardStore {
 
 		if (data.type === "sqlite") {
 			return `sqlite://${data.databaseName}`;
+		}
+
+		if (data.type === "duckdb") {
+			return `duckdb://${data.databaseName || ":memory:"}`;
 		}
 
 		const credentials = data.username

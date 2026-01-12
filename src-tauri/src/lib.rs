@@ -6,9 +6,11 @@ use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Subm
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
+mod duckdb_commands;
 mod mssql;
 mod ssh_tunnel;
 
+use duckdb_commands::DuckDBState;
 use mssql::MssqlConnectionManager;
 use ssh_tunnel::TunnelManager;
 
@@ -183,6 +185,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
         .manage(MssqlConnectionManager::new())
+        .manage(DuckDBState::default())
         .manage(PendingUpdate { bytes: Mutex::new(None) })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -205,6 +208,11 @@ pub fn run() {
             mssql::mssql_disconnect,
             mssql::mssql_query,
             mssql::mssql_execute,
+            duckdb_commands::duckdb_connect,
+            duckdb_commands::duckdb_disconnect,
+            duckdb_commands::duckdb_query,
+            duckdb_commands::duckdb_execute,
+            duckdb_commands::duckdb_test,
         ])
         .setup(|app| {
             // Set up custom menu

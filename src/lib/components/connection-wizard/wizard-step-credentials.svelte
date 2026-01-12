@@ -29,22 +29,37 @@
 	let { formData = $bindable(), selectedDbType, isReconnecting, isTesting, onTest, error }: Props =
 		$props();
 
+	const isFileBasedDb = $derived(formData.type === "sqlite" || formData.type === "duckdb");
+
 	const selectDatabaseFile = async () => {
 		try {
+			const isDuckDB = formData.type === "duckdb";
+			const filters = isDuckDB
+				? [{ name: "DuckDB Database", extensions: ["duckdb", "db"] }]
+				: [{ name: "SQLite Database", extensions: ["db", "sqlite", "sqlite3"] }];
+
 			const selected = await openFileDialog({
 				multiple: false,
 				title: m.wizard_credentials_select_database(),
-				filters: [{ name: "SQLite Database", extensions: ["db", "sqlite", "sqlite3"] }],
+				filters,
 			});
 			if (selected && typeof selected === "string") {
 				formData.databaseName = selected;
 				// Auto-generate name from file
 				if (!formData.name) {
-					formData.name = `SQLite - ${selected.split("/").pop() || "database"}`;
+					const fileName = selected.split("/").pop() || "database";
+					formData.name = isDuckDB ? `DuckDB - ${fileName}` : `SQLite - ${fileName}`;
 				}
 			}
 		} catch (error) {
 			console.error("Failed to select file:", error);
+		}
+	};
+
+	const useInMemoryDatabase = () => {
+		formData.databaseName = ":memory:";
+		if (!formData.name) {
+			formData.name = "DuckDB - In-Memory";
 		}
 	};
 
@@ -68,7 +83,7 @@
 		<!-- Database name / path -->
 		<div class="grid gap-2">
 			<Label for="database">{m.connection_dialog_label_database()}</Label>
-			{#if formData.type === "sqlite"}
+			{#if isFileBasedDb}
 				<div class="flex gap-2">
 					<div class="relative flex-1">
 						<FolderIcon
@@ -77,7 +92,7 @@
 						<Input
 							id="database"
 							bind:value={formData.databaseName}
-							placeholder={m.connection_dialog_placeholder_database_path()}
+							placeholder={formData.type === "duckdb" ? "/path/to/database.duckdb or :memory:" : m.connection_dialog_placeholder_database_path()}
 							class="pl-9"
 						/>
 					</div>
@@ -85,6 +100,15 @@
 						{m.connection_dialog_button_browse()}
 					</Button>
 				</div>
+				{#if formData.type === "duckdb"}
+					<button
+						type="button"
+						class="text-xs text-primary hover:underline text-left"
+						onclick={useInMemoryDatabase}
+					>
+						Use in-memory database
+					</button>
+				{/if}
 			{:else}
 				<div class="relative">
 					<DatabaseIcon
@@ -100,7 +124,7 @@
 			{/if}
 		</div>
 
-		{#if formData.type !== "sqlite"}
+		{#if !isFileBasedDb}
 			<!-- Username -->
 			<div class="grid gap-2">
 				<Label for="username">{m.connection_dialog_label_username()}</Label>

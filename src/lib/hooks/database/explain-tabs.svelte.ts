@@ -5,7 +5,7 @@ import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { getAdapter, type ExplainNode } from '$lib/db';
 import { getStatementAtOffset } from '$lib/db/sql-parser';
 import { substituteParameters } from '$lib/db/query-params';
-import { getProvider } from '$lib/providers';
+import { getProvider, getDuckDBProvider, type DatabaseProvider } from '$lib/providers';
 
 /**
  * Manages EXPLAIN/ANALYZE tabs: execute, remove, set active.
@@ -18,6 +18,17 @@ export class ExplainTabManager {
 		private schedulePersistence: (projectId: string | null) => void,
 		private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd') => void
 	) {}
+
+	/**
+	 * Get the appropriate provider based on connection type.
+	 */
+	private async getProviderForConnection(): Promise<DatabaseProvider> {
+		const connection = this.state.activeConnection;
+		if (connection?.type === 'duckdb') {
+			return getDuckDBProvider();
+		}
+		return getProvider();
+	}
 
 	/**
 	 * Convert ExplainNode from adapter to ExplainResult for rendering.
@@ -120,7 +131,7 @@ export class ExplainTabManager {
 				throw new Error('No connection established');
 			}
 
-			const provider = await getProvider();
+			const provider = await this.getProviderForConnection();
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
@@ -252,7 +263,7 @@ export class ExplainTabManager {
 				throw new Error('No connection established');
 			}
 
-			const provider = await getProvider();
+			const provider = await this.getProviderForConnection();
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			// to get real row counts and timing

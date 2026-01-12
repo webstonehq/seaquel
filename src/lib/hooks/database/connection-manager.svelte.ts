@@ -8,7 +8,7 @@ import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
-import { getProvider, type DatabaseProvider } from "$lib/providers";
+import { getProvider, getDuckDBProvider, type DatabaseProvider } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
 import { getKeyringService } from "$lib/services/keyring";
 
@@ -31,6 +31,7 @@ export class ConnectionManager {
   // Map connection IDs to their SSH tunnel IDs for cleanup
   private tunnelIds = new Map<string, string>();
   private provider: DatabaseProvider | null = null;
+  private duckdbProvider: DatabaseProvider | null = null;
 
   constructor(
     private state: DatabaseState,
@@ -49,6 +50,26 @@ export class ConnectionManager {
       this.provider = await getProvider();
     }
     return this.provider;
+  }
+
+  /**
+   * Get or create the DuckDB provider.
+   */
+  private async getOrCreateDuckDBProvider(): Promise<DatabaseProvider> {
+    if (!this.duckdbProvider) {
+      this.duckdbProvider = await getDuckDBProvider();
+    }
+    return this.duckdbProvider;
+  }
+
+  /**
+   * Get the appropriate provider based on database type.
+   */
+  private async getProviderForType(dbType: string): Promise<DatabaseProvider> {
+    if (dbType === "duckdb") {
+      return this.getOrCreateDuckDBProvider();
+    }
+    return this.getOrCreateProvider();
   }
 
   /**
@@ -78,7 +99,8 @@ export class ConnectionManager {
         if (!username && persisted.connectionString) {
           try {
             const connStr = persisted.connectionString.replace("postgresql://", "postgres://");
-            if (!connStr.startsWith("sqlite")) {
+            // SQLite and DuckDB use file-based connection strings, not URLs
+            if (!connStr.startsWith("sqlite") && !connStr.startsWith("duckdb")) {
               const url = new URL(connStr);
               username = url.username ? decodeURIComponent(url.username) : "";
             }
@@ -193,7 +215,7 @@ export class ConnectionManager {
       connectionId
     );
 
-    // Connect to database - MSSQL uses custom backend, others use provider
+    // Connect to database - MSSQL and DuckDB use custom backends, others use provider
     let providerConnectionId: string | undefined;
     let mssqlConnectionId: string | undefined;
 
@@ -214,8 +236,16 @@ export class ConnectionManager {
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
+    } else if (connection.type === "duckdb") {
+      // DuckDB uses dedicated provider (Tauri backend in desktop, WASM in browser)
+      const duckdbProvider = await getDuckDBProvider();
+      providerConnectionId = await duckdbProvider.connect({
+        type: connection.type,
+        connectionString: effectiveConnectionString,
+        databaseName: connection.databaseName,
+      });
     } else if (effectiveConnectionString) {
-      // Use provider for PostgreSQL, SQLite, DuckDB
+      // Use provider for PostgreSQL, SQLite
       const provider = await this.getOrCreateProvider();
       providerConnectionId = await provider.connect({
         type: connection.type,
@@ -251,7 +281,7 @@ export class ConnectionManager {
         const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
         schemasWithTablesDbResult = result.rows;
       } else if (providerConnectionId) {
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForType(newConnection.type);
         schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
       } else {
         throw new Error("No connection established");
@@ -265,7 +295,7 @@ export class ConnectionManager {
         await mssqlDisconnect(mssqlConnectionId).catch(() => {});
       }
       if (providerConnectionId) {
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForType(newConnection.type);
         await provider.disconnect(providerConnectionId).catch(() => {});
       }
       throw new Error(`Failed to load database schema: ${error}`);
@@ -333,11 +363,17 @@ export class ConnectionManager {
       await mssqlDisconnect(existingConnection.mssqlConnectionId).catch(() => {});
     }
     if (existingConnection.providerConnectionId) {
-      const provider = await this.getOrCreateProvider();
-      await provider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+      // Use appropriate provider for disconnect based on type
+      if (existingConnection.type === "duckdb") {
+        const duckdbProvider = await getDuckDBProvider();
+        await duckdbProvider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+      } else {
+        const provider = await this.getOrCreateProvider();
+        await provider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+      }
     }
 
-    // Connect to database - MSSQL uses custom backend, others use provider
+    // Connect to database - MSSQL and DuckDB use custom backends, others use provider
     let providerConnectionId: string | undefined;
     let mssqlConnectionId: string | undefined;
 
@@ -358,8 +394,16 @@ export class ConnectionManager {
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
+    } else if (connection.type === "duckdb") {
+      // DuckDB uses dedicated provider (Tauri backend in desktop, WASM in browser)
+      const duckdbProvider = await getDuckDBProvider();
+      providerConnectionId = await duckdbProvider.connect({
+        type: connection.type,
+        connectionString: effectiveConnectionString,
+        databaseName: connection.databaseName,
+      });
     } else if (effectiveConnectionString) {
-      // Use provider for PostgreSQL, SQLite, DuckDB
+      // Use provider for PostgreSQL, SQLite
       const provider = await this.getOrCreateProvider();
       providerConnectionId = await provider.connect({
         type: connection.type,
@@ -396,7 +440,7 @@ export class ConnectionManager {
         const result = await mssqlQuery(mssqlConnectionId, adapter.getSchemaQuery());
         schemasWithTablesDbResult = result.rows;
       } else if (providerConnectionId) {
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForType(existingConnection.type);
         schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
       } else {
         throw new Error("No connection established");
@@ -411,7 +455,7 @@ export class ConnectionManager {
         await mssqlDisconnect(mssqlConnectionId).catch(() => {});
       }
       if (providerConnectionId) {
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForType(existingConnection.type);
         await provider.disconnect(providerConnectionId).catch(() => {});
       }
       throw new Error(`Failed to load database schema: ${error}`);
@@ -532,7 +576,7 @@ export class ConnectionManager {
     let providerTestConnectionId: string | undefined;
 
     try {
-      // MSSQL uses custom backend, others use provider
+      // MSSQL and DuckDB use custom backends, others use provider
       if (connection.type === "mssql") {
         if (!isTauri()) {
           throw new Error("MSSQL connections are only available in the desktop app");
@@ -551,8 +595,18 @@ export class ConnectionManager {
         mssqlTestConnectionId = mssqlConn.connectionId;
         // Close the test connection immediately
         await mssqlDisconnect(mssqlTestConnectionId);
+      } else if (connection.type === "duckdb") {
+        // DuckDB uses dedicated provider
+        const duckdbProvider = await getDuckDBProvider();
+        providerTestConnectionId = await duckdbProvider.connect({
+          type: connection.type,
+          connectionString: effectiveConnectionString,
+          databaseName: connection.databaseName,
+        });
+        // Close the test connection immediately
+        await duckdbProvider.disconnect(providerTestConnectionId);
       } else if (effectiveConnectionString) {
-        // Use provider for PostgreSQL, SQLite, DuckDB
+        // Use provider for PostgreSQL, SQLite
         const provider = await this.getOrCreateProvider();
         providerTestConnectionId = await provider.connect({
           type: connection.type,
@@ -587,9 +641,16 @@ export class ConnectionManager {
 
     // Close provider connection if exists
     if (connection?.providerConnectionId) {
-      this.getOrCreateProvider().then(provider => {
-        provider.disconnect(connection.providerConnectionId!).catch(console.error);
-      });
+      // Use appropriate provider for disconnect based on type
+      if (connection.type === "duckdb") {
+        getDuckDBProvider().then(duckdbProvider => {
+          duckdbProvider.disconnect(connection.providerConnectionId!).catch(console.error);
+        });
+      } else {
+        this.getOrCreateProvider().then(provider => {
+          provider.disconnect(connection.providerConnectionId!).catch(console.error);
+        });
+      }
     }
 
     // Close MSSQL connection if exists
@@ -679,7 +740,7 @@ export class ConnectionManager {
 
     // Load schema
     const adapter = getAdapter("duckdb");
-    const provider = await this.getOrCreateProvider();
+    const provider = await this.getOrCreateDuckDBProvider();
     const schemasWithTablesDbResult = await provider.select(providerConnectionId, adapter.getSchemaQuery());
     const schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
 
@@ -712,8 +773,8 @@ export class ConnectionManager {
       return false;
     }
 
-    // SQLite doesn't require passwords, always auto-reconnect
-    if (connection.type === "sqlite") {
+    // SQLite and DuckDB don't require passwords, always auto-reconnect
+    if (connection.type === "sqlite" || connection.type === "duckdb") {
       try {
         await this.reconnect(connectionId, {
           name: connection.name,
@@ -728,7 +789,7 @@ export class ConnectionManager {
         });
         return true;
       } catch (error) {
-        console.warn("Auto-reconnect failed for SQLite:", error);
+        console.warn(`Auto-reconnect failed for ${connection.type}:`, error);
         return false;
       }
     }
@@ -809,9 +870,16 @@ export class ConnectionManager {
 
       // Disconnect provider connection if connected
       if (connection.providerConnectionId) {
-        this.getOrCreateProvider().then(provider => {
-          provider.disconnect(connection.providerConnectionId!).catch(console.error);
-        });
+        // Use appropriate provider for disconnect based on type
+        if (connection.type === "duckdb") {
+          getDuckDBProvider().then(duckdbProvider => {
+            duckdbProvider.disconnect(connection.providerConnectionId!).catch(console.error);
+          });
+        } else {
+          this.getOrCreateProvider().then(provider => {
+            provider.disconnect(connection.providerConnectionId!).catch(console.error);
+          });
+        }
         connection.providerConnectionId = undefined;
       }
 

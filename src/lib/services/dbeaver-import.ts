@@ -15,9 +15,9 @@ const PROVIDER_MAP: Record<string, DatabaseType> = {
 	mysql: "mysql",
 	mariadb: "mariadb",
 	sqlite: "sqlite",
-	mongodb: "mongodb",
 	mssql: "mssql",
 	sqlserver: "mssql",
+	duckdb: "duckdb",
 };
 
 /**
@@ -28,7 +28,6 @@ const DEFAULT_PORTS: Record<DatabaseType, number> = {
 	mysql: 3306,
 	mariadb: 3306,
 	sqlite: 0,
-	mongodb: 27017,
 	mssql: 1433,
 	duckdb: 0,
 };
