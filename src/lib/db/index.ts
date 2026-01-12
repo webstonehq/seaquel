@@ -1,4 +1,4 @@
-import type { DatabaseType, SchemaTable, SchemaColumn, SchemaIndex } from "$lib/types";
+import type { DatabaseType, SchemaTable, SchemaColumn, SchemaIndex, TableSizeInfo, IndexUsageInfo, DatabaseOverview } from "$lib/types";
 import { MssqlAdapter } from "./mssql";
 import { PostgresAdapter } from "./postgres";
 import { SqliteAdapter } from "./sqlite";
@@ -41,6 +41,29 @@ export interface DatabaseAdapter {
 
 	/** Transform raw indexes query results to SchemaIndex[] */
 	parseIndexesResult(rows: unknown[]): SchemaIndex[];
+
+	// === STATISTICS METHODS (optional) ===
+
+	/** SQL query to get table sizes */
+	getTableSizesQuery?(): string;
+
+	/** SQL query to get index usage statistics */
+	getIndexUsageQuery?(): string;
+
+	/** SQL query to get database overview statistics */
+	getDatabaseOverviewQuery?(): string;
+
+	/** Parse table sizes query results */
+	parseTableSizesResult?(rows: unknown[]): TableSizeInfo[];
+
+	/** Parse index usage query results */
+	parseIndexUsageResult?(rows: unknown[]): IndexUsageInfo[];
+
+	/** Parse database overview query results */
+	parseDatabaseOverviewResult?(rows: unknown[]): DatabaseOverview;
+
+	/** SQL query to get row count for a specific table (for DBs that need per-table queries) */
+	getTableRowCountQuery?(table: string, schema: string): string;
 }
 
 /**

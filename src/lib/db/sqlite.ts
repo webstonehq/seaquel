@@ -1,6 +1,6 @@
 import type { DatabaseAdapter, ExplainNode } from "./index";
 import { validateIdentifier } from "./index";
-import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from "$lib/types";
+import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef, TableSizeInfo, IndexUsageInfo, DatabaseOverview } from "$lib/types";
 
 interface SqliteSchemaRow {
 	name: string;
@@ -162,5 +162,86 @@ export class SqliteAdapter implements DatabaseAdapter {
 				unique: idx.unique === 1,
 				type: "btree",
 			}));
+	}
+
+	// === STATISTICS METHODS ===
+	// Note: SQLite has limited statistics compared to PostgreSQL
+
+	getTableSizesQuery(): string {
+		// SQLite doesn't track individual table sizes easily
+		// We get table names first, then row counts are fetched separately
+		return `SELECT
+			name AS table_name,
+			'main' AS schema_name
+		FROM sqlite_master
+		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+		ORDER BY name`;
+	}
+
+	getTableRowCountQuery(table: string, _schema: string): string {
+		return `SELECT COUNT(*) AS row_count FROM "${validateIdentifier(table)}"`;
+	}
+
+	getIndexUsageQuery(): string {
+		// SQLite doesn't track index usage statistics
+		// Return indexes from sqlite_master
+		return `SELECT
+			m.name AS index_name,
+			m.tbl_name AS table_name,
+			'main' AS schema_name
+		FROM sqlite_master m
+		WHERE m.type = 'index' AND m.name NOT LIKE 'sqlite_%'
+		ORDER BY m.tbl_name, m.name`;
+	}
+
+	getDatabaseOverviewQuery(): string {
+		// Get basic database info using PRAGMA
+		return `SELECT
+			(SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%') AS table_count,
+			(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%') AS index_count,
+			(SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()) AS total_size_bytes`;
+	}
+
+	parseTableSizesResult(rows: unknown[]): TableSizeInfo[] {
+		// SQLite doesn't provide detailed size info per table
+		return (rows as { table_name: string; schema_name: string }[]).map((row) => ({
+			schema: row.schema_name || 'main',
+			name: row.table_name,
+			rowCount: 0, // Would need separate COUNT(*) queries
+			totalSize: 'N/A',
+			totalSizeBytes: 0,
+		}));
+	}
+
+	parseIndexUsageResult(rows: unknown[]): IndexUsageInfo[] {
+		// SQLite doesn't track index usage
+		return (rows as { index_name: string; table_name: string; schema_name: string }[]).map((row) => ({
+			schema: row.schema_name || 'main',
+			table: row.table_name,
+			indexName: row.index_name,
+			size: 'N/A',
+			scans: 0,
+			unused: false, // Unknown
+		}));
+	}
+
+	parseDatabaseOverviewResult(rows: unknown[]): DatabaseOverview {
+		const row = (rows as { table_count: number; index_count: number; total_size_bytes: number }[])[0];
+		const sizeBytes = Number(row?.total_size_bytes) || 0;
+		return {
+			databaseName: 'SQLite Database',
+			totalSize: this.formatBytes(sizeBytes),
+			totalSizeBytes: sizeBytes,
+			tableCount: Number(row?.table_count) || 0,
+			indexCount: Number(row?.index_count) || 0,
+		};
+	}
+
+	private formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 bytes';
+		const k = 1024;
+		const sizes = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 	}
 }
