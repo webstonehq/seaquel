@@ -40,6 +40,18 @@ export type { ExplainPlanNode, ExplainResult, ExplainTab } from './explain';
 // ERD types
 export type { ErdTab } from './erd';
 
+// Chart types
+export type { ChartType, ChartConfig, ResultViewMode } from './chart';
+
+// Statistics types
+export type {
+	TableSizeInfo,
+	IndexUsageInfo,
+	DatabaseOverview,
+	DatabaseStatistics,
+	StatisticsTab
+} from './statistics';
+
 // Starter tab types
 export type { StarterTabType, StarterTab } from './starter-tabs';
 export { DEFAULT_STARTER_TABS } from './starter-tabs';
@@ -50,6 +62,7 @@ export type {
 	PersistedSchemaTab,
 	PersistedExplainTab,
 	PersistedErdTab,
+	PersistedStatisticsTab,
 	PersistedStarterTab,
 	PersistedQueryParameter,
 	PersistedSavedQuery,

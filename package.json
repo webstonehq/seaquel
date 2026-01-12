@@ -30,13 +30,16 @@
     "@tauri-apps/plugin-sql": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.4.1",
     "@tauri-apps/plugin-updater": "^2.9.0",
-    "tauri-plugin-keyring-api": "^0.1.1",
     "@xyflow/svelte": "^1.5.0",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
     "html-to-image": "^1.11.13",
+    "layerchart": "^2.0.0-next.44",
     "monaco-editor": "^0.55.1",
     "monaco-sql-languages": "^0.15.1",
     "sql-formatter": "^15.6.12",
-    "svelte-dnd-action": "^0.9.69"
+    "svelte-dnd-action": "^0.9.69",
+    "tauri-plugin-keyring-api": "^0.1.1"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.6.0",

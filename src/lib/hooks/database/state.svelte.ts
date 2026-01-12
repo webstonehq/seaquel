@@ -8,6 +8,7 @@ import type {
 	SavedQuery,
 	ExplainTab,
 	ErdTab,
+	StatisticsTab,
 	Project,
 	StarterTab
 } from '$lib/types';
@@ -54,6 +55,9 @@ export class DatabaseState {
 	erdTabsByProject = $state<Record<string, ErdTab[]>>({});
 	activeErdTabIdByProject = $state<Record<string, string | null>>({});
 
+	statisticsTabsByProject = $state<Record<string, StatisticsTab[]>>({});
+	activeStatisticsTabIdByProject = $state<Record<string, string | null>>({});
+
 	// === STARTER TABS STATE (per-project) ===
 	// Shown when no connection is active
 	starterTabsByProject = $state<Record<string, StarterTab[]>>({});
@@ -71,7 +75,7 @@ export class DatabaseState {
 	isAIOpen = $state(false);
 
 	// === VIEW STATE ===
-	activeView = $state<'query' | 'schema' | 'explain' | 'erd'>('query');
+	activeView = $state<'query' | 'schema' | 'explain' | 'erd' | 'statistics'>('query');
 
 	// === PROJECT DERIVED VALUES ===
 
@@ -176,6 +180,21 @@ export class DatabaseState {
 
 	// Derived: active ERD tab object
 	activeErdTab = $derived(this.erdTabs.find((t) => t.id === this.activeErdTabId) || null);
+
+	// === STATISTICS TAB DERIVED VALUES ===
+
+	// Derived: statistics tabs for active project
+	statisticsTabs = $derived(
+		this.activeProjectId ? (this.statisticsTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active statistics tab ID for active project
+	activeStatisticsTabId = $derived(
+		this.activeProjectId ? (this.activeStatisticsTabIdByProject[this.activeProjectId] ?? null) : null
+	);
+
+	// Derived: active statistics tab object
+	activeStatisticsTab = $derived(this.statisticsTabs.find((t) => t.id === this.activeStatisticsTabId) || null);
 
 	// === STARTER TAB DERIVED VALUES ===
 

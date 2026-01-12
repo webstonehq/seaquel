@@ -30,8 +30,13 @@
 		QueryResultTabs,
 		QueryExportMenu,
 		QueryPagination,
-		QueryErrorDisplay
+		QueryErrorDisplay,
+		QueryResultViewToggle
 	} from "$lib/components/query-editor/index.js";
+
+	// Import chart components
+	import { QueryChart, ChartConfigPopover, createDefaultChartConfig } from "$lib/components/charts/index.js";
+	import type { ResultViewMode, ChartConfig } from "$lib/types";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -49,6 +54,37 @@
 	// Get the active result (for multi-statement support)
 	const activeResult = $derived(db.state.activeQueryResult);
 	const activeResultIndex = $derived(db.state.activeQueryTab?.activeResultIndex ?? 0);
+
+	// Chart view state (per result, keyed by tab-result combination)
+	let viewModeByResult = $state<Record<string, ResultViewMode>>({});
+	let chartConfigByResult = $state<Record<string, ChartConfig>>({});
+
+	// Get current view mode and chart config for active result
+	const resultKey = $derived(
+		db.state.activeQueryTabId && activeResultIndex !== undefined
+			? `${db.state.activeQueryTabId}-${activeResultIndex}`
+			: null
+	);
+	const currentViewMode = $derived<ResultViewMode>(
+		resultKey ? (viewModeByResult[resultKey] ?? 'table') : 'table'
+	);
+	const currentChartConfig = $derived<ChartConfig | undefined>(
+		resultKey && activeResult
+			? (chartConfigByResult[resultKey] ?? createDefaultChartConfig(activeResult.columns, activeResult.rows))
+			: undefined
+	);
+
+	const handleViewModeChange = (mode: ResultViewMode) => {
+		if (resultKey) {
+			viewModeByResult[resultKey] = mode;
+		}
+	};
+
+	const handleChartConfigChange = (config: ChartConfig) => {
+		if (resultKey) {
+			chartConfigByResult[resultKey] = config;
+		}
+	};
 	const allResults = $derived(db.state.activeQueryTab?.results ?? []);
 
 	// Track query content for live statement count
@@ -386,7 +422,19 @@
 						/>
 
 						{#if activeResult && !activeResult.isError}
-							<QueryExportMenu onExport={handleExport} onCopy={handleCopy} />
+							<div class="flex items-center justify-between px-2 py-1.5 border-b bg-muted/20">
+								<QueryResultViewToggle mode={currentViewMode} onModeChange={handleViewModeChange} />
+								<div class="flex items-center gap-2">
+									{#if currentViewMode === 'chart' && currentChartConfig}
+										<ChartConfigPopover
+											config={currentChartConfig}
+											columns={activeResult.columns}
+											onConfigChange={handleChartConfigChange}
+										/>
+									{/if}
+									<QueryExportMenu onExport={handleExport} onCopy={handleCopy} />
+								</div>
+							</div>
 						{/if}
 
 						{#if activeResult?.isError}
@@ -396,20 +444,31 @@
 								statementSql={activeResult.statementSql}
 							/>
 						{:else if activeResult}
-							<VirtualResultsTable
-								columns={activeResult.columns}
-								rows={activeResult.rows}
-								isEditable={!!isEditable}
-								onCellSave={handleCellSave}
-								onRowDelete={confirmDeleteRow}
-								{deletingRowIndex}
-								onCopyCell={copyCell}
-								onCopyRow={copyRowAsJSON}
-								onCopyColumn={copyColumn}
-								onCellRightClick={handleCellRightClick}
-							/>
+							{#if currentViewMode === 'chart'}
+								<div class="flex-1 min-h-0">
+									<QueryChart
+										columns={activeResult.columns}
+										rows={activeResult.rows}
+										config={currentChartConfig}
+										onConfigChange={handleChartConfigChange}
+									/>
+								</div>
+							{:else}
+								<VirtualResultsTable
+									columns={activeResult.columns}
+									rows={activeResult.rows}
+									isEditable={!!isEditable}
+									onCellSave={handleCellSave}
+									onRowDelete={confirmDeleteRow}
+									{deletingRowIndex}
+									onCopyCell={copyCell}
+									onCopyRow={copyRowAsJSON}
+									onCopyColumn={copyColumn}
+									onCellRightClick={handleCellRightClick}
+								/>
+							{/if}
 
-							{#if activeResult.totalPages > 1}
+							{#if activeResult.totalPages > 1 && currentViewMode === 'table'}
 								<QueryPagination
 									page={activeResult.page}
 									pageSize={activeResult.pageSize}
