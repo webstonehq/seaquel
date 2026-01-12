@@ -11,4 +11,6 @@ export interface ErdTab {
 	id: string;
 	/** Tab display name */
 	name: string;
+	/** Connection ID this ERD tab belongs to */
+	connectionId: string;
 }

@@ -81,6 +81,10 @@
     };
 
     const handleErdTabClick = (tabId: string) => {
+        const erdTab = db.state.erdTabs.find(t => t.id === tabId);
+        if (erdTab?.connectionId) {
+            db.connections.setActive(erdTab.connectionId);
+        }
         db.erdTabs.setActive(tabId);
         db.ui.setActiveView("erd");
     };

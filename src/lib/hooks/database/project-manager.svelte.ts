@@ -312,11 +312,14 @@ export class ProjectManager {
       isExecuting: false,
     }));
 
-    // Restore ERD tabs
-    this.state.erdTabsByProject[projectId] = persistedState.erdTabs.map((t) => ({
-      id: t.id,
-      name: t.name,
-    }));
+    // Restore ERD tabs (connectionId may be missing in old persisted data)
+    this.state.erdTabsByProject[projectId] = persistedState.erdTabs
+      .filter((t) => t.connectionId)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        connectionId: t.connectionId!,
+      }));
 
     // Restore tab order and active IDs
     this.state.tabOrderByProject[projectId] = persistedState.tabOrder;

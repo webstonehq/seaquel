@@ -39,7 +39,8 @@ export class ErdTabManager {
 		const erdTabId = `erd-${Date.now()}`;
 		const newErdTab: ErdTab = {
 			id: erdTabId,
-			name: `ERD: ${this.state.activeConnection.name}`
+			name: `ERD: ${this.state.activeConnection.name}`,
+			connectionId: this.state.activeConnectionId
 		};
 
 		this.state.erdTabsByProject = {
