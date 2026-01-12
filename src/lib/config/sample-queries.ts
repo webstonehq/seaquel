@@ -111,21 +111,6 @@ LIMIT 10;`,
 			requiresTable: true,
 		},
 	],
-	mongodb: [
-		{
-			id: "mongo-list-collections",
-			name: "List all collections",
-			description: "View all collections in your database",
-			query: `db.getCollectionNames()`,
-		},
-		{
-			id: "mongo-sample-data",
-			name: "Preview collection data",
-			description: "View sample documents from a collection",
-			query: `db.your_collection.find().limit(10)`,
-			requiresTable: true,
-		},
-	],
 	mssql: [
 		{
 			id: "mssql-list-tables",
@@ -163,6 +148,27 @@ ORDER BY table_schema, table_name;`,
 FROM your_table
 LIMIT 10;`,
 			requiresTable: true,
+		},
+		{
+			id: "duckdb-describe-table",
+			name: "Describe table structure",
+			description: "View columns and types for a table",
+			query: `DESCRIBE your_table;`,
+			requiresTable: true,
+		},
+		{
+			id: "duckdb-import-csv",
+			name: "Import CSV file",
+			description: "Load data from a CSV file",
+			query: `CREATE TABLE my_data AS
+SELECT * FROM read_csv_auto('/path/to/file.csv');`,
+		},
+		{
+			id: "duckdb-import-parquet",
+			name: "Import Parquet file",
+			description: "Load data from a Parquet file",
+			query: `CREATE TABLE my_data AS
+SELECT * FROM read_parquet('/path/to/file.parquet');`,
 		},
 	],
 };

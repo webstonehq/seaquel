@@ -8,7 +8,7 @@ import type Database from '@tauri-apps/plugin-sql';
 /**
  * Supported database engine types.
  */
-export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb' | 'mariadb' | 'mssql' | 'duckdb';
+export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mariadb' | 'mssql' | 'duckdb';
 
 /**
  * SSH tunnel authentication methods.

@@ -17,7 +17,7 @@
 		mysql: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
 		mariadb: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
 		sqlite: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-		mongodb: "bg-green-500/10 text-green-600 dark:text-green-400",
+		duckdb: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
 		mssql: "bg-red-500/10 text-red-600 dark:text-red-400",
 	};
 

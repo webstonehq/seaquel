@@ -9,6 +9,7 @@ import { isTauri } from '$lib/utils/environment';
 export type { DatabaseProvider, ConnectionConfig, ExecuteResult } from './types';
 
 let provider: DatabaseProvider | null = null;
+let duckdbProvider: DatabaseProvider | null = null;
 
 /**
  * Get the database provider for the current environment.
@@ -29,6 +30,24 @@ export async function getProvider(): Promise<DatabaseProvider> {
 }
 
 /**
+ * Get the DuckDB provider for the current environment.
+ * Returns DuckDBTauriProvider in desktop app, DuckDBProvider (WASM) in browser.
+ */
+export async function getDuckDBProvider(): Promise<DatabaseProvider> {
+	if (duckdbProvider) return duckdbProvider;
+
+	if (isTauri()) {
+		const { DuckDBTauriProvider } = await import('./duckdb-tauri-provider');
+		duckdbProvider = new DuckDBTauriProvider();
+	} else {
+		const { DuckDBProvider } = await import('./duckdb-provider');
+		duckdbProvider = new DuckDBProvider();
+	}
+
+	return duckdbProvider;
+}
+
+/**
  * Check if we're in demo mode (browser, not Tauri).
  */
 export function isDemo(): boolean {
@@ -41,4 +60,5 @@ export function isDemo(): boolean {
  */
 export function resetProvider(): void {
 	provider = null;
+	duckdbProvider = null;
 }

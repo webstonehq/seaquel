@@ -3,7 +3,7 @@ import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { getAdapter, type DatabaseAdapter } from '$lib/db';
 import { mssqlQuery } from '$lib/services/mssql';
-import { getProvider } from '$lib/providers';
+import { getProvider, getDuckDBProvider, type DatabaseProvider } from '$lib/providers';
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -16,6 +16,17 @@ export class SchemaTabManager {
 		private tabOrdering: TabOrderingManager,
 		private schedulePersistence: (projectId: string | null) => void
 	) {}
+
+	/**
+	 * Get the appropriate provider based on connection type.
+	 */
+	private async getProviderForConnection(dbType?: string): Promise<DatabaseProvider> {
+		const connectionType = dbType ?? this.state.activeConnection?.type;
+		if (connectionType === 'duckdb') {
+			return getDuckDBProvider();
+		}
+		return getProvider();
+	}
 
 	/**
 	 * Add a schema tab for the specified table.
@@ -59,7 +70,7 @@ export class SchemaTabManager {
 				foreignKeysResult = fkQueryResult.rows;
 			}
 		} else if (providerConnectionId) {
-			const provider = await getProvider();
+			const provider = await this.getProviderForConnection();
 			columnsResult = await provider.select(
 				providerConnectionId,
 				adapter.getColumnsQuery(table.name, table.schema)
@@ -183,8 +194,9 @@ export class SchemaTabManager {
 		providerConnectionId?: string,
 		mssqlConnectionId?: string
 	): Promise<void> {
-		// Get provider once for all tables
-		const provider = providerConnectionId ? await getProvider() : null;
+		// Get provider once for all tables - look up connection type from state
+		const connectionType = this.state.connections.find(c => c.id === connectionId)?.type;
+		const provider = providerConnectionId ? await this.getProviderForConnection(connectionType) : null;
 
 		// Process tables in parallel but update state as each completes
 		const promises = tables.map(async (table, index) => {

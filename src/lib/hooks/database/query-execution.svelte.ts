@@ -7,7 +7,7 @@ import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser";
 import { substituteParameters } from "$lib/db/query-params";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
-import { getProvider, type DatabaseProvider } from "$lib/providers";
+import { getProvider, getDuckDBProvider, type DatabaseProvider } from "$lib/providers";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
@@ -15,6 +15,7 @@ import { getProvider, type DatabaseProvider } from "$lib/providers";
 export class QueryExecutionManager {
   private readonly DEFAULT_PAGE_SIZE = 100;
   private provider: DatabaseProvider | null = null;
+  private duckdbProvider: DatabaseProvider | null = null;
 
   constructor(
     private state: DatabaseState,
@@ -29,6 +30,26 @@ export class QueryExecutionManager {
       this.provider = await getProvider();
     }
     return this.provider;
+  }
+
+  /**
+   * Get or create the DuckDB provider.
+   */
+  private async getOrCreateDuckDBProvider(): Promise<DatabaseProvider> {
+    if (!this.duckdbProvider) {
+      this.duckdbProvider = await getDuckDBProvider();
+    }
+    return this.duckdbProvider;
+  }
+
+  /**
+   * Get the appropriate provider based on connection type.
+   */
+  private async getProviderForConnection(connection: DatabaseConnection): Promise<DatabaseProvider> {
+    if (connection.type === "duckdb") {
+      return this.getOrCreateDuckDBProvider();
+    }
+    return this.getOrCreateProvider();
   }
 
   /**
@@ -104,7 +125,7 @@ export class QueryExecutionManager {
         const result = await mssqlExecute(connection.mssqlConnectionId!, baseQuery);
         rowsAffected = result.rowsAffected;
       } else if (providerConnectionId) {
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForConnection(connection);
         const executeResult = await provider.execute(providerConnectionId, baseQuery, bindValues);
         rowsAffected = executeResult?.rowsAffected ?? 0;
         lastInsertId = executeResult?.lastInsertId;
@@ -149,7 +170,7 @@ export class QueryExecutionManager {
           const result = await mssqlQuery(connection.mssqlConnectionId!, countQuery);
           countResult = result.rows as { total: string | number }[];
         } else if (providerConnectionId) {
-          const provider = await this.getOrCreateProvider();
+          const provider = await this.getProviderForConnection(connection);
           // Pass bind values since count query wraps the parameterized query
           countResult = await provider.select<{ total: string | number }>(providerConnectionId, countQuery, bindValues);
         } else {
@@ -188,7 +209,7 @@ export class QueryExecutionManager {
       dbResult = result.rows as Record<string, unknown>[];
       resultColumns = result.columns;
     } else if (providerConnectionId) {
-      const provider = await this.getOrCreateProvider();
+      const provider = await this.getProviderForConnection(connection);
       // Pass bind values for parameterized queries
       dbResult = await provider.select<Record<string, unknown>>(providerConnectionId, paginatedQuery, bindValues);
       resultColumns = (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [];
@@ -705,7 +726,7 @@ export class QueryExecutionManager {
         await mssqlExecute(connection.mssqlConnectionId!, query);
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForConnection(connection);
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
         const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
@@ -750,7 +771,7 @@ export class QueryExecutionManager {
         return { success: true };
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForConnection(connection);
         const columnNames = columns.map((c) => `"${c}"`).join(", ");
         const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
         const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
@@ -761,6 +782,30 @@ export class QueryExecutionManager {
       }
     } catch (error) {
       return { success: false, error: this.formatError(error) };
+    }
+  }
+
+  /**
+   * Execute a raw query and return results directly.
+   * Used by statistics dashboard and other features that need raw query results.
+   */
+  async executeRaw(query: string): Promise<Record<string, unknown>[]> {
+    const connection = this.state.activeConnection;
+    const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
+    if (!connection || !isConnected) {
+      throw new Error("Not connected to database");
+    }
+
+    const isMssql = connection.type === "mssql" && connection.mssqlConnectionId;
+
+    if (isMssql) {
+      const result = await mssqlQuery(connection.mssqlConnectionId!, query);
+      return result.rows as Record<string, unknown>[];
+    } else if (connection.providerConnectionId) {
+      const provider = await this.getProviderForConnection(connection);
+      return await provider.select<Record<string, unknown>>(connection.providerConnectionId, query);
+    } else {
+      throw new Error("No connection established");
     }
   }
 
@@ -790,7 +835,7 @@ export class QueryExecutionManager {
         await mssqlExecute(connection.mssqlConnectionId!, query);
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getOrCreateProvider();
+        const provider = await this.getProviderForConnection(connection);
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
         const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = sourceTable.primaryKeys.map((pk) => row[pk]);
