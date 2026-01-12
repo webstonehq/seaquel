@@ -1,6 +1,6 @@
 import type { DatabaseAdapter, ExplainNode } from './index';
 import { validateIdentifier } from './index';
-import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef } from '$lib/types';
+import type { SchemaTable, SchemaColumn, SchemaIndex, ForeignKeyRef, TableSizeInfo, IndexUsageInfo, DatabaseOverview } from '$lib/types';
 
 interface DuckDBSchemaRow {
 	schema_name: string;
@@ -130,5 +130,73 @@ export class DuckDBAdapter implements DatabaseAdapter {
 	parseIndexesResult(_rows: unknown[]): SchemaIndex[] {
 		// DuckDB doesn't expose index information in a standard way
 		return [];
+	}
+
+	// === STATISTICS METHODS ===
+
+	getTableSizesQuery(): string {
+		// Get table names from information_schema
+		return `SELECT
+			table_schema AS schema_name,
+			table_name
+		FROM information_schema.tables
+		WHERE table_type = 'BASE TABLE'
+			AND table_schema NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY table_schema, table_name`;
+	}
+
+	getTableRowCountQuery(table: string, schema: string): string {
+		return `SELECT COUNT(*) AS row_count FROM "${validateIdentifier(schema)}"."${validateIdentifier(table)}"`;
+	}
+
+	getIndexUsageQuery(): string {
+		// DuckDB tracks indexes via duckdb_indexes() function
+		return `SELECT
+			schema_name,
+			table_name,
+			index_name,
+			is_unique
+		FROM duckdb_indexes()
+		ORDER BY schema_name, table_name, index_name`;
+	}
+
+	getDatabaseOverviewQuery(): string {
+		// Get basic database stats
+		return `SELECT
+			(SELECT COUNT(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema')) AS table_count,
+			(SELECT COUNT(*) FROM duckdb_indexes()) AS index_count,
+			0 AS total_size_bytes`;
+	}
+
+	parseTableSizesResult(rows: unknown[]): TableSizeInfo[] {
+		return (rows as { schema_name: string; table_name: string }[]).map((row) => ({
+			schema: row.schema_name || 'main',
+			name: row.table_name,
+			rowCount: 0, // Filled in separately via getTableRowCountQuery
+			totalSize: 'N/A',
+			totalSizeBytes: 0,
+		}));
+	}
+
+	parseIndexUsageResult(rows: unknown[]): IndexUsageInfo[] {
+		return (rows as { schema_name: string; table_name: string; index_name: string; is_unique: boolean }[]).map((row) => ({
+			schema: row.schema_name || 'main',
+			table: row.table_name,
+			indexName: row.index_name,
+			size: 'N/A',
+			scans: 0,
+			unused: false,
+		}));
+	}
+
+	parseDatabaseOverviewResult(rows: unknown[]): DatabaseOverview {
+		const row = (rows as { table_count: number; index_count: number; total_size_bytes: number }[])[0];
+		return {
+			databaseName: 'DuckDB Database',
+			totalSize: 'In-memory',
+			totalSizeBytes: 0,
+			tableCount: Number(row?.table_count) || 0,
+			indexCount: Number(row?.index_count) || 0,
+		};
 	}
 }
