@@ -126,6 +126,7 @@ export class PersistenceManager {
     return tabs.map((tab) => ({
       id: tab.id,
       name: tab.name,
+      connectionId: tab.connectionId,
     }));
   }
 
