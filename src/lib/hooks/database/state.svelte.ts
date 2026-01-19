@@ -9,9 +9,11 @@ import type {
 	ExplainTab,
 	ErdTab,
 	StatisticsTab,
+	CanvasTab,
 	Project,
 	StarterTab
 } from '$lib/types';
+import type { SavedCanvas } from '$lib/types/canvas';
 
 /**
  * Central state container for the database module.
@@ -58,6 +60,12 @@ export class DatabaseState {
 	statisticsTabsByProject = $state<Record<string, StatisticsTab[]>>({});
 	activeStatisticsTabIdByProject = $state<Record<string, string | null>>({});
 
+	canvasTabsByProject = $state<Record<string, CanvasTab[]>>({});
+	activeCanvasTabIdByProject = $state<Record<string, string | null>>({});
+
+	// Saved canvases per project
+	savedCanvasesByProject = $state<Record<string, SavedCanvas[]>>({});
+
 	// === STARTER TABS STATE (per-project) ===
 	// Shown when no connection is active
 	starterTabsByProject = $state<Record<string, StarterTab[]>>({});
@@ -75,7 +83,7 @@ export class DatabaseState {
 	isAIOpen = $state(false);
 
 	// === VIEW STATE ===
-	activeView = $state<'query' | 'schema' | 'explain' | 'erd' | 'statistics'>('query');
+	activeView = $state<'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas'>('query');
 
 	// === PROJECT DERIVED VALUES ===
 
@@ -195,6 +203,26 @@ export class DatabaseState {
 
 	// Derived: active statistics tab object
 	activeStatisticsTab = $derived(this.statisticsTabs.find((t) => t.id === this.activeStatisticsTabId) || null);
+
+	// === CANVAS TAB DERIVED VALUES ===
+
+	// Derived: canvas tabs for active project
+	canvasTabs = $derived(
+		this.activeProjectId ? (this.canvasTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active canvas tab ID for active project
+	activeCanvasTabId = $derived(
+		this.activeProjectId ? (this.activeCanvasTabIdByProject[this.activeProjectId] ?? null) : null
+	);
+
+	// Derived: active canvas tab object
+	activeCanvasTab = $derived(this.canvasTabs.find((t) => t.id === this.activeCanvasTabId) || null);
+
+	// Derived: saved canvases for active project
+	savedCanvases = $derived(
+		this.activeProjectId ? (this.savedCanvasesByProject[this.activeProjectId] ?? []) : []
+	);
 
 	// === STARTER TAB DERIVED VALUES ===
 

@@ -4,6 +4,8 @@ import type {
   PersistedSchemaTab,
   PersistedExplainTab,
   PersistedErdTab,
+  PersistedStatisticsTab,
+  PersistedCanvasTab,
   PersistedStarterTab,
   PersistedSavedQuery,
   PersistedQueryHistoryItem,
@@ -12,6 +14,7 @@ import type {
   PersistedProjectState,
   ConnectionLabel,
 } from "$lib/types";
+import type { SavedCanvas } from "$lib/types/canvas";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
 import { loadStore } from "$lib/storage";
@@ -130,6 +133,24 @@ export class PersistenceManager {
     }));
   }
 
+  serializeStatisticsTabs(projectId: string): PersistedStatisticsTab[] {
+    const tabs = this.state.statisticsTabsByProject[projectId] ?? [];
+    return tabs.map((tab) => ({
+      id: tab.id,
+      name: tab.name,
+      connectionId: tab.connectionId,
+    }));
+  }
+
+  serializeCanvasTabs(projectId: string): PersistedCanvasTab[] {
+    const tabs = this.state.canvasTabsByProject[projectId] ?? [];
+    return tabs.map((tab) => ({
+      id: tab.id,
+      name: tab.name,
+      connectionId: tab.connectionId,
+    }));
+  }
+
   serializeStarterTabs(projectId: string): PersistedStarterTab[] {
     const tabs = this.state.starterTabsByProject[projectId] ?? [];
     return tabs.map((tab) => ({
@@ -138,6 +159,10 @@ export class PersistenceManager {
       name: tab.name,
       closable: tab.closable,
     }));
+  }
+
+  serializeSavedCanvases(projectId: string): SavedCanvas[] {
+    return this.state.savedCanvasesByProject[projectId] ?? [];
   }
 
   serializeSavedQueries(connectionId: string): PersistedSavedQuery[] {
@@ -250,15 +275,20 @@ export class PersistenceManager {
         schemaTabs: this.serializeSchemaTabs(projectId),
         explainTabs: this.serializeExplainTabs(projectId),
         erdTabs: this.serializeErdTabs(projectId),
+        statisticsTabs: this.serializeStatisticsTabs(projectId),
+        canvasTabs: this.serializeCanvasTabs(projectId),
         tabOrder: this.state.tabOrderByProject[projectId] ?? [],
         activeQueryTabId: this.state.activeQueryTabIdByProject[projectId] ?? null,
         activeSchemaTabId: this.state.activeSchemaTabIdByProject[projectId] ?? null,
         activeExplainTabId: this.state.activeExplainTabIdByProject[projectId] ?? null,
         activeErdTabId: this.state.activeErdTabIdByProject[projectId] ?? null,
+        activeStatisticsTabId: this.state.activeStatisticsTabIdByProject[projectId] ?? null,
+        activeCanvasTabId: this.state.activeCanvasTabIdByProject[projectId] ?? null,
         activeView: this.state.activeView,
         activeConnectionId: this.state.activeConnectionIdByProject[projectId] ?? null,
         starterTabs: this.serializeStarterTabs(projectId),
         activeStarterTabId: this.state.activeStarterTabIdByProject[projectId] ?? null,
+        savedCanvases: this.serializeSavedCanvases(projectId),
       };
 
       await store.set("state", state);

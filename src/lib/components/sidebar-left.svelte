@@ -7,10 +7,11 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon } from "@lucide/svelte";
+	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon, LayoutGridIcon, MoreHorizontalIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
+	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { m } from "$lib/paraglide/messages.js";
 	import { isTauri } from "$lib/utils/environment";
@@ -246,6 +247,13 @@
 												<NetworkIcon class="size-4 me-2" />
 												Entity Relationship Diagram
 											</ContextMenu.Item>
+											<ContextMenu.Item onclick={() => {
+												db.connections.setActive(connection.id);
+												db.canvasTabs.add();
+											}}>
+												<LayoutGridIcon class="size-4 me-2" />
+												Canvas Workspace
+											</ContextMenu.Item>
 										{:else}
 											<ContextMenu.Item onclick={() => handleConnectionClick(connection)}>
 												<PlugIcon class="size-4 me-2" />
@@ -331,10 +339,42 @@
 										<CollapsibleContent>
 											<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 												{#each tables as table (table.name)}
-													<SidebarMenuItem>
+													<SidebarMenuItem class="group/table-row flex pr-2">
 														<SidebarMenuButton onclick={() => handleTableClick(table)}>
 															<TableIcon class="size-4" />
 															<span class="flex-1">{table.name}</span>
+														<DropdownMenu.Root>
+															<DropdownMenu.Trigger>
+																{#snippet child({ props })}
+																	<button
+																		{...props}
+																		class="TTTabsolute end-0 top-1.5 flex size-5 items-center justify-center rounded-md text-sidebar-foreground opacity-0 ring-sidebar-ring transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:outline-hidden group-hover/table-row:opacity-100 data-[state=open]:opacity-100"
+																	>
+																		<MoreHorizontalIcon class="size-4" />
+																	</button>
+																{/snippet}
+															</DropdownMenu.Trigger>
+															<DropdownMenu.Content align="end">
+																{#if db.state.activeView === 'canvas' && db.state.activeCanvasTabId}
+																	<DropdownMenu.Item onclick={() => db.canvas.addTableNode(table)}>
+																		<LayoutGridIcon class="size-4 me-2" />
+																		Add to canvas
+																	</DropdownMenu.Item>
+																{:else}
+																	<Tooltip.Root>
+																		<Tooltip.Trigger class="w-full">
+																			<DropdownMenu.Item disabled class="w-full">
+																				<LayoutGridIcon class="size-4 me-2" />
+																				Add to canvas
+																			</DropdownMenu.Item>
+																		</Tooltip.Trigger>
+																		<Tooltip.Content side="right">
+																			Open a canvas view
+																		</Tooltip.Content>
+																	</Tooltip.Root>
+																{/if}
+															</DropdownMenu.Content>
+														</DropdownMenu.Root>
 														</SidebarMenuButton>
 													</SidebarMenuItem>
 												{/each}

@@ -15,9 +15,12 @@ import { SchemaTabManager } from "./database/schema-tabs.svelte.js";
 import { ExplainTabManager } from "./database/explain-tabs.svelte.js";
 import { ErdTabManager } from "./database/erd-tabs.svelte.js";
 import { StatisticsTabManager } from "./database/statistics-tabs.svelte.js";
+import { CanvasTabManager } from "./database/canvas-tabs.svelte.js";
 import { ProjectManager } from "./database/project-manager.svelte.js";
 import { LabelManager } from "./database/label-manager.svelte.js";
 import { StarterTabManager } from "./database/starter-tabs.svelte.js";
+import { CanvasState } from "./database/canvas-state.svelte.js";
+import { CanvasManager } from "./database/canvas-manager.svelte.js";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -47,7 +50,10 @@ class UseDatabase {
   readonly explainTabs: ExplainTabManager;
   readonly erdTabs: ErdTabManager;
   readonly statisticsTabs: StatisticsTabManager;
+  readonly canvasTabs: CanvasTabManager;
   readonly starterTabs: StarterTabManager;
+  readonly canvasState: CanvasState;
+  readonly canvas: CanvasManager;
 
   private _stateRestoration: StateRestorationManager;
 
@@ -62,7 +68,7 @@ class UseDatabase {
       this.persistence.scheduleConnectionData(connectionId);
     };
 
-    const setActiveView = (view: "query" | "schema" | "explain" | "erd" | "statistics") => {
+    const setActiveView = (view: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas") => {
       this.ui.setActiveView(view);
     };
 
@@ -94,7 +100,19 @@ class UseDatabase {
         return result;
       }
     );
+    this.canvasTabs = new CanvasTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
     this.starterTabs = new StarterTabManager(this.state, scheduleProjectPersistence);
+
+    // Canvas
+    this.canvasState = new CanvasState();
+    this.canvas = new CanvasManager(
+      this.state,
+      this.canvasState,
+      scheduleProjectPersistence,
+      async (query: string) => {
+        return await this.queries.executeRaw(query);
+      }
+    );
 
     // Query-related
     this.history = new QueryHistoryManager(

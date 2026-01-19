@@ -19,7 +19,7 @@
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon, NetworkIcon, BarChart3Icon } from "@lucide/svelte";
+    import { PlusIcon, XIcon, TableIcon, FileCodeIcon, ActivityIcon, NetworkIcon, BarChart3Icon, LayoutGridIcon } from "@lucide/svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { useShortcuts, findShortcut } from "$lib/shortcuts/index.js";
     import { useSidebar } from "$lib/components/ui/sidebar/context.svelte.js";
@@ -30,8 +30,9 @@
     import BatchUnsavedDialog from "$lib/components/batch-unsaved-dialog.svelte";
     import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
     import { settingsDialogStore } from "$lib/stores/settings-dialog.svelte.js";
-    import type { QueryTab, SchemaTab, ExplainTab, ErdTab, StatisticsTab } from "$lib/types";
+    import type { QueryTab, SchemaTab, ExplainTab, ErdTab, StatisticsTab, CanvasTab } from "$lib/types";
     import { StatisticsDashboard } from "$lib/components/statistics";
+    import CanvasView from "$lib/components/canvas/canvas-view.svelte";
 
     const db = useDatabase();
     const shortcuts = useShortcuts();
@@ -99,6 +100,15 @@
         db.ui.setActiveView("statistics");
     };
 
+    const handleCanvasTabClick = (tabId: string) => {
+        const canvasTab = db.state.canvasTabs.find(t => t.id === tabId);
+        if (canvasTab?.connectionId) {
+            db.connections.setActive(canvasTab.connectionId);
+        }
+        db.canvasTabs.setActive(tabId);
+        db.ui.setActiveView("canvas");
+    };
+
     // Get ordered tabs from db (uses custom order with timestamp fallback)
     // Ensure it's a proper mutable array for dnd-action
     const allTabs = $derived.by(() => {
@@ -108,7 +118,7 @@
 
     // Drag and drop configuration
     const flipDurationMs = 150;
-    type DndItem = { id: string; type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics'; tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab };
+    type DndItem = { id: string; type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas'; tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab | CanvasTab };
 
     // State for dragging (tracks items during drag for smooth animation)
     let draggedItems = $state<DndItem[]>([]);
@@ -145,6 +155,9 @@
         if (db.state.activeView === 'statistics' && db.state.activeStatisticsTabId) {
             return allTabs.findIndex(t => t.type === 'statistics' && t.id === db.state.activeStatisticsTabId);
         }
+        if (db.state.activeView === 'canvas' && db.state.activeCanvasTabId) {
+            return allTabs.findIndex(t => t.type === 'canvas' && t.id === db.state.activeCanvasTabId);
+        }
         return -1;
     });
 
@@ -161,6 +174,8 @@
             handleErdTabClick(tab.id);
         } else if (tab.type === 'statistics') {
             handleStatisticsTabClick(tab.id);
+        } else if (tab.type === 'canvas') {
+            handleCanvasTabClick(tab.id);
         }
     };
 
@@ -170,17 +185,18 @@
     let showSaveDialogForClose = $state(false);
 
     // Batch close dialog state
-    let pendingBatchCloseTabs = $state<{id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics'}[]>([]);
+    let pendingBatchCloseTabs = $state<{id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas'}[]>([]);
     let unsavedTabsInBatch = $state<string[]>([]);
     let showBatchUnsavedDialog = $state(false);
 
     // Direct close without confirmation (for non-query tabs or tabs without unsaved changes)
-    const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics') => {
+    const closeTabDirect = (id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas') => {
         if (type === 'query') db.queryTabs.remove(id);
         else if (type === 'schema') db.schemaTabs.remove(id);
         else if (type === 'explain') db.explainTabs.remove(id);
         else if (type === 'erd') db.erdTabs.remove(id);
         else if (type === 'statistics') db.statisticsTabs.remove(id);
+        else if (type === 'canvas') db.canvasTabs.remove(id);
     };
 
     // Try to close a query tab, prompting if unsaved changes
@@ -217,7 +233,7 @@
     };
 
     // Batch close with single prompt for all unsaved tabs
-    const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics'}[]) => {
+    const tryBatchClose = (tabsToClose: {id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas'}[]) => {
         const unsaved = tabsToClose
             .filter(t => t.type === 'query' && db.queryTabs.hasUnsavedChanges(t.id))
             .map(t => t.id);
@@ -253,16 +269,19 @@
             db.erdTabs.remove(db.state.activeErdTabId);
         } else if (db.state.activeView === 'statistics' && db.state.activeStatisticsTabId) {
             db.statisticsTabs.remove(db.state.activeStatisticsTabId);
+        } else if (db.state.activeView === 'canvas' && db.state.activeCanvasTabId) {
+            db.canvasTabs.remove(db.state.activeCanvasTabId);
         }
     };
 
     // Tab context menu helpers
-    const closeTab = (id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics') => {
+    const closeTab = (id: string, type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas') => {
         if (type === 'query') tryCloseQueryTab(id);
         else if (type === 'schema') db.schemaTabs.remove(id);
         else if (type === 'explain') db.explainTabs.remove(id);
         else if (type === 'erd') db.erdTabs.remove(id);
         else if (type === 'statistics') db.statisticsTabs.remove(id);
+        else if (type === 'canvas') db.canvasTabs.remove(id);
     };
 
     const closeOtherTabs = (id: string) => {
@@ -350,7 +369,6 @@
 
 <Toaster position="bottom-right" richColors />
 
-<!-- Sidebar always visible -->
 <SidebarLeft />
 
 <SidebarInset class="flex flex-col h-full overflow-hidden">
@@ -589,6 +607,45 @@
                                     </ContextMenu.Content>
                                 </ContextMenu.Portal>
                             </ContextMenu.Root>
+                        {:else if type === 'canvas'}
+                            {@const canvasTab = tab as import('$lib/types').CanvasTab}
+                            <ContextMenu.Root>
+                                <ContextMenu.Trigger>
+                                    <div
+                                        class={[
+                                            "relative group shrink-0 flex items-center gap-2 px-3 h-7 text-xs rounded-md transition-colors",
+                                            activeTabType === "canvas" && db.state.activeCanvasTabId === id
+                                                ? "bg-background shadow-sm"
+                                                : "hover:bg-muted",
+                                        ]}
+                                        onclick={() => handleCanvasTabClick(id)}
+                                    >
+                                        <LayoutGridIcon class="size-3 text-muted-foreground" />
+                                        <span class="pr-4">{canvasTab.name}</span>
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            class="absolute right-0 top-1/2 -translate-y-1/2 size-5 opacity-0 group-hover:opacity-100 transition-opacity [&_svg:not([class*='size-'])]:size-3"
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                db.canvasTabs.remove(id);
+                                            }}
+                                        >
+                                            <XIcon />
+                                        </Button>
+                                    </div>
+                                </ContextMenu.Trigger>
+                                <ContextMenu.Portal>
+                                    <ContextMenu.Content class="w-40">
+                                        <ContextMenu.Item onclick={() => closeTab(id, type)}>Close</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeOtherTabs(id)}>Close Others</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeTabsToRight(id)}>Close Right</ContextMenu.Item>
+                                        <ContextMenu.Item onclick={() => closeTabsToLeft(id)}>Close Left</ContextMenu.Item>
+                                        <ContextMenu.Separator />
+                                        <ContextMenu.Item onclick={closeAllTabs}>Close All</ContextMenu.Item>
+                                    </ContextMenu.Content>
+                                </ContextMenu.Portal>
+                            </ContextMenu.Root>
                         {/if}
                         </div>
                     {/each}
@@ -636,6 +693,10 @@
             {:else if activeTabType === "statistics"}
                 {#if db.state.activeStatisticsTab}
                     <StatisticsDashboard tab={db.state.activeStatisticsTab} />
+                {/if}
+            {:else if activeTabType === "canvas"}
+                {#if db.state.activeCanvasTab}
+                    <CanvasView />
                 {/if}
             {/if}
         </div>

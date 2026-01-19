@@ -43,6 +43,9 @@ export type { ErdTab } from './erd';
 // Chart types
 export type { ChartType, ChartConfig, ResultViewMode } from './chart';
 
+// Canvas types
+export type { CanvasTab } from './canvas';
+
 // Statistics types
 export type {
 	TableSizeInfo,
@@ -63,6 +66,7 @@ export type {
 	PersistedExplainTab,
 	PersistedErdTab,
 	PersistedStatisticsTab,
+	PersistedCanvasTab,
 	PersistedStarterTab,
 	PersistedQueryParameter,
 	PersistedSavedQuery,

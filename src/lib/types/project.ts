@@ -100,6 +100,10 @@ export interface PersistedProjectState {
 	explainTabs: import('./persisted').PersistedExplainTab[];
 	/** ERD viewer tabs */
 	erdTabs: import('./persisted').PersistedErdTab[];
+	/** Statistics dashboard tabs */
+	statisticsTabs?: import('./persisted').PersistedStatisticsTab[];
+	/** Canvas workspace tabs */
+	canvasTabs?: import('./persisted').PersistedCanvasTab[];
 	/** Ordered list of all tab IDs for drag-drop ordering */
 	tabOrder: string[];
 	/** Currently active query tab */
@@ -110,6 +114,10 @@ export interface PersistedProjectState {
 	activeExplainTabId: string | null;
 	/** Currently active ERD tab */
 	activeErdTabId: string | null;
+	/** Currently active statistics tab */
+	activeStatisticsTabId?: string | null;
+	/** Currently active canvas tab */
+	activeCanvasTabId?: string | null;
 	/** Which view type is currently active */
 	activeView: import('./persisted').ActiveViewType;
 	/** Active connection ID within this project */
@@ -118,4 +126,6 @@ export interface PersistedProjectState {
 	starterTabs?: import('./persisted').PersistedStarterTab[];
 	/** Currently active starter tab */
 	activeStarterTabId?: string | null;
+	/** Saved canvases for this project */
+	savedCanvases?: import('./canvas').SavedCanvas[];
 }

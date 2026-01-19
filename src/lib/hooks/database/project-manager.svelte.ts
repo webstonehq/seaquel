@@ -271,11 +271,16 @@ export class ProjectManager {
       this.state.schemaTabsByProject[projectId] = [];
       this.state.explainTabsByProject[projectId] = [];
       this.state.erdTabsByProject[projectId] = [];
+      this.state.statisticsTabsByProject[projectId] = [];
+      this.state.canvasTabsByProject[projectId] = [];
+      this.state.savedCanvasesByProject[projectId] = [];
       this.state.tabOrderByProject[projectId] = [];
       this.state.activeQueryTabIdByProject[projectId] = null;
       this.state.activeSchemaTabIdByProject[projectId] = null;
       this.state.activeExplainTabIdByProject[projectId] = null;
       this.state.activeErdTabIdByProject[projectId] = null;
+      this.state.activeStatisticsTabIdByProject[projectId] = null;
+      this.state.activeCanvasTabIdByProject[projectId] = null;
       this.state.activeConnectionIdByProject[projectId] = null;
       // Initialize starter tabs for new projects
       this.initializeStarterTabs?.(projectId);
@@ -321,12 +326,36 @@ export class ProjectManager {
         connectionId: t.connectionId!,
       }));
 
+    // Restore statistics tabs
+    this.state.statisticsTabsByProject[projectId] = (persistedState.statisticsTabs ?? [])
+      .filter((t) => t.connectionId)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        connectionId: t.connectionId,
+        isLoading: false,
+      }));
+
+    // Restore canvas tabs
+    this.state.canvasTabsByProject[projectId] = (persistedState.canvasTabs ?? [])
+      .filter((t) => t.connectionId)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        connectionId: t.connectionId,
+      }));
+
+    // Restore saved canvases
+    this.state.savedCanvasesByProject[projectId] = persistedState.savedCanvases ?? [];
+
     // Restore tab order and active IDs
     this.state.tabOrderByProject[projectId] = persistedState.tabOrder;
     this.state.activeQueryTabIdByProject[projectId] = persistedState.activeQueryTabId;
     this.state.activeSchemaTabIdByProject[projectId] = persistedState.activeSchemaTabId;
     this.state.activeExplainTabIdByProject[projectId] = persistedState.activeExplainTabId;
     this.state.activeErdTabIdByProject[projectId] = persistedState.activeErdTabId;
+    this.state.activeStatisticsTabIdByProject[projectId] = persistedState.activeStatisticsTabId ?? null;
+    this.state.activeCanvasTabIdByProject[projectId] = persistedState.activeCanvasTabId ?? null;
     this.state.activeConnectionIdByProject[projectId] = persistedState.activeConnectionId;
     this.state.activeView = persistedState.activeView;
 

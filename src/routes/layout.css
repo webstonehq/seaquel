@@ -252,3 +252,86 @@
 .dark .monaco-editor .suggest-widget .monaco-list .monaco-list-row .suggest-icon.codicon-symbol-type-parameter {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a3a3a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4 7 4 4 20 4 20 7'/%3E%3Cline x1='9' x2='15' y1='20' y2='20'/%3E%3Cline x1='12' x2='12' y1='4' y2='20'/%3E%3C/svg%3E");
 }
+
+/* xyflow/Svelte Flow theme integration */
+.svelte-flow,
+.svelte-flow.dark,
+.svelte-flow.light {
+  --xy-background-color: var(--background) !important;
+  --xy-background-pattern-color: var(--border) !important;
+  --xy-background-pattern-dots-color-default: var(--border) !important;
+
+  --xy-node-background-color: var(--card) !important;
+  --xy-node-border-color: var(--border) !important;
+  --xy-node-color: var(--card-foreground) !important;
+  --xy-node-boxshadow-hover: 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
+  --xy-node-boxshadow-selected: 0 0 0 2px var(--primary) !important;
+
+  --xy-handle-background-color: var(--primary) !important;
+  --xy-handle-border-color: var(--background) !important;
+
+  --xy-edge-stroke: var(--muted-foreground) !important;
+  --xy-edge-stroke-default: var(--muted-foreground) !important;
+  --xy-edge-stroke-selected: var(--primary) !important;
+  --xy-edge-stroke-width: 2 !important;
+
+  --xy-connectionline-stroke: var(--primary) !important;
+  --xy-connectionline-stroke-width: 2 !important;
+
+  --xy-minimap-background-color: var(--card) !important;
+  --xy-minimap-node-background-color: var(--muted) !important;
+  --xy-minimap-node-stroke-color: var(--border) !important;
+  --xy-minimap-mask-background-color: var(--background) !important;
+
+  --xy-controls-button-background-color: var(--card) !important;
+  --xy-controls-button-background-color-hover: var(--accent) !important;
+  --xy-controls-button-color: var(--card-foreground) !important;
+  --xy-controls-button-color-hover: var(--accent-foreground) !important;
+  --xy-controls-button-border-color: var(--border) !important;
+
+  --xy-attribution-background-color: var(--card) !important;
+
+  background-color: var(--background) !important;
+}
+
+.svelte-flow .svelte-flow__background {
+  background-color: var(--background) !important;
+}
+
+.svelte-flow .svelte-flow__background pattern circle {
+  fill: var(--border) !important;
+}
+
+.svelte-flow .svelte-flow__minimap {
+  background-color: var(--card) !important;
+}
+
+.svelte-flow .svelte-flow__controls {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.svelte-flow .svelte-flow__controls button {
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+  color: var(--card-foreground) !important;
+}
+
+.svelte-flow .svelte-flow__controls button:hover {
+  background-color: var(--accent) !important;
+}
+
+.svelte-flow .svelte-flow__controls button svg {
+  fill: currentColor !important;
+}
+
+/* Node resizer styling */
+.svelte-flow .svelte-flow__resize-control {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+
+.svelte-flow .svelte-flow__resize-control.line {
+  border-color: var(--primary) !important;
+}

@@ -18,6 +18,7 @@
 		GitBranch,
 		Code,
 		BarChart3,
+		LayoutGrid,
 	} from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 
@@ -79,7 +80,7 @@
 		runAndClose(() => db.ui.toggleAI());
 	}
 
-	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd" | "statistics") {
+	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas") {
 		runAndClose(() => {
 			switch (type) {
 				case "query":
@@ -101,6 +102,10 @@
 				case "statistics":
 					db.statisticsTabs.setActive(tabId);
 					db.ui.setActiveView("statistics");
+					break;
+				case "canvas":
+					db.canvasTabs.setActive(tabId);
+					db.ui.setActiveView("canvas");
 					break;
 			}
 		});
@@ -136,6 +141,10 @@
 
 	function viewErd() {
 		runAndClose(() => db.erdTabs.add());
+	}
+
+	function viewCanvas() {
+		runAndClose(() => db.canvasTabs.add());
 	}
 
 	async function switchConnection(id: string) {
@@ -272,6 +281,8 @@
 				return GitBranch;
 			case "statistics":
 				return BarChart3;
+			case "canvas":
+				return LayoutGrid;
 			default:
 				return FileText;
 		}
@@ -349,6 +360,10 @@
 				<Command.Item value="view-erd" onSelect={viewErd}>
 					<GitBranch class="size-4" />
 					<span>{m.command_view_erd()}</span>
+				</Command.Item>
+				<Command.Item value="view-canvas" onSelect={viewCanvas}>
+					<LayoutGrid class="size-4" />
+					<span>Open Canvas Workspace</span>
 				</Command.Item>
 			{/if}
 		</Command.Group>

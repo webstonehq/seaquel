@@ -8,34 +8,37 @@
 	interface Props {
 		columns: string[];
 		rows: Record<string, unknown>[];
-		isEditable: boolean;
-		onCellSave: (rowIndex: number, column: string, newValue: string) => Promise<void>;
-		onRowDelete: (rowIndex: number, row: Record<string, unknown>) => void;
-		deletingRowIndex: number | null;
-		onCopyCell: () => void;
-		onCopyRow: () => void;
-		onCopyColumn: () => void;
-		onCellRightClick: (value: unknown, column: string, row: Record<string, unknown>) => void;
+		isEditable?: boolean;
+		onCellSave?: (rowIndex: number, column: string, newValue: string) => Promise<void>;
+		onRowDelete?: (rowIndex: number, row: Record<string, unknown>) => void;
+		deletingRowIndex?: number | null;
+		onCopyCell?: () => void;
+		onCopyRow?: () => void;
+		onCopyColumn?: () => void;
+		onCellRightClick?: (value: unknown, column: string, row: Record<string, unknown>) => void;
+		/** Compact mode for canvas nodes - smaller row height */
+		compact?: boolean;
 	}
 
 	let {
 		columns,
 		rows,
-		isEditable,
-		onCellSave,
-		onRowDelete,
-		deletingRowIndex,
-		onCopyCell,
-		onCopyRow,
-		onCopyColumn,
-		onCellRightClick,
+		isEditable = false,
+		onCellSave = async () => {},
+		onRowDelete = () => {},
+		deletingRowIndex = null,
+		onCopyCell = () => {},
+		onCopyRow = () => {},
+		onCopyColumn = () => {},
+		onCellRightClick = () => {},
+		compact = false,
 	}: Props = $props();
 
 	// Virtual scrolling state
-	const ROW_HEIGHT = 37;
-	const HEADER_HEIGHT = 37;
+	const ROW_HEIGHT = compact ? 28 : 37;
+	const HEADER_HEIGHT = compact ? 28 : 37;
 	const OVERSCAN = 10;
-	const DEFAULT_COLUMN_WIDTH = 150;
+	const DEFAULT_COLUMN_WIDTH = compact ? 100 : 150;
 	const MIN_COLUMN_WIDTH = 50;
 
 	let scrollTop = $state(0);
@@ -122,70 +125,74 @@
 	}
 </script>
 
-<ContextMenu.Root>
-	<ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
-		<!-- Single scroll container for both header and body -->
-		<div
-			bind:this={scrollContainerRef}
-			class="h-full overflow-auto"
-			onscroll={handleScroll}
-		>
-			<!-- Inner wrapper that can expand horizontally -->
-			<div class="min-w-fit">
-				<!-- Sticky Header -->
-				<div
-					class="grid bg-muted border-b sticky top-0 z-10 text-sm"
-					style="height: {HEADER_HEIGHT}px; grid-template-columns: {gridTemplate};"
-				>
-					{#if isEditable}
-						<div class="px-2 py-2 flex items-center"></div>
-					{/if}
-					{#each columns as column, i}
-						<div class="relative flex items-center group">
-							<div class="px-4 py-2 font-medium flex-1 truncate">{column}</div>
-							<!-- Resize handle -->
-							<div
-								class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 group-hover:bg-border transition-colors"
-								onmousedown={(e) => startResize(i, e)}
-								role="separator"
-								aria-orientation="vertical"
-							></div>
-						</div>
-					{/each}
-				</div>
-
-				<!-- Virtual Body -->
-				<div style="height: {totalHeight}px; position: relative;">
-					{#each visibleRows as { row, index: rowIndex, offset } (rowIndex)}
+{#snippet tableContent()}
+	<!-- Single scroll container for both header and body -->
+	<div
+		bind:this={scrollContainerRef}
+		class={["h-full overflow-auto", compact && "nowheel"]}
+		onscroll={handleScroll}
+	>
+		<!-- Inner wrapper that can expand horizontally -->
+		<div class="min-w-fit">
+			<!-- Sticky Header -->
+			<div
+				class={["grid bg-muted border-b sticky top-0 z-10", compact ? "text-xs" : "text-sm"]}
+				style="height: {HEADER_HEIGHT}px; grid-template-columns: {gridTemplate};"
+			>
+				{#if isEditable}
+					<div class={compact ? "px-1 py-1" : "px-2 py-2"} class:flex={true} class:items-center={true}></div>
+				{/if}
+				{#each columns as column, i}
+					<div class="relative flex items-center group">
+						<div class={["font-medium flex-1 truncate", compact ? "px-2 py-1" : "px-4 py-2"]}>{column}</div>
+						<!-- Resize handle -->
 						<div
-							class={["border-b hover:bg-muted/50 grid text-sm", rowIndex % 2 === 0 && "bg-muted/20"]}
-							style="position: absolute; top: {offset}px; left: 0; height: {ROW_HEIGHT}px; grid-template-columns: {gridTemplate};"
-						>
-							{#if isEditable}
-								<div class="px-2 py-1 flex items-center">
-									<RowActions
-										onDelete={async () => onRowDelete(rowIndex, row)}
-										isDeleting={deletingRowIndex === rowIndex}
-									/>
-								</div>
-							{/if}
-							{#each columns as column}
-								<div
-									class="px-4 py-2 flex items-center overflow-hidden"
-									oncontextmenu={() => onCellRightClick(row[column], column, row)}
-								>
-									<EditableCell
-										value={row[column]}
-										{isEditable}
-										onSave={(newValue) => onCellSave(rowIndex, column, newValue)}
-									/>
-								</div>
-							{/each}
-						</div>
-					{/each}
-				</div>
+							class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 group-hover:bg-border transition-colors"
+							onmousedown={(e) => startResize(i, e)}
+							role="separator"
+							aria-orientation="vertical"
+						></div>
+					</div>
+				{/each}
+			</div>
+
+			<!-- Virtual Body -->
+			<div style="height: {totalHeight}px; position: relative;">
+				{#each visibleRows as { row, index: rowIndex, offset } (rowIndex)}
+					<div
+						class={["border-b hover:bg-muted/50 grid", compact ? "text-xs" : "text-sm", rowIndex % 2 === 0 && "bg-muted/20"]}
+						style="position: absolute; top: {offset}px; left: 0; right: 0; height: {ROW_HEIGHT}px; grid-template-columns: {gridTemplate};"
+					>
+						{#if isEditable}
+							<div class={["flex items-center", compact ? "px-1 py-0.5" : "px-2 py-1"]}>
+								<RowActions
+									onDelete={async () => onRowDelete(rowIndex, row)}
+									isDeleting={deletingRowIndex === rowIndex}
+								/>
+							</div>
+						{/if}
+						{#each columns as column}
+							<div
+								class={["flex items-center overflow-hidden", compact ? "px-2 py-1" : "px-4 py-2"]}
+								oncontextmenu={() => onCellRightClick(row[column], column, row)}
+							>
+								<EditableCell
+									value={row[column]}
+									{isEditable}
+									onSave={(newValue) => onCellSave(rowIndex, column, newValue)}
+								/>
+							</div>
+						{/each}
+					</div>
+				{/each}
 			</div>
 		</div>
+	</div>
+{/snippet}
+
+<ContextMenu.Root>
+	<ContextMenu.Trigger class="flex-1 overflow-auto min-h-0 block">
+		{@render tableContent()}
 	</ContextMenu.Trigger>
 	<ContextMenu.Portal>
 		<ContextMenu.Content class="w-48">
