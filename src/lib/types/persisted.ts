@@ -83,6 +83,18 @@ export interface PersistedCanvasTab {
 }
 
 /**
+ * Persisted query visualizer tab state.
+ */
+export interface PersistedVisualizeTab {
+	/** Tab identifier */
+	id: string;
+	/** Tab display name */
+	name: string;
+	/** The original SQL query being visualized */
+	sourceQuery: string;
+}
+
+/**
  * Persisted starter tab state.
  */
 export interface PersistedStarterTab {
@@ -159,7 +171,7 @@ export interface PersistedQueryHistoryItem {
 /**
  * View type options for the main workspace.
  */
-export type ActiveViewType = 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas';
+export type ActiveViewType = 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize';
 
 /**
  * Complete persisted state for a single connection.
@@ -180,6 +192,8 @@ export interface PersistedConnectionState {
 	statisticsTabs: PersistedStatisticsTab[];
 	/** Canvas workspace tabs */
 	canvasTabs: PersistedCanvasTab[];
+	/** Query visualizer tabs */
+	visualizeTabs: PersistedVisualizeTab[];
 	/** Ordered list of all tab IDs for drag-drop ordering */
 	tabOrder: string[];
 	/** Currently active query tab */
@@ -194,6 +208,8 @@ export interface PersistedConnectionState {
 	activeStatisticsTabId: string | null;
 	/** Currently active canvas tab */
 	activeCanvasTabId: string | null;
+	/** Currently active visualize tab */
+	activeVisualizeTabId: string | null;
 	/** Which view type is currently active */
 	activeView: ActiveViewType;
 	/** Saved queries for this connection */

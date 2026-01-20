@@ -10,6 +10,7 @@ import type {
 	ErdTab,
 	StatisticsTab,
 	CanvasTab,
+	VisualizeTab,
 	Project,
 	StarterTab
 } from '$lib/types';
@@ -63,6 +64,9 @@ export class DatabaseState {
 	canvasTabsByProject = $state<Record<string, CanvasTab[]>>({});
 	activeCanvasTabIdByProject = $state<Record<string, string | null>>({});
 
+	visualizeTabsByProject = $state<Record<string, VisualizeTab[]>>({});
+	activeVisualizeTabIdByProject = $state<Record<string, string | null>>({});
+
 	// Saved canvases per project
 	savedCanvasesByProject = $state<Record<string, SavedCanvas[]>>({});
 
@@ -83,7 +87,7 @@ export class DatabaseState {
 	isAIOpen = $state(false);
 
 	// === VIEW STATE ===
-	activeView = $state<'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas'>('query');
+	activeView = $state<'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize'>('query');
 
 	// === PROJECT DERIVED VALUES ===
 
@@ -223,6 +227,21 @@ export class DatabaseState {
 	savedCanvases = $derived(
 		this.activeProjectId ? (this.savedCanvasesByProject[this.activeProjectId] ?? []) : []
 	);
+
+	// === VISUALIZE TAB DERIVED VALUES ===
+
+	// Derived: visualize tabs for active project
+	visualizeTabs = $derived(
+		this.activeProjectId ? (this.visualizeTabsByProject[this.activeProjectId] ?? []) : []
+	);
+
+	// Derived: active visualize tab ID for active project
+	activeVisualizeTabId = $derived(
+		this.activeProjectId ? (this.activeVisualizeTabIdByProject[this.activeProjectId] ?? null) : null
+	);
+
+	// Derived: active visualize tab object
+	activeVisualizeTab = $derived(this.visualizeTabs.find((t) => t.id === this.activeVisualizeTabId) || null);
 
 	// === STARTER TAB DERIVED VALUES ===
 

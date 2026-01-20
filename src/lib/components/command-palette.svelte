@@ -80,7 +80,7 @@
 		runAndClose(() => db.ui.toggleAI());
 	}
 
-	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas") {
+	function goToTab(tabId: string, type: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas" | "visualize") {
 		runAndClose(() => {
 			switch (type) {
 				case "query":
@@ -106,6 +106,10 @@
 				case "canvas":
 					db.canvasTabs.setActive(tabId);
 					db.ui.setActiveView("canvas");
+					break;
+				case "visualize":
+					db.visualizeTabs.setActive(tabId);
+					db.ui.setActiveView("visualize");
 					break;
 			}
 		});
@@ -283,6 +287,8 @@
 				return BarChart3;
 			case "canvas":
 				return LayoutGrid;
+			case "visualize":
+				return GitBranch;
 			default:
 				return FileText;
 		}

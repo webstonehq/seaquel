@@ -268,6 +268,12 @@
 		}
 	};
 
+	const handleVisualize = () => {
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
+		db.visualizeTabs.visualize(db.state.activeQueryTabId, cursorOffset);
+	};
+
 	const handleSave = () => {
 		if (!db.state.activeQueryTab?.query.trim()) return;
 		showSaveDialog = true;
@@ -383,6 +389,7 @@
 			onExecute={handleExecute}
 			onExecuteCurrent={handleExecuteCurrent}
 			onExplain={handleExplain}
+			onVisualize={handleVisualize}
 			onFormat={handleFormat}
 			onSave={handleSave}
 		/>

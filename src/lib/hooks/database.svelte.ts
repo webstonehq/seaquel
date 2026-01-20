@@ -16,6 +16,7 @@ import { ExplainTabManager } from "./database/explain-tabs.svelte.js";
 import { ErdTabManager } from "./database/erd-tabs.svelte.js";
 import { StatisticsTabManager } from "./database/statistics-tabs.svelte.js";
 import { CanvasTabManager } from "./database/canvas-tabs.svelte.js";
+import { VisualizeTabManager } from "./database/visualize-tabs.svelte.js";
 import { ProjectManager } from "./database/project-manager.svelte.js";
 import { LabelManager } from "./database/label-manager.svelte.js";
 import { StarterTabManager } from "./database/starter-tabs.svelte.js";
@@ -51,6 +52,7 @@ class UseDatabase {
   readonly erdTabs: ErdTabManager;
   readonly statisticsTabs: StatisticsTabManager;
   readonly canvasTabs: CanvasTabManager;
+  readonly visualizeTabs: VisualizeTabManager;
   readonly starterTabs: StarterTabManager;
   readonly canvasState: CanvasState;
   readonly canvas: CanvasManager;
@@ -68,7 +70,7 @@ class UseDatabase {
       this.persistence.scheduleConnectionData(connectionId);
     };
 
-    const setActiveView = (view: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas") => {
+    const setActiveView = (view: "query" | "schema" | "explain" | "erd" | "statistics" | "canvas" | "visualize") => {
       this.ui.setActiveView(view);
     };
 
@@ -101,6 +103,7 @@ class UseDatabase {
       }
     );
     this.canvasTabs = new CanvasTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
+    this.visualizeTabs = new VisualizeTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
     this.starterTabs = new StarterTabManager(this.state, scheduleProjectPersistence);
 
     // Canvas

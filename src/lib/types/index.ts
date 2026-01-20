@@ -46,6 +46,17 @@ export type { ChartType, ChartConfig, ResultViewMode } from './chart';
 // Canvas types
 export type { CanvasTab } from './canvas';
 
+// Visualize types
+export type {
+	VisualizeTab,
+	ParsedQueryVisual,
+	QuerySource,
+	QueryJoin,
+	QueryFilter,
+	QueryProjection,
+	QueryOrderBy
+} from './visualize';
+
 // Statistics types
 export type {
 	TableSizeInfo,

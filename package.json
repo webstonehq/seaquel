@@ -37,6 +37,7 @@
     "layerchart": "^2.0.0-next.44",
     "monaco-editor": "^0.55.1",
     "monaco-sql-languages": "^0.15.1",
+    "node-sql-parser": "^5.4.0",
     "sql-formatter": "^15.6.12",
     "svelte-dnd-action": "^0.9.69",
     "tauri-plugin-keyring-api": "^0.1.1"

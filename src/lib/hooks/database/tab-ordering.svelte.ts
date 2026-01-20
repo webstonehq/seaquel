@@ -1,4 +1,4 @@
-import type { QueryTab, SchemaTab, ExplainTab, ErdTab, StatisticsTab, CanvasTab } from '$lib/types';
+import type { QueryTab, SchemaTab, ExplainTab, ErdTab, StatisticsTab, CanvasTab, VisualizeTab } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 
 /**
@@ -100,8 +100,8 @@ export class TabOrderingManager {
 	 */
 	get ordered(): Array<{
 		id: string;
-		type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas';
-		tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab | CanvasTab;
+		type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize';
+		tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab | CanvasTab | VisualizeTab;
 	}> {
 		if (!this.state.activeProjectId) return [];
 
@@ -112,11 +112,12 @@ export class TabOrderingManager {
 		const erdTabs = this.state.erdTabs || [];
 		const statisticsTabs = this.state.statisticsTabs || [];
 		const canvasTabs = this.state.canvasTabs || [];
+		const visualizeTabs = this.state.visualizeTabs || [];
 
 		const allTabsUnordered: Array<{
 			id: string;
-			type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas';
-			tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab | CanvasTab;
+			type: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize';
+			tab: QueryTab | SchemaTab | ExplainTab | ErdTab | StatisticsTab | CanvasTab | VisualizeTab;
 		}> = [];
 
 		for (const t of queryTabs) {
@@ -136,6 +137,9 @@ export class TabOrderingManager {
 		}
 		for (const t of canvasTabs) {
 			allTabsUnordered.push({ id: t.id, type: 'canvas', tab: t });
+		}
+		for (const t of visualizeTabs) {
+			allTabsUnordered.push({ id: t.id, type: 'visualize', tab: t });
 		}
 
 		const order = this.state.tabOrderByProject[this.state.activeProjectId] ?? [];
