@@ -17,7 +17,8 @@
 		SearchIcon,
 		ActivityIcon,
 		DatabaseIcon,
-		CheckIcon
+		CheckIcon,
+		NetworkIcon
 	} from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { StatementResult } from "$lib/types";
@@ -30,6 +31,7 @@
 		onExecute: () => void;
 		onExecuteCurrent: () => void;
 		onExplain: (analyze: boolean) => void;
+		onVisualize: () => void;
 		onFormat: () => void;
 		onSave: () => void;
 	};
@@ -42,6 +44,7 @@
 		onExecute,
 		onExecuteCurrent,
 		onExplain,
+		onVisualize,
 		onFormat,
 		onSave
 	}: Props = $props();
@@ -242,6 +245,11 @@
 					<DropdownMenu.Item onclick={() => onExplain(true)}>
 						<ActivityIcon class="size-4 me-2" />
 						{m.query_explain_analyze()}
+					</DropdownMenu.Item>
+					<DropdownMenu.Separator />
+					<DropdownMenu.Item onclick={onVisualize}>
+						<NetworkIcon class="size-4 me-2" />
+						Visualize Query
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
