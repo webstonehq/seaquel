@@ -25,4 +25,4 @@ export interface ChartConfig {
 /**
  * View mode for displaying query results.
  */
-export type ResultViewMode = 'table' | 'chart';
+export type ResultViewMode = 'table' | 'chart' | 'explain' | 'visualize';

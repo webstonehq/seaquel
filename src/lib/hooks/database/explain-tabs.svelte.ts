@@ -8,16 +8,49 @@ import { substituteParameters } from '$lib/db/query-params';
 import { getProvider, getDuckDBProvider, type DatabaseProvider } from '$lib/providers';
 
 /**
+ * Callback for setting explain result on a query tab.
+ */
+export type SetExplainResultCallback = (
+	tabId: string,
+	result: ExplainResult,
+	sourceQuery: string,
+	isAnalyze: boolean
+) => void;
+
+/**
+ * Callback for setting explain executing state on a query tab.
+ */
+export type SetExplainExecutingCallback = (
+	tabId: string,
+	isExecuting: boolean,
+	isAnalyze: boolean
+) => void;
+
+/**
  * Manages EXPLAIN/ANALYZE tabs: execute, remove, set active.
  * Tabs are organized per-project.
  */
 export class ExplainTabManager {
+	private setExplainResult?: SetExplainResultCallback;
+	private setExplainExecuting?: SetExplainExecutingCallback;
+
 	constructor(
 		private state: DatabaseState,
 		private tabOrdering: TabOrderingManager,
 		private schedulePersistence: (projectId: string | null) => void,
 		private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd') => void
 	) {}
+
+	/**
+	 * Set callbacks for embedded explain results (stored on QueryTab).
+	 */
+	setEmbeddedCallbacks(
+		setResult: SetExplainResultCallback,
+		setExecuting: SetExplainExecutingCallback
+	): void {
+		this.setExplainResult = setResult;
+		this.setExplainExecuting = setExecuting;
+	}
 
 	/**
 	 * Get the appropriate provider based on connection type.
@@ -28,6 +61,187 @@ export class ExplainTabManager {
 			return getDuckDBProvider();
 		}
 		return getProvider();
+	}
+
+	/**
+	 * Execute EXPLAIN or EXPLAIN ANALYZE and store result embedded in the query tab.
+	 * This is the new approach where results appear below the editor instead of in a separate tab.
+	 */
+	async executeEmbedded(tabId: string, analyze: boolean = false, cursorOffset?: number): Promise<void> {
+		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return;
+		if (!this.setExplainResult || !this.setExplainExecuting) {
+			console.warn('Embedded callbacks not set, falling back to tab-based explain');
+			return this.execute(tabId, analyze, cursorOffset);
+		}
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tab = tabs.find((t) => t.id === tabId);
+		if (!tab || !tab.query.trim()) return;
+
+		// Get the statement to explain based on cursor position
+		const dbType = this.state.activeConnection.type;
+		let queryToExplain = tab.query;
+
+		if (cursorOffset !== undefined) {
+			const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+			if (statement) {
+				queryToExplain = statement.sql;
+			}
+		}
+
+		if (!queryToExplain.trim()) return;
+
+		// Mark as executing
+		this.setExplainExecuting(tabId, true, analyze);
+
+		try {
+			const adapter = getAdapter(this.state.activeConnection.type);
+			const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
+			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+
+			if (!providerConnectionId) {
+				throw new Error('No connection established');
+			}
+
+			const provider = await this.getProviderForConnection();
+
+			// For SQLite with analyze=true, we need to actually execute the query
+			let actualRowCount: number | undefined;
+			let executionTime: number | undefined;
+
+			if (dbType === 'sqlite' && analyze) {
+				const startTime = performance.now();
+				const queryResult = await provider.select(providerConnectionId, queryToExplain);
+				executionTime = performance.now() - startTime;
+				actualRowCount = queryResult.length;
+			}
+
+			const result = await provider.select(providerConnectionId, explainQuery);
+
+			// Use adapter to parse the results into common format
+			const parsedNode = adapter.parseExplainResult(result, analyze);
+
+			// For SQLite analyze, inject the actual execution stats into the root node
+			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+				parsedNode.actualRows = actualRowCount;
+				parsedNode.rows = actualRowCount;
+				parsedNode.actualTime = executionTime;
+			}
+
+			// Convert to ExplainResult format for rendering
+			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+
+			// For SQLite analyze, set execution time on the result
+			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+				explainResult.executionTime = executionTime;
+			}
+
+			// Store result on query tab (use full query for staleness detection)
+			this.setExplainResult(tabId, explainResult, tab.query, analyze);
+		} catch (error) {
+			this.setExplainExecuting(tabId, false, analyze);
+			toast.error(`Explain failed: ${error}`);
+		}
+	}
+
+	/**
+	 * Execute EXPLAIN or EXPLAIN ANALYZE with parameter substitution (embedded version).
+	 */
+	async executeEmbeddedWithParams(
+		tabId: string,
+		parameterValues: ParameterValue[],
+		analyze: boolean = false,
+		cursorOffset?: number
+	): Promise<void> {
+		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return;
+		if (!this.setExplainResult || !this.setExplainExecuting) {
+			console.warn('Embedded callbacks not set, falling back to tab-based explain');
+			return this.executeWithParams(tabId, parameterValues, analyze, cursorOffset);
+		}
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tab = tabs.find((t) => t.id === tabId);
+		if (!tab || !tab.query.trim()) return;
+
+		// Get the statement to explain based on cursor position
+		const dbType = this.state.activeConnection.type;
+		let queryToExplain = tab.query;
+
+		if (cursorOffset !== undefined) {
+			const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+			if (statement) {
+				queryToExplain = statement.sql;
+			}
+		}
+
+		if (!queryToExplain.trim()) return;
+
+		// Substitute parameters in the query
+		const { sql: substitutedQuery, bindValues } = substituteParameters(
+			queryToExplain,
+			parameterValues,
+			dbType
+		);
+
+		// Mark as executing
+		this.setExplainExecuting(tabId, true, analyze);
+
+		try {
+			const adapter = getAdapter(this.state.activeConnection.type);
+			const explainQuery = adapter.getExplainQuery(substitutedQuery, analyze);
+			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+
+			if (!providerConnectionId) {
+				throw new Error('No connection established');
+			}
+
+			const provider = await this.getProviderForConnection();
+
+			// For SQLite with analyze=true, we need to actually execute the query
+			let actualRowCount: number | undefined;
+			let executionTime: number | undefined;
+
+			if (dbType === 'sqlite' && analyze) {
+				const startTime = performance.now();
+				const queryResult = await provider.select(providerConnectionId, substitutedQuery, bindValues);
+				executionTime = performance.now() - startTime;
+				actualRowCount = queryResult.length;
+			}
+
+			// For EXPLAIN queries, bind values handling
+			const useBindValues = dbType !== 'mssql' && dbType !== 'duckdb';
+			const result = await provider.select(
+				providerConnectionId,
+				explainQuery,
+				useBindValues ? bindValues : undefined
+			);
+
+			// Use adapter to parse the results into common format
+			const parsedNode = adapter.parseExplainResult(result, analyze);
+
+			// For SQLite analyze, inject the actual execution stats into the root node
+			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+				parsedNode.actualRows = actualRowCount;
+				parsedNode.rows = actualRowCount;
+				parsedNode.actualTime = executionTime;
+			}
+
+			// Convert to ExplainResult format for rendering
+			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+
+			// For SQLite analyze, set execution time on the result
+			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+				explainResult.executionTime = executionTime;
+			}
+
+			// Store result on query tab (use full query for staleness detection)
+			this.setExplainResult(tabId, explainResult, tab.query, analyze);
+		} catch (error) {
+			this.setExplainExecuting(tabId, false, analyze);
+			toast.error(`Explain failed: ${error}`);
+		}
 	}
 
 	/**

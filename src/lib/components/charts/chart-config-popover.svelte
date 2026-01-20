@@ -60,9 +60,9 @@
 
 <Popover bind:open>
 	<PopoverTrigger>
-		<Button variant="ghost" size="sm" class="h-7 gap-1.5">
+		<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2">
 			<SettingsIcon class="size-3.5" />
-			<span class="text-xs">Configure</span>
+			Configure
 		</Button>
 	</PopoverTrigger>
 	<PopoverContent class="w-72" align="end">
