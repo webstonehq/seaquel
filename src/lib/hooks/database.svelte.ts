@@ -148,6 +148,23 @@ class UseDatabase {
       this.starterTabs.initializeDefaults(projectId);
     });
 
+    // Set up embedded explain callbacks
+    this.explainTabs.setEmbeddedCallbacks(
+      (tabId, result, sourceQuery, isAnalyze) => {
+        this.queryTabs.setExplainResult(tabId, result, sourceQuery, isAnalyze);
+      },
+      (tabId, isExecuting, isAnalyze) => {
+        this.queryTabs.setExplainExecuting(tabId, isExecuting, isAnalyze);
+      }
+    );
+
+    // Set up embedded visualize callback
+    this.visualizeTabs.setEmbeddedCallback(
+      (tabId, parsedQuery, sourceQuery, parseError) => {
+        this.queryTabs.setVisualizeResult(tabId, parsedQuery, sourceQuery, parseError);
+      }
+    );
+
     // Initialize: projects first, then connections
     this.initializeApp();
   }

@@ -13,18 +13,17 @@
 	let { onExport, onCopy }: Props = $props();
 </script>
 
-<div class="flex items-center justify-end p-2 border-b bg-muted/30 shrink-0">
-	<DropdownMenu.Root>
-		<DropdownMenu.Trigger
-			class={buttonVariants({
-				variant: "outline",
-				size: "sm"
-			}) + " h-7 gap-1"}
-		>
-			<DownloadIcon class="size-3" />
-			{m.query_export()}
-			<ChevronDownIcon class="size-3" />
-		</DropdownMenu.Trigger>
+<DropdownMenu.Root>
+	<DropdownMenu.Trigger
+		class={buttonVariants({
+			variant: "ghost",
+			size: "sm"
+		}) + " h-7 gap-1.5 px-2"}
+	>
+		<DownloadIcon class="size-3.5" />
+		{m.query_export()}
+		<ChevronDownIcon class="size-3" />
+	</DropdownMenu.Trigger>
 		<DropdownMenu.Content align="end" class="w-48">
 			<DropdownMenu.Group>
 				<DropdownMenu.GroupHeading>{m.query_download()}</DropdownMenu.GroupHeading>
@@ -66,5 +65,4 @@
 				</DropdownMenu.Item>
 			</DropdownMenu.Group>
 		</DropdownMenu.Content>
-	</DropdownMenu.Root>
-</div>
+</DropdownMenu.Root>

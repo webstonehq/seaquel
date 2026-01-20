@@ -5,6 +5,8 @@
 
 import type { QueryType } from '../db/query-utils';
 import type { ConnectionLabel } from './project';
+import type { ExplainResult } from './explain';
+import type { ParsedQueryVisual } from './visualize';
 
 /**
  * Supported data types for query parameters.
@@ -95,6 +97,32 @@ export interface StatementResult extends QueryResult {
 }
 
 /**
+ * Embedded explain result within a query tab.
+ */
+export interface EmbeddedExplainResult {
+	/** The explain result data */
+	result: ExplainResult;
+	/** The query that was explained (for staleness detection) */
+	sourceQuery: string;
+	/** Whether this was EXPLAIN ANALYZE vs plain EXPLAIN */
+	isAnalyze: boolean;
+	/** Whether the explain is currently executing */
+	isExecuting: boolean;
+}
+
+/**
+ * Embedded visualize result within a query tab.
+ */
+export interface EmbeddedVisualizeResult {
+	/** Parsed query structure for visualization */
+	parsedQuery: ParsedQueryVisual | null;
+	/** The query that was visualized (for staleness detection) */
+	sourceQuery: string;
+	/** Error message if parsing failed */
+	parseError?: string;
+}
+
+/**
  * Represents an open query editor tab.
  */
 export interface QueryTab {
@@ -112,6 +140,10 @@ export interface QueryTab {
 	isExecuting: boolean;
 	/** ID of the saved query this tab was loaded from, if any */
 	savedQueryId?: string;
+	/** Embedded explain result displayed below the editor */
+	explainResult?: EmbeddedExplainResult;
+	/** Embedded visualize result displayed below the editor */
+	visualizeResult?: EmbeddedVisualizeResult;
 }
 
 /**

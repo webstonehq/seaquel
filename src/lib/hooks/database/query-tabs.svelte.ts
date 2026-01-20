@@ -1,4 +1,4 @@
-import type { QueryTab } from '$lib/types';
+import type { QueryTab, ExplainResult, ParsedQueryVisual } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
 
@@ -220,5 +220,118 @@ export class QueryTabManager {
 			this.add(`History: ${item.query.substring(0, 20)}...`, item.query);
 			setActiveView?.();
 		}
+	}
+
+	/**
+	 * Set the explain result on a query tab.
+	 */
+	setExplainResult(tabId: string, result: ExplainResult, sourceQuery: string, isAnalyze: boolean): void {
+		if (!this.state.activeProjectId) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const updatedTabs = tabs.map((t) =>
+			t.id === tabId
+				? {
+						...t,
+						explainResult: { result, sourceQuery, isAnalyze, isExecuting: false }
+					}
+				: t
+		);
+		this.state.queryTabsByProject = {
+			...this.state.queryTabsByProject,
+			[projectId]: updatedTabs
+		};
+		this.schedulePersistence(projectId);
+	}
+
+	/**
+	 * Set the explain executing state on a query tab.
+	 */
+	setExplainExecuting(tabId: string, isExecuting: boolean, isAnalyze: boolean = false): void {
+		if (!this.state.activeProjectId) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tab = tabs.find((t) => t.id === tabId);
+
+		const updatedTabs = tabs.map((t) =>
+			t.id === tabId
+				? {
+						...t,
+						explainResult: t.explainResult
+							? { ...t.explainResult, isExecuting }
+							: { result: undefined as unknown as ExplainResult, sourceQuery: '', isAnalyze, isExecuting }
+					}
+				: t
+		);
+		this.state.queryTabsByProject = {
+			...this.state.queryTabsByProject,
+			[projectId]: updatedTabs
+		};
+	}
+
+	/**
+	 * Clear the explain result from a query tab.
+	 */
+	clearExplainResult(tabId: string): void {
+		if (!this.state.activeProjectId) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const updatedTabs = tabs.map((t) =>
+			t.id === tabId ? { ...t, explainResult: undefined } : t
+		);
+		this.state.queryTabsByProject = {
+			...this.state.queryTabsByProject,
+			[projectId]: updatedTabs
+		};
+		this.schedulePersistence(projectId);
+	}
+
+	/**
+	 * Set the visualize result on a query tab.
+	 */
+	setVisualizeResult(
+		tabId: string,
+		parsedQuery: ParsedQueryVisual | null,
+		sourceQuery: string,
+		parseError?: string
+	): void {
+		if (!this.state.activeProjectId) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const updatedTabs = tabs.map((t) =>
+			t.id === tabId
+				? {
+						...t,
+						visualizeResult: { parsedQuery, sourceQuery, parseError }
+					}
+				: t
+		);
+		this.state.queryTabsByProject = {
+			...this.state.queryTabsByProject,
+			[projectId]: updatedTabs
+		};
+		this.schedulePersistence(projectId);
+	}
+
+	/**
+	 * Clear the visualize result from a query tab.
+	 */
+	clearVisualizeResult(tabId: string): void {
+		if (!this.state.activeProjectId) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const updatedTabs = tabs.map((t) =>
+			t.id === tabId ? { ...t, visualizeResult: undefined } : t
+		);
+		this.state.queryTabsByProject = {
+			...this.state.queryTabsByProject,
+			[projectId]: updatedTabs
+		};
+		this.schedulePersistence(projectId);
 	}
 }

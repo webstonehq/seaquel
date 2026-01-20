@@ -28,6 +28,8 @@ export type {
 	SourceTableInfo,
 	QueryResult,
 	StatementResult,
+	EmbeddedExplainResult,
+	EmbeddedVisualizeResult,
 	QueryTab,
 	QueryHistoryItem,
 	SavedQuery,
