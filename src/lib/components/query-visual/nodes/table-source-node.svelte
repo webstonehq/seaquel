@@ -8,9 +8,11 @@
 			source: QuerySource;
 			isFirst: boolean;
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
 </script>
 
 <div
@@ -41,10 +43,10 @@
 	</div>
 
 	<!-- Output handle for connecting to next node -->
-	<Handle type="source" position={Position.Bottom} class="!bg-blue-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-blue-500" />
 
 	<!-- Input handle if not first node -->
 	{#if !data.isFirst}
-		<Handle type="target" position={Position.Top} class="!bg-blue-500" />
+		<Handle type="target" position={targetPosition} class="!bg-blue-500" />
 	{/if}
 </div>

@@ -42,36 +42,32 @@
 		<BarChart3Icon class="size-3" />
 		<span class="text-xs">Chart</span>
 	</Button>
-	{#if hasExplainResult}
-		<Button
-			variant={mode === 'explain' ? 'default' : 'ghost'}
-			size="sm"
-			class="h-6 gap-1 px-2"
-			onclick={() => onModeChange('explain')}
-		>
-			<DatabaseIcon class="size-3" />
-			<span class="text-xs">Explain</span>
-			{#if isExplainStale}
-				<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
-					Changed
-				</Badge>
-			{/if}
-		</Button>
-	{/if}
-	{#if hasVisualizeResult}
-		<Button
-			variant={mode === 'visualize' ? 'default' : 'ghost'}
-			size="sm"
-			class="h-6 gap-1 px-2"
-			onclick={() => onModeChange('visualize')}
-		>
-			<NetworkIcon class="size-3" />
-			<span class="text-xs">Visual</span>
-			{#if isVisualizeStale}
-				<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
-					Changed
-				</Badge>
-			{/if}
-		</Button>
-	{/if}
+	<Button
+		variant={mode === 'explain' ? 'default' : 'ghost'}
+		size="sm"
+		class="h-6 gap-1 px-2"
+		onclick={() => onModeChange('explain')}
+	>
+		<DatabaseIcon class="size-3" />
+		<span class="text-xs">Explain</span>
+		{#if hasExplainResult && isExplainStale}
+			<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
+				Changed
+			</Badge>
+		{/if}
+	</Button>
+	<Button
+		variant={mode === 'visualize' ? 'default' : 'ghost'}
+		size="sm"
+		class="h-6 gap-1 px-2"
+		onclick={() => onModeChange('visualize')}
+	>
+		<NetworkIcon class="size-3" />
+		<span class="text-xs">Visual</span>
+		{#if hasVisualizeResult && isVisualizeStale}
+			<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
+				Changed
+			</Badge>
+		{/if}
+	</Button>
 </div>

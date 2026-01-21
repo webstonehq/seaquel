@@ -8,9 +8,11 @@
 			projections: QueryProjection[];
 			distinct: boolean;
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
 
 	const maxDisplayed = 8;
 	const displayedProjections = $derived(data.projections.slice(0, maxDisplayed));
@@ -20,7 +22,7 @@
 <div
 	class="min-w-48 rounded-lg border-2 border-slate-500 bg-background shadow-md"
 >
-	<Handle type="target" position={Position.Top} class="!bg-slate-500" />
+	<Handle type="target" position={targetPosition} class="!bg-slate-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 bg-slate-500/10 border-b border-slate-500/20 rounded-t-md">
 		<ListIcon class="size-4 text-slate-500" />
@@ -57,5 +59,5 @@
 		{/if}
 	</div>
 
-	<Handle type="source" position={Position.Bottom} class="!bg-slate-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-slate-500" />
 </div>

@@ -9,7 +9,7 @@
 	import * as Popover from "$lib/components/ui/popover";
 	import { Label } from "$lib/components/ui/label";
 	import { Input } from "$lib/components/ui/input";
-	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon } from "@lucide/svelte";
+	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon, DatabaseIcon, NetworkIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import ParameterInputDialog from "$lib/components/parameter-input-dialog.svelte";
@@ -790,11 +790,42 @@
 
 						{#if currentViewMode === 'explain' && explainResult}
 							<ExplainResultPane {explainResult} />
+						{:else if currentViewMode === 'explain' && !explainResult}
+							<div class="flex-1 flex items-center justify-center p-6">
+								<div class="text-center max-w-xs">
+									<DatabaseIcon class="size-10 mx-auto mb-3 opacity-20" />
+									<p class="font-medium mb-2">No Explain Results</p>
+									<p class="text-xs text-muted-foreground mb-4">
+										Analyze your query's execution plan to understand how the database processes it.
+									</p>
+									<div class="flex gap-2 justify-center">
+										<Button size="sm" variant="outline" onclick={() => handleExplain(false)}>
+											Explain
+										</Button>
+										<Button size="sm" onclick={() => handleExplain(true)}>
+											Explain Analyze
+										</Button>
+									</div>
+								</div>
+							</div>
 						{:else if currentViewMode === 'visualize' && visualizeResult}
 							<VisualizeResultPane
 								{visualizeResult}
 								layoutOptions={visualizeLayoutOptions}
 							/>
+						{:else if currentViewMode === 'visualize' && !visualizeResult}
+							<div class="flex-1 flex items-center justify-center p-6">
+								<div class="text-center max-w-xs">
+									<NetworkIcon class="size-10 mx-auto mb-3 opacity-20" />
+									<p class="font-medium mb-2">No Visual Results</p>
+									<p class="text-xs text-muted-foreground mb-4">
+										See a visual representation of your query structure.
+									</p>
+									<Button size="sm" onclick={handleVisualize}>
+										Visualize Query
+									</Button>
+								</div>
+							</div>
 						{:else if activeResult?.isError}
 							<QueryErrorDisplay
 								statementIndex={activeResultIndex}
@@ -839,28 +870,130 @@
 							{/if}
 						{/if}
 					{:else}
-						<div class="flex-1 flex items-center justify-center p-6 overflow-auto">
-							<div class="w-full max-w-md space-y-6">
-								<div class="text-center">
-									<PlayIcon class="size-10 mx-auto mb-2 opacity-20" />
-									<p class="font-medium">{m.query_no_results()}</p>
-									<p class="text-xs text-muted-foreground mt-1">
-										{m.query_run_hint({ shortcut: "⌘+Enter" })}
-									</p>
-								</div>
-
-								{#if activeSampleQueries.length > 0}
-									<div class="space-y-3">
-										<p class="text-xs text-muted-foreground text-center">
-											{m.empty_query_sample_title()}
-										</p>
-										{#each activeSampleQueries as sampleQuery}
-											<QueryExampleCard query={sampleQuery} onTry={handleTrySampleQuery} />
-										{/each}
-									</div>
+						<!-- Show view toggle and content even without query results -->
+						<div class="flex items-center justify-between px-2 py-1.5 border-b bg-muted/20">
+							<div class="flex items-center gap-2">
+								<QueryResultViewToggle
+									mode={currentViewMode}
+									onModeChange={handleViewModeChange}
+									hasExplainResult={!!explainResult?.result || explainResult?.isExecuting}
+									hasVisualizeResult={!!visualizeResult?.parsedQuery || !!visualizeResult?.parseError}
+									isExplainStale={isExplainStale}
+									isVisualizeStale={isVisualizeStale}
+								/>
+								{#if currentViewMode === 'explain' && explainResult?.result}
+									<Badge variant={explainResult.isAnalyze ? "default" : "secondary"} class="h-5">
+										{explainResult.isAnalyze ? "ANALYZE" : "EXPLAIN"}
+									</Badge>
+								{/if}
+							</div>
+							<div class="flex items-center gap-1">
+								{#if currentViewMode === 'explain' && explainResult}
+									<Button
+										size="sm"
+										variant="ghost"
+										class="h-7 gap-1.5 px-2"
+										onclick={() => handleRefreshExplain(explainResult.isAnalyze)}
+										title={isExplainStale ? "Refresh with updated query" : "Re-run explain"}
+									>
+										<RefreshCwIcon class="size-3.5" />
+										{isExplainStale ? "Refresh" : "Re-run"}
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										class="h-7 px-2"
+										onclick={handleCloseExplain}
+										title="Close"
+									>
+										<XIcon class="size-3.5" />
+									</Button>
+								{/if}
+								{#if currentViewMode === 'visualize' && visualizeResult}
+									<Button
+										size="sm"
+										variant="ghost"
+										class="h-7 gap-1.5 px-2"
+										onclick={handleRefreshVisualize}
+										title={isVisualizeStale ? "Refresh with updated query" : "Re-run visualization"}
+									>
+										<RefreshCwIcon class="size-3.5" />
+										{isVisualizeStale ? "Refresh" : "Re-run"}
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										class="h-7 px-2"
+										onclick={handleCloseVisualize}
+										title="Close"
+									>
+										<XIcon class="size-3.5" />
+									</Button>
 								{/if}
 							</div>
 						</div>
+						{#if currentViewMode === 'explain' && explainResult}
+							<ExplainResultPane {explainResult} />
+						{:else if currentViewMode === 'explain' && !explainResult}
+							<div class="flex-1 flex items-center justify-center p-6">
+								<div class="text-center max-w-xs">
+									<DatabaseIcon class="size-10 mx-auto mb-3 opacity-20" />
+									<p class="font-medium mb-2">No Explain Results</p>
+									<p class="text-xs text-muted-foreground mb-4">
+										Analyze your query's execution plan to understand how the database processes it.
+									</p>
+									<div class="flex gap-2 justify-center">
+										<Button size="sm" variant="outline" onclick={() => handleExplain(false)}>
+											Explain
+										</Button>
+										<Button size="sm" onclick={() => handleExplain(true)}>
+											Explain Analyze
+										</Button>
+									</div>
+								</div>
+							</div>
+						{:else if currentViewMode === 'visualize' && visualizeResult}
+							<VisualizeResultPane
+								{visualizeResult}
+								layoutOptions={visualizeLayoutOptions}
+							/>
+						{:else if currentViewMode === 'visualize' && !visualizeResult}
+							<div class="flex-1 flex items-center justify-center p-6">
+								<div class="text-center max-w-xs">
+									<NetworkIcon class="size-10 mx-auto mb-3 opacity-20" />
+									<p class="font-medium mb-2">No Visual Results</p>
+									<p class="text-xs text-muted-foreground mb-4">
+										See a visual representation of your query structure.
+									</p>
+									<Button size="sm" onclick={handleVisualize}>
+										Visualize Query
+									</Button>
+								</div>
+							</div>
+						{:else}
+							<div class="flex-1 flex items-center justify-center p-6 overflow-auto">
+								<div class="w-full max-w-md space-y-6">
+									<div class="text-center">
+										<PlayIcon class="size-10 mx-auto mb-2 opacity-20" />
+										<p class="font-medium">{m.query_no_results()}</p>
+										<p class="text-xs text-muted-foreground mt-1">
+											{m.query_run_hint({ shortcut: "⌘+Enter" })}
+										</p>
+									</div>
+
+									{#if activeSampleQueries.length > 0 && !currentQuery?.trim()}
+										<div class="space-y-3">
+											<p class="text-xs text-muted-foreground text-center">
+												{m.empty_query_sample_title()}
+											</p>
+											{#each activeSampleQueries as sampleQuery}
+												<QueryExampleCard query={sampleQuery} onTry={handleTrySampleQuery} />
+											{/each}
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			</Resizable.Pane>

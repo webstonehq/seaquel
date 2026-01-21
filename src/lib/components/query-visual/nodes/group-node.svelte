@@ -6,15 +6,17 @@
 		data: {
 			columns: string[];
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
 </script>
 
 <div
 	class="min-w-40 rounded-lg border-2 border-teal-500 bg-background shadow-md"
 >
-	<Handle type="target" position={Position.Top} class="!bg-teal-500" />
+	<Handle type="target" position={targetPosition} class="!bg-teal-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 bg-teal-500/10 border-b border-teal-500/20 rounded-t-md">
 		<GroupIcon class="size-4 text-teal-500" />
@@ -30,5 +32,5 @@
 		{/each}
 	</div>
 
-	<Handle type="source" position={Position.Bottom} class="!bg-teal-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-teal-500" />
 </div>

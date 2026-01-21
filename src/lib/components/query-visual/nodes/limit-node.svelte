@@ -6,15 +6,16 @@
 		data: {
 			limit: { count: number; offset?: number };
 		};
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, targetPosition = Position.Top }: Props = $props();
 </script>
 
 <div
 	class="min-w-32 rounded-lg border-2 border-pink-500 bg-background shadow-md"
 >
-	<Handle type="target" position={Position.Top} class="!bg-pink-500" />
+	<Handle type="target" position={targetPosition} class="!bg-pink-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 bg-pink-500/10 border-b border-pink-500/20 rounded-t-md">
 		<ListEndIcon class="size-4 text-pink-500" />
