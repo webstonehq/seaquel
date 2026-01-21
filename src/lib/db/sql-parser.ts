@@ -164,7 +164,10 @@ export function splitSqlStatements(sql: string, _dbType: DatabaseType): ParsedSt
 
 /**
  * Finds the statement at a given cursor offset position.
- * Returns the first statement if cursor is between statements or at the start.
+ * - If cursor is within a statement, returns that statement
+ * - If cursor is before all statements, returns the first statement
+ * - If cursor is after all statements, returns the last statement
+ * - If cursor is between statements, returns the next statement
  */
 export function getStatementAtOffset(
 	sql: string,
@@ -179,8 +182,31 @@ export function getStatementAtOffset(
 		(s) => offset >= s.startOffset && offset <= s.endOffset
 	);
 
-	// If cursor is between statements or at the start, return first statement
-	return found ?? statements[0];
+	if (found) return found;
+
+	// Cursor is not within any statement - determine which one to use
+	const firstStatement = statements[0];
+	const lastStatement = statements[statements.length - 1];
+
+	// If cursor is before the first statement, return first
+	if (offset < firstStatement.startOffset) {
+		return firstStatement;
+	}
+
+	// If cursor is after the last statement, return last
+	if (offset > lastStatement.endOffset) {
+		return lastStatement;
+	}
+
+	// Cursor is between statements - find the next statement
+	for (const stmt of statements) {
+		if (stmt.startOffset > offset) {
+			return stmt;
+		}
+	}
+
+	// Fallback to last statement
+	return lastStatement;
 }
 
 /**

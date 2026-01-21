@@ -7,9 +7,16 @@
 		data: {
 			join: QueryJoin;
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
+
+	// For horizontal layouts, the offset should be vertical (top %), for vertical layouts it's horizontal (left %)
+	const isHorizontal = $derived(targetPosition === Position.Left || targetPosition === Position.Right);
+	const leftHandleStyle = $derived(isHorizontal ? "top: 30%;" : "left: 30%;");
+	const rightHandleStyle = $derived(isHorizontal ? "top: 70%;" : "left: 70%;");
 
 	const joinColors: Record<string, { border: string; bg: string; text: string }> = {
 		INNER: { border: 'border-violet-500', bg: 'bg-violet-500/10', text: 'text-violet-500' },
@@ -24,8 +31,8 @@
 
 <div class="min-w-48 rounded-lg border-2 bg-background shadow-md {colors.border}">
 	<!-- Input handles (left side for sources) -->
-	<Handle type="target" position={Position.Top} id="left" style="left: 30%;" class="!bg-violet-500" />
-	<Handle type="target" position={Position.Top} id="right" style="left: 70%;" class="!bg-violet-500" />
+	<Handle type="target" position={targetPosition} id="left" style={leftHandleStyle} class="!bg-violet-500" />
+	<Handle type="target" position={targetPosition} id="right" style={rightHandleStyle} class="!bg-violet-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 border-b rounded-t-md {colors.bg}">
 		<MergeIcon class="size-4 {colors.text}" />
@@ -53,5 +60,5 @@
 	</div>
 
 	<!-- Output handle -->
-	<Handle type="source" position={Position.Bottom} class="!bg-violet-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-violet-500" />
 </div>

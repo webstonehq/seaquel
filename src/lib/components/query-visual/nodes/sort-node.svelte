@@ -7,15 +7,17 @@
 		data: {
 			orderBy: QueryOrderBy[];
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
 </script>
 
 <div
 	class="min-w-40 rounded-lg border-2 border-indigo-500 bg-background shadow-md"
 >
-	<Handle type="target" position={Position.Top} class="!bg-indigo-500" />
+	<Handle type="target" position={targetPosition} class="!bg-indigo-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 bg-indigo-500/10 border-b border-indigo-500/20 rounded-t-md">
 		<ArrowUpDownIcon class="size-4 text-indigo-500" />
@@ -39,5 +41,5 @@
 		{/each}
 	</div>
 
-	<Handle type="source" position={Position.Bottom} class="!bg-indigo-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-indigo-500" />
 </div>

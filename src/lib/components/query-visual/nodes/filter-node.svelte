@@ -8,15 +8,17 @@
 			filter: QueryFilter;
 			filterType: 'WHERE' | 'HAVING';
 		};
+		sourcePosition?: Position;
+		targetPosition?: Position;
 	};
 
-	let { data }: Props = $props();
+	let { data, sourcePosition = Position.Bottom, targetPosition = Position.Top }: Props = $props();
 </script>
 
 <div
 	class="min-w-48 rounded-lg border-2 border-orange-500 bg-background shadow-md"
 >
-	<Handle type="target" position={Position.Top} class="!bg-orange-500" />
+	<Handle type="target" position={targetPosition} class="!bg-orange-500" />
 
 	<div class="flex items-center gap-2 px-3 py-2 bg-orange-500/10 border-b border-orange-500/20 rounded-t-md">
 		<FilterIcon class="size-4 text-orange-500" />
@@ -30,5 +32,5 @@
 		</div>
 	</div>
 
-	<Handle type="source" position={Position.Bottom} class="!bg-orange-500" />
+	<Handle type="source" position={sourcePosition} class="!bg-orange-500" />
 </div>
