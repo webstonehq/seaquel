@@ -2,30 +2,59 @@ import dagre from "@dagrejs/dagre";
 import { Position } from "@xyflow/svelte";
 import type { Node, Edge } from "@xyflow/svelte";
 import type { ExplainResult, ExplainPlanNode } from "$lib/types";
+import type { HotPathAnalysis } from "./explain-analysis";
 
 const NODE_WIDTH = 280;
 const NODE_HEIGHT = 180;
 
-export function layoutExplainPlan(result: ExplainResult): { nodes: Node[]; edges: Edge[] } {
+export function layoutExplainPlan(
+  result: ExplainResult,
+  analysis?: HotPathAnalysis
+): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
   // Recursively collect nodes and edges from the plan tree
   function collectNodesAndEdges(node: ExplainPlanNode, parentId?: string) {
+    // Get analysis data for this node if available
+    const nodeAnalysis = analysis?.nodeAnalysis.get(node.id);
+
     nodes.push({
       id: node.id,
       type: "planNode",
       position: { x: 0, y: 0 }, // Will be set by dagre
-      data: node as unknown as Record<string, unknown>,
+      data: {
+        ...node,
+        // Inject hot path analysis data
+        tier: nodeAnalysis?.tier ?? "normal",
+        percentageOfTotal: nodeAnalysis?.percentageOfTotal ?? 0,
+        hasEstimationError: nodeAnalysis?.hasEstimationError ?? false,
+        rowEstimationRatio: nodeAnalysis?.rowEstimationRatio ?? 1,
+      } as unknown as Record<string, unknown>,
     });
 
     if (parentId) {
+      // Check if this edge connects hot nodes (parent or child is critical/warning)
+      const parentAnalysis = analysis?.nodeAnalysis.get(parentId);
+      const isHotEdge =
+        nodeAnalysis?.tier === "critical" ||
+        nodeAnalysis?.tier === "warning" ||
+        parentAnalysis?.tier === "critical" ||
+        parentAnalysis?.tier === "warning";
+      const isCriticalEdge =
+        nodeAnalysis?.tier === "critical" || parentAnalysis?.tier === "critical";
+
       edges.push({
         id: `edge-${parentId}-${node.id}`,
         source: parentId,
         target: node.id,
         type: "smoothstep",
-        animated: false,
+        animated: isCriticalEdge,
+        style: isHotEdge
+          ? isCriticalEdge
+            ? "stroke: #ef4444; stroke-width: 3px;"
+            : "stroke: #f97316; stroke-width: 2px;"
+          : undefined,
       });
     }
 

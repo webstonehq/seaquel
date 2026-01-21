@@ -1,11 +1,21 @@
 <script lang="ts">
   import { Handle, Position } from "@xyflow/svelte";
   import { Badge } from "$lib/components/ui/badge";
+  import * as Tooltip from "$lib/components/ui/tooltip";
   import type { ExplainPlanNode } from "$lib/types";
+  import type { HotPathTier } from "$lib/utils/explain-analysis";
   import { m } from "$lib/paraglide/messages.js";
+  import { FlameIcon, TriangleAlertIcon } from "@lucide/svelte";
+
+  interface ExplainPlanNodeWithAnalysis extends ExplainPlanNode {
+    tier?: HotPathTier;
+    percentageOfTotal?: number;
+    hasEstimationError?: boolean;
+    rowEstimationRatio?: number;
+  }
 
   interface Props {
-    data: ExplainPlanNode;
+    data: ExplainPlanNodeWithAnalysis;
     isConnectable: boolean;
   }
 
@@ -17,6 +27,13 @@
     if (cost > 1000) return "bg-orange-100 border-orange-300 dark:bg-orange-950 dark:border-orange-800";
     if (cost > 100) return "bg-yellow-100 border-yellow-300 dark:bg-yellow-950 dark:border-yellow-800";
     return "bg-green-100 border-green-300 dark:bg-green-950 dark:border-green-800";
+  };
+
+  // Get glow effect based on hot path tier
+  const getTierGlow = (tier?: HotPathTier) => {
+    if (tier === "critical") return "ring-2 ring-red-500 ring-offset-2 ring-offset-background shadow-[0_0_15px_rgba(239,68,68,0.4)]";
+    if (tier === "warning") return "ring-2 ring-orange-500 ring-offset-1 ring-offset-background";
+    return "";
   };
 
   // Format time nicely
@@ -35,18 +52,68 @@
     if (nodeType.includes("Aggregate")) return "default";
     return "outline";
   };
+
+  // Format percentage for display
+  const formatPercentage = (percentage?: number) => {
+    if (percentage === undefined) return "0";
+    return Math.round(percentage * 100);
+  };
 </script>
 
-<div class={`px-4 py-3 rounded-lg border-2 shadow-sm min-w-[250px] max-w-[280px] ${getCostColor(data.totalCost)}`}>
+<div class={`px-4 py-3 rounded-lg border-2 shadow-sm min-w-[250px] max-w-[280px] relative ${getCostColor(data.totalCost)} ${getTierGlow(data.tier)}`}>
   <!-- Input handle (top) -->
   <Handle type="target" position={Position.Top} {isConnectable} class="!bg-muted-foreground" />
+
+  <!-- Hot path indicator badges -->
+  {#if data.tier === "critical"}
+    <div class="absolute -top-3 -right-3 z-10">
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <Badge variant="destructive" class="text-xs font-semibold gap-1 px-2 py-1 shadow-md cursor-help">
+            <FlameIcon class="size-3" />
+            {formatPercentage(data.percentageOfTotal)}%
+          </Badge>
+        </Tooltip.Trigger>
+        <Tooltip.Content side="top" class="max-w-xs">
+          {m.explain_critical_tooltip({ percentage: formatPercentage(data.percentageOfTotal).toString() })}
+        </Tooltip.Content>
+      </Tooltip.Root>
+    </div>
+  {/if}
+
+  {#if data.hasEstimationError}
+    <div class="absolute -top-3 {data.tier === 'critical' ? 'right-16' : '-right-3'} z-10">
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <Badge variant="outline" class="text-xs font-medium gap-1 px-2 py-1 shadow-md bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-300 cursor-help">
+            <TriangleAlertIcon class="size-3" />
+            {data.rowEstimationRatio !== undefined ? `${Math.round(data.rowEstimationRatio)}x` : ""}
+          </Badge>
+        </Tooltip.Trigger>
+        <Tooltip.Content side="top" class="max-w-xs">
+          {m.explain_estimation_error_tooltip({ planned: data.planRows.toLocaleString(), actual: (data.actualRows ?? 0).toLocaleString(), ratio: Math.round(data.rowEstimationRatio ?? 1).toString() })}
+        </Tooltip.Content>
+      </Tooltip.Root>
+    </div>
+  {/if}
 
   <!-- Node Type Header -->
   <div class="flex items-center justify-between mb-2 gap-2">
     <Badge variant={getNodeTypeBadge(data.nodeType)} class="text-xs font-medium shrink-0">
       {data.nodeType}
     </Badge>
-    {#if data.joinType}
+    {#if data.tier === "warning"}
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <Badge variant="outline" class="text-xs font-medium gap-1 bg-orange-100 border-orange-400 text-orange-700 dark:bg-orange-950 dark:border-orange-700 dark:text-orange-300 cursor-help">
+            {formatPercentage(data.percentageOfTotal)}% {m.explain_of_time()}
+          </Badge>
+        </Tooltip.Trigger>
+        <Tooltip.Content side="top" class="max-w-xs">
+          {m.explain_warning_tooltip({ percentage: formatPercentage(data.percentageOfTotal).toString() })}
+        </Tooltip.Content>
+      </Tooltip.Root>
+    {:else if data.joinType}
       <Badge variant="outline" class="text-xs">{data.joinType}</Badge>
     {/if}
   </div>

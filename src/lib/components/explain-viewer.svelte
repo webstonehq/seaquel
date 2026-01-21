@@ -4,9 +4,11 @@
   import "@xyflow/svelte/dist/style.css";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { ClockIcon, RowsIcon, DatabaseIcon, FileCodeIcon, LoaderIcon } from "@lucide/svelte";
+  import * as Collapsible from "$lib/components/ui/collapsible";
+  import { ClockIcon, RowsIcon, DatabaseIcon, FileCodeIcon, LoaderIcon, FlameIcon, ChevronDownIcon } from "@lucide/svelte";
   import ExplainPlanNode from "./explain-plan-node.svelte";
   import { layoutExplainPlan } from "$lib/utils/explain-layout";
+  import { analyzeExplainPlan, type HotPathAnalysis } from "$lib/utils/explain-analysis";
   import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
   import { mode } from "mode-watcher";
   import { m } from "$lib/paraglide/messages.js";
@@ -21,20 +23,38 @@
     planNode: ExplainPlanNode,
   };
 
+  // Analyze the explain result for hot paths
+  const analysis: HotPathAnalysis | undefined = $derived.by(() => {
+    if (!db.state.activeExplainTab?.result) {
+      return undefined;
+    }
+    return analyzeExplainPlan(db.state.activeExplainTab.result);
+  });
+
   // Convert explain result to xyflow nodes and edges
   const flowData = $derived.by(() => {
     if (!db.state.activeExplainTab?.result) {
       return { nodes: [] as Node[], edges: [] as Edge[] };
     }
-    return layoutExplainPlan(db.state.activeExplainTab.result);
+    return layoutExplainPlan(db.state.activeExplainTab.result, analysis);
   });
 
   let nodes = $derived(flowData.nodes);
   let edges = $derived(flowData.edges);
 
+  // State for bottleneck collapsible
+  let bottlenecksOpen = $state(true);
+
   const handleViewQuery = () => {
     if (!db.state.activeExplainTab) return;
     db.queryTabs.focusOrCreate(db.state.activeExplainTab.sourceQuery, 'Query', () => db.ui.setActiveView("query"));
+  };
+
+  // Format time for display
+  const formatTime = (ms: number) => {
+    if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`;
+    if (ms < 1000) return `${ms.toFixed(2)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
   };
 </script>
 
@@ -82,6 +102,37 @@
             {m.explain_view_query()}
           </Button>
         </div>
+
+        <!-- Bottlenecks Summary -->
+        {#if analysis?.hasAnalyzeData && analysis.bottlenecks.length > 0}
+          <Collapsible.Root bind:open={bottlenecksOpen} class="mt-3">
+            <Collapsible.Trigger class="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              <FlameIcon class="size-4 text-red-500" />
+              <span>{m.explain_bottlenecks()} ({analysis.bottlenecks.length})</span>
+              <ChevronDownIcon class="size-4 transition-transform {bottlenecksOpen ? 'rotate-180' : ''}" />
+            </Collapsible.Trigger>
+            <Collapsible.Content class="mt-2">
+              <div class="flex flex-wrap gap-2">
+                {#each analysis.bottlenecks as bottleneck}
+                  <Badge
+                    variant={bottleneck.tier === "critical" ? "destructive" : "outline"}
+                    class="text-xs gap-1.5 {bottleneck.tier === 'warning' ? 'bg-orange-100 border-orange-400 text-orange-700 dark:bg-orange-950 dark:border-orange-700 dark:text-orange-300' : ''}"
+                  >
+                    {#if bottleneck.tier === "critical"}
+                      <FlameIcon class="size-3" />
+                    {/if}
+                    <span class="font-mono">{bottleneck.nodeType}</span>
+                    {#if bottleneck.relationName}
+                      <span class="text-muted-foreground">({bottleneck.relationName})</span>
+                    {/if}
+                    <span class="font-semibold">{Math.round(bottleneck.percentageOfTotal * 100)}%</span>
+                    <span class="text-muted-foreground">· {formatTime(bottleneck.effectiveTime)}</span>
+                  </Badge>
+                {/each}
+              </div>
+            </Collapsible.Content>
+          </Collapsible.Root>
+        {/if}
       </div>
 
       <!-- Flow Diagram -->

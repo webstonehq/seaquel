@@ -4,6 +4,7 @@
 	import { LoaderIcon, DatabaseIcon } from "@lucide/svelte";
 	import ExplainPlanNode from "$lib/components/explain-plan-node.svelte";
 	import { layoutExplainPlan } from "$lib/utils/explain-layout";
+	import { analyzeExplainPlan, type HotPathAnalysis } from "$lib/utils/explain-analysis";
 	import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
 	import type { EmbeddedExplainResult } from "$lib/types";
 	import { mode } from "mode-watcher";
@@ -23,12 +24,20 @@
 		planNode: ExplainPlanNode,
 	};
 
+	// Analyze the explain result for hot paths
+	const analysis: HotPathAnalysis | undefined = $derived.by(() => {
+		if (!explainResult.result) {
+			return undefined;
+		}
+		return analyzeExplainPlan(explainResult.result);
+	});
+
 	// Convert explain result to xyflow nodes and edges
 	const flowData = $derived.by(() => {
 		if (!explainResult.result) {
 			return { nodes: [] as Node[], edges: [] as Edge[] };
 		}
-		return layoutExplainPlan(explainResult.result);
+		return layoutExplainPlan(explainResult.result, analysis);
 	});
 
 	let nodes = $derived(flowData.nodes);
