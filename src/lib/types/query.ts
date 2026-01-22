@@ -140,6 +140,8 @@ export interface QueryTab {
 	isExecuting: boolean;
 	/** ID of the saved query this tab was loaded from, if any */
 	savedQueryId?: string;
+	/** ID of the shared query this tab was loaded from, if any */
+	sharedQueryId?: string;
 	/** Embedded explain result displayed below the editor */
 	explainResult?: EmbeddedExplainResult;
 	/** Embedded visualize result displayed below the editor */

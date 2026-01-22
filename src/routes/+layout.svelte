@@ -17,6 +17,7 @@
 	import DbeaverImportDialog from "$lib/components/dbeaver-import-dialog.svelte";
 	import type { ThemeColors } from "$lib/types/theme";
 	import { toast } from "svelte-sonner";
+	import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
 	import { onMount } from "svelte";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
@@ -51,7 +52,7 @@
 				}
 			} catch (error) {
 				console.error("[Demo] Failed to initialize:", error);
-				toast.error("Failed to initialize demo database");
+				errorToast("Failed to initialize demo database");
 			}
 		}
 	});
@@ -138,7 +139,7 @@
 	onbeforeunload={handleBeforeUnload}
 ></svelte:window>
 <ModeWatcher />
-<Toaster position="bottom-right" theme={"dark"} richColors />
+<Toaster position="bottom-right" richColors expand />
 
 {#if isThemeEditor}
 	<!-- Theme editor window: minimal layout, no app shell -->

@@ -6,6 +6,7 @@
 	import { Label } from "$lib/components/ui/label";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 	import { LoaderIcon } from "@lucide/svelte";
 	import type { SchemaColumn } from "$lib/types";
 	import { m } from "$lib/paraglide/messages.js";
@@ -48,13 +49,13 @@
 			if (value !== '' && value !== undefined) {
 				insertValues[col.name] = value;
 			} else if (!col.nullable && !col.defaultValue) {
-				toast.error(m.insert_row_error_required({ field: col.name }));
+				errorToast(m.insert_row_error_required({ field: col.name }));
 				return;
 			}
 		}
 
 		if (Object.keys(insertValues).length === 0) {
-			toast.error(m.insert_row_error_empty());
+			errorToast(m.insert_row_error_empty());
 			return;
 		}
 
@@ -69,7 +70,7 @@
 			open = false;
 			onSuccess();
 		} else {
-			toast.error(m.insert_row_error_failed({ error: result.error || '' }));
+			errorToast(m.insert_row_error_failed({ error: result.error || '' }));
 		}
 
 		isInserting = false;

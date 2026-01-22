@@ -24,6 +24,7 @@
 	import { setMode, resetMode, mode } from "mode-watcher";
 	import { setTheme } from "@tauri-apps/api/app";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 	import { open, save } from "@tauri-apps/plugin-dialog";
 	import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 	import SettingsIcon from "@lucide/svelte/icons/settings";
@@ -162,7 +163,7 @@
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			toast.error(m.theme_import_error({ error: message }));
+			errorToast(m.theme_import_error({ error: message }));
 		}
 	}
 

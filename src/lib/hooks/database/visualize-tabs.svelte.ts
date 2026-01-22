@@ -1,4 +1,5 @@
 import { toast } from 'svelte-sonner';
+import { errorToast } from '$lib/utils/toast';
 import type { VisualizeTab, ParsedQueryVisual } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
@@ -52,7 +53,7 @@ export class VisualizeTabManager {
 		const tabs = this.state.queryTabsByProject[projectId] ?? [];
 		const tab = tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.query.trim()) {
-			toast.error('No query to visualize');
+			errorToast('No query to visualize');
 			return false;
 		}
 
@@ -68,7 +69,7 @@ export class VisualizeTabManager {
 		}
 
 		if (!queryToVisualize.trim()) {
-			toast.error('No query to visualize');
+			errorToast('No query to visualize');
 			return false;
 		}
 
@@ -80,7 +81,7 @@ export class VisualizeTabManager {
 		this.setVisualizeResult(tabId, parsedQuery, tab.query, parseError);
 
 		if (parseError) {
-			toast.error(`Parse warning: ${parseError}`);
+			errorToast(`Parse warning: ${parseError}`);
 		}
 
 		return true;
@@ -97,7 +98,7 @@ export class VisualizeTabManager {
 		const tabs = this.state.queryTabsByProject[projectId] ?? [];
 		const tab = tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.query.trim()) {
-			toast.error('No query to visualize');
+			errorToast('No query to visualize');
 			return;
 		}
 
@@ -113,7 +114,7 @@ export class VisualizeTabManager {
 		}
 
 		if (!queryToVisualize.trim()) {
-			toast.error('No query to visualize');
+			errorToast('No query to visualize');
 			return;
 		}
 
@@ -149,7 +150,7 @@ export class VisualizeTabManager {
 		this.schedulePersistence(projectId);
 
 		if (parseError) {
-			toast.error(`Parse warning: ${parseError}`);
+			errorToast(`Parse warning: ${parseError}`);
 		}
 	}
 

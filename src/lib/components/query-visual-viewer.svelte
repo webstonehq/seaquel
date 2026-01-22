@@ -4,6 +4,7 @@
 	import "@xyflow/svelte/dist/style.css";
 	import { toPng } from "html-to-image";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 	import { save } from "@tauri-apps/plugin-dialog";
 	import { writeFile } from "@tauri-apps/plugin-fs";
 	import { Button } from "$lib/components/ui/button";
@@ -102,7 +103,7 @@
 			await writeFile(filePath, bytes);
 			toast.success('PNG saved');
 		} catch (e) {
-			toast.error('Failed to export PNG');
+			errorToast('Failed to export PNG');
 		}
 	};
 

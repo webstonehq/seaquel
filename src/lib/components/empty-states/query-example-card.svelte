@@ -5,6 +5,7 @@
 	import PlayIcon from "@lucide/svelte/icons/play";
 	import CopyIcon from "@lucide/svelte/icons/copy";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 
 	interface Props {
 		query: SampleQuery;
@@ -18,7 +19,7 @@
 			await navigator.clipboard.writeText(query.query);
 			toast.success(m.query_copied_to_clipboard({ format: "SQL" }));
 		} catch {
-			toast.error(m.query_copy_failed());
+			errorToast(m.query_copy_failed());
 		}
 	};
 </script>

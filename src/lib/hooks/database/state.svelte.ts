@@ -12,7 +12,10 @@ import type {
 	CanvasTab,
 	VisualizeTab,
 	Project,
-	StarterTab
+	StarterTab,
+	SharedQueryRepo,
+	SharedQuery,
+	SyncState
 } from '$lib/types';
 import type { SavedCanvas } from '$lib/types/canvas';
 
@@ -81,6 +84,13 @@ export class DatabaseState {
 	// === QUERY DATA STATE (per-connection) ===
 	queryHistoryByConnection = $state<Record<string, QueryHistoryItem[]>>({});
 	savedQueriesByConnection = $state<Record<string, SavedQuery[]>>({});
+
+	// === SHARED QUERY LIBRARY STATE ===
+	sharedRepos = $state<SharedQueryRepo[]>([]);
+	sharedReposLoading = $state(true);
+	activeRepoId = $state<string | null>(null);
+	sharedQueriesByRepo = $state<Record<string, SharedQuery[]>>({});
+	syncStateByRepo = $state<Record<string, SyncState>>({});
 
 	// === AI STATE ===
 	aiMessages = $state<AIMessage[]>([]);
@@ -272,5 +282,25 @@ export class DatabaseState {
 	// Derived: saved queries for active connection
 	activeConnectionSavedQueries = $derived(
 		this.activeConnectionId ? (this.savedQueriesByConnection[this.activeConnectionId] ?? []) : []
+	);
+
+	// === SHARED QUERY LIBRARY DERIVED VALUES ===
+
+	// Derived: active shared query repo object
+	activeRepo = $derived(this.sharedRepos.find((r) => r.id === this.activeRepoId) || null);
+
+	// Derived: shared queries for active repo
+	activeRepoQueries = $derived(
+		this.activeRepoId ? (this.sharedQueriesByRepo[this.activeRepoId] ?? []) : []
+	);
+
+	// Derived: sync state for active repo
+	activeRepoSyncState = $derived(
+		this.activeRepoId ? (this.syncStateByRepo[this.activeRepoId] ?? null) : null
+	);
+
+	// Derived: all shared queries across all repos (for search)
+	allSharedQueries = $derived(
+		Object.values(this.sharedQueriesByRepo).flat()
 	);
 }

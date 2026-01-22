@@ -11,8 +11,10 @@
 	import { Input } from "$lib/components/ui/input";
 	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon, DatabaseIcon, NetworkIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import ParameterInputDialog from "$lib/components/parameter-input-dialog.svelte";
+	import { SharedQueryEditor } from "$lib/components/shared-queries/index.js";
 	import MonacoEditor, { type MonacoEditorRef } from "$lib/components/monaco-editor.svelte";
 	import * as Resizable from "$lib/components/ui/resizable";
 	import { save } from "@tauri-apps/plugin-dialog";
@@ -49,6 +51,7 @@
 	const shortcuts = useShortcuts();
 	const sidebar = useSidebar();
 	let showSaveDialog = $state(false);
+	let showShareDialog = $state(false);
 	let showParamsDialog = $state(false);
 	let pendingParams = $state<QueryParameter[]>([]);
 	// Track pending action type: 'query' for execute all, 'query-current' for current statement, or explain details
@@ -181,7 +184,7 @@
 		if (result.success) {
 			toast.success(m.query_cell_updated());
 		} else {
-			toast.error(m.query_cell_update_failed({ error: result.error || '' }));
+			errorToast(m.query_cell_update_failed({ error: result.error || '' }));
 		}
 	}
 
@@ -205,7 +208,7 @@
 			toast.success(m.query_row_deleted());
 			await db.queries.execute(db.state.activeQueryTabId);
 		} else {
-			toast.error(m.query_row_delete_failed({ error: result.error || '' }));
+			errorToast(m.query_row_delete_failed({ error: result.error || '' }));
 		}
 
 		deletingRowIndex = null;
@@ -364,6 +367,11 @@
 		showSaveDialog = true;
 	};
 
+	const handleShare = () => {
+		if (!db.state.activeQueryTab?.query.trim()) return;
+		showShareDialog = true;
+	};
+
 	const handleFormat = () => {
 		if (!db.state.activeQueryTab?.query.trim()) return;
 		try {
@@ -374,7 +382,7 @@
 			});
 			db.queryTabs.updateContent(db.state.activeQueryTabId!, formatted);
 		} catch {
-			toast.error(m.query_format_failed());
+			errorToast(m.query_format_failed());
 		}
 	};
 
@@ -417,7 +425,7 @@
 			await navigator.clipboard.writeText(content);
 			toast.success(m.query_copied_to_clipboard({ format: formatNames[format] }));
 		} catch {
-			toast.error(m.query_copy_failed());
+			errorToast(m.query_copy_failed());
 		}
 	};
 
@@ -477,6 +485,7 @@
 			onVisualize={handleVisualize}
 			onFormat={handleFormat}
 			onSave={handleSave}
+			onShare={handleShare}
 		/>
 
 		<Resizable.PaneGroup direction="vertical" class="flex-1 min-h-0">
@@ -1019,6 +1028,13 @@
 		bind:open={showSaveDialog}
 		query={db.state.activeQueryTab.query}
 		tabId={db.state.activeQueryTab.id}
+	/>
+
+	<SharedQueryEditor
+		bind:open={showShareDialog}
+		onOpenChange={(open) => showShareDialog = open}
+		query={db.state.activeQueryTab.query}
+		name={db.state.activeQueryTab.name}
 	/>
 
 	<ParameterInputDialog

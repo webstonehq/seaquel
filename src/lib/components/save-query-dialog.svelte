@@ -23,6 +23,7 @@
 		CollapsibleTrigger
 	} from "$lib/components/ui/collapsible";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
 	import { extractParameters } from "$lib/db/query-params.js";
 	import type { QueryParameter, QueryParameterType } from "$lib/types";
@@ -84,7 +85,7 @@
 
 	const handleSave = () => {
 		if (!queryName.trim()) {
-			toast.error(m.save_query_error_name());
+			errorToast(m.save_query_error_name());
 			return;
 		}
 

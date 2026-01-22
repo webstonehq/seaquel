@@ -2,7 +2,6 @@
     import { onMount, onDestroy } from "svelte";
     import { flip } from "svelte/animate";
     import { dndzone } from "svelte-dnd-action";
-    import { Toaster } from "$lib/components/ui/sonner";
     import { isTauri } from "$lib/utils/environment";
     import { SidebarInset } from "$lib/components/ui/sidebar";
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
@@ -381,8 +380,6 @@
         };
     });
 </script>
-
-<Toaster position="bottom-right" richColors />
 
 <SidebarLeft />
 

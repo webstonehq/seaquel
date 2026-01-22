@@ -116,16 +116,26 @@ export class QueryTabManager {
 		// Empty tabs are not considered "unsaved"
 		if (!tab.query.trim()) return false;
 
-		// Tab not linked to a saved query = unsaved
-		if (!tab.savedQueryId) return true;
-
 		// Tab linked to saved query - compare content
-		const savedQuery = this.state.activeConnectionSavedQueries.find(
-			(q) => q.id === tab.savedQueryId
-		);
-		if (!savedQuery) return true;
+		if (tab.savedQueryId) {
+			const savedQuery = this.state.activeConnectionSavedQueries.find(
+				(q) => q.id === tab.savedQueryId
+			);
+			if (!savedQuery) return true;
+			return tab.query !== savedQuery.query;
+		}
 
-		return tab.query !== savedQuery.query;
+		// Tab linked to shared query - compare content
+		if (tab.sharedQueryId) {
+			const sharedQuery = this.state.allSharedQueries.find(
+				(q) => q.id === tab.sharedQueryId
+			);
+			if (!sharedQuery) return true;
+			return tab.query !== sharedQuery.query;
+		}
+
+		// Tab not linked to any saved/shared query = unsaved
+		return true;
 	}
 
 	/**
@@ -192,6 +202,52 @@ export class QueryTabManager {
 		} else {
 			// Create new tab
 			this.add(savedQuery.name, savedQuery.query, savedQueryId);
+			setActiveView?.();
+		}
+	}
+
+	/**
+	 * Load a shared query into a tab (or switch to existing tab).
+	 */
+	loadSharedQuery(
+		sharedQueryId: string,
+		name: string,
+		query: string,
+		setActiveView?: () => void
+	): void {
+		if (!this.state.activeProjectId) return;
+
+		// Check if a tab with this shared query is already open
+		const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
+		const existingTab = tabs.find((t) => t.sharedQueryId === sharedQueryId);
+
+		if (existingTab) {
+			// Switch to existing tab
+			this.setActive(existingTab.id);
+			setActiveView?.();
+		} else {
+			// Create new tab with sharedQueryId
+			const projectId = this.state.activeProjectId;
+			const newTab: QueryTab = $state({
+				id: `tab-${Date.now()}`,
+				name,
+				query,
+				isExecuting: false,
+				sharedQueryId
+			});
+
+			this.state.queryTabsByProject = {
+				...this.state.queryTabsByProject,
+				[projectId]: [...tabs, newTab]
+			};
+
+			this.state.activeQueryTabIdByProject = {
+				...this.state.activeQueryTabIdByProject,
+				[projectId]: newTab.id
+			};
+
+			this.tabOrdering.add(newTab.id);
+			this.schedulePersistence(projectId);
 			setActiveView?.();
 		}
 	}

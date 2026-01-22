@@ -18,7 +18,8 @@
 		ActivityIcon,
 		DatabaseIcon,
 		CheckIcon,
-		NetworkIcon
+		NetworkIcon,
+		GitBranchIcon
 	} from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { StatementResult } from "$lib/types";
@@ -34,6 +35,7 @@
 		onVisualize: () => void;
 		onFormat: () => void;
 		onSave: () => void;
+		onShare?: () => void;
 	};
 
 	let {
@@ -46,10 +48,14 @@
 		onExplain,
 		onVisualize,
 		onFormat,
-		onSave
+		onSave,
+		onShare
 	}: Props = $props();
 
 	const db = useDatabase();
+
+	// Check if shared repos exist
+	const hasSharedRepos = $derived(db.state.sharedRepos.length > 0);
 
 	// Get labels for a connection
 	const getConnectionLabels = (connectionId: string) => {
@@ -267,18 +273,44 @@
 				<ShortcutKeys keys={findShortcut('formatSql')!.keys} class="ms-1" />
 			{/if}
 		</Button>
-		<Button
-			size="sm"
-			variant="outline"
-			class="h-7 gap-1"
-			onclick={onSave}
-			disabled={!hasQuery}
-		>
-			<SaveIcon class="size-3" />
-			{m.query_save()}
-			{#if findShortcut('saveQuery')}
-				<ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ms-1" />
-			{/if}
-		</Button>
+		<div class="flex">
+			<Button
+				size="sm"
+				variant="outline"
+				class="h-7 gap-1 rounded-r-none border-r-0"
+				onclick={onSave}
+				disabled={!hasQuery}
+			>
+				<SaveIcon class="size-3" />
+				{m.query_save()}
+				{#if findShortcut('saveQuery')}
+					<ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ms-1" />
+				{/if}
+			</Button>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger
+					class={buttonVariants({ size: "sm", variant: "outline" }) +
+						" h-7 px-1.5 rounded-l-none"}
+					disabled={!hasQuery}
+				>
+					<ChevronDownIcon class="size-3" />
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content align="end">
+					<DropdownMenu.Item onclick={onSave}>
+						<SaveIcon class="size-4 me-2" />
+						{m.query_save()}
+						{#if findShortcut('saveQuery')}
+							<ShortcutKeys keys={findShortcut('saveQuery')!.keys} class="ms-auto" />
+						{/if}
+					</DropdownMenu.Item>
+					{#if onShare}
+						<DropdownMenu.Item onclick={onShare} disabled={!hasSharedRepos}>
+							<GitBranchIcon class="size-4 me-2" />
+							Share to Repository
+						</DropdownMenu.Item>
+					{/if}
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
+		</div>
 	</div>
 </div>
