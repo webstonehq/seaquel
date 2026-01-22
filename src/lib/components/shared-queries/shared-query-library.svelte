@@ -14,6 +14,7 @@
 	import SyncStatusBadge from "./sync-status-badge.svelte";
 	import SyncButton from "./sync-button.svelte";
 	import AddRepoDialog from "./add-repo-dialog.svelte";
+	import ManageReposDialog from "./manage-repos-dialog.svelte";
 	import SyncConflictDialog from "./sync-conflict-dialog.svelte";
 	import type { SharedQuery, SharedQueryFolder } from "$lib/types";
 	import {
@@ -24,7 +25,8 @@
 		Trash2Icon,
 		CopyIcon,
 		PlayIcon,
-		AlertTriangleIcon
+		AlertTriangleIcon,
+		SettingsIcon
 	} from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
@@ -33,6 +35,7 @@ import { errorToast } from "$lib/utils/toast";
 
 	let expandedFolders = new SvelteSet<string>();
 	let showAddRepoDialog = $state(false);
+	let showManageReposDialog = $state(false);
 	let showConflictDialog = $state(false);
 
 	// Conflict detection
@@ -154,13 +157,13 @@ import { errorToast } from "$lib/utils/toast";
 		</div>
 	{:else}
 		<!-- Repository selector -->
-		<div class="py-1">
+		<div class="py-1 pr-2">
 			<Select.Root
 				type="single"
 				value={db.state.activeRepoId ?? undefined}
 				onValueChange={(v) => db.sharedRepos.setActiveRepo(v ?? null)}
 			>
-				<Select.Trigger class="h-7 text-xs">
+				<Select.Trigger class="h-7 text-xs w-full">
 					{db.state.activeRepo?.name ?? "Select repository"}
 				</Select.Trigger>
 				<Select.Content>
@@ -182,7 +185,7 @@ import { errorToast } from "$lib/utils/toast";
 
 		{#if db.state.activeRepoId && db.state.activeRepo}
 			<!-- Sync controls -->
-			<div class="py-1 flex items-center gap-2">
+			<div class="py-1 flex items-center gap-2 pr-2">
 				<SyncButton repoId={db.state.activeRepoId} size="sm" />
 				<SyncStatusBadge
 					status={db.state.activeRepo.syncStatus}
@@ -192,10 +195,10 @@ import { errorToast } from "$lib/utils/toast";
 					size="icon"
 					variant="ghost"
 					class="size-6 ms-auto [&_svg:not([class*='size-'])]:size-3"
-					onclick={() => (showAddRepoDialog = true)}
+					onclick={() => (showManageReposDialog = true)}
 					title="Manage repositories"
 				>
-					<PlusIcon />
+					<SettingsIcon />
 				</Button>
 			</div>
 
@@ -225,6 +228,12 @@ import { errorToast } from "$lib/utils/toast";
 </div>
 
 <AddRepoDialog bind:open={showAddRepoDialog} onOpenChange={(open) => (showAddRepoDialog = open)} />
+
+<ManageReposDialog
+	bind:open={showManageReposDialog}
+	onOpenChange={(open) => (showManageReposDialog = open)}
+	onAddRepo={() => (showAddRepoDialog = true)}
+/>
 
 {#if db.state.activeRepoId && hasConflicts}
 	<SyncConflictDialog

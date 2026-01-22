@@ -35,8 +35,52 @@
 	// Track if we're updating programmatically to avoid loops
 	let isUpdatingFromProp = false;
 
-	// Derive Monaco theme from mode-watcher
-	const editorTheme = $derived(mode.current === "dark" ? "vs-dark" : "vs");
+	// Derive Monaco theme from mode-watcher (use custom themes with variable styling)
+	const editorTheme = $derived(mode.current === "dark" ? "seaquel-dark" : "seaquel-light");
+
+	// Decoration type for template variables
+	let variableDecorationType: monaco.editor.IEditorDecorationsCollection | null = null;
+
+	/**
+	 * Find all template variables ({{var}}) in the editor and apply decorations
+	 */
+	function updateVariableDecorations() {
+		if (!editor) return;
+
+		const model = editor.getModel();
+		if (!model) return;
+
+		const text = model.getValue();
+		const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+
+		// Match {{variable_name}} patterns
+		const regex = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+		let match;
+
+		while ((match = regex.exec(text)) !== null) {
+			const startPos = model.getPositionAt(match.index);
+			const endPos = model.getPositionAt(match.index + match[0].length);
+
+			decorations.push({
+				range: new monaco.Range(
+					startPos.lineNumber,
+					startPos.column,
+					endPos.lineNumber,
+					endPos.column
+				),
+				options: {
+					inlineClassName: "template-variable-decoration"
+				}
+			});
+		}
+
+		// Apply decorations (replaces previous ones)
+		if (variableDecorationType) {
+			variableDecorationType.set(decorations);
+		} else {
+			variableDecorationType = editor.createDecorationsCollection(decorations);
+		}
+	}
 
 	onMount(async () => {
 		await initMonaco();
@@ -73,7 +117,12 @@
 				value = newValue;
 				onChange(newValue);
 			}
+			// Update variable decorations on content change
+			updateVariableDecorations();
 		});
+
+		// Initial decoration pass
+		updateVariableDecorations();
 
 		// Add Cmd/Ctrl+Enter keybinding for query execution
 		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
@@ -109,13 +158,15 @@
 			isUpdatingFromProp = true;
 			editor.setValue(currentValue);
 			isUpdatingFromProp = false;
+			// Update decorations for new content
+			updateVariableDecorations();
 		}
 	});
 
 	// React to theme changes
 	$effect(() => {
 		// Explicitly access mode.current to ensure reactivity
-		const theme = mode.current === "dark" ? "vs-dark" : "vs";
+		const theme = mode.current === "dark" ? "seaquel-dark" : "seaquel-light";
 		if (editor) {
 			monaco.editor.setTheme(theme);
 		}
@@ -123,3 +174,21 @@
 </script>
 
 <div bind:this={container} class={["h-full w-full", className].filter(Boolean).join(" ")}></div>
+
+<style>
+	/* Template variable styling - applied via Monaco decorations */
+	:global(.template-variable-decoration) {
+		color: #9333ea !important;
+		font-weight: 600;
+		background-color: rgba(147, 51, 234, 0.1);
+		border-radius: 3px;
+		padding: 0 2px;
+		margin: 0 -2px;
+	}
+
+	/* Dark mode styling - using mode-watcher's dark class on :root */
+	:global(.dark .template-variable-decoration) {
+		color: #c084fc !important;
+		background-color: rgba(192, 132, 252, 0.15);
+	}
+</style>
