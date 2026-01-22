@@ -1,4 +1,5 @@
 import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 import type {
   PersistedQueryTab,
   PersistedSchemaTab,
@@ -13,7 +14,9 @@ import type {
   PersistedProject,
   PersistedProjectState,
   ConnectionLabel,
+  PersistedSharedQueryRepo,
 } from "$lib/types";
+import { serializeRepo, deserializeRepo } from "$lib/types";
 import type { SavedCanvas } from "$lib/types/canvas";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
@@ -33,6 +36,7 @@ import { getKeyringService } from "$lib/services/keyring";
  */
 export class PersistenceManager {
   private persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private sharedReposTimer: ReturnType<typeof setTimeout> | null = null;
   readonly PERSISTENCE_DEBOUNCE_MS = 500;
   readonly MAX_HISTORY_ITEMS = 500;
 
@@ -70,12 +74,29 @@ export class PersistenceManager {
   }
 
   /**
+   * Schedule shared repos persistence.
+   */
+  scheduleSharedRepos(): void {
+    if (this.sharedReposTimer) {
+      clearTimeout(this.sharedReposTimer);
+    }
+    this.sharedReposTimer = setTimeout(() => {
+      this.persistSharedRepos();
+      this.sharedReposTimer = null;
+    }, this.PERSISTENCE_DEBOUNCE_MS);
+  }
+
+  /**
    * Immediately flush any pending persistence operations.
    */
   flush(): void {
     if (this.persistenceTimer) {
       clearTimeout(this.persistenceTimer);
       this.persistenceTimer = null;
+    }
+    if (this.sharedReposTimer) {
+      clearTimeout(this.sharedReposTimer);
+      this.sharedReposTimer = null;
     }
     // Persist all projects that have data
     for (const projectId of Object.keys(this.state.queryTabsByProject)) {
@@ -84,6 +105,10 @@ export class PersistenceManager {
     // Persist all connection data
     for (const connectionId of Object.keys(this.state.queryHistoryByConnection)) {
       this.persistConnectionData(connectionId);
+    }
+    // Persist shared repos
+    if (this.state.sharedRepos.length > 0) {
+      this.persistSharedRepos();
     }
   }
 
@@ -525,12 +550,12 @@ export class PersistenceManager {
           }
         } catch (error) {
           console.warn("Failed to save credentials to keyring:", error);
-          toast.error("Could not save password to system keychain");
+          errorToast("Could not save password to system keychain");
         }
       }
     } catch (error) {
       console.error("Failed to persist connection:", error);
-      toast.error("Failed to save connection to storage");
+      errorToast("Failed to save connection to storage");
     }
   }
 
@@ -562,7 +587,7 @@ export class PersistenceManager {
       await this.removeConnectionData(connectionId);
     } catch (error) {
       console.error("Failed to delete persisted connection:", error);
-      toast.error("Failed to delete connection from storage");
+      errorToast("Failed to delete connection from storage");
     }
   }
 
@@ -577,6 +602,43 @@ export class PersistenceManager {
     } catch (error) {
       console.error("Failed to load persisted connections:", error);
       return [];
+    }
+  }
+
+  // === SHARED QUERY REPOS PERSISTENCE ===
+
+  async persistSharedRepos(): Promise<void> {
+    try {
+      const store = await loadStore("shared_repos.json", {
+        autoSave: true,
+        defaults: { repos: [], activeRepoId: null },
+      });
+
+      const repos: PersistedSharedQueryRepo[] = this.state.sharedRepos.map(serializeRepo);
+
+      await store.set("repos", repos);
+      await store.set("activeRepoId", this.state.activeRepoId);
+      await store.save();
+    } catch (error) {
+      console.error("Failed to persist shared repos:", error);
+    }
+  }
+
+  async loadSharedRepos(): Promise<{
+    repos: PersistedSharedQueryRepo[];
+    activeRepoId: string | null;
+  }> {
+    try {
+      const store = await loadStore("shared_repos.json", {
+        autoSave: false,
+        defaults: { repos: [], activeRepoId: null },
+      });
+      const repos = (await store.get("repos")) as PersistedSharedQueryRepo[] || [];
+      const activeRepoId = (await store.get("activeRepoId")) as string | null;
+      return { repos, activeRepoId };
+    } catch (error) {
+      console.error("Failed to load shared repos:", error);
+      return { repos: [], activeRepoId: null };
     }
   }
 

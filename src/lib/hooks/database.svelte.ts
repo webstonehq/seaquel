@@ -22,6 +22,8 @@ import { LabelManager } from "./database/label-manager.svelte.js";
 import { StarterTabManager } from "./database/starter-tabs.svelte.js";
 import { CanvasState } from "./database/canvas-state.svelte.js";
 import { CanvasManager } from "./database/canvas-manager.svelte.js";
+import { SharedRepoManager } from "./database/shared-repo-manager.svelte.js";
+import { SharedQueryManager } from "./database/shared-query-manager.svelte.js";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -56,6 +58,8 @@ class UseDatabase {
   readonly starterTabs: StarterTabManager;
   readonly canvasState: CanvasState;
   readonly canvas: CanvasManager;
+  readonly sharedRepos: SharedRepoManager;
+  readonly sharedQueries: SharedQueryManager;
 
   private _stateRestoration: StateRestorationManager;
 
@@ -127,6 +131,10 @@ class UseDatabase {
     this.savedQueries = new SavedQueryManager(this.state, scheduleConnectionDataPersistence, scheduleProjectPersistence);
     this.queries = new QueryExecutionManager(this.state, this.history);
 
+    // Shared query library
+    this.sharedRepos = new SharedRepoManager(this.state, () => this.persistence.scheduleSharedRepos());
+    this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
+
     // Connections (depends on other managers)
     this.connections = new ConnectionManager(
       this.state,
@@ -171,7 +179,7 @@ class UseDatabase {
 
   /**
    * Initialize the application state.
-   * Projects are loaded first, then connections.
+   * Projects are loaded first, then connections, then shared repos.
    */
   private async initializeApp(): Promise<void> {
     try {
@@ -180,9 +188,48 @@ class UseDatabase {
 
       // Initialize connections
       await this.connections.initializePersistedConnections();
+
+      // Initialize shared repos
+      await this.initializeSharedRepos();
     } catch (error) {
       console.error("Failed to initialize app:", error);
     }
+  }
+
+  /**
+   * Initialize shared query repositories from persisted state.
+   */
+  private async initializeSharedRepos(): Promise<void> {
+    try {
+      const { repos, activeRepoId } = await this.persistence.loadSharedRepos();
+
+      // Convert persisted repos to runtime form
+      const { deserializeRepo } = await import("$lib/types/shared-queries");
+      this.state.sharedRepos = repos.map(deserializeRepo);
+      this.state.activeRepoId = activeRepoId;
+
+      // Load queries from each repo
+      for (const repo of this.state.sharedRepos) {
+        await this.sharedRepos.loadQueriesFromRepo(repo.id);
+        await this.sharedRepos.refreshRepoStatus(repo.id);
+      }
+
+      // Start background refresh if there are repos
+      if (this.state.sharedRepos.length > 0) {
+        this.sharedRepos.startBackgroundRefresh();
+      }
+    } catch (error) {
+      console.error("Failed to initialize shared repos:", error);
+    } finally {
+      this.state.sharedReposLoading = false;
+    }
+  }
+
+  /**
+   * Clean up resources when the database context is destroyed.
+   */
+  destroy(): void {
+    this.sharedRepos.stopBackgroundRefresh();
   }
 }
 

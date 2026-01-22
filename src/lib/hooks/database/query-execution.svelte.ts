@@ -1,4 +1,5 @@
 import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 import type { DatabaseConnection, QueryResult, StatementResult, ParameterValue } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
@@ -266,7 +267,7 @@ export class QueryExecutionManager {
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) {
-      toast.error("Not connected to database. Please reconnect.");
+      errorToast("Not connected to database. Please reconnect.");
       return;
     }
 
@@ -348,7 +349,7 @@ export class QueryExecutionManager {
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) {
-      toast.error("Not connected to database. Please reconnect.");
+      errorToast("Not connected to database. Please reconnect.");
       return;
     }
 
@@ -427,7 +428,7 @@ export class QueryExecutionManager {
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) {
-      toast.error("Not connected to database. Please reconnect.");
+      errorToast("Not connected to database. Please reconnect.");
       return;
     }
 
@@ -518,7 +519,7 @@ export class QueryExecutionManager {
     const connection = this.state.activeConnection;
     const isConnected = connection?.providerConnectionId || connection?.mssqlConnectionId;
     if (!connection || !isConnected) {
-      toast.error("Not connected to database. Please reconnect.");
+      errorToast("Not connected to database. Please reconnect.");
       return;
     }
 

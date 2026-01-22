@@ -13,6 +13,7 @@
 	import FolderIcon from "@lucide/svelte/icons/folder";
 	import CopyIcon from "@lucide/svelte/icons/copy";
 	import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 
 	const keyring = getKeyringService();
 	const keychainAvailable = keyring.isAvailable();
@@ -203,7 +204,7 @@
 							await navigator.clipboard.writeText(error ?? '');
 							toast.success(m.query_error_copied());
 						} catch {
-							toast.error(m.query_copy_failed());
+							errorToast(m.query_copy_failed());
 						}
 					}}
 				>

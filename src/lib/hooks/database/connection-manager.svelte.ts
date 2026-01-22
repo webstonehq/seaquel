@@ -1,4 +1,5 @@
 import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
@@ -194,7 +195,7 @@ export class ConnectionManager {
         tunnelLocalPort: tunnelResult.localPort,
       };
     } catch (error) {
-      toast.error(`SSH tunnel failed: ${error}`);
+      errorToast(`SSH tunnel failed: ${error}`);
       throw error;
     }
   }

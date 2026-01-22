@@ -7,6 +7,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 mod duckdb_commands;
+mod git;
 mod mssql;
 mod ssh_tunnel;
 
@@ -213,6 +214,18 @@ pub fn run() {
             duckdb_commands::duckdb_query,
             duckdb_commands::duckdb_execute,
             duckdb_commands::duckdb_test,
+            git::git_clone_repo,
+            git::git_init_repo,
+            git::git_pull_repo,
+            git::git_push_repo,
+            git::git_get_repo_status,
+            git::git_commit_changes,
+            git::git_stage_file,
+            git::git_discard_file,
+            git::git_resolve_conflict,
+            git::git_get_conflict_content,
+            git::git_set_remote,
+            git::git_get_remote_url,
         ])
         .setup(|app| {
             // Set up custom menu

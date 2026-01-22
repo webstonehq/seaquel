@@ -4,6 +4,7 @@
  */
 
 import { toast } from 'svelte-sonner';
+import { errorToast } from '$lib/utils/toast';
 import type { AppError, ErrorCode } from './types';
 
 type ErrorSeverity = 'error' | 'warning' | 'info';
@@ -53,7 +54,7 @@ export function handleError(error: AppError, options?: HandleErrorOptions): void
 
 	switch (severity) {
 		case 'error':
-			toast.error(error.userMessage);
+			errorToast(error.userMessage);
 			break;
 		case 'warning':
 			toast.warning(error.userMessage);

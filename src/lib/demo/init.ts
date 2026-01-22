@@ -3,7 +3,7 @@
  * Sets up DuckDB with sample data when running in browser mode.
  */
 
-import { getProvider, isDemo } from '$lib/providers';
+import { getDuckDBProvider, isDemo } from '$lib/providers';
 import type { DuckDBProvider } from '$lib/providers/duckdb-provider';
 import { SAMPLE_SCHEMA, SAMPLE_DATA } from './sample-data';
 
@@ -18,7 +18,7 @@ export async function initializeDemo(): Promise<string | null> {
 		return null;
 	}
 
-	const provider = (await getProvider()) as DuckDBProvider;
+	const provider = (await getDuckDBProvider()) as DuckDBProvider;
 
 	// Connect to in-memory DuckDB
 	const connectionId = await provider.connect({

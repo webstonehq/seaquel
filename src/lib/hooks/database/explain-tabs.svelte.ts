@@ -1,4 +1,5 @@
 import { toast } from 'svelte-sonner';
+import { errorToast } from '$lib/utils/toast';
 import type { ExplainTab, ExplainResult, ExplainPlanNode, ParameterValue } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
@@ -141,7 +142,7 @@ export class ExplainTabManager {
 			this.setExplainResult(tabId, explainResult, tab.query, analyze);
 		} catch (error) {
 			this.setExplainExecuting(tabId, false, analyze);
-			toast.error(`Explain failed: ${error}`);
+			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -240,7 +241,7 @@ export class ExplainTabManager {
 			this.setExplainResult(tabId, explainResult, tab.query, analyze);
 		} catch (error) {
 			this.setExplainExecuting(tabId, false, analyze);
-			toast.error(`Explain failed: ${error}`);
+			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -400,7 +401,7 @@ export class ExplainTabManager {
 
 			// Switch back to query view
 			this.setActiveView('query');
-			toast.error(`Explain failed: ${error}`);
+			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -538,7 +539,7 @@ export class ExplainTabManager {
 
 			// Switch back to query view
 			this.setActiveView('query');
-			toast.error(`Explain failed: ${error}`);
+			errorToast(`Explain failed: ${error}`);
 		}
 	}
 

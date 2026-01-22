@@ -41,6 +41,7 @@ arboard = "3.6.1"
 image = "0.25.9"
 dirs = "5"
 tauri-plugin-keyring = "0.1"
+git2 = { version = "0.19", features = ["vendored-libgit2", "vendored-openssl"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

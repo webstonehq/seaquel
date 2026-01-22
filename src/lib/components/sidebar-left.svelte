@@ -7,7 +7,8 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon, LayoutGridIcon, MoreHorizontalIcon } from "@lucide/svelte";
+	import { TableIcon, ChevronRightIcon, FolderIcon, HistoryIcon, StarIcon, ClockIcon, BookmarkIcon, Trash2Icon, SearchIcon, DatabaseIcon, FileTextIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon, LayoutGridIcon, MoreHorizontalIcon, GitBranchIcon } from "@lucide/svelte";
+	import { SharedQueryLibrary } from "$lib/components/shared-queries";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -47,6 +48,7 @@
 	let expandedSchemas = new SvelteSet<string>();
 	let historyExpanded = $state(true);
 	let savedExpanded = $state(true);
+	let sharedExpanded = $state(true);
 	let searchQuery = $state("");
 	let schemaSearchQuery = $state("");
 
@@ -308,7 +310,12 @@
 
 	<SidebarContent>
 		{#if db.state.activeConnectionId && db.state.activeConnection && (db.state.activeConnection.database || db.state.activeConnection.mssqlConnectionId || db.state.activeConnection.providerConnectionId)}
-			{#if sidebarTab === "schema"}
+			<!-- Schema Tab Panel -->
+			<div
+				class={["flex flex-col", sidebarTab !== "schema" && "hidden"]}
+				aria-hidden={sidebarTab !== "schema"}
+				inert={sidebarTab !== "schema" ? true : undefined}
+			>
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -386,7 +393,14 @@
 						</SidebarMenu>
 					</SidebarGroupContent>
 				</SidebarGroup>
-		{:else if sidebarTab === "queries"}
+			</div>
+
+			<!-- Queries Tab Panel -->
+			<div
+				class={["flex flex-col", sidebarTab !== "queries" && "hidden"]}
+				aria-hidden={sidebarTab !== "queries"}
+				inert={sidebarTab !== "queries" ? true : undefined}
+			>
 				<div class="p-3 pb-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -401,6 +415,27 @@
 				<SidebarGroup>
 					<SidebarGroupContent>
 						<SidebarMenu>
+							<!-- Shared folder -->
+							<Collapsible bind:open={sharedExpanded}>
+								<SidebarMenuItem>
+									<CollapsibleTrigger>
+										{#snippet child({ props })}
+											<SidebarMenuButton {...props}>
+												<ChevronRightIcon class={["size-4 transition-transform", sharedExpanded && "rotate-90"]} />
+												<GitBranchIcon class="size-4" />
+												<span class="flex-1">Shared</span>
+												<Badge variant="secondary" class="text-xs">{db.state.activeRepoQueries.length}</Badge>
+											</SidebarMenuButton>
+										{/snippet}
+									</CollapsibleTrigger>
+									<CollapsibleContent>
+										<div class="ms-4 border-s border-sidebar-border ps-2">
+											<SharedQueryLibrary />
+										</div>
+									</CollapsibleContent>
+								</SidebarMenuItem>
+							</Collapsible>
+
 							<!-- Saved folder -->
 							<Collapsible bind:open={savedExpanded}>
 								<SidebarMenuItem>
@@ -518,11 +553,10 @@
 								</SidebarMenuItem>
 							</Collapsible>
 
-
 						</SidebarMenu>
 					</SidebarGroupContent>
 				</SidebarGroup>
-		{/if}
+			</div>
 		{/if}
 	</SidebarContent>
 

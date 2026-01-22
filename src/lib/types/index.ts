@@ -87,3 +87,19 @@ export type {
 	PersistedConnectionState,
 	ActiveViewType
 } from './persisted';
+
+// Shared query library types
+export type {
+	RepoSyncStatus,
+	SharedQueryRepo,
+	SharedQuery,
+	SyncState,
+	GitCredentials,
+	SyncResult,
+	RepoStatus,
+	ConflictContent,
+	QueryFrontmatter,
+	SharedQueryFolder,
+	PersistedSharedQueryRepo
+} from './shared-queries';
+export { serializeRepo, deserializeRepo } from './shared-queries';

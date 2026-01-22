@@ -2,6 +2,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import { XCircleIcon, CopyIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
+	import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {
@@ -17,7 +18,7 @@
 			await navigator.clipboard.writeText(error);
 			toast.success(m.query_error_copied());
 		} catch {
-			toast.error(m.query_copy_failed());
+			errorToast(m.query_copy_failed());
 		}
 	};
 </script>

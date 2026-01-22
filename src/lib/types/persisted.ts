@@ -19,6 +19,8 @@ export interface PersistedQueryTab {
 	query: string;
 	/** ID of the saved query this tab was loaded from */
 	savedQueryId?: string;
+	/** ID of the shared query this tab was loaded from */
+	sharedQueryId?: string;
 }
 
 /**

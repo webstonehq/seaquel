@@ -5,6 +5,7 @@
   import { toPng } from "html-to-image";
   import { generateErdSvg } from "$lib/utils/erd-svg-export";
   import { toast } from "svelte-sonner";
+import { errorToast } from "$lib/utils/toast";
   import { save } from "@tauri-apps/plugin-dialog";
   import { writeFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
   import { tempDir } from "@tauri-apps/api/path";
@@ -146,7 +147,7 @@
       await writeFile(filePath, bytes);
       toast.success('PNG saved');
     } catch (e) {
-      toast.error('Failed to export PNG');
+      errorToast('Failed to export PNG');
     }
   };
 
@@ -164,7 +165,7 @@
       await writeTextFile(filePath, svg);
       toast.success('SVG saved');
     } catch (e) {
-      toast.error('Failed to export SVG');
+      errorToast('Failed to export SVG');
     }
   };
 
@@ -190,7 +191,7 @@
       toast.success('PNG copied to clipboard');
     } catch (e) {
       console.error('Failed to copy PNG:', e);
-      toast.error('Failed to copy PNG');
+      errorToast('Failed to copy PNG');
     }
   };
 
@@ -202,7 +203,7 @@
       await writeText(svg);
       toast.success('SVG copied to clipboard');
     } catch (e) {
-      toast.error('Failed to copy SVG');
+      errorToast('Failed to copy SVG');
     }
   };
 </script>
