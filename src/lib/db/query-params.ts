@@ -112,14 +112,17 @@ function isInsideStringLiteral(query: string, position: number): boolean {
  * Special handling for parameters inside string literals:
  * - For PostgreSQL/SQLite: breaks the string to concatenate with parameter: '%{{name}}%' -> '%' || $1 || '%'
  * - For MSSQL/DuckDB: substitutes the value directly without adding quotes
+ *
+ * @param forceInline If true, always use inline substitution (useful for visualization/parsing)
  */
 export function substituteParameters(
 	query: string,
 	parameterValues: ParameterValue[],
-	dbType: DatabaseType
+	dbType: DatabaseType,
+	forceInline: boolean = false
 ): { sql: string; bindValues: unknown[] } {
 	const paramMap = new Map(parameterValues.map((p) => [p.name, p.value]));
-	const useInlineSubstitution = dbType === 'mssql' || dbType === 'duckdb';
+	const useInlineSubstitution = forceInline || dbType === 'mssql' || dbType === 'duckdb';
 
 	// For databases using inline substitution (MSSQL/DuckDB)
 	if (useInlineSubstitution) {

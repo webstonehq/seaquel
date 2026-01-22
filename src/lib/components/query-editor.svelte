@@ -54,8 +54,8 @@ import { errorToast } from "$lib/utils/toast";
 	let showShareDialog = $state(false);
 	let showParamsDialog = $state(false);
 	let pendingParams = $state<QueryParameter[]>([]);
-	// Track pending action type: 'query' for execute all, 'query-current' for current statement, or explain details
-	let pendingAction = $state<'query' | { type: 'query-current'; cursorOffset: number } | { type: 'explain'; analyze: boolean; cursorOffset: number } | null>(null);
+	// Track pending action type: 'query' for execute all, 'query-current' for current statement, explain or visualize details
+	let pendingAction = $state<'query' | { type: 'query-current'; cursorOffset: number } | { type: 'explain'; analyze: boolean; cursorOffset: number } | { type: 'visualize'; cursorOffset: number } | null>(null);
 	let deletingRowIndex = $state<number | null>(null);
 	let pendingDeleteRow = $state<{ index: number; row: Record<string, unknown> } | null>(null);
 	let showDeleteConfirm = $state(false);
@@ -293,6 +293,16 @@ import { errorToast } from "$lib/utils/toast";
 			if (resultKey) {
 				viewModeByResult[resultKey] = 'explain';
 			}
+		} else if (pendingAction && typeof pendingAction === 'object' && pendingAction.type === 'visualize') {
+			const success = db.visualizeTabs.visualizeEmbeddedWithParams(
+				db.state.activeQueryTabId,
+				values,
+				pendingAction.cursorOffset
+			);
+			// Switch view mode to visualize
+			if (success && resultKey) {
+				viewModeByResult[resultKey] = 'visualize';
+			}
 		}
 		pendingAction = null;
 	};
@@ -324,24 +334,72 @@ import { errorToast } from "$lib/utils/toast";
 
 	const handleVisualize = () => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
-		const success = db.visualizeTabs.visualizeEmbedded(db.state.activeQueryTabId, cursorOffset);
-		// Switch view mode to visualize
-		if (success && resultKey) {
-			viewModeByResult[resultKey] = 'visualize';
+		const dbType = db.state.activeConnection?.type ?? "postgres";
+
+		// Get the current statement to check for parameters
+		const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+		const queryToCheck = currentStatement?.sql ?? query;
+
+		// Check if query has parameters
+		if (hasParameters(queryToCheck)) {
+			pendingParams = getParameterDefinitions(queryToCheck);
+			pendingAction = { type: 'visualize', cursorOffset };
+			showParamsDialog = true;
+		} else {
+			// No parameters, visualize directly
+			const success = db.visualizeTabs.visualizeEmbedded(db.state.activeQueryTabId, cursorOffset);
+			// Switch view mode to visualize
+			if (success && resultKey) {
+				viewModeByResult[resultKey] = 'visualize';
+			}
 		}
 	};
 
 	const handleRefreshExplain = (analyze: boolean) => {
-		if (!db.state.activeQueryTabId) return;
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
-		db.explainTabs.executeEmbedded(db.state.activeQueryTabId, analyze, cursorOffset);
+		const dbType = db.state.activeConnection?.type ?? "postgres";
+
+		// Get the current statement to check for parameters
+		const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+		const queryToCheck = currentStatement?.sql ?? query;
+
+		// Check if query has parameters
+		if (hasParameters(queryToCheck)) {
+			pendingParams = getParameterDefinitions(queryToCheck);
+			pendingAction = { type: 'explain', analyze, cursorOffset };
+			showParamsDialog = true;
+		} else {
+			// No parameters, execute directly
+			db.explainTabs.executeEmbedded(db.state.activeQueryTabId, analyze, cursorOffset);
+		}
 	};
 
 	const handleRefreshVisualize = () => {
-		if (!db.state.activeQueryTabId) return;
+		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
-		db.visualizeTabs.visualizeEmbedded(db.state.activeQueryTabId, cursorOffset);
+		const dbType = db.state.activeConnection?.type ?? "postgres";
+
+		// Get the current statement to check for parameters
+		const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+		const queryToCheck = currentStatement?.sql ?? query;
+
+		// Check if query has parameters
+		if (hasParameters(queryToCheck)) {
+			pendingParams = getParameterDefinitions(queryToCheck);
+			pendingAction = { type: 'visualize', cursorOffset };
+			showParamsDialog = true;
+		} else {
+			// No parameters, visualize directly
+			db.visualizeTabs.visualizeEmbedded(db.state.activeQueryTabId, cursorOffset);
+		}
 	};
 
 	const handleCloseExplain = () => {
