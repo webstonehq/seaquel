@@ -150,14 +150,30 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
         .fetch(&[&branch_name], Some(&mut fetch_opts), None)
         .map_err(|e| format!("Failed to fetch: {}", e))?;
 
-    // Get the fetch head
-    let fetch_head = repo
-        .find_reference("FETCH_HEAD")
-        .map_err(|e| format!("Failed to find FETCH_HEAD: {}", e))?;
-
-    let fetch_commit = repo
-        .reference_to_annotated_commit(&fetch_head)
-        .map_err(|e| format!("Failed to get annotated commit: {}", e))?;
+    // Get the fetch head - try FETCH_HEAD first, fall back to remote tracking branch
+    let fetch_commit = match repo.find_reference("FETCH_HEAD") {
+        Ok(fetch_head) => repo
+            .reference_to_annotated_commit(&fetch_head)
+            .map_err(|e| format!("Failed to get annotated commit: {}", e))?,
+        Err(_) => {
+            // FETCH_HEAD may not exist or be corrupted - try using remote tracking branch
+            let remote_ref = format!("refs/remotes/origin/{}", branch_name);
+            match repo.find_reference(&remote_ref) {
+                Ok(remote_branch) => repo
+                    .reference_to_annotated_commit(&remote_branch)
+                    .map_err(|e| format!("Failed to get annotated commit from remote branch: {}", e))?,
+                Err(_) => {
+                    // No remote tracking branch either - nothing to pull
+                    return Ok(SyncResult {
+                        success: true,
+                        message: "No remote changes to pull".to_string(),
+                        conflicts: vec![],
+                        files_changed: vec![],
+                    });
+                }
+            }
+        }
+    };
 
     // Analyze merge
     let (analysis, _) = repo
@@ -606,9 +622,40 @@ fn calculate_ahead_behind(repo: &Repository, branch: &str) -> Option<(usize, usi
     let local_branch = repo.find_branch(branch, git2::BranchType::Local).ok()?;
     let local_commit = local_branch.get().peel_to_commit().ok()?;
 
-    let upstream = local_branch.upstream().ok()?;
-    let upstream_commit = upstream.get().peel_to_commit().ok()?;
-
-    repo.graph_ahead_behind(local_commit.id(), upstream_commit.id())
-        .ok()
+    // Try to get upstream tracking branch
+    match local_branch.upstream() {
+        Ok(upstream) => {
+            let upstream_commit = upstream.get().peel_to_commit().ok()?;
+            repo.graph_ahead_behind(local_commit.id(), upstream_commit.id())
+                .ok()
+        }
+        Err(_) => {
+            // No upstream tracking branch - check if remote exists
+            // This happens when cloning an empty repo and making local commits
+            if repo.find_remote("origin").is_ok() {
+                // Check if remote branch exists
+                let remote_ref = format!("refs/remotes/origin/{}", branch);
+                match repo.find_reference(&remote_ref) {
+                    Ok(remote_branch) => {
+                        // Remote branch exists, calculate normally
+                        let upstream_commit = remote_branch.peel_to_commit().ok()?;
+                        repo.graph_ahead_behind(local_commit.id(), upstream_commit.id())
+                            .ok()
+                    }
+                    Err(_) => {
+                        // No remote branch - count all local commits as ahead
+                        let mut count = 0usize;
+                        let mut revwalk = repo.revwalk().ok()?;
+                        revwalk.push(local_commit.id()).ok()?;
+                        for _ in revwalk {
+                            count += 1;
+                        }
+                        Some((count, 0))
+                    }
+                }
+            } else {
+                None
+            }
+        }
+    }
 }

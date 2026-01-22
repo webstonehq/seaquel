@@ -73,6 +73,11 @@ fn copy_image_to_clipboard(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    opener::open(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn install_update(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
@@ -199,6 +204,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             copy_image_to_clipboard,
+            open_path,
             install_update,
             read_dbeaver_config,
             ssh_tunnel::create_ssh_tunnel,

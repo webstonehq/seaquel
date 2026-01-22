@@ -184,6 +184,7 @@ export class SharedRepoManager {
 			const message = error instanceof Error ? error.message : String(error);
 			this.updateSyncState(repoId, { lastError: message });
 			this.updateRepo(repoId, { syncStatus: 'error' });
+			throw error;
 		} finally {
 			this.updateSyncState(repoId, { isSyncing: false });
 		}
@@ -217,6 +218,7 @@ export class SharedRepoManager {
 			} else {
 				this.updateRepo(repoId, { syncStatus: 'error' });
 			}
+			throw error;
 		} finally {
 			this.updateSyncState(repoId, { isSyncing: false });
 		}
@@ -285,6 +287,16 @@ export class SharedRepoManager {
 
 		await gitService.setRemote(repo.path, url);
 		this.updateRepo(repoId, { remoteUrl: url });
+		this.schedulePersistence();
+	}
+
+	/**
+	 * Update repository settings (name, branch).
+	 */
+	updateRepoSettings(repoId: string, updates: Pick<SharedQueryRepo, 'name' | 'branch'>): void {
+		this.state.sharedRepos = this.state.sharedRepos.map((r) =>
+			r.id === repoId ? { ...r, ...updates } : r
+		);
 		this.schedulePersistence();
 	}
 

@@ -31,7 +31,36 @@ export async function initMonaco(): Promise<void> {
 		}
 	});
 
+	// Define custom themes with template variable styling
+	defineCustomThemes();
+
 	isInitialized = true;
+}
+
+/**
+ * Define custom Monaco themes that extend the default themes
+ * with styling for template variables ({{var}})
+ */
+function defineCustomThemes(): void {
+	// Light theme extending vs
+	monaco.editor.defineTheme("seaquel-light", {
+		base: "vs",
+		inherit: true,
+		rules: [
+			{ token: "template-variable", foreground: "9333ea", fontStyle: "bold" }
+		],
+		colors: {}
+	});
+
+	// Dark theme extending vs-dark
+	monaco.editor.defineTheme("seaquel-dark", {
+		base: "vs-dark",
+		inherit: true,
+		rules: [
+			{ token: "template-variable", foreground: "c084fc", fontStyle: "bold" }
+		],
+		colors: {}
+	});
 }
 
 export { monaco };

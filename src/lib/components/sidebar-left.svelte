@@ -293,7 +293,7 @@
 
 		<!-- Schema/Queries tabs - only show when connected -->
 		{#if db.state.activeConnectionId}
-			<Tabs bind:value={sidebarTab} class="w-full">
+			<Tabs bind:value={sidebarTab} class="w-full px-2">
 				<TabsList class="w-full justify-start rounded-none h-10 bg-transparent px-2">
 					<TabsTrigger value="schema" class="text-xs data-[state=active]:bg-background">
 						<DatabaseIcon class="size-3 me-1" />
@@ -316,7 +316,7 @@
 				aria-hidden={sidebarTab !== "schema"}
 				inert={sidebarTab !== "schema" ? true : undefined}
 			>
-				<div class="p-3 pb-2">
+				<div class="px-4 py-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
 						<Input
@@ -401,7 +401,7 @@
 				aria-hidden={sidebarTab !== "queries"}
 				inert={sidebarTab !== "queries" ? true : undefined}
 			>
-				<div class="p-3 pb-2">
+				<div class="px-4 py-2">
 					<div class="relative">
 						<SearchIcon class="absolute start-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
 						<Input
@@ -449,7 +449,7 @@
 											</SidebarMenuButton>
 										{/snippet}
 									</CollapsibleTrigger>
-									<CollapsibleContent>
+									<CollapsibleContent class="flex">
 										<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 											{#each filteredSavedQueries as item (item.id)}
 												<SidebarMenuItem>
@@ -507,7 +507,7 @@
 											</SidebarMenuButton>
 										{/snippet}
 									</CollapsibleTrigger>
-									<CollapsibleContent>
+									<CollapsibleContent class="flex">
 										<SidebarMenu class="ms-4 border-s border-sidebar-border ps-2">
 											{#each filteredHistory as item (item.id)}
 												<SidebarMenuItem>
