@@ -28,7 +28,7 @@ jobs:
           - platform: "windows-latest" # for Windows x86_64
             args: "--target x86_64-pc-windows-msvc"
             target: x86_64-pc-windows-msvc
-          - platform: "windows-latest" # for Windows ARM64
+          - platform: "windows-11-arm" # for Windows ARM64
             args: "--target aarch64-pc-windows-msvc"
             target: aarch64-pc-windows-msvc
 
