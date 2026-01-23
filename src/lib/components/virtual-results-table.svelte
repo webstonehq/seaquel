@@ -35,10 +35,10 @@
 	}: Props = $props();
 
 	// Virtual scrolling state
-	const ROW_HEIGHT = compact ? 28 : 37;
-	const HEADER_HEIGHT = compact ? 28 : 37;
+	const ROW_HEIGHT = $derived(compact ? 28 : 37);
+	const HEADER_HEIGHT = $derived(compact ? 28 : 37);
 	const OVERSCAN = 10;
-	const DEFAULT_COLUMN_WIDTH = compact ? 100 : 150;
+	const DEFAULT_COLUMN_WIDTH = $derived(compact ? 100 : 150);
 	const MIN_COLUMN_WIDTH = 50;
 
 	let scrollTop = $state(0);
@@ -146,6 +146,7 @@
 					<div class="relative flex items-center group">
 						<div class={["font-medium flex-1 truncate", compact ? "px-2 py-1" : "px-4 py-2"]}>{column}</div>
 						<!-- Resize handle -->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<div
 							class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 group-hover:bg-border transition-colors"
 							onmousedown={(e) => startResize(i, e)}
@@ -172,6 +173,7 @@
 							</div>
 						{/if}
 						{#each columns as column}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class={["flex items-center overflow-hidden", compact ? "px-2 py-1" : "px-4 py-2"]}
 								oncontextmenu={() => onCellRightClick(row[column], column, row)}

@@ -28,18 +28,16 @@
 	const db = useDatabase();
 
 	let isExpanded = $state(false);
-	let editName = $state(repo.name);
-	let editRemoteUrl = $state(repo.remoteUrl);
-	let editBranch = $state(repo.branch);
+	let editName = $state('');
+	let editRemoteUrl = $state('');
+	let editBranch = $state('');
 	let isSaving = $state(false);
 
-	// Reset edit fields when expanded
-	$effect(() => {
-		if (isExpanded) {
-			editName = repo.name;
-			editRemoteUrl = repo.remoteUrl;
-			editBranch = repo.branch;
-		}
+	// Sync edit fields from repo (on mount and when expanded or repo changes)
+	$effect.pre(() => {
+		editName = repo.name;
+		editRemoteUrl = repo.remoteUrl;
+		editBranch = repo.branch;
 	});
 
 	const hasChanges = $derived(

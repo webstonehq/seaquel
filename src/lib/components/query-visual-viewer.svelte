@@ -74,7 +74,7 @@ import { errorToast } from "$lib/utils/toast";
 	let edges = $derived(flowData.edges);
 
 	// Export functionality
-	let flowContainer: HTMLElement;
+	let flowContainer = $state<HTMLElement>();
 
 	const getFlowElement = () => flowContainer?.querySelector('.svelte-flow') as HTMLElement | null;
 
