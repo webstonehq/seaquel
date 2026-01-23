@@ -1,10 +1,11 @@
 import { toast } from 'svelte-sonner';
 import { errorToast } from '$lib/utils/toast';
-import type { VisualizeTab, ParsedQueryVisual } from '$lib/types';
+import type { VisualizeTab, ParsedQueryVisual, ParameterValue } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { parseQueryForVisualization, getParseError } from '$lib/db/sql-ast-parser';
 import { getStatementAtOffset } from '$lib/db/sql-parser';
+import { substituteParameters } from '$lib/db/query-params';
 
 /**
  * Callback for setting visualize result on a query tab.
@@ -85,6 +86,144 @@ export class VisualizeTabManager {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Visualize a query with parameter substitution (embedded version).
+	 * Substitutes {{param}} placeholders with values before parsing.
+	 */
+	visualizeEmbeddedWithParams(
+		tabId: string,
+		parameterValues: ParameterValue[],
+		cursorOffset?: number
+	): boolean {
+		if (!this.state.activeProjectId || !this.state.activeConnection) return false;
+		if (!this.setVisualizeResult) {
+			console.warn('Embedded callback not set, falling back to tab-based visualize');
+			this.visualizeWithParams(tabId, parameterValues, cursorOffset);
+			return true;
+		}
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tab = tabs.find((t) => t.id === tabId);
+		if (!tab || !tab.query.trim()) {
+			errorToast('No query to visualize');
+			return false;
+		}
+
+		// Get the statement to visualize based on cursor position
+		const dbType = this.state.activeConnection.type;
+		let queryToVisualize = tab.query;
+
+		if (cursorOffset !== undefined) {
+			const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+			if (statement) {
+				queryToVisualize = statement.sql;
+			}
+		}
+
+		if (!queryToVisualize.trim()) {
+			errorToast('No query to visualize');
+			return false;
+		}
+
+		// Substitute parameters in the query
+		// For visualization, we always inline values since we're just parsing, not executing
+		const { sql: substitutedQuery } = substituteParameters(
+			queryToVisualize,
+			parameterValues,
+			dbType,
+			true // forceInline: always inline for visualization
+		);
+
+		// Parse the substituted query
+		const parsedQuery = parseQueryForVisualization(substitutedQuery, dbType);
+		const parseError = parsedQuery ? undefined : getParseError(substitutedQuery, dbType) || 'Unable to parse query';
+
+		// Store result on query tab (use full query for staleness detection)
+		this.setVisualizeResult(tabId, parsedQuery, tab.query, parseError);
+
+		if (parseError) {
+			errorToast(`Parse warning: ${parseError}`);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Visualize a query with parameter substitution (tab-based version).
+	 */
+	visualizeWithParams(tabId: string, parameterValues: ParameterValue[], cursorOffset?: number): void {
+		if (!this.state.activeProjectId || !this.state.activeConnection) return;
+
+		const projectId = this.state.activeProjectId;
+		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tab = tabs.find((t) => t.id === tabId);
+		if (!tab || !tab.query.trim()) {
+			errorToast('No query to visualize');
+			return;
+		}
+
+		// Get the statement to visualize based on cursor position
+		const dbType = this.state.activeConnection.type;
+		let queryToVisualize = tab.query;
+
+		if (cursorOffset !== undefined) {
+			const statement = getStatementAtOffset(tab.query, cursorOffset, dbType);
+			if (statement) {
+				queryToVisualize = statement.sql;
+			}
+		}
+
+		if (!queryToVisualize.trim()) {
+			errorToast('No query to visualize');
+			return;
+		}
+
+		// Substitute parameters in the query
+		// For visualization, we always inline values since we're just parsing, not executing
+		const { sql: substitutedQuery } = substituteParameters(
+			queryToVisualize,
+			parameterValues,
+			dbType,
+			true // forceInline: always inline for visualization
+		);
+
+		// Parse the substituted query
+		const parsedQuery = parseQueryForVisualization(substitutedQuery, dbType);
+		const parseError = parsedQuery ? undefined : getParseError(substitutedQuery, dbType) || 'Unable to parse query';
+
+		// Create a new visualize tab
+		const visualizeTabs = this.state.visualizeTabsByProject[projectId] ?? [];
+		const visualizeTabId = `visualize-${Date.now()}`;
+		const queryPreview = queryToVisualize.substring(0, 30).replace(/\s+/g, ' ').trim();
+		const newVisualizeTab: VisualizeTab = $state({
+			id: visualizeTabId,
+			name: `Visual: ${queryPreview}...`,
+			sourceQuery: queryToVisualize, // Keep original with {{}} for display
+			parsedQuery,
+			parseError
+		});
+
+		this.state.visualizeTabsByProject = {
+			...this.state.visualizeTabsByProject,
+			[projectId]: [...visualizeTabs, newVisualizeTab]
+		};
+
+		this.tabOrdering.add(visualizeTabId);
+
+		// Set as active and switch view
+		this.state.activeVisualizeTabIdByProject = {
+			...this.state.activeVisualizeTabIdByProject,
+			[projectId]: visualizeTabId
+		};
+		this.setActiveView('visualize');
+		this.schedulePersistence(projectId);
+
+		if (parseError) {
+			errorToast(`Parse warning: ${parseError}`);
+		}
 	}
 
 	/**
