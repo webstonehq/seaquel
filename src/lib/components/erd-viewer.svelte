@@ -117,7 +117,7 @@ import { errorToast } from "$lib/utils/toast";
   };
 
   // Export functionality
-  let flowContainer: HTMLElement;
+  let flowContainer = $state<HTMLElement>();
 
   const getFlowElement = () => flowContainer?.querySelector('.svelte-flow') as HTMLElement | null;
 

@@ -26,20 +26,20 @@
 
 	const db = useDatabase();
 
-	let localQuery = $state(data.query);
+	let localQuery = $state('');
 	let editorOpen = $state(false);
+
+	// Sync from external changes (runs before render)
+	$effect.pre(() => {
+		if (data.query !== localQuery) {
+			localQuery = data.query;
+		}
+	});
 
 	// Sync local query back to node data when it changes
 	$effect(() => {
 		if (localQuery !== data.query) {
 			db.canvas.updateNodeData(id, { query: localQuery });
-		}
-	});
-
-	// Update local when data changes externally
-	$effect(() => {
-		if (data.query !== localQuery) {
-			localQuery = data.query;
 		}
 	});
 

@@ -17,8 +17,14 @@
 
 	const db = useDatabase();
 
-	let selectedBackground = $state<UserBackground>(onboardingStore.userBackground);
-	let showConfirmation = $state(selectedBackground !== "none");
+	let selectedBackground = $state<UserBackground>("none");
+	let showConfirmation = $state(false);
+
+	// Sync from store on mount
+	$effect.pre(() => {
+		selectedBackground = onboardingStore.userBackground;
+		showConfirmation = onboardingStore.userBackground !== "none";
+	});
 
 	const handleSelect = async (background: UserBackground) => {
 		selectedBackground = background;
