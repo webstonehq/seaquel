@@ -1,6 +1,6 @@
 [package]
 name = "seaquel"
-version = "2026.4.0-beta.1"
+version = "2026.4.0-beta.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
