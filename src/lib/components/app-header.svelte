@@ -1,5 +1,6 @@
 <script lang="ts">
     import SidebarIcon from "@lucide/svelte/icons/sidebar";
+    import { isMac } from "$lib/shortcuts/platform";
     import { Button } from "$lib/components/ui/button/index.js";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
@@ -71,7 +72,7 @@
 >
     <div
         data-tauri-drag-region
-        class="pl-18 h-(--header-height) flex w-full items-center gap-2 pr-2 justify-between"
+        class="h-(--header-height) flex w-full items-center gap-2 pr-2 justify-between {isMac() ? 'pl-18' : ''}"
     >
         <div data-tauri-drag-region class="flex items-center gap-1 flex-1 min-w-0">
             <Button
