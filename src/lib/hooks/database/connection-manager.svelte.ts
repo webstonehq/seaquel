@@ -233,7 +233,7 @@ export class ConnectionManager {
         database: connection.databaseName,
         username: connection.username,
         password: connection.password,
-        encrypt: connection.sslMode === "require",
+        encrypt: connection.sslMode !== "disable",
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
@@ -391,7 +391,7 @@ export class ConnectionManager {
         database: connection.databaseName,
         username: connection.username,
         password: connection.password,
-        encrypt: connection.sslMode === "require",
+        encrypt: connection.sslMode !== "disable",
         trustCert: connection.sslMode !== "require",
       });
       mssqlConnectionId = mssqlConn.connectionId;
@@ -590,7 +590,7 @@ export class ConnectionManager {
           database: connection.databaseName,
           username: connection.username,
           password: connection.password,
-          encrypt: connection.sslMode === "require",
+          encrypt: connection.sslMode !== "disable",
           trustCert: connection.sslMode !== "require",
         });
         mssqlTestConnectionId = mssqlConn.connectionId;

@@ -503,10 +503,10 @@ class ConnectionWizardStore {
 		let connectionString = `${protocol}://${credentials}${data.host}${port}/${data.databaseName}`;
 
 		// Add sslmode parameter for PostgreSQL and MySQL
+		// Always include sslmode to be explicit (driver may default to TLS otherwise)
 		if (
 			(data.type === "postgres" || data.type === "mysql" || data.type === "mariadb") &&
-			data.sslMode &&
-			data.sslMode !== "disable"
+			data.sslMode
 		) {
 			const separator = connectionString.includes("?") ? "&" : "?";
 			connectionString += `${separator}sslmode=${data.sslMode}`;
