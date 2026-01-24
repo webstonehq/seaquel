@@ -45,7 +45,34 @@ impl std::fmt::Display for MssqlError {
 
 impl std::error::Error for MssqlError {}
 
-type MssqlClient = Client<TlsStream<Compat<TcpStream>>>;
+// Support both TLS and non-TLS connections
+enum MssqlClient {
+    Tls(Client<TlsStream<Compat<TcpStream>>>),
+    Plain(Client<Compat<TcpStream>>),
+}
+
+impl MssqlClient {
+    async fn query(&mut self, sql: &str) -> Result<Vec<Row>, tiberius::error::Error> {
+        let query = Query::new(sql);
+        match self {
+            MssqlClient::Tls(client) => {
+                let stream = query.query(client).await?;
+                stream.into_first_result().await
+            }
+            MssqlClient::Plain(client) => {
+                let stream = query.query(client).await?;
+                stream.into_first_result().await
+            }
+        }
+    }
+
+    async fn execute(&mut self, sql: &str) -> Result<tiberius::ExecuteResult, tiberius::error::Error> {
+        match self {
+            MssqlClient::Tls(client) => client.execute(sql, &[]).await,
+            MssqlClient::Plain(client) => client.execute(sql, &[]).await,
+        }
+    }
+}
 
 struct ConnectionHandle {
     client: MssqlClient,
@@ -145,26 +172,42 @@ pub async fn mssql_connect(
     // Wrap TCP stream with compat for futures-io trait compatibility
     let tcp_compat = tcp.compat();
 
-    // Wrap with TLS - Azure SQL requires encryption
-    let tls_connector = async_native_tls::TlsConnector::new()
-        .danger_accept_invalid_certs(config.trust_cert.unwrap_or(true))
-        .use_sni(true);
+    // Use encryption unless explicitly disabled (encrypt defaults to true for security)
+    let use_encryption = config.encrypt.unwrap_or(true);
 
-    let tls_stream = tls_connector
-        .connect(&config.host, tcp_compat)
-        .await
-        .map_err(|e| MssqlError {
-            message: format!("TLS connection failed: {}", e),
-            code: "TLS_ERROR".to_string(),
-        })?;
+    let client = if use_encryption {
+        // Wrap with TLS - Azure SQL and most production servers require encryption
+        let tls_connector = async_native_tls::TlsConnector::new()
+            .danger_accept_invalid_certs(config.trust_cert.unwrap_or(true))
+            .use_sni(true);
 
-    // TlsStream already implements futures-io traits, pass directly to tiberius
-    let client = Client::connect(tiberius_config, tls_stream)
-        .await
-        .map_err(|e| MssqlError {
-            message: format!("Failed to connect to SQL Server: {}", e),
-            code: "AUTH_ERROR".to_string(),
-        })?;
+        let tls_stream = tls_connector
+            .connect(&config.host, tcp_compat)
+            .await
+            .map_err(|e| MssqlError {
+                message: format!("TLS connection failed: {}. Try setting SSL Mode to 'disable' for localhost servers without TLS.", e),
+                code: "TLS_ERROR".to_string(),
+            })?;
+
+        let inner_client = Client::connect(tiberius_config, tls_stream)
+            .await
+            .map_err(|e| MssqlError {
+                message: format!("Failed to connect to SQL Server: {}", e),
+                code: "AUTH_ERROR".to_string(),
+            })?;
+
+        MssqlClient::Tls(inner_client)
+    } else {
+        // Plain TCP connection for localhost/development servers without TLS
+        let inner_client = Client::connect(tiberius_config, tcp_compat)
+            .await
+            .map_err(|e| MssqlError {
+                message: format!("Failed to connect to SQL Server: {}", e),
+                code: "AUTH_ERROR".to_string(),
+            })?;
+
+        MssqlClient::Plain(inner_client)
+    };
 
     // Generate connection ID
     let connection_id = {
@@ -213,15 +256,9 @@ pub async fn mssql_query(
         code: "CONNECTION_NOT_FOUND".to_string(),
     })?;
 
-    let query = Query::new(&sql);
-    let stream = query.query(&mut handle.client).await.map_err(|e| MssqlError {
+    let rows = handle.client.query(&sql).await.map_err(|e| MssqlError {
         message: format!("Query failed: {}", e),
         code: "QUERY_ERROR".to_string(),
-    })?;
-
-    let rows = stream.into_first_result().await.map_err(|e| MssqlError {
-        message: format!("Failed to fetch results: {}", e),
-        code: "FETCH_ERROR".to_string(),
     })?;
 
     // Get column names from first row or return empty result
@@ -257,7 +294,7 @@ pub async fn mssql_execute(
         code: "CONNECTION_NOT_FOUND".to_string(),
     })?;
 
-    let result = handle.client.execute(&sql, &[]).await.map_err(|e| MssqlError {
+    let result = handle.client.execute(&sql).await.map_err(|e| MssqlError {
         message: format!("Execute failed: {}", e),
         code: "EXECUTE_ERROR".to_string(),
     })?;

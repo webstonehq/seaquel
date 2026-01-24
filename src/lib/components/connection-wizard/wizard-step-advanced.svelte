@@ -32,7 +32,7 @@
 	const sslModes = ["disable", "allow", "prefer", "require"];
 
 	const supportsSSL =
-		formData.type === "postgres" || formData.type === "mysql" || formData.type === "mariadb";
+		formData.type === "postgres" || formData.type === "mysql" || formData.type === "mariadb" || formData.type === "mssql";
 
 	const selectSshKeyFile = async () => {
 		try {
