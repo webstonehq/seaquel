@@ -33,7 +33,17 @@
 	}
 
 	function handleQueryTable() {
-		const query = `SELECT * FROM "${data.schemaName}"."${data.tableName}" LIMIT 100`;
+		const type = db.state.activeConnection?.type;
+		let query: string;
+
+		if (type === 'mssql') {
+			// MS SQL Server uses TOP and bracket identifiers
+			query = `SELECT TOP 100 * FROM [${data.schemaName}].[${data.tableName}]`;
+		} else {
+			// PostgreSQL, MySQL, MariaDB, SQLite, DuckDB use LIMIT
+			query = `SELECT * FROM "${data.schemaName}"."${data.tableName}" LIMIT 100`;
+		}
+
 		const queryNodeId = db.canvas.addQueryNode(query);
 		// Connect table node to query node
 		db.canvas.connect(id, queryNodeId, "output", "input");
