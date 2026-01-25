@@ -4,8 +4,8 @@
  */
 
 import { load as tauriLoad } from '@tauri-apps/plugin-store';
-import { appDataDir } from '@tauri-apps/api/path';
 import { remove } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 import type { StorageProvider, Store, StoreLoadOptions } from './types';
 
 /**
@@ -15,7 +15,8 @@ class TauriStore implements Store {
 	constructor(
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		private store: Awaited<ReturnType<typeof tauriLoad>>,
-		private filename: string
+		private filename: string,
+		private dataDir: string
 	) {}
 
 	async get<T>(key: string): Promise<T | null> {
@@ -38,8 +39,7 @@ class TauriStore implements Store {
 		await this.store.clear();
 		await this.store.save();
 		try {
-			const dataDir = await appDataDir();
-			await remove(`${dataDir}${this.filename}`);
+			await remove(`${this.dataDir}/${this.filename}`);
 		} catch {
 			// File might not exist, ignore errors
 		}
@@ -58,10 +58,12 @@ export class TauriStorageProvider implements StorageProvider {
 	}
 
 	async load(name: string, options?: StoreLoadOptions): Promise<Store> {
-		const store = await tauriLoad(name, {
+		const dataDir = await invoke<string>('get_data_dir');
+		const fullPath = `${dataDir}/${name}`;
+		const store = await tauriLoad(fullPath, {
 			autoSave: options?.autoSave ?? true,
 			defaults: options?.defaults ?? {}
 		});
-		return new TauriStore(store, name);
+		return new TauriStore(store, name, dataDir);
 	}
 }

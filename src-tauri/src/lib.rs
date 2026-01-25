@@ -78,6 +78,23 @@ fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    if let Ok(custom_dir) = std::env::var("SEAQUEL_DATA_DIR") {
+        let path = std::path::PathBuf::from(&custom_dir);
+        if !path.exists() {
+            std::fs::create_dir_all(&path)
+                .map_err(|e| format!("Failed to create data dir: {}", e))?;
+        }
+        Ok(custom_dir)
+    } else {
+        app.path()
+            .app_data_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
 async fn install_update(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
@@ -205,6 +222,7 @@ pub fn run() {
             greet,
             copy_image_to_clipboard,
             open_path,
+            get_data_dir,
             install_update,
             read_dbeaver_config,
             ssh_tunnel::create_ssh_tunnel,

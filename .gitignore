@@ -23,3 +23,5 @@ e2e/test-databases/sqlite/test.db
 # Paraglide
 src/lib/paraglide
 project.inlang/cache/
+
+docs/data

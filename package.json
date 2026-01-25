@@ -14,7 +14,9 @@
     "tauri": "tauri",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "demos:db:create": "rm -f docs/demos.db && sqlite3 docs/demos.db < docs/sample-data.sql",
+    "demos:start": "SEAQUEL_DATA_DIR=~/projects/github/webstonehq/seaquel/docs/data tauri dev"
   },
   "license": "MIT",
   "dependencies": {
