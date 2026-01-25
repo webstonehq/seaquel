@@ -11,15 +11,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 sample.db
 
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
-/.playwright-tmp/
-e2e/test-databases/sqlite/test.db
-
 # Paraglide
 src/lib/paraglide
 project.inlang/cache/
