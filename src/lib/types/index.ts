@@ -103,3 +103,20 @@ export type {
 	PersistedSharedQueryRepo
 } from './shared-queries';
 export { serializeRepo, deserializeRepo } from './shared-queries';
+
+// Query builder types (interactive SELECT tutorial)
+export type {
+	TutorialColumn,
+	TutorialTable,
+	CanvasTable,
+	JoinType,
+	CanvasJoin,
+	FilterOperator,
+	FilterCondition,
+	SortDirection,
+	SortCondition,
+	QueryBuilderSnapshot,
+	ChallengeCriterion,
+	Challenge,
+	TutorialLesson
+} from './query-builder';
