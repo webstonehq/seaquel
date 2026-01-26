@@ -5,3 +5,4 @@ export { default as JoinEdge } from './join-edge.svelte';
 export { default as TablePalette } from './table-palette.svelte';
 export { default as FilterPanel } from './filter-panel.svelte';
 export { default as SqlEditor } from './sql-editor.svelte';
+export { default as ChallengeCard } from './challenge-card.svelte';
