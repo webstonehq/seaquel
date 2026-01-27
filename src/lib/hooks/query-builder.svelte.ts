@@ -560,17 +560,32 @@ export class QueryBuilderState {
 			return '';
 		}
 
-		// Collect all selected columns
-		const selectColumns: string[] = [];
+		// Collect all selected columns and aggregates
+		const selectParts: string[] = [];
+
 		for (const table of this.tables) {
 			for (const column of table.selectedColumns) {
-				selectColumns.push(`${table.tableName}.${column}`);
+				const agg = table.columnAggregates.get(column);
+				if (agg) {
+					// Column with aggregate
+					const expr = `${agg.function}(${table.tableName}.${column})`;
+					selectParts.push(agg.alias ? `${expr} AS ${agg.alias}` : expr);
+				} else {
+					// Regular column
+					selectParts.push(`${table.tableName}.${column}`);
+				}
 			}
+		}
+
+		// Add standalone aggregates
+		for (const agg of this.selectAggregates) {
+			const expr = `${agg.function}(${agg.expression})`;
+			selectParts.push(agg.alias ? `${expr} AS ${agg.alias}` : expr);
 		}
 
 		// If no columns selected, use * from first table
 		const selectClause =
-			selectColumns.length > 0 ? selectColumns.join(', ') : `${this.tables[0].tableName}.*`;
+			selectParts.length > 0 ? selectParts.join(', ') : `${this.tables[0].tableName}.*`;
 
 		// Build FROM clause - start with first table
 		const fromTable = this.tables[0].tableName;
