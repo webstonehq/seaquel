@@ -721,6 +721,17 @@ export class QueryBuilderState {
 		}>;
 		orderBy: Array<{ column: string; direction: 'ASC' | 'DESC' }>;
 		limit: number | null;
+		selectAggregates: Array<{
+			function: AggregateFunction;
+			expression: string;
+			alias?: string;
+		}>;
+		columnAggregates: Array<{
+			tableName: string;
+			column: string;
+			function: AggregateFunction;
+			alias?: string;
+		}>;
 	}): void {
 		// Build new tables with positions
 		const newTables: CanvasTable[] = [];
@@ -733,12 +744,23 @@ export class QueryBuilderState {
 			// Reuse existing position if table was already on canvas, otherwise auto-layout
 			const position = existing?.position ?? { x: 50 + i * 280, y: 50 + (i % 2) * 150 };
 
+			// Build columnAggregates map for this table
+			const columnAggsForTable = new Map<string, ColumnAggregate>();
+			for (const ca of parsed.columnAggregates) {
+				if (ca.tableName === pt.tableName) {
+					columnAggsForTable.set(ca.column, {
+						function: ca.function,
+						alias: ca.alias
+					});
+				}
+			}
+
 			newTables.push({
 				id: existing?.id ?? generateId(),
 				tableName: pt.tableName,
 				position,
 				selectedColumns: new SvelteSet(pt.selectedColumns),
-				columnAggregates: existing?.columnAggregates ?? new Map<string, ColumnAggregate>()
+				columnAggregates: columnAggsForTable
 			});
 		}
 
@@ -784,6 +806,14 @@ export class QueryBuilderState {
 			direction: po.direction
 		}));
 
+		// Build new select aggregates
+		const newSelectAggregates: SelectAggregate[] = parsed.selectAggregates.map((pa) => ({
+			id: generateId(),
+			function: pa.function,
+			expression: pa.expression,
+			alias: pa.alias
+		}));
+
 		// Apply all at once
 		this.tables = newTables;
 		this.joins = newJoins;
@@ -792,6 +822,7 @@ export class QueryBuilderState {
 		this.having = newHaving;
 		this.orderBy = newOrderBy;
 		this.limit = parsed.limit;
+		this.selectAggregates = newSelectAggregates;
 	}
 
 	// === RESET ===
