@@ -4,17 +4,22 @@
 		Controls,
 		Background,
 		BackgroundVariant,
+		useSvelteFlow,
 		type Node,
 		type Edge,
-		type Connection
+		type Connection,
+		type OnDelete
 	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 
 	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte';
 	import TableNode from './table-node.svelte';
 	import JoinEdge from './join-edge.svelte';
+	import { useDnD } from './dnd-provider.svelte';
 
+	const type = useDnD();
 	const qb = useQueryBuilder();
+	const { screenToFlowPosition } = useSvelteFlow();
 
 	// Custom node types
 	const nodeTypes = {
@@ -27,7 +32,7 @@
 	};
 
 	// Convert state to xyflow nodes
-	const nodes = $derived<Node[]>(
+	let nodes = $derived<Node[]>(
 		qb.tables.map((table) => ({
 			id: table.id,
 			type: 'tableNode',
@@ -35,13 +40,14 @@
 			data: {
 				tableName: table.tableName,
 				tableId: table.id,
-				selectedColumns: table.selectedColumns
+				selectedColumns: table.selectedColumns,
+				columnAggregates: table.columnAggregates
 			}
 		}))
 	);
 
 	// Convert joins to xyflow edges
-	const edges = $derived<Edge[]>(
+	let edges = $derived<Edge[]>(
 		qb.joins.map((join) => {
 			const sourceNode = qb.tables.find((t) => t.tableName === join.sourceTable);
 			const targetNode = qb.tables.find((t) => t.tableName === join.targetTable);
@@ -88,46 +94,72 @@
 		qb.addJoin(sourceNode.tableName, sourceColumn, targetNode.tableName, targetColumn, 'INNER');
 	}
 
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
 	function handleDrop(event: DragEvent) {
 		event.preventDefault();
-		const tableName = event.dataTransfer?.getData('application/table-name');
+
+		const tableName = type.current;
 		if (!tableName) return;
 
-		// Get drop position relative to the canvas
-		const canvas = event.currentTarget as HTMLElement;
-		const rect = canvas.getBoundingClientRect();
-		const position = {
-			x: event.clientX - rect.left - 100,
-			y: event.clientY - rect.top - 50
-		};
+		// Convert screen coordinates to flow coordinates
+		const position = screenToFlowPosition({
+			x: event.clientX,
+			y: event.clientY
+		});
+
+		// Offset to roughly center the node on cursor
+		position.x -= 110;
+		position.y -= 20;
 
 		qb.addTable(tableName, position);
 	}
 
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = 'copy';
+	const handleDelete: OnDelete = ({ nodes: deletedNodes, edges: deletedEdges }) => {
+		// Remove edges (joins) from query builder
+		for (const edge of deletedEdges) {
+			qb.removeJoin(edge.id);
+		}
+
+		// Remove nodes (tables) from query builder
+		for (const node of deletedNodes) {
+			qb.removeTable(node.id);
+		}
+	};
+
+	// Prevent Delete/Backspace from triggering browser navigation
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Delete' || event.key === 'Backspace') {
+			// Prevent browser back navigation
+			event.preventDefault();
 		}
 	}
 </script>
 
 <div
 	class="flex-1 h-full"
-	ondrop={handleDrop}
-	ondragover={handleDragOver}
-	role="application"
 	aria-label="Query builder canvas"
+	role="application"
+	tabindex="-1"
+	onkeydown={handleKeydown}
 >
 	<SvelteFlow
-		{nodes}
-		{edges}
+		bind:nodes
+		bind:edges
 		{nodeTypes}
 		{edgeTypes}
 		fitView
 		onnodedragstop={handleNodeDragStop}
+		ondrop={handleDrop}
+		ondragover={handleDragOver}
 		onconnect={handleConnect}
-		deleteKey="Delete"
+		ondelete={handleDelete}
+		deleteKey={['Delete', 'Backspace']}
 	>
 		<Controls />
 		<Background variant={BackgroundVariant.Dots} gap={16} />
