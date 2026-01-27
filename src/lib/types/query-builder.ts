@@ -43,6 +43,8 @@ export interface CanvasTable {
 	position: { x: number; y: number };
 	/** Set of column names currently selected for the query */
 	selectedColumns: Set<string>;
+	/** Map of column name to aggregate function applied to it */
+	columnAggregates: Map<string, ColumnAggregate>;
 }
 
 /**
@@ -110,6 +112,42 @@ export interface FilterCondition {
 export type SortDirection = 'ASC' | 'DESC';
 
 /**
+ * Aggregate functions for HAVING clauses.
+ */
+export type AggregateFunction = 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
+
+/**
+ * A standalone aggregate in the SELECT clause.
+ * Used for COUNT(*), expressions, or aggregates not tied to a specific column.
+ */
+export interface SelectAggregate {
+	/** Unique identifier for this aggregate */
+	id: string;
+	/** Aggregate function (COUNT, SUM, AVG, MIN, MAX) */
+	function: AggregateFunction;
+	/** Expression inside the aggregate (*, column name, or expression like "price * quantity") */
+	expression: string;
+	/** Optional alias for AS clause */
+	alias?: string;
+}
+
+/**
+ * Per-column aggregate applied to a selected column.
+ */
+export interface ColumnAggregate {
+	/** Aggregate function (COUNT, SUM, AVG, MIN, MAX) */
+	function: AggregateFunction;
+	/** Optional alias for AS clause */
+	alias?: string;
+}
+
+/**
+ * Comparison operators valid for HAVING conditions.
+ * Limited to numeric comparisons (no LIKE, IS NULL, etc.).
+ */
+export type HavingOperator = '=' | '!=' | '>' | '<' | '>=' | '<=';
+
+/**
  * An ORDER BY clause.
  * Represents a single column to sort by in the query results.
  */
@@ -123,6 +161,36 @@ export interface SortCondition {
 }
 
 /**
+ * A GROUP BY column.
+ * Represents a column to group results by.
+ */
+export interface GroupByCondition {
+	/** Unique identifier for this group by condition */
+	id: string;
+	/** Column to group by, in format "table.column" */
+	column: string;
+}
+
+/**
+ * A single HAVING condition.
+ * Represents one filter criterion applied after GROUP BY aggregation.
+ */
+export interface HavingCondition {
+	/** Unique identifier for this having condition */
+	id: string;
+	/** Aggregate function (COUNT, SUM, AVG, MIN, MAX) */
+	aggregateFunction: AggregateFunction;
+	/** Column for the aggregate, empty string means * for COUNT(*) */
+	column: string;
+	/** Comparison operator */
+	operator: HavingOperator;
+	/** Value to compare against */
+	value: string;
+	/** Logical connector to the next condition */
+	connector: 'AND' | 'OR';
+}
+
+/**
  * Complete query builder state.
  * Captures the full state of the query builder canvas and configuration.
  */
@@ -133,10 +201,16 @@ export interface QueryBuilderSnapshot {
 	joins: CanvasJoin[];
 	/** WHERE clause conditions */
 	filters: FilterCondition[];
+	/** GROUP BY columns */
+	groupBy: GroupByCondition[];
+	/** HAVING clause conditions */
+	having: HavingCondition[];
 	/** ORDER BY clauses */
 	orderBy: SortCondition[];
 	/** LIMIT value, or null for no limit */
 	limit: number | null;
+	/** Standalone aggregates in SELECT clause */
+	selectAggregates: SelectAggregate[];
 }
 
 /**

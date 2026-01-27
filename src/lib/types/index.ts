@@ -115,8 +115,14 @@ export type {
 	FilterCondition,
 	SortDirection,
 	SortCondition,
+	GroupByCondition,
+	AggregateFunction,
+	HavingOperator,
+	HavingCondition,
 	QueryBuilderSnapshot,
 	ChallengeCriterion,
 	Challenge,
-	TutorialLesson
+	TutorialLesson,
+	SelectAggregate,
+	ColumnAggregate
 } from './query-builder';
