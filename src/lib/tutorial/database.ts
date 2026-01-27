@@ -1,7 +1,96 @@
 // src/lib/tutorial/database.ts
 import Database from '@tauri-apps/plugin-sql';
+import type { SchemaTable } from '$lib/types';
 
 let tutorialDb: Database | null = null;
+
+/**
+ * Get the static schema for the tutorial database.
+ * Used by MonacoEditor for autocomplete.
+ */
+export function getTutorialSchema(): SchemaTable[] {
+  return [
+    {
+      name: 'categories',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'name', type: 'TEXT', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'description', type: 'TEXT', nullable: true, isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    },
+    {
+      name: 'products',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'name', type: 'TEXT', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'description', type: 'TEXT', nullable: true, isPrimaryKey: false, isForeignKey: false },
+        { name: 'price', type: 'DECIMAL(10,2)', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'stock', type: 'INTEGER', nullable: true, defaultValue: '0', isPrimaryKey: false, isForeignKey: false },
+        { name: 'category_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'categories', referencedColumn: 'id' } },
+        { name: 'created_at', type: 'DATETIME', nullable: true, defaultValue: 'CURRENT_TIMESTAMP', isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    },
+    {
+      name: 'customers',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'name', type: 'TEXT', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'email', type: 'TEXT', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'country', type: 'TEXT', nullable: true, isPrimaryKey: false, isForeignKey: false },
+        { name: 'created_at', type: 'DATETIME', nullable: true, defaultValue: 'CURRENT_TIMESTAMP', isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    },
+    {
+      name: 'orders',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'customer_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'customers', referencedColumn: 'id' } },
+        { name: 'status', type: 'TEXT', nullable: true, defaultValue: "'pending'", isPrimaryKey: false, isForeignKey: false },
+        { name: 'total', type: 'DECIMAL(10,2)', nullable: true, isPrimaryKey: false, isForeignKey: false },
+        { name: 'created_at', type: 'DATETIME', nullable: true, defaultValue: 'CURRENT_TIMESTAMP', isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    },
+    {
+      name: 'order_items',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'order_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'orders', referencedColumn: 'id' } },
+        { name: 'product_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'products', referencedColumn: 'id' } },
+        { name: 'quantity', type: 'INTEGER', nullable: false, isPrimaryKey: false, isForeignKey: false },
+        { name: 'unit_price', type: 'DECIMAL(10,2)', nullable: false, isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    },
+    {
+      name: 'reviews',
+      schema: 'main',
+      type: 'table',
+      columns: [
+        { name: 'id', type: 'INTEGER', nullable: false, isPrimaryKey: true, isForeignKey: false },
+        { name: 'product_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'products', referencedColumn: 'id' } },
+        { name: 'customer_id', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: true, foreignKeyRef: { referencedSchema: 'main', referencedTable: 'customers', referencedColumn: 'id' } },
+        { name: 'rating', type: 'INTEGER', nullable: true, isPrimaryKey: false, isForeignKey: false },
+        { name: 'comment', type: 'TEXT', nullable: true, isPrimaryKey: false, isForeignKey: false },
+        { name: 'created_at', type: 'DATETIME', nullable: true, defaultValue: 'CURRENT_TIMESTAMP', isPrimaryKey: false, isForeignKey: false }
+      ],
+      indexes: []
+    }
+  ];
+}
 
 /**
  * Get or create the tutorial SQLite database connection.
@@ -86,7 +175,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed categories
   await db.execute(`
-    INSERT INTO categories (id, name, description) VALUES
+    INSERT OR IGNORE INTO categories (id, name, description) VALUES
       (1, 'Electronics', 'Phones, laptops, and gadgets'),
       (2, 'Clothing', 'Apparel and accessories'),
       (3, 'Books', 'Fiction and non-fiction'),
@@ -96,7 +185,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed sample products (10 products)
   await db.execute(`
-    INSERT INTO products (id, name, description, price, stock, category_id) VALUES
+    INSERT OR IGNORE INTO products (id, name, description, price, stock, category_id) VALUES
       (1, 'Smartphone X', 'Latest smartphone with 5G', 799.99, 50, 1),
       (2, 'Laptop Pro', '15-inch professional laptop', 1299.99, 30, 1),
       (3, 'Wireless Earbuds', 'Noise-canceling earbuds', 149.99, 100, 1),
@@ -111,7 +200,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed sample customers
   await db.execute(`
-    INSERT INTO customers (id, name, email, country) VALUES
+    INSERT OR IGNORE INTO customers (id, name, email, country) VALUES
       (1, 'Alice Johnson', 'alice@email.com', 'USA'),
       (2, 'Bob Smith', 'bob@email.com', 'USA'),
       (3, 'Carol White', 'carol@email.com', 'Canada'),
@@ -121,7 +210,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed sample orders
   await db.execute(`
-    INSERT INTO orders (id, customer_id, status, total) VALUES
+    INSERT OR IGNORE INTO orders (id, customer_id, status, total) VALUES
       (1, 1, 'delivered', 849.98),
       (2, 1, 'shipped', 24.99),
       (3, 2, 'pending', 1349.98),
@@ -131,7 +220,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed sample order items
   await db.execute(`
-    INSERT INTO order_items (id, order_id, product_id, quantity, unit_price) VALUES
+    INSERT OR IGNORE INTO order_items (id, order_id, product_id, quantity, unit_price) VALUES
       (1, 1, 1, 1, 799.99),
       (2, 1, 3, 1, 49.99),
       (3, 2, 4, 1, 24.99),
@@ -144,7 +233,7 @@ async function seedDatabase(db: Database): Promise<void> {
 
   // Seed sample reviews
   await db.execute(`
-    INSERT INTO reviews (id, product_id, customer_id, rating, comment) VALUES
+    INSERT OR IGNORE INTO reviews (id, product_id, customer_id, rating, comment) VALUES
       (1, 1, 1, 5, 'Excellent phone!'),
       (2, 2, 2, 4, 'Great laptop, a bit pricey'),
       (3, 4, 3, 5, 'Very comfortable'),

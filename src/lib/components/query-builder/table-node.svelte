@@ -9,6 +9,20 @@
 	import * as Select from "$lib/components/ui/select";
 	import TableIcon from "@lucide/svelte/icons/table";
 	import LinkIcon from "@lucide/svelte/icons/link";
+	import FunctionSquareIcon from "@lucide/svelte/icons/function-square";
+	import HashIcon from "@lucide/svelte/icons/hash";
+	import SigmaIcon from "@lucide/svelte/icons/sigma";
+	import DivideIcon from "@lucide/svelte/icons/divide";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down-narrow-wide";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up-narrow-wide";
+
+	const AGGREGATE_ICONS: Record<AggregateFunction, typeof HashIcon> = {
+		COUNT: HashIcon,
+		SUM: SigmaIcon,
+		AVG: DivideIcon,
+		MIN: ArrowDownIcon,
+		MAX: ArrowUpIcon
+	};
 
 	interface Props {
 		id: string;
@@ -111,27 +125,37 @@
 							onCheckedChange={() => handleToggleColumn(column.name)}
 						/>
 
-						<!-- Aggregate dropdown (only for selected columns) -->
-						{#if isSelected}
-							<Select.Root
-								type="single"
-								value={columnAgg?.function ?? 'none'}
-								onValueChange={(value) => {
-									if (value) handleAggregateChange(column.name, value);
-								}}
-							>
-								<Select.Trigger size="sm" class="h-5 w-14 text-[10px] px-1">
-									{columnAgg?.function ?? 'col'}
-								</Select.Trigger>
-								<Select.Content>
-									{#each AGGREGATE_FUNCTIONS as fn}
-										<Select.Item value={fn.value} label={fn.label}>
-											{fn.label}
-										</Select.Item>
-									{/each}
-								</Select.Content>
-							</Select.Root>
-						{/if}
+						<!-- Aggregate dropdown (fixed size to prevent layout shift) -->
+						<div class="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+							{#if isSelected}
+								<Select.Root
+									type="single"
+									value={columnAgg?.function ?? 'none'}
+									onValueChange={(value) => {
+										if (value) handleAggregateChange(column.name, value);
+									}}
+								>
+									<Select.Trigger
+										size="sm"
+										class="!h-3.5 !w-3.5 !min-h-0 min-w-0 border-0 shadow-none p-0 rounded-sm [&>svg:last-child]:hidden {columnAgg ? 'bg-primary/15 hover:bg-primary/25' : 'bg-transparent hover:bg-muted'}"
+									>
+										{#if columnAgg}
+											{@const AggIcon = AGGREGATE_ICONS[columnAgg.function]}
+											<AggIcon class="size-3 text-primary" />
+										{:else}
+											<FunctionSquareIcon class="size-3 text-muted-foreground/50" />
+										{/if}
+									</Select.Trigger>
+									<Select.Content>
+										{#each AGGREGATE_FUNCTIONS as fn}
+											<Select.Item value={fn.value} label={fn.label}>
+												{fn.label}
+											</Select.Item>
+										{/each}
+									</Select.Content>
+								</Select.Root>
+							{/if}
+						</div>
 
 						<!-- FK Icon or spacer -->
 						<div class="w-4 flex items-center justify-center shrink-0">

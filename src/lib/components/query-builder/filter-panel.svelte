@@ -13,7 +13,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import XIcon from '@lucide/svelte/icons/x';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import type { FilterOperator, SortDirection, AggregateFunction, HavingOperator } from '$lib/types';
+	import type { FilterOperator, SortDirection, AggregateFunction, HavingOperator, DisplayAggregate } from '$lib/types';
 	import CalculatorIcon from '@lucide/svelte/icons/calculator';
 
 	const qb = useQueryBuilder();
@@ -98,6 +98,44 @@
 	// Add new select aggregate
 	function handleAddSelectAggregate() {
 		qb.addSelectAggregate('COUNT', '*', '');
+	}
+
+	// Handle removing an aggregate (either column or select type)
+	function handleRemoveAggregate(aggregate: DisplayAggregate) {
+		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
+			qb.clearColumnAggregate(aggregate.tableId, aggregate.columnName);
+		} else if (aggregate.source === 'select') {
+			qb.removeSelectAggregate(aggregate.id);
+		}
+	}
+
+	// Handle updating aggregate function (either column or select type)
+	function handleUpdateAggregateFunction(aggregate: DisplayAggregate, func: AggregateFunction) {
+		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
+			qb.setColumnAggregate(aggregate.tableId, aggregate.columnName, func, aggregate.alias);
+		} else if (aggregate.source === 'select') {
+			qb.updateSelectAggregate(aggregate.id, { function: func });
+		}
+	}
+
+	// Handle updating aggregate alias (either column or select type)
+	function handleUpdateAggregateAlias(aggregate: DisplayAggregate, alias: string) {
+		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
+			qb.setColumnAggregate(aggregate.tableId, aggregate.columnName, aggregate.function, alias || undefined);
+		} else if (aggregate.source === 'select') {
+			qb.updateSelectAggregate(aggregate.id, { alias: alias || undefined });
+		}
+	}
+
+	// Handle updating aggregate expression (converts column aggregates to select aggregates if expression changes)
+	function handleUpdateAggregateExpression(aggregate: DisplayAggregate, expression: string) {
+		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
+			// Clear the column aggregate and create a select aggregate with the new expression
+			qb.clearColumnAggregate(aggregate.tableId, aggregate.columnName);
+			qb.addSelectAggregate(aggregate.function, expression, aggregate.alias);
+		} else if (aggregate.source === 'select') {
+			qb.updateSelectAggregate(aggregate.id, { expression });
+		}
 	}
 
 	// Handle limit input change
@@ -322,9 +360,9 @@
 					/>
 					<CalculatorIcon class="size-4 text-muted-foreground" />
 					<span class="font-medium text-sm">AGGREGATES</span>
-					{#if qb.selectAggregates.length > 0}
+					{#if qb.allDisplayAggregates.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.selectAggregates.length}
+							{qb.allDisplayAggregates.length}
 						</span>
 					{/if}
 				</div>
@@ -344,7 +382,7 @@
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.selectAggregates as aggregate (aggregate.id)}
+					{#each qb.allDisplayAggregates as aggregate (aggregate.id)}
 						<div class="flex items-center gap-2 flex-wrap">
 							<!-- Aggregate function select -->
 							<Select.Root
@@ -352,7 +390,7 @@
 								value={aggregate.function}
 								onValueChange={(value) => {
 									if (value) {
-										qb.updateSelectAggregate(aggregate.id, { function: value as AggregateFunction });
+										handleUpdateAggregateFunction(aggregate, value as AggregateFunction);
 									}
 								}}
 							>
@@ -376,7 +414,7 @@
 								value={aggregate.expression}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateSelectAggregate(aggregate.id, { expression: target.value });
+									handleUpdateAggregateExpression(aggregate, target.value);
 								}}
 								class="h-7 text-xs w-28 font-mono"
 							/>
@@ -390,7 +428,7 @@
 								value={aggregate.alias ?? ''}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateSelectAggregate(aggregate.id, { alias: target.value || undefined });
+									handleUpdateAggregateAlias(aggregate, target.value);
 								}}
 								class="h-7 text-xs w-20 font-mono"
 							/>
@@ -400,14 +438,14 @@
 								variant="ghost"
 								size="icon-sm"
 								class="size-7 text-muted-foreground hover:text-destructive"
-								onclick={() => qb.removeSelectAggregate(aggregate.id)}
+								onclick={() => handleRemoveAggregate(aggregate)}
 							>
 								<XIcon class="size-3" />
 							</Button>
 						</div>
 					{/each}
 
-					{#if qb.selectAggregates.length === 0}
+					{#if qb.allDisplayAggregates.length === 0}
 						<p class="text-xs text-muted-foreground">No aggregates. Click "Add" to add COUNT, SUM, etc.</p>
 					{/if}
 				</div>

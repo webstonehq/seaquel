@@ -9,39 +9,16 @@
     GraduationCapIcon,
     PlayIcon,
     BookOpenIcon,
-    LockIcon,
   } from '@lucide/svelte';
+  import { LESSONS, LESSON_SECTIONS } from '$lib/tutorial/lessons';
 
-  const lessons = [
-    {
-      id: 'select',
-      title: 'SELECT Statements',
-      description: 'Learn to retrieve data from tables using SELECT queries',
-      status: 'available' as const,
-      challenges: 5,
-    },
-    {
-      id: 'where',
-      title: 'Filtering with WHERE',
-      description: 'Filter query results using conditions',
-      status: 'locked' as const,
-      challenges: 4,
-    },
-    {
-      id: 'joins',
-      title: 'JOINs',
-      description: 'Combine data from multiple tables',
-      status: 'locked' as const,
-      challenges: 6,
-    },
-    {
-      id: 'aggregates',
-      title: 'Aggregate Functions',
-      description: 'Summarize data with COUNT, SUM, AVG, and more',
-      status: 'locked' as const,
-      challenges: 5,
-    },
-  ];
+  /** Extract first sentence and strip markdown formatting */
+  function getDescription(introduction: string): string {
+    // Get first line (paragraph)
+    const firstLine = introduction.split('\n')[0].trim();
+    // Strip markdown bold/italic markers
+    return firstLine.replace(/\*\*/g, '').replace(/\*/g, '');
+  }
 </script>
 
 <SidebarLeft />
@@ -75,41 +52,36 @@
       </Card>
 
       <!-- Lessons -->
-      <div class="space-y-4">
-        <h2 class="font-semibold text-lg">Lessons</h2>
-        {#each lessons as lesson (lesson.id)}
-          <Card class={lesson.status === 'locked' ? 'opacity-60' : ''}>
-            <CardHeader class="pb-2">
-              <div class="flex items-start justify-between">
-                <div>
-                  <CardTitle class="flex items-center gap-2">
-                    {lesson.title}
-                    {#if lesson.status === 'locked'}
-                      <LockIcon class="size-4 text-muted-foreground" />
-                    {/if}
-                  </CardTitle>
-                  <CardDescription>{lesson.description}</CardDescription>
-                </div>
-                <Badge variant="secondary">{lesson.challenges} challenges</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Button
-                variant={lesson.status === 'available' ? 'default' : 'outline'}
-                size="sm"
-                disabled={lesson.status === 'locked'}
-                href={`/learn/${lesson.id}`}
-              >
-                {#if lesson.status === 'available'}
-                  <BookOpenIcon class="size-4 mr-2" />
-                  Start Lesson
-                {:else}
-                  <LockIcon class="size-4 mr-2" />
-                  Locked
-                {/if}
-              </Button>
-            </CardContent>
-          </Card>
+      <div class="space-y-6">
+        {#each LESSON_SECTIONS as section (section.id)}
+          <div class="space-y-4">
+            <h2 class="font-semibold text-lg">{section.title}</h2>
+            {#each section.lessons as lessonId (lessonId)}
+              {@const lesson = LESSONS[lessonId]}
+              {#if lesson}
+                <Card>
+                  <CardHeader class="pb-2">
+                    <div class="flex items-start justify-between">
+                      <div>
+                        <CardTitle>{lesson.title}</CardTitle>
+                        <CardDescription>{getDescription(lesson.introduction)}</CardDescription>
+                      </div>
+                      <Badge variant="secondary">{lesson.challenges.length} challenges</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <Button
+                      size="sm"
+                      href={`/learn/${lessonId}`}
+                    >
+                      <BookOpenIcon class="size-4 mr-2" />
+                      Start Lesson
+                    </Button>
+                  </CardContent>
+                </Card>
+              {/if}
+            {/each}
+          </div>
         {/each}
       </div>
     </div>

@@ -124,5 +124,6 @@ export type {
 	Challenge,
 	TutorialLesson,
 	SelectAggregate,
-	ColumnAggregate
+	ColumnAggregate,
+	DisplayAggregate
 } from './query-builder';

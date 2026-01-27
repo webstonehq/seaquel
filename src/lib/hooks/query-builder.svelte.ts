@@ -14,7 +14,8 @@ import type {
 	JoinType,
 	QueryBuilderSnapshot,
 	SelectAggregate,
-	ColumnAggregate
+	ColumnAggregate,
+	DisplayAggregate
 } from '$lib/types';
 import { getTable } from '$lib/tutorial/schema';
 
@@ -66,6 +67,42 @@ export class QueryBuilderState {
 	 */
 	generatedSql = $derived.by(() => {
 		return this.buildSql();
+	});
+
+	/**
+	 * All aggregates (column + select) in a unified display format.
+	 * Used by the filter panel to show all aggregates in one place.
+	 */
+	allDisplayAggregates = $derived.by((): DisplayAggregate[] => {
+		const result: DisplayAggregate[] = [];
+
+		// Collect column aggregates from all tables
+		for (const table of this.tables) {
+			for (const [columnName, agg] of table.columnAggregates) {
+				result.push({
+					id: `col-${table.id}-${columnName}`,
+					function: agg.function,
+					expression: `${table.tableName}.${columnName}`,
+					alias: agg.alias,
+					source: 'column',
+					tableId: table.id,
+					columnName
+				});
+			}
+		}
+
+		// Add standalone select aggregates
+		for (const agg of this.selectAggregates) {
+			result.push({
+				id: agg.id,
+				function: agg.function,
+				expression: agg.expression,
+				alias: agg.alias,
+				source: 'select'
+			});
+		}
+
+		return result;
 	});
 
 	/**

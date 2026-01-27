@@ -3,20 +3,26 @@
 	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { TableIcon, GripVerticalIcon, CheckIcon } from '@lucide/svelte';
+    import { useDnD } from './dnd-provider.svelte';
 
 	const qb = useQueryBuilder();
+	const type = useDnD();
 
 	// Track which tables are already on the canvas
 	const tablesOnCanvas = $derived(new Set(qb.tables.map((t) => t.tableName)));
 
 	function handleDragStart(event: DragEvent, tableName: string) {
 		if (!event.dataTransfer) return;
-		event.dataTransfer.setData('application/table-name', tableName);
-		event.dataTransfer.effectAllowed = 'copy';
+		console.log("jjj");
+		// Store the table name in shared context (more reliable than dataTransfer)
+		type.current = tableName;
+		// setData is required for the drag operation to be valid in some browsers
+		event.dataTransfer.setData('text/plain', tableName);
+		event.dataTransfer.effectAllowed = 'move';
 	}
 </script>
 
-<div class="w-48 border-r border-border bg-muted/30 flex flex-col">
+<div class="flex-1 flex flex-col bg-muted/30">
 	<!-- Header -->
 	<div class="p-3 border-b border-border">
 		<h3 class="font-medium text-sm">Tables</h3>

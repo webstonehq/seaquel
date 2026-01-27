@@ -8,6 +8,7 @@
 	import CircleIcon from '@lucide/svelte/icons/circle';
 	import LightbulbIcon from '@lucide/svelte/icons/lightbulb';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
 
 	interface Props {
@@ -16,19 +17,35 @@
 		totalChallenges: number;
 		onComplete?: () => void;
 		onSkip?: () => void;
+		onPrevious?: () => void;
+		onGoTo?: (index: number) => void;
+		completedChallenges?: Set<string>;
+		allChallenges?: { id: string }[];
 	}
 
-	let { challenge, challengeIndex, totalChallenges, onComplete, onSkip }: Props = $props();
+	let { challenge, challengeIndex, totalChallenges, onComplete, onSkip, onPrevious, onGoTo, completedChallenges, allChallenges }: Props = $props();
+
+	const hasPrevious = $derived(challengeIndex > 0);
+	const hasNext = $derived(challengeIndex < totalChallenges - 1);
 
 	const qb = useQueryBuilder();
 
 	let showHint = $state(false);
 
+	// Reset hint visibility when challenge changes
+	$effect(() => {
+		challengeIndex;
+		showHint = false;
+	});
+
+	// The SQL to validate - use custom SQL if user has typed something, otherwise use generated SQL
+	const activeSql = $derived(qb.customSql ?? qb.generatedSql);
+
 	// Evaluate criteria against current state
 	const evaluatedCriteria = $derived<ChallengeCriterion[]>(
 		challenge.criteria.map((c) => ({
 			...c,
-			satisfied: c.check(qb.snapshot, qb.generatedSql)
+			satisfied: c.check(qb.snapshot, activeSql)
 		}))
 	);
 
@@ -39,9 +56,30 @@
 <Card class="border-primary/20">
 	<CardHeader class="pb-2">
 		<div class="flex items-center justify-between">
-			<Badge variant="secondary">
-				Challenge {challengeIndex + 1} of {totalChallenges}
-			</Badge>
+			<!-- Challenge indicator dots -->
+			{#if allChallenges && onGoTo}
+				<div class="flex items-center gap-1">
+					{#each allChallenges as ch, i (ch.id)}
+						<button
+							type="button"
+							class={[
+								"size-2 rounded-full transition-colors",
+								i === challengeIndex
+									? "bg-primary ring-2 ring-primary/30"
+									: completedChallenges?.has(ch.id)
+										? "bg-green-500 hover:bg-green-400"
+										: "bg-muted-foreground/30 hover:bg-muted-foreground/50"
+							]}
+							onclick={() => onGoTo?.(i)}
+							title={`Challenge ${i + 1}`}
+						></button>
+					{/each}
+				</div>
+			{:else}
+				<Badge variant="secondary">
+					Challenge {challengeIndex + 1} of {totalChallenges}
+				</Badge>
+			{/if}
 			{#if isComplete}
 				<Badge class="bg-green-500 text-white">Complete!</Badge>
 			{:else}
@@ -90,18 +128,36 @@
 		{/if}
 
 		<!-- Actions -->
-		<div class="flex justify-between pt-2">
-			<Button variant="ghost" size="sm" onclick={onSkip}>
-				<SkipForwardIcon class="size-4 mr-2" />
-				Skip
-			</Button>
+		<div class="flex items-center justify-between pt-2">
+			<div class="flex items-center gap-1">
+				{#if hasPrevious && onPrevious}
+					<Button variant="ghost" size="sm" onclick={onPrevious}>
+						<ChevronLeftIcon class="size-4 mr-1" />
+						Previous
+					</Button>
+				{/if}
+			</div>
 
-			{#if isComplete}
-				<Button size="sm" onclick={onComplete}>
-					Next Challenge
-					<ChevronRightIcon class="size-4 ml-2" />
-				</Button>
-			{/if}
+			<div class="flex items-center gap-1">
+				{#if isComplete}
+					{#if hasNext}
+						<Button size="sm" onclick={onComplete}>
+							Next
+							<ChevronRightIcon class="size-4 ml-1" />
+						</Button>
+					{:else}
+						<Button size="sm" onclick={onComplete}>
+							Finish
+							<CheckCircle2Icon class="size-4 ml-1" />
+						</Button>
+					{/if}
+				{:else if hasNext}
+					<Button variant="ghost" size="sm" onclick={onSkip}>
+						Skip
+						<SkipForwardIcon class="size-4 ml-1" />
+					</Button>
+				{/if}
+			</div>
 		</div>
 	</CardContent>
 </Card>

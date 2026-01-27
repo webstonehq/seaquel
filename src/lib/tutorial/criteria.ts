@@ -50,6 +50,30 @@ export function hasJoin(table1: string, table2: string): CriterionCheck {
 }
 
 /**
+ * Check if a JOIN exists between two tables on specific columns.
+ * Validates the exact join condition (e.g., products.category_id = categories.id).
+ */
+export function hasJoinOn(
+	table1: string,
+	column1: string,
+	table2: string,
+	column2: string
+): CriterionCheck {
+	return (state) =>
+		state.joins.some(
+			(j) =>
+				(j.sourceTable === table1 &&
+					j.sourceColumn === column1 &&
+					j.targetTable === table2 &&
+					j.targetColumn === column2) ||
+				(j.sourceTable === table2 &&
+					j.sourceColumn === column2 &&
+					j.targetTable === table1 &&
+					j.targetColumn === column1)
+		);
+}
+
+/**
  * Check if a specific join type is used.
  */
 export function hasJoinType(joinType: 'INNER' | 'LEFT' | 'RIGHT' | 'FULL'): CriterionCheck {
@@ -112,10 +136,84 @@ export function hasLimit(value?: number): CriterionCheck {
 }
 
 /**
+ * Check if a GROUP BY clause exists on a specific column.
+ */
+export function hasGroupBy(column: string): CriterionCheck {
+	return (state) => state.groupBy.some((g) => g.column === column);
+}
+
+/**
+ * Check if any GROUP BY clause exists.
+ */
+export function hasAnyGroupBy(): CriterionCheck {
+	return (state) => state.groupBy.length > 0;
+}
+
+/**
+ * Check if GROUP BY has at least one valid (non-empty) column.
+ */
+export function hasValidGroupBy(): CriterionCheck {
+	return (state) => state.groupBy.some((g) => g.column.trim() !== '');
+}
+
+/**
  * Check if the SQL contains a specific keyword (case-insensitive).
  */
 export function sqlContains(keyword: string): CriterionCheck {
 	return (_, sql) => sql.toUpperCase().includes(keyword.toUpperCase());
+}
+
+/**
+ * Check if a HAVING condition exists with specific aggregate function and operator.
+ * @param aggregateFunction - The aggregate function (COUNT, SUM, AVG, MIN, MAX)
+ * @param column - The column inside the aggregate (empty string for COUNT(*))
+ * @param operator - The comparison operator
+ * @param value - Optional specific value to check
+ */
+export function hasHaving(
+	aggregateFunction: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
+	column: string,
+	operator?: '=' | '!=' | '>' | '<' | '>=' | '<=',
+	value?: string | number
+): CriterionCheck {
+	return (state) =>
+		state.having.some((h) => {
+			if (h.aggregateFunction !== aggregateFunction) return false;
+			// For column, check if it ends with the specified column (handles table.column format)
+			if (column === '' || column === '*') {
+				if (h.column !== '' && h.column !== '*') return false;
+			} else {
+				if (!h.column.endsWith(column) && h.column !== column) return false;
+			}
+			if (operator && h.operator !== operator) return false;
+			if (value !== undefined && h.value !== String(value)) return false;
+			return true;
+		});
+}
+
+/**
+ * Check if any HAVING condition exists.
+ */
+export function hasAnyHaving(): CriterionCheck {
+	return (state) => state.having.length > 0;
+}
+
+/**
+ * Check if a HAVING condition exists with a specific comparison (operator + value).
+ * More flexible than hasHaving - checks aggregate function and that the comparison makes sense.
+ */
+export function hasHavingComparison(
+	aggregateFunction: 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX',
+	operator: '=' | '!=' | '>' | '<' | '>=' | '<=',
+	value: string | number
+): CriterionCheck {
+	return (state) =>
+		state.having.some((h) => {
+			if (h.aggregateFunction !== aggregateFunction) return false;
+			if (h.operator !== operator) return false;
+			if (h.value !== String(value)) return false;
+			return true;
+		});
 }
 
 /**

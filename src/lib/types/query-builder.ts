@@ -142,6 +142,27 @@ export interface ColumnAggregate {
 }
 
 /**
+ * Unified aggregate for display in the AGGREGATES panel.
+ * Can represent either a column aggregate or a standalone select aggregate.
+ */
+export interface DisplayAggregate {
+	/** Unique identifier */
+	id: string;
+	/** Aggregate function */
+	function: AggregateFunction;
+	/** Expression (for column aggregate: table.column, for select aggregate: the expression) */
+	expression: string;
+	/** Optional alias */
+	alias?: string;
+	/** Source type to determine how to handle edits/removes */
+	source: 'column' | 'select';
+	/** For column aggregates: the table ID */
+	tableId?: string;
+	/** For column aggregates: the column name */
+	columnName?: string;
+}
+
+/**
  * Comparison operators valid for HAVING conditions.
  * Limited to numeric comparisons (no LIKE, IS NULL, etc.).
  */
