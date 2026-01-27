@@ -8,6 +8,7 @@ interface PersistedOnboardingState {
 	hasCompletedWizard: boolean;
 	showWizardHints: boolean;
 	dismissedHints: string[];
+	learnEnabled: boolean;
 }
 
 const STORE_FILE = "onboarding_state.json";
@@ -18,6 +19,7 @@ class OnboardingStore {
 	hasCompletedWizard = $state(false);
 	showWizardHints = $state(true);
 	dismissedHints = $state<string[]>([]);
+	learnEnabled = $state(true);
 
 	private initialized = false;
 
@@ -38,6 +40,7 @@ class OnboardingStore {
 				this.hasCompletedWizard = persisted.hasCompletedWizard;
 				this.showWizardHints = persisted.showWizardHints;
 				this.dismissedHints = persisted.dismissedHints || [];
+				this.learnEnabled = persisted.learnEnabled ?? true;
 			}
 
 			this.initialized = true;
@@ -74,6 +77,11 @@ class OnboardingStore {
 		this.persist();
 	}
 
+	setLearnEnabled(enabled: boolean): void {
+		this.learnEnabled = enabled;
+		this.persist();
+	}
+
 	private async persist(): Promise<void> {
 		try {
 			const store = await load(STORE_FILE, {
@@ -87,6 +95,7 @@ class OnboardingStore {
 				hasCompletedWizard: this.hasCompletedWizard,
 				showWizardHints: this.showWizardHints,
 				dismissedHints: this.dismissedHints,
+				learnEnabled: this.learnEnabled,
 			};
 
 			await store.set("state", state);

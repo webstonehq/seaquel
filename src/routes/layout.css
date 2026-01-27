@@ -335,3 +335,47 @@
 .svelte-flow .svelte-flow__resize-control.line {
   border-color: var(--primary) !important;
 }
+
+/* Query builder handles - subtle by default, visible on hover */
+.svelte-flow .svelte-flow__handle {
+  width: 8px !important;
+  height: 8px !important;
+  min-width: 8px !important;
+  min-height: 8px !important;
+  background-color: var(--muted-foreground) !important;
+  border: 2px solid var(--card) !important;
+  border-radius: 50% !important;
+  opacity: 0 !important;
+  visibility: visible !important;
+  z-index: 50 !important;
+  pointer-events: auto !important;
+  transition: opacity 0.15s ease, transform 0.15s ease !important;
+}
+
+/* Show handles on node hover */
+.svelte-flow .svelte-flow__node:hover .svelte-flow__handle {
+  opacity: 1 !important;
+}
+
+/* Active handle (when connecting) */
+.svelte-flow .svelte-flow__handle:hover,
+.svelte-flow .svelte-flow__handle.connecting,
+.svelte-flow .svelte-flow__handle.valid {
+  width: 10px !important;
+  height: 10px !important;
+  min-width: 10px !important;
+  min-height: 10px !important;
+  background-color: #3b82f6 !important;
+  opacity: 1 !important;
+}
+
+/* Always show handles when a connection is in progress */
+.svelte-flow.connecting .svelte-flow__handle {
+  opacity: 1 !important;
+}
+
+/* Connection line when dragging */
+.svelte-flow .svelte-flow__connection-line {
+  stroke: #3b82f6 !important;
+  stroke-width: 2px !important;
+}

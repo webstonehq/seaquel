@@ -16,7 +16,8 @@
         "minWidth": 1112,
         "width": 1112,
         "height": 768,
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "dragDropEnabled": false
       }
     ],
     "security": {

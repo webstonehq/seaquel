@@ -38,9 +38,15 @@ import { errorToast } from "$lib/utils/toast";
 	import DownloadIcon from "@lucide/svelte/icons/download";
 	import TrashIcon from "@lucide/svelte/icons/trash-2";
 	import CheckIcon from "@lucide/svelte/icons/check";
+	import BlocksIcon from "@lucide/svelte/icons/blocks";
+	import GraduationCapIcon from "@lucide/svelte/icons/graduation-cap";
 	import ThemePreview from "./theme-preview.svelte";
 	import { openThemeEditor } from "$lib/utils/theme-editor-window";
 	import type { Theme } from "$lib/types/theme";
+	import { Switch } from "$lib/components/ui/switch";
+	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 
 	// App info state
 	let appVersion = $state<string>("");
@@ -199,6 +205,14 @@ import { errorToast } from "$lib/utils/toast";
 				{ id: "themes", name: m.settings_themes(), icon: SwatchBookIcon },
 			],
 		},
+		{
+			id: "features",
+			name: m.settings_features(),
+			icon: BlocksIcon,
+			items: [
+				{ id: "learn", name: m.settings_learn(), icon: GraduationCapIcon },
+			],
+		},
 	];
 
 	// Find the active group for breadcrumb display
@@ -223,10 +237,19 @@ import { errorToast } from "$lib/utils/toast";
 		// If viewing a specific section, only show that one
 		if (view === sectionId) return true;
 		// If viewing a group, show all sections in that group
-		if (view === "general" || view === "appearance") {
+		if (view === "general" || view === "appearance" || view === "features") {
 			return groupSections[view].includes(sectionId);
 		}
 		return false;
+	}
+
+	// Handle Learn toggle
+	function handleLearnToggle(checked: boolean) {
+		onboardingStore.setLearnEnabled(checked);
+		// If disabling Learn and currently on a Learn page, redirect to Manage
+		if (!checked && page.url.pathname.startsWith("/learn")) {
+			goto("/manage");
+		}
 	}
 
 	// Check if a menu item is active
@@ -236,6 +259,7 @@ import { errorToast } from "$lib/utils/toast";
 		// Also highlight first item if viewing the parent group
 		if (view === "general") return itemId === "app-info";
 		if (view === "appearance") return itemId === "theme";
+		if (view === "features") return itemId === "learn";
 		return false;
 	}
 
@@ -533,6 +557,32 @@ import { errorToast } from "$lib/utils/toast";
 											</div>
 										</div>
 									{/each}
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if shouldShowSection("learn")}
+						<div class="space-y-6">
+							<div>
+								<h2 class="text-lg font-medium">{m.settings_learn()}</h2>
+								<p class="text-sm text-muted-foreground mt-1">
+									{m.settings_learn_description()}
+								</p>
+							</div>
+
+							<div class="space-y-4">
+								<div class="flex items-center justify-between">
+									<div>
+										<p class="text-sm font-medium">{m.settings_learn_enabled()}</p>
+										<p class="text-xs text-muted-foreground">
+											{m.settings_learn_enabled_description()}
+										</p>
+									</div>
+									<Switch
+										checked={onboardingStore.learnEnabled}
+										onCheckedChange={handleLearnToggle}
+									/>
 								</div>
 							</div>
 						</div>
