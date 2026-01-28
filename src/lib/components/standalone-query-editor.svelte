@@ -12,6 +12,8 @@
 		createDefaultParameters,
 		substituteParameters
 	} from '$lib/db/query-params.js';
+	import { parseSql } from '$lib/tutorial/sql-parser';
+	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte';
 	import type { QueryExecutor, QueryParameter, ParameterValue, SchemaTable } from '$lib/types';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -24,9 +26,14 @@
 		onSqlChange?: (sql: string) => void;
 		/** Schema for Monaco autocomplete */
 		schema?: SchemaTable[];
+		/** Enable two-way sync with visual query builder */
+		enableVisualSync?: boolean;
 	}
 
-	let { executor, value = '', onSqlChange, schema }: Props = $props();
+	let { executor, value = '', onSqlChange, schema, enableVisualSync = false }: Props = $props();
+
+	// Get query builder for two-way sync (only if enabled)
+	const qb = enableVisualSync ? useQueryBuilder() : null;
 
 	// Local state
 	let editorValue = $state('');
@@ -53,6 +60,16 @@
 	function handleEditorChange(sql: string) {
 		editorValue = sql;
 		onSqlChange?.(sql);
+
+		// Two-way sync: parse SQL and update visual query builder
+		if (qb) {
+			// Use null for validTableNames to accept any table (for real databases too)
+			const parsed = parseSql(sql, { validTableNames: null });
+			if (parsed) {
+				qb.applyFromParsedSql(parsed);
+			}
+			// If parse fails, keep last valid visual state
+		}
 	}
 
 	function handleExecute() {

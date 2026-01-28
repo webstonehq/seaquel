@@ -98,6 +98,7 @@
 							value={sqlValue}
 							onSqlChange={handleSqlChange}
 							schema={tutorialSchema}
+							enableVisualSync
 						/>
 					</div>
 				</Resizable.Pane>
