@@ -66,14 +66,21 @@
 
 			<!-- Canvas + Filter Panel -->
 			<Resizable.Pane defaultSize={55} minSize={30}>
-				<div class="flex flex-col h-full">
-					<!-- Canvas -->
-					<div class="flex-1 min-h-0">
-						<QueryBuilderCanvas />
-					</div>
-					<!-- Filter Panel -->
-					<FilterPanel />
-				</div>
+				<Resizable.PaneGroup direction="vertical">
+					<Resizable.Pane defaultSize={60} minSize={20}>
+						<!-- Canvas -->
+						<div class="h-full">
+							<QueryBuilderCanvas />
+						</div>
+					</Resizable.Pane>
+
+					<Resizable.Handle withHandle />
+
+					<Resizable.Pane defaultSize={40} minSize={15}>
+						<!-- Filter Panel -->
+						<FilterPanel />
+					</Resizable.Pane>
+				</Resizable.PaneGroup>
 			</Resizable.Pane>
 
 			<Resizable.Handle />
