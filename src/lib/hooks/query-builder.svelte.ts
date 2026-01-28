@@ -60,8 +60,8 @@ export class QueryBuilderState {
 	/** ORDER BY clauses */
 	orderBy = $state<SortCondition[]>([]);
 
-	/** LIMIT value, or null for no limit */
-	limit = $state<number | null>(100);
+	/** LIMIT value, or null for no limit. Can be a {{variable}} string. */
+	limit = $state<string | number | null>(100);
 
 	/** User's custom SQL text (preserved even if it differs from generated) */
 	customSql = $state<string | null>(null);
@@ -1973,7 +1973,7 @@ export class QueryBuilderState {
 		groupBy: GroupByCondition[],
 		having: HavingCondition[],
 		orderBy: SortCondition[],
-		limit: number | null,
+		limit: string | number | null,
 		selectAggregates: SelectAggregate[],
 		subqueries: CanvasSubquery[]
 	): string {
@@ -2973,7 +2973,7 @@ export interface SerializableInnerQuery {
 	groupBy: GroupByCondition[];
 	having: HavingCondition[];
 	orderBy: SortCondition[];
-	limit: number | null;
+	limit: string | number | null;
 	selectAggregates: SelectAggregate[];
 	subqueries?: SerializableSubquery[];
 }
@@ -3012,7 +3012,7 @@ export interface SerializableQueryBuilderState {
 	groupBy?: GroupByCondition[];
 	having?: HavingCondition[];
 	orderBy: SortCondition[];
-	limit: number | null;
+	limit: string | number | null;
 	/** User's custom SQL text (preserved even if it differs from generated) */
 	customSql?: string | null;
 	/** Standalone aggregates in SELECT clause */
