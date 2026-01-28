@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import type { TutorialTable, AggregateFunction } from "$lib/types";
-	import { getTable } from "$lib/tutorial/schema";
+	import type { QueryBuilderTable, AggregateFunction } from "$lib/types";
 	import { useQueryBuilder } from "$lib/hooks/query-builder.svelte.js";
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { Button } from "$lib/components/ui/button";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import * as Select from "$lib/components/ui/select";
 	import TableIcon from "@lucide/svelte/icons/table";
+	import LayersIcon from "@lucide/svelte/icons/layers";
 	import LinkIcon from "@lucide/svelte/icons/link";
 	import FunctionSquareIcon from "@lucide/svelte/icons/function-square";
 	import HashIcon from "@lucide/svelte/icons/hash";
@@ -31,6 +31,8 @@
 			tableId: string;
 			selectedColumns: Set<string>;
 			columnAggregates: Map<string, { function: AggregateFunction; alias?: string }>;
+			subqueryId?: string; // Present when table is inside a subquery
+			cteId?: string; // Present when this is a CTE reference table (in main query) or a table inside a CTE
 		};
 		isConnectable?: boolean;
 	}
@@ -38,6 +40,20 @@
 	let { id, data, isConnectable = true }: Props = $props();
 
 	const queryBuilder = useQueryBuilder();
+
+	// Check if this table is a CTE reference (not inside a CTE, but referencing one)
+	const isCteReference = $derived.by(() => {
+		// If cteId is passed directly in data (for subquery tables), use it
+		// But only if this is NOT a table inside a CTE (checked by subqueryId presence or top-level check)
+		if (data.cteId && data.subqueryId) {
+			// This is a CTE reference inside a subquery
+			return data.cteId;
+		}
+
+		// Find the table in qb.tables to check if it has cteId (top-level CTE references)
+		const table = queryBuilder.tables.find((t) => t.id === data.tableId);
+		return table?.cteId ? table.cteId : null;
+	});
 
 	const AGGREGATE_FUNCTIONS: { value: AggregateFunction | 'none'; label: string }[] = [
 		{ value: 'none', label: 'None' },
@@ -48,36 +64,143 @@
 		{ value: 'MAX', label: 'MAX' }
 	];
 
-	// Get the table schema
-	const tableSchema: TutorialTable | undefined = $derived(getTable(data.tableName));
+	// Get the table schema - either from actual table or derived from CTE
+	const tableSchema = $derived.by((): QueryBuilderTable | undefined => {
+		// If this is a CTE reference table, get columns from the CTE
+		if (isCteReference) {
+			const cteColumns = queryBuilder.getCteColumns(isCteReference);
+			if (cteColumns.length > 0) {
+				return {
+					name: data.tableName,
+					columns: cteColumns.map((c) => ({
+						name: c.name,
+						type: c.type,
+						primaryKey: false
+					}))
+				};
+			}
+		}
+
+		// Regular table from schema
+		return queryBuilder.getSchemaTable(data.tableName);
+	});
 
 	function handleToggleColumn(columnName: string) {
-		queryBuilder.toggleColumn(data.tableId, columnName);
+		// Check if this is a table inside a CTE (not a CTE reference)
+		const isInsideCte = data.cteId && !isCteReference;
+
+		if (isInsideCte) {
+			queryBuilder.toggleCteColumn(data.cteId!, data.tableId, columnName);
+		} else if (data.subqueryId) {
+			queryBuilder.toggleSubqueryColumn(data.subqueryId, data.tableId, columnName);
+		} else {
+			queryBuilder.toggleColumn(data.tableId, columnName);
+		}
 	}
 
 	function handleSelectAll() {
-		queryBuilder.selectAllColumns(data.tableId);
+		// Check if this is a table inside a CTE (not a CTE reference)
+		const isInsideCte = data.cteId && !isCteReference;
+
+		if (isInsideCte) {
+			// For CTE tables, toggle each column individually
+			if (tableSchema) {
+				for (const col of tableSchema.columns) {
+					if (!data.selectedColumns.has(col.name)) {
+						queryBuilder.toggleCteColumn(data.cteId!, data.tableId, col.name);
+					}
+				}
+			}
+		} else if (data.subqueryId) {
+			// For subquery tables, toggle each column individually
+			const schema = queryBuilder.getSchemaTable(data.tableName);
+			if (schema) {
+				for (const col of schema.columns) {
+					if (!data.selectedColumns.has(col.name)) {
+						queryBuilder.toggleSubqueryColumn(data.subqueryId, data.tableId, col.name);
+					}
+				}
+			}
+		} else {
+			queryBuilder.selectAllColumns(data.tableId);
+		}
 	}
 
 	function handleSelectNone() {
-		queryBuilder.clearColumns(data.tableId);
+		// Check if this is a table inside a CTE (not a CTE reference)
+		const isInsideCte = data.cteId && !isCteReference;
+
+		if (isInsideCte) {
+			// For CTE tables, toggle each selected column off
+			for (const colName of data.selectedColumns) {
+				queryBuilder.toggleCteColumn(data.cteId!, data.tableId, colName);
+			}
+		} else if (data.subqueryId) {
+			// For subquery tables, toggle each selected column off
+			for (const colName of data.selectedColumns) {
+				queryBuilder.toggleSubqueryColumn(data.subqueryId, data.tableId, colName);
+			}
+		} else {
+			queryBuilder.clearColumns(data.tableId);
+		}
 	}
 
 	function handleAggregateChange(columnName: string, value: string) {
-		if (value === 'none') {
-			queryBuilder.clearColumnAggregate(data.tableId, columnName);
+		// Check if this is a table inside a CTE (not a CTE reference)
+		const isInsideCte = data.cteId && !isCteReference;
+
+		if (isInsideCte) {
+			// For CTE tables, update the aggregate in the CTE's inner state
+			const cte = queryBuilder.getCte(data.cteId!);
+			if (cte) {
+				const table = cte.innerQuery.tables.find(t => t.id === data.tableId);
+				if (table) {
+					if (value === 'none') {
+						table.columnAggregates.delete(columnName);
+					} else {
+						table.columnAggregates.set(columnName, { function: value as AggregateFunction });
+					}
+					// Trigger reactivity and sync with editor
+					queryBuilder.ctes = [...queryBuilder.ctes];
+					queryBuilder.customSql = null;
+				}
+			}
+		} else if (data.subqueryId) {
+			// For subquery tables, we need to update the aggregate in the subquery's inner state
+			const subquery = queryBuilder.getSubquery(data.subqueryId);
+			if (subquery) {
+				const table = subquery.innerQuery.tables.find(t => t.id === data.tableId);
+				if (table) {
+					if (value === 'none') {
+						table.columnAggregates.delete(columnName);
+					} else {
+						table.columnAggregates.set(columnName, { function: value as AggregateFunction });
+					}
+					// Trigger reactivity and sync with editor
+					queryBuilder.subqueries = [...queryBuilder.subqueries];
+					queryBuilder.customSql = null;
+				}
+			}
 		} else {
-			queryBuilder.setColumnAggregate(data.tableId, columnName, value as AggregateFunction);
+			if (value === 'none') {
+				queryBuilder.clearColumnAggregate(data.tableId, columnName);
+			} else {
+				queryBuilder.setColumnAggregate(data.tableId, columnName, value as AggregateFunction);
+			}
 		}
 	}
 </script>
 
-<div class="bg-card border border-border rounded-lg shadow-md min-w-[220px]">
+<div class="bg-card border rounded-lg shadow-md min-w-[220px] {isCteReference ? 'border-violet-500/30' : 'border-border'}">
 	<!-- Table Header -->
-	<div class="bg-muted/50 border-b border-border px-3 py-2 flex items-center justify-between gap-2">
+	<div class="border-b border-border px-3 py-2 flex items-center justify-between gap-2 {isCteReference ? 'bg-violet-500/10' : 'bg-muted/50'}">
 		<div class="flex items-center gap-2 min-w-0">
-			<TableIcon class="size-4 shrink-0 text-muted-foreground" />
-			<span class="font-medium text-sm truncate" title={data.tableName}>
+			{#if isCteReference}
+				<LayersIcon class="size-4 shrink-0 text-violet-500" />
+			{:else}
+				<TableIcon class="size-4 shrink-0 text-muted-foreground" />
+			{/if}
+			<span class="font-medium text-sm truncate {isCteReference ? 'text-violet-600 dark:text-violet-400' : ''}" title={data.tableName}>
 				{data.tableName}
 			</span>
 		</div>

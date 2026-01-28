@@ -6,6 +6,7 @@
 	import { canvasNodeTypes } from "./nodes";
 	import { DatabaseIcon, MousePointerIcon } from "@lucide/svelte";
 	import type { CanvasNodeData } from "$lib/types/canvas";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 
@@ -69,8 +70,8 @@
 			<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 				<div class="text-center text-muted-foreground">
 					<MousePointerIcon class="size-12 mx-auto mb-3 opacity-20" />
-					<p class="text-sm">Click a table in the sidebar to add it to the canvas</p>
-					<p class="text-xs mt-1 opacity-70">Or add a query node to write SQL</p>
+					<p class="text-sm">{m.canvas_add_table_hint()}</p>
+					<p class="text-xs mt-1 opacity-70">{m.canvas_add_query_hint()}</p>
 				</div>
 			</div>
 		{/if}
@@ -78,8 +79,8 @@
 		<div class="h-full flex items-center justify-center text-muted-foreground">
 			<div class="text-center">
 				<DatabaseIcon class="size-12 mx-auto mb-3 opacity-20" />
-				<p class="text-sm">Connect to a database to start</p>
-				<p class="text-xs mt-1 opacity-70">Select a connection from the tabs above</p>
+				<p class="text-sm">{m.canvas_connect_hint()}</p>
+				<p class="text-xs mt-1 opacity-70">{m.canvas_select_connection_hint()}</p>
 			</div>
 		</div>
 	{/if}

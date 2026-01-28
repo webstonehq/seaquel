@@ -152,6 +152,8 @@
 	"command_export_csv": "Als CSV exportieren",
 	"command_export_json": "Als JSON exportieren",
 	"command_copy_results_json": "Ergebnisse als JSON kopieren",
+	"command_group_learning": "Lernen",
+	"command_learn_sandbox": "SQL Sandbox",
 	"erd_title": "Entity-Relationship-Diagramm",
 	"erd_tables_filtered": "{filtered} / {total} Tabellen",
 	"erd_tables": "{count} Tabellen",

@@ -25,7 +25,7 @@
 			class="flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 			onclick={onChooseString}
 		>
-			<div class="size-12 rounded-full bg-primary/10 flex items-center justify-center">
+			<div class="size-12 rounded-full flex items-center justify-center">
 				<LinkIcon class="size-6 text-primary" />
 			</div>
 			<div class="space-y-1">
@@ -38,7 +38,7 @@
 			class="flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 			onclick={onChooseManual}
 		>
-			<div class="size-12 rounded-full bg-muted flex items-center justify-center">
+			<div class="size-12 rounded-full flex items-center justify-center">
 				<ListIcon class="size-6 text-muted-foreground" />
 			</div>
 			<div class="space-y-1">

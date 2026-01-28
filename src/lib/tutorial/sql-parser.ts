@@ -9,6 +9,7 @@ export interface ParsedTable {
 	tableName: string;
 	alias: string | null;
 	selectedColumns: string[];
+	isCteReference?: boolean;
 }
 
 export interface ParsedJoin {
@@ -24,6 +25,7 @@ export interface ParsedFilter {
 	operator: FilterOperator;
 	value: string;
 	connector: 'AND' | 'OR';
+	subqueryIndex?: number; // Index into subqueries array if value is a subquery
 }
 
 export interface ParsedOrderBy {
@@ -56,6 +58,19 @@ export interface ParsedColumnAggregate {
 	alias?: string;
 }
 
+export interface ParsedSubquery {
+	id: string;
+	role: 'where' | 'from' | 'select';
+	linkedFilterIndex?: number; // Index of filter that uses this subquery
+	innerQuery: ParsedQuery;
+}
+
+export interface ParsedCTE {
+	id: string;
+	name: string;
+	innerQuery: ParsedQuery;
+}
+
 export interface ParsedQuery {
 	tables: ParsedTable[];
 	joins: ParsedJoin[];
@@ -66,15 +81,30 @@ export interface ParsedQuery {
 	limit: number | null;
 	selectAggregates: ParsedSelectAggregate[];
 	columnAggregates: ParsedColumnAggregate[];
+	subqueries: ParsedSubquery[];
+	ctes?: ParsedCTE[];
+}
+
+/**
+ * Options for SQL parsing.
+ */
+export interface ParseSqlOptions {
+	/**
+	 * List of valid table names to accept. If not provided, uses tutorial schema.
+	 * Pass null to accept all table names (for real database schemas).
+	 */
+	validTableNames?: string[] | null;
 }
 
 /**
  * Parse SQL and extract query builder components.
  * Returns null if SQL cannot be parsed or is not a SELECT statement.
+ * @param sql - The SQL string to parse
+ * @param options - Optional parsing options
  */
-export function parseSql(sql: string): ParsedQuery | null {
+export function parseSql(sql: string, options?: ParseSqlOptions): ParsedQuery | null {
 	if (!sql.trim()) {
-		return { tables: [], joins: [], filters: [], groupBy: [], having: [], orderBy: [], limit: null, selectAggregates: [], columnAggregates: [] };
+		return { tables: [], joins: [], filters: [], groupBy: [], having: [], orderBy: [], limit: null, selectAggregates: [], columnAggregates: [], subqueries: [], ctes: [] };
 	}
 
 	try {
@@ -87,21 +117,77 @@ export function parseSql(sql: string): ParsedQuery | null {
 			return null;
 		}
 
-		const validTableNames = getTableNames();
+		// If validTableNames is null, accept all tables. If undefined, use tutorial schema.
+		const validTableNames = options?.validTableNames === null
+			? null
+			: (options?.validTableNames ?? getTableNames());
 		const tables: ParsedTable[] = [];
 		const joins: ParsedJoin[] = [];
 		const selectAggregates: ParsedSelectAggregate[] = [];
 		const columnAggregates: ParsedColumnAggregate[] = [];
 		const tableAliasMap = new Map<string, string>(); // alias -> tableName
+		const subqueries: ParsedSubquery[] = []; // Moved early to support FROM subqueries
+		const ctes: ParsedCTE[] = [];
+		const cteNameSet = new Set<string>(); // Track CTE names for table resolution
 
-		// Parse FROM clause
+		// Parse WITH clause (CTEs)
+		// node-sql-parser structure: { with: [{ name: { type, value }, stmt: { type: 'select', ... } }] }
+		const stmtWithCte = stmt as { with?: Array<{ name?: { value?: string }; stmt?: unknown }> };
+		if (stmtWithCte.with && Array.isArray(stmtWithCte.with)) {
+			for (const cteItem of stmtWithCte.with) {
+				const cteName = cteItem.name?.value;
+				// The stmt is the full SELECT AST directly (not wrapped in { ast: ... })
+				if (cteName && cteItem.stmt) {
+					const cteQuery = parseSubqueryAst(cteItem.stmt, undefined, validTableNames);
+					if (cteQuery) {
+						ctes.push({
+							id: `cte-${ctes.length}`,
+							name: cteName,
+							innerQuery: cteQuery
+						});
+						cteNameSet.add(cteName);
+						// Register CTE name as a valid "table" for column resolution
+						tableAliasMap.set(cteName, cteName);
+					}
+				}
+			}
+		}
+
+		// Parse FROM clause (handles regular tables and derived tables/subqueries)
 		if (stmt.from && Array.isArray(stmt.from)) {
 			for (const fromItem of stmt.from) {
+				// Check for derived table (FROM (SELECT ...) AS alias)
+				const fi = fromItem as {
+					table?: string;
+					as?: string | null;
+					join?: string;
+					on?: unknown;
+					expr?: { ast?: unknown; parentheses?: boolean };
+				};
+
+				if (fi.expr?.ast) {
+					const derivedTableParsed = parseSubqueryAst(fi.expr.ast, cteNameSet, validTableNames);
+					if (derivedTableParsed) {
+						const subqueryIndex = subqueries.length;
+						subqueries.push({
+							id: `subquery-${subqueryIndex}`,
+							role: 'from',
+							innerQuery: derivedTableParsed
+						});
+						// Register alias in the alias map for column resolution
+						if (fi.as) {
+							tableAliasMap.set(fi.as, fi.as);
+						}
+					}
+					continue;
+				}
+
 				if ('table' in fromItem && fromItem.table) {
 					const tableName = fromItem.table;
 
-					// Skip if table doesn't exist in schema
-					if (!validTableNames.includes(tableName)) {
+					// Skip if table doesn't exist in schema AND is not a CTE reference
+					// (unless validTableNames is null, which means accept all tables)
+					if (validTableNames !== null && !validTableNames.includes(tableName) && !cteNameSet.has(tableName)) {
 						continue;
 					}
 
@@ -186,6 +272,10 @@ export function parseSql(sql: string): ParsedQuery | null {
 								const tableSchema = getTable(table.tableName);
 								if (tableSchema) {
 									table.selectedColumns = tableSchema.columns.map((c) => c.name);
+								} else if (cteNameSet.has(table.tableName)) {
+									// For CTE references, mark as "select all" by leaving selectedColumns empty
+									// The actual columns will be derived from the CTE when rendering
+									table.selectedColumns = ['*'];
 								}
 							}
 						}
@@ -261,8 +351,8 @@ export function parseSql(sql: string): ParsedQuery | null {
 			}
 		}
 
-		// Parse WHERE clause
-		const filters = stmt.where ? parseWhereClause(stmt.where, tableAliasMap, tables) : [];
+		// Parse WHERE clause (also extracts subqueries - uses the subqueries array from above)
+		const filters = stmt.where ? parseWhereClause(stmt.where, tableAliasMap, tables, subqueries, cteNameSet, validTableNames) : [];
 
 		// Parse GROUP BY
 		const groupBy: ParsedGroupBy[] = [];
@@ -290,10 +380,10 @@ export function parseSql(sql: string): ParsedQuery | null {
 			}
 		}
 
-		// Parse HAVING
+		// Parse HAVING (also extracts subqueries from HAVING comparisons)
 		const having: ParsedHaving[] = [];
 		if (stmt.having) {
-			parseHavingClause(stmt.having, having, 'AND');
+			parseHavingClause(stmt.having, having, 'AND', subqueries, cteNameSet, validTableNames);
 		}
 
 		// Parse ORDER BY
@@ -334,7 +424,7 @@ export function parseSql(sql: string): ParsedQuery | null {
 			}
 		}
 
-		return { tables, joins, filters, groupBy, having, orderBy, limit, selectAggregates, columnAggregates };
+		return { tables, joins, filters, groupBy, having, orderBy, limit, selectAggregates, columnAggregates, subqueries, ctes };
 	} catch {
 		// Parse error - return null to keep last valid state
 		return null;
@@ -349,8 +439,13 @@ function normalizeJoinType(joinStr: string): JoinType {
 	return 'INNER';
 }
 
-function resolveTableName(nameOrAlias: string, aliasMap: Map<string, string>): string {
-	return aliasMap.get(nameOrAlias) || nameOrAlias;
+function resolveTableName(nameOrAlias: string | { type?: string; value?: string } | undefined, aliasMap: Map<string, string>): string {
+	// Handle object form: { type: "default", value: "tablename" }
+	if (typeof nameOrAlias === 'object' && nameOrAlias !== null) {
+		const resolved = nameOrAlias.value || '';
+		return aliasMap.get(resolved) || resolved;
+	}
+	return aliasMap.get(nameOrAlias || '') || nameOrAlias || '';
 }
 
 function findTableForColumn(tables: ParsedTable[], columnName: string): ParsedTable | undefined {
@@ -411,10 +506,13 @@ function parseJoinCondition(
 function parseWhereClause(
 	where: unknown,
 	aliasMap: Map<string, string>,
-	tables: ParsedTable[]
+	tables: ParsedTable[],
+	subqueries: ParsedSubquery[],
+	cteNameSet?: Set<string>,
+	validTableNames?: string[] | null
 ): ParsedFilter[] {
 	const filters: ParsedFilter[] = [];
-	parseWhereRecursive(where, aliasMap, tables, filters, 'AND');
+	parseWhereRecursive(where, aliasMap, tables, filters, subqueries, 'AND', cteNameSet, validTableNames);
 	return filters;
 }
 
@@ -423,7 +521,10 @@ function parseWhereRecursive(
 	aliasMap: Map<string, string>,
 	tables: ParsedTable[],
 	filters: ParsedFilter[],
-	connector: 'AND' | 'OR'
+	subqueries: ParsedSubquery[],
+	connector: 'AND' | 'OR',
+	cteNameSet?: Set<string>,
+	validTableNames?: string[] | null
 ): void {
 	const e = expr as {
 		type?: string;
@@ -439,8 +540,8 @@ function parseWhereRecursive(
 
 	// Handle AND/OR
 	if (e.type === 'binary_expr' && (e.operator === 'AND' || e.operator === 'OR')) {
-		parseWhereRecursive(e.left, aliasMap, tables, filters, connector);
-		parseWhereRecursive(e.right, aliasMap, tables, filters, e.operator as 'AND' | 'OR');
+		parseWhereRecursive(e.left, aliasMap, tables, filters, subqueries, connector, cteNameSet, validTableNames);
+		parseWhereRecursive(e.right, aliasMap, tables, filters, subqueries, e.operator as 'AND' | 'OR', cteNameSet, validTableNames);
 		return;
 	}
 
@@ -451,7 +552,7 @@ function parseWhereRecursive(
 			table?: string;
 			column?: string | { expr?: { value?: string } };
 		};
-		const right = e.right as { type?: string; value?: unknown };
+		const right = e.right as { type?: string; value?: unknown; ast?: unknown };
 
 		if (left?.type === 'column_ref') {
 			const columnName =
@@ -468,15 +569,55 @@ function parseWhereRecursive(
 				}
 
 				const operator = mapOperator(e.operator);
-				const value = extractValue(right);
 
-				if (operator && value !== null) {
-					filters.push({
-						column: fullColumn,
-						operator,
-						value,
-						connector
-					});
+				// Check if right side is a subquery
+				// Case 1: Scalar subquery (price > (SELECT ...)) - right.ast contains the subquery
+				// Case 2: IN/NOT IN subquery (id IN (SELECT ...)) - right.type === 'expr_list' && right.value[0].ast
+				const rightAsExprList = right as { type?: string; value?: Array<{ ast?: unknown }> };
+				let subqueryAst: unknown = null;
+
+				if (right?.type === 'select') {
+					subqueryAst = right;
+				} else if (right?.ast) {
+					subqueryAst = right.ast;
+				} else if (rightAsExprList?.type === 'expr_list' &&
+				           rightAsExprList.value?.[0]?.ast) {
+					// IN (SELECT ...) case
+					subqueryAst = rightAsExprList.value[0].ast;
+				}
+
+				if (subqueryAst) {
+					// This is a subquery - parse it recursively
+					const subqueryParsed = parseSubqueryAst(subqueryAst, cteNameSet, validTableNames);
+
+					if (subqueryParsed && operator) {
+						const subqueryIndex = subqueries.length;
+						subqueries.push({
+							id: `subquery-${subqueryIndex}`,
+							role: 'where',
+							linkedFilterIndex: filters.length,
+							innerQuery: subqueryParsed
+						});
+
+						filters.push({
+							column: fullColumn,
+							operator,
+							value: '', // Value will come from subquery
+							connector,
+							subqueryIndex
+						});
+					}
+				} else {
+					const value = extractValue(right);
+
+					if (operator && value !== null) {
+						filters.push({
+							column: fullColumn,
+							operator,
+							value,
+							connector
+						});
+					}
 				}
 			}
 		}
@@ -486,6 +627,271 @@ function parseWhereRecursive(
 	if (e.type === 'unary_expr' || (e.type === 'binary_expr' && e.operator === 'IS')) {
 		// Handle later if needed
 	}
+}
+
+/**
+ * Parse a subquery AST node into a ParsedQuery.
+ * @param ast - The AST node to parse
+ * @param cteNameSet - Set of CTE names that are accessible in this scope
+ * @param validTableNames - List of valid table names, or null to accept all
+ */
+function parseSubqueryAst(ast: unknown, cteNameSet?: Set<string>, validTableNames?: string[] | null): ParsedQuery | null {
+	const stmt = ast as {
+		type?: string;
+		columns?: unknown[];
+		from?: unknown[];
+		where?: unknown;
+		groupby?: { columns?: unknown[] };
+		having?: unknown;
+		orderby?: unknown[];
+		limit?: { value?: unknown[] };
+	};
+
+	if (!stmt || stmt.type !== 'select') {
+		return null;
+	}
+
+	// If validTableNames is undefined, use tutorial schema. If null, accept all.
+	const effectiveValidTableNames = validTableNames === undefined ? getTableNames() : validTableNames;
+	const tables: ParsedTable[] = [];
+	const joins: ParsedJoin[] = [];
+	const selectAggregates: ParsedSelectAggregate[] = [];
+	const columnAggregates: ParsedColumnAggregate[] = [];
+	const tableAliasMap = new Map<string, string>();
+	const subqueries: ParsedSubquery[] = [];
+
+	// Parse FROM clause (handles regular tables and derived tables/subqueries)
+	if (stmt.from && Array.isArray(stmt.from)) {
+		for (const fromItem of stmt.from) {
+			const fi = fromItem as {
+				table?: string;
+				as?: string | null;
+				join?: string;
+				on?: unknown;
+				expr?: { ast?: unknown; parentheses?: boolean };
+				prefix?: unknown;
+			};
+
+			// Check for derived table (FROM (SELECT ...) AS alias)
+			if (fi.expr?.ast) {
+				const derivedTableParsed = parseSubqueryAst(fi.expr.ast, cteNameSet, effectiveValidTableNames);
+				if (derivedTableParsed) {
+					const subqueryIndex = subqueries.length;
+					subqueries.push({
+						id: `subquery-${subqueryIndex}`,
+						role: 'from',
+						innerQuery: derivedTableParsed
+					});
+					// Register alias in the alias map for column resolution
+					if (fi.as) {
+						tableAliasMap.set(fi.as, fi.as);
+					}
+				}
+				continue;
+			}
+
+			if (fi.table) {
+				const tableName = fi.table;
+
+				// Allow table if it's in schema OR if it's a CTE reference
+				// (unless effectiveValidTableNames is null, which means accept all tables)
+				if (effectiveValidTableNames !== null && !effectiveValidTableNames.includes(tableName) && !cteNameSet?.has(tableName)) {
+					continue;
+				}
+
+				const alias = fi.as || null;
+				if (alias) {
+					tableAliasMap.set(alias, tableName);
+				}
+				tableAliasMap.set(tableName, tableName);
+
+				if (fi.join) {
+					const joinType = normalizeJoinType(fi.join);
+					if (fi.on) {
+						const joinInfo = parseJoinCondition(fi.on, tableAliasMap);
+						if (joinInfo) {
+							joins.push({
+								...joinInfo,
+								joinType,
+								targetTable: tableName
+							});
+						}
+					}
+				}
+
+				tables.push({
+					tableName,
+					alias,
+					selectedColumns: [],
+					isCteReference: cteNameSet?.has(tableName)
+				});
+			}
+		}
+	}
+
+	// Parse SELECT columns - handle table.*, basic columns, and aggregates
+	if (stmt.columns && Array.isArray(stmt.columns)) {
+		for (const col of stmt.columns) {
+			if (col === '*') {
+				for (const table of tables) {
+					const tableSchema = getTable(table.tableName);
+					if (tableSchema) {
+						table.selectedColumns = tableSchema.columns.map((c) => c.name);
+					}
+				}
+			} else {
+				const colObj = col as {
+					expr?: {
+						type?: string;
+						table?: string | { type?: string; value?: string };
+						column?: string | { expr?: { value?: string } };
+						name?: string;
+						args?: { expr?: { type?: string; table?: string | { type?: string; value?: string }; column?: string | { expr?: { value?: string } } } };
+					};
+					as?: string;
+				};
+
+				if (colObj.expr?.type === 'column_ref' && colObj.expr.column === '*') {
+					if (colObj.expr.table) {
+						// table.* syntax
+						const tableName = resolveTableName(colObj.expr.table, tableAliasMap);
+						const table = tables.find((t) => t.tableName === tableName);
+						if (table) {
+							const tableSchema = getTable(tableName);
+							if (tableSchema) {
+								table.selectedColumns = tableSchema.columns.map((c) => c.name);
+							}
+						}
+					} else {
+						// Plain SELECT * - select all columns from all tables
+						for (const table of tables) {
+							const tableSchema = getTable(table.tableName);
+							if (tableSchema) {
+								table.selectedColumns = tableSchema.columns.map((c) => c.name);
+							}
+						}
+					}
+				} else if (colObj.expr?.type === 'column_ref') {
+					const columnName = typeof colObj.expr.column === 'string'
+						? colObj.expr.column
+						: colObj.expr.column?.expr?.value;
+					if (columnName && columnName !== '*') {
+						const tableName = colObj.expr.table
+							? resolveTableName(colObj.expr.table, tableAliasMap)
+							: findTableForColumn(tables, columnName)?.tableName;
+						const table = tables.find((t) => t.tableName === tableName);
+						if (table && !table.selectedColumns.includes(columnName)) {
+							table.selectedColumns.push(columnName);
+						}
+					}
+				} else if (colObj.expr?.type === 'aggr_func' && colObj.expr.name) {
+					// Handle aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+					const funcName = colObj.expr.name.toUpperCase();
+					if (isAggregateFunction(funcName)) {
+						const alias = colObj.as || undefined;
+						const args = colObj.expr.args;
+
+						if (args?.expr) {
+							if (args.expr.type === 'star') {
+								// COUNT(*) - standalone aggregate
+								selectAggregates.push({
+									function: funcName as AggregateFunction,
+									expression: '*',
+									alias
+								});
+							} else if (args.expr.type === 'column_ref') {
+								// Aggregate on a specific column - per-column aggregate
+								const columnName = typeof args.expr.column === 'string'
+									? args.expr.column
+									: args.expr.column?.expr?.value;
+								if (columnName) {
+									const tableName = args.expr.table
+										? resolveTableName(args.expr.table, tableAliasMap)
+										: findTableForColumn(tables, columnName)?.tableName;
+
+									if (tableName) {
+										columnAggregates.push({
+											tableName,
+											column: columnName,
+											function: funcName as AggregateFunction,
+											alias
+										});
+										// Also select the column
+										const table = tables.find((t) => t.tableName === tableName);
+										if (table && !table.selectedColumns.includes(columnName)) {
+											table.selectedColumns.push(columnName);
+										}
+									}
+								}
+							} else {
+								// Expression aggregate - standalone
+								selectAggregates.push({
+									function: funcName as AggregateFunction,
+									expression: '*',
+									alias
+								});
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Parse WHERE clause recursively (to support nested subqueries)
+	const filters = stmt.where ? parseWhereClause(stmt.where, tableAliasMap, tables, subqueries, cteNameSet, effectiveValidTableNames) : [];
+
+	// Parse GROUP BY (simplified)
+	const groupBy: ParsedGroupBy[] = [];
+	if (stmt.groupby?.columns && Array.isArray(stmt.groupby.columns)) {
+		for (const group of stmt.groupby.columns) {
+			const g = group as { type?: string; table?: string; column?: string | { expr?: { value?: string } } };
+			if (g.type === 'column_ref') {
+				const columnName = typeof g.column === 'string' ? g.column : g.column?.expr?.value;
+				if (columnName) {
+					const tableName = g.table ? resolveTableName(g.table, tableAliasMap) : findTableForColumn(tables, columnName)?.tableName;
+					const fullColumn = tableName ? `${tableName}.${columnName}` : columnName;
+					groupBy.push({ column: fullColumn });
+				}
+			}
+		}
+	}
+
+	// Parse HAVING (also extracts subqueries from HAVING comparisons)
+	const having: ParsedHaving[] = [];
+	if (stmt.having) {
+		parseHavingClause(stmt.having, having, 'AND', subqueries, cteNameSet, effectiveValidTableNames);
+	}
+
+	// Parse ORDER BY (simplified)
+	const orderBy: ParsedOrderBy[] = [];
+	if (stmt.orderby && Array.isArray(stmt.orderby)) {
+		for (const order of stmt.orderby) {
+			const o = order as { expr?: { type?: string; table?: string; column?: string | { expr?: { value?: string } } }; type?: string };
+			if (o.expr?.type === 'column_ref') {
+				const columnName = typeof o.expr.column === 'string' ? o.expr.column : o.expr.column?.expr?.value;
+				if (columnName) {
+					const tableName = o.expr.table ? resolveTableName(o.expr.table, tableAliasMap) : findTableForColumn(tables, columnName)?.tableName;
+					const fullColumn = tableName ? `${tableName}.${columnName}` : columnName;
+					orderBy.push({
+						column: fullColumn,
+						direction: (o.type?.toUpperCase() as 'ASC' | 'DESC') || 'ASC'
+					});
+				}
+			}
+		}
+	}
+
+	// Parse LIMIT
+	let limit: number | null = null;
+	if (stmt.limit?.value && Array.isArray(stmt.limit.value) && stmt.limit.value.length > 0) {
+		const limitVal = stmt.limit.value[0] as { type?: string; value?: number };
+		if (limitVal.type === 'number' && typeof limitVal.value === 'number') {
+			limit = limitVal.value;
+		}
+	}
+
+	return { tables, joins, filters, groupBy, having, orderBy, limit, selectAggregates, columnAggregates, subqueries };
 }
 
 function mapOperator(op: string | undefined): FilterOperator | null {
@@ -501,6 +907,7 @@ function mapOperator(op: string | undefined): FilterOperator | null {
 		LIKE: 'LIKE',
 		'NOT LIKE': 'NOT LIKE',
 		IN: 'IN',
+		'NOT IN': 'NOT IN',
 		BETWEEN: 'BETWEEN'
 	};
 	return opMap[op.toUpperCase()] || null;
@@ -523,11 +930,15 @@ function extractValue(expr: { type?: string; value?: unknown } | undefined): str
 
 /**
  * Parse HAVING clause and extract aggregate conditions.
+ * Also handles subqueries in HAVING comparisons (e.g., SUM(stock) < (SELECT AVG(...)))
  */
 function parseHavingClause(
 	expr: unknown,
 	having: ParsedHaving[],
-	connector: 'AND' | 'OR'
+	connector: 'AND' | 'OR',
+	subqueries?: ParsedSubquery[],
+	cteNameSet?: Set<string>,
+	validTableNames?: string[] | null
 ): void {
 	const e = expr as {
 		type?: string;
@@ -540,8 +951,8 @@ function parseHavingClause(
 
 	// Handle AND/OR
 	if (e.type === 'binary_expr' && (e.operator === 'AND' || e.operator === 'OR')) {
-		parseHavingClause(e.left, having, connector);
-		parseHavingClause(e.right, having, e.operator as 'AND' | 'OR');
+		parseHavingClause(e.left, having, connector, subqueries, cteNameSet, validTableNames);
+		parseHavingClause(e.right, having, e.operator as 'AND' | 'OR', subqueries, cteNameSet, validTableNames);
 		return;
 	}
 
@@ -552,13 +963,63 @@ function parseHavingClause(
 			name?: string;
 			args?: { expr?: { type?: string; column?: string | { expr?: { value?: string } } } };
 		};
-		const right = e.right as { type?: string; value?: unknown };
+		const right = e.right as { type?: string; value?: unknown; ast?: unknown };
 
 		// Check if left side is an aggregate function
 		if (left?.type === 'aggr_func' && left.name) {
 			const funcName = left.name.toUpperCase();
 			if (isAggregateFunction(funcName)) {
 				const operator = mapHavingOperator(e.operator);
+
+				// Check if right side is a subquery
+				const rightAsSubquery = right as { ast?: unknown; parentheses?: boolean };
+				if (rightAsSubquery?.ast && subqueries) {
+					// HAVING with subquery (e.g., SUM(stock) < (SELECT AVG(...)))
+					const subqueryParsed = parseSubqueryAst(rightAsSubquery.ast, cteNameSet, validTableNames);
+					if (subqueryParsed && operator) {
+						// For now, we don't have a way to represent HAVING subqueries in the filter panel
+						// But we can still parse the subquery so it shows on canvas
+						const subqueryIndex = subqueries.length;
+						subqueries.push({
+							id: `subquery-${subqueryIndex}`,
+							role: 'where', // Subqueries in HAVING also act like WHERE subqueries
+							innerQuery: subqueryParsed
+						});
+
+						// Extract column from aggregate function args
+						let column = '';
+						const args = left.args as {
+							expr?: {
+								type?: string;
+								column?: string | { expr?: { value?: string } };
+								value?: string;
+							};
+						};
+
+						if (args?.expr) {
+							if (args.expr.type === 'star') {
+								column = ''; // COUNT(*)
+							} else if (args.expr.type === 'column_ref') {
+								column =
+									typeof args.expr.column === 'string'
+										? args.expr.column
+										: args.expr.column?.expr?.value || '';
+							}
+						}
+
+						// Add the HAVING condition with a placeholder value
+						// The subquery relationship is tracked separately
+						having.push({
+							aggregateFunction: funcName as AggregateFunction,
+							column,
+							operator,
+							value: '(subquery)',
+							connector
+						});
+					}
+					return;
+				}
+
 				const value = extractValue(right);
 
 				if (operator && value !== null) {

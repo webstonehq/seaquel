@@ -152,6 +152,8 @@
 	"command_export_csv": "Exportar como CSV",
 	"command_export_json": "Exportar como JSON",
 	"command_copy_results_json": "Copiar resultados como JSON",
+	"command_group_learning": "Aprendizaje",
+	"command_learn_sandbox": "Sandbox SQL",
 	"erd_title": "Diagrama de entidad-relación",
 	"erd_tables_filtered": "{filtered} / {total} tablas",
 	"erd_tables": "{count} tablas",

@@ -152,6 +152,8 @@
 	"command_export_csv": "CSV로 내보내기",
 	"command_export_json": "JSON으로 내보내기",
 	"command_copy_results_json": "결과를 JSON으로 복사",
+	"command_group_learning": "학습",
+	"command_learn_sandbox": "SQL 샌드박스",
 	"erd_title": "엔터티 관계 다이어그램",
 	"erd_tables_filtered": "{filtered} / {total} 테이블",
 	"erd_tables": "{count}개 테이블",

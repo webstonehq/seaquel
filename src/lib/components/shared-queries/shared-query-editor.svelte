@@ -10,6 +10,7 @@
 import { errorToast } from "$lib/utils/toast";
 	import type { SharedQuery } from "$lib/types";
 	import { Loader2Icon, XIcon, PlusIcon } from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		open: boolean;
@@ -60,17 +61,17 @@ import { errorToast } from "$lib/utils/toast";
 
 	async function handleSubmit() {
 		if (!name.trim()) {
-			errorToast("Please enter a name for the query");
+			errorToast(m.shared_query_name_required());
 			return;
 		}
 
 		if (!queryText.trim()) {
-			errorToast("Please enter the SQL query");
+			errorToast(m.shared_query_required());
 			return;
 		}
 
 		if (!db.state.activeRepoId) {
-			errorToast("Please select a repository first");
+			errorToast(m.shared_repo_required());
 			return;
 		}
 
@@ -86,7 +87,7 @@ import { errorToast } from "$lib/utils/toast";
 					databaseType: databaseType || undefined,
 					tags
 				});
-				toast.success(`Query "${name}" updated`);
+				toast.success(m.shared_query_updated({ name }));
 			} else {
 				// Create new query
 				await db.sharedQueries.createQuery(name.trim(), queryText.trim(), folder, {
@@ -94,13 +95,13 @@ import { errorToast } from "$lib/utils/toast";
 					databaseType: databaseType || undefined,
 					tags
 				});
-				toast.success(`Query "${name}" saved to shared repository`);
+				toast.success(m.shared_query_saved({ name }));
 			}
 
 			onOpenChange(false);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to save query: ${message}`);
+			errorToast(m.shared_query_save_failed({ message }));
 		} finally {
 			isLoading = false;
 		}
@@ -130,19 +131,19 @@ import { errorToast } from "$lib/utils/toast";
 	<Dialog.Content class="max-w-2xl max-h-[90vh] overflow-y-auto">
 		<Dialog.Header>
 			<Dialog.Title>
-				{editingQuery ? "Edit Shared Query" : "Share Query"}
+				{editingQuery ? m.shared_edit_query_title() : m.shared_share_query_title()}
 			</Dialog.Title>
 			<Dialog.Description>
 				{editingQuery
-					? "Update the query details and save to the shared repository."
-					: "Save this query to the shared repository for your team to use."}
+					? m.shared_edit_query_description()
+					: m.shared_share_query_description()}
 			</Dialog.Description>
 		</Dialog.Header>
 
 		<div class="space-y-4 py-4">
 			<div class="grid grid-cols-2 gap-4">
 				<div class="space-y-2">
-					<Label for="name">Name</Label>
+					<Label for="name">{m.shared_name()}</Label>
 					<Input
 						id="name"
 						bind:value={name}
@@ -152,14 +153,14 @@ import { errorToast } from "$lib/utils/toast";
 				</div>
 
 				<div class="space-y-2">
-					<Label for="folder">Folder</Label>
+					<Label for="folder">{m.shared_folder()}</Label>
 					{#if folders.length > 0}
 						<Select.Root type="single" bind:value={folder}>
 							<Select.Trigger class="w-full">
-								{folder || "Root (no folder)"}
+								{folder || m.shared_root_no_folder()}
 							</Select.Trigger>
 							<Select.Content>
-								<Select.Item value="">Root (no folder)</Select.Item>
+								<Select.Item value="">{m.shared_root_no_folder()}</Select.Item>
 								{#each folders as f (f)}
 									<Select.Item value={f}>{f}</Select.Item>
 								{/each}
@@ -177,7 +178,7 @@ import { errorToast } from "$lib/utils/toast";
 			</div>
 
 			<div class="space-y-2">
-				<Label for="description">Description</Label>
+				<Label for="description">{m.shared_description()}</Label>
 				<Input
 					id="description"
 					bind:value={description}
@@ -187,7 +188,7 @@ import { errorToast } from "$lib/utils/toast";
 			</div>
 
 			<div class="space-y-2">
-				<Label for="query">SQL Query</Label>
+				<Label for="query">{m.shared_sql_query()}</Label>
 				<Textarea
 					id="query"
 					bind:value={queryText}
@@ -199,13 +200,13 @@ import { errorToast } from "$lib/utils/toast";
 
 			<div class="grid grid-cols-2 gap-4">
 				<div class="space-y-2">
-					<Label for="database-type">Database Type</Label>
+					<Label for="database-type">{m.shared_database_type()}</Label>
 					<Select.Root type="single" bind:value={databaseType}>
 						<Select.Trigger class="w-full">
-							{databaseType || "Any"}
+							{databaseType || m.shared_database_any()}
 						</Select.Trigger>
 						<Select.Content>
-							<Select.Item value="">Any</Select.Item>
+							<Select.Item value="">{m.shared_database_any()}</Select.Item>
 							<Select.Item value="postgresql">PostgreSQL</Select.Item>
 							<Select.Item value="mysql">MySQL</Select.Item>
 							<Select.Item value="mssql">SQL Server</Select.Item>
@@ -216,12 +217,12 @@ import { errorToast } from "$lib/utils/toast";
 				</div>
 
 				<div class="space-y-2">
-					<Label for="tags">Tags</Label>
+					<Label for="tags">{m.shared_tags()}</Label>
 					<div class="flex gap-2">
 						<Input
 							id="tags"
 							bind:value={newTag}
-							placeholder="Add tag..."
+							placeholder={m.shared_add_tag()}
 							disabled={isLoading}
 							class="flex-1"
 							onkeydown={handleTagKeydown}
@@ -257,13 +258,13 @@ import { errorToast } from "$lib/utils/toast";
 
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => onOpenChange(false)} disabled={isLoading}>
-				Cancel
+				{m.common_cancel()}
 			</Button>
 			<Button onclick={handleSubmit} disabled={isLoading}>
 				{#if isLoading}
 					<Loader2Icon class="size-4 me-2 animate-spin" />
 				{/if}
-				{editingQuery ? "Update Query" : "Share Query"}
+				{editingQuery ? m.shared_update_query() : m.shared_share_query()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

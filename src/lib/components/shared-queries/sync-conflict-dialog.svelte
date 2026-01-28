@@ -15,6 +15,7 @@ import { errorToast } from "$lib/utils/toast";
 		ChevronRightIcon,
 		FileTextIcon
 	} from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		open: boolean;
@@ -52,7 +53,7 @@ import { errorToast } from "$lib/utils/toast";
 			currentContent = await getConflictContent(repo.path, currentFile);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to load conflict: ${message}`);
+			errorToast(m.conflict_load_failed({ message }));
 			currentContent = null;
 		} finally {
 			isLoading = false;
@@ -88,10 +89,10 @@ import { errorToast } from "$lib/utils/toast";
 				currentFileIndex = nextUnresolved;
 			}
 
-			toast.success(`Resolved ${currentFile}`);
+			toast.success(m.conflict_resolved({ file: currentFile }));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to resolve conflict: ${message}`);
+			errorToast(m.conflict_resolve_failed({ message }));
 		} finally {
 			isResolving = false;
 		}
@@ -103,11 +104,11 @@ import { errorToast } from "$lib/utils/toast";
 		try {
 			await db.sharedRepos.commitChanges(repoId, "Resolved merge conflicts");
 			await db.sharedRepos.refreshRepoStatus(repoId);
-			toast.success("Conflicts resolved and committed");
+			toast.success(m.conflict_committed());
 			onOpenChange(false);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to commit resolution: ${message}`);
+			errorToast(m.conflict_commit_failed({ message }));
 		}
 	}
 
@@ -121,18 +122,19 @@ import { errorToast } from "$lib/utils/toast";
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2">
 				<AlertTriangleIcon class="size-5 text-orange-500" />
-				Merge Conflicts
+				{m.conflict_title()}
 			</Dialog.Title>
 			<Dialog.Description>
-				{conflictFiles.length} file{conflictFiles.length === 1 ? " has" : "s have"} conflicts that need to be resolved.
-				Choose which version to keep for each file.
+				{conflictFiles.length === 1
+					? m.conflict_description_singular({ count: conflictFiles.length })
+					: m.conflict_description_plural({ count: conflictFiles.length })}
 			</Dialog.Description>
 		</Dialog.Header>
 
 		<div class="flex flex-1 gap-4 min-h-0 py-4">
 			<!-- File list sidebar -->
 			<div class="w-48 shrink-0 border-r pr-4">
-				<div class="text-sm font-medium mb-2 text-muted-foreground">Files</div>
+				<div class="text-sm font-medium mb-2 text-muted-foreground">{m.conflict_files()}</div>
 				<ScrollArea class="h-[400px]">
 					<div class="space-y-1">
 						{#each conflictFiles as file, index (file)}
@@ -171,32 +173,32 @@ import { errorToast } from "$lib/utils/toast";
 					<Tabs.Root value="ours" class="h-full flex flex-col">
 						<Tabs.List class="grid grid-cols-3 w-full">
 							<Tabs.Trigger value="ours" class="text-xs">
-								Your Version (Local)
+								{m.conflict_your_version()}
 							</Tabs.Trigger>
 							<Tabs.Trigger value="theirs" class="text-xs">
-								Their Version (Remote)
+								{m.conflict_their_version()}
 							</Tabs.Trigger>
 							<Tabs.Trigger value="base" class="text-xs" disabled={!currentContent.base}>
-								Base Version
+								{m.conflict_base_version()}
 							</Tabs.Trigger>
 						</Tabs.List>
 
 						<div class="flex-1 min-h-0 mt-2">
 							<Tabs.Content value="ours" class="h-full">
 								<ScrollArea class="h-[350px] border rounded-md">
-									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.ours ?? "(No local version)"}</pre>
+									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.ours ?? m.conflict_no_local()}</pre>
 								</ScrollArea>
 							</Tabs.Content>
 
 							<Tabs.Content value="theirs" class="h-full">
 								<ScrollArea class="h-[350px] border rounded-md">
-									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.theirs ?? "(No remote version)"}</pre>
+									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.theirs ?? m.conflict_no_remote()}</pre>
 								</ScrollArea>
 							</Tabs.Content>
 
 							<Tabs.Content value="base" class="h-full">
 								<ScrollArea class="h-[350px] border rounded-md">
-									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.base ?? "(No base version)"}</pre>
+									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.base ?? m.conflict_no_base()}</pre>
 								</ScrollArea>
 							</Tabs.Content>
 						</div>
@@ -210,7 +212,7 @@ import { errorToast } from "$lib/utils/toast";
 								onclick={() => handleResolve("ours")}
 								disabled={isResolving}
 							>
-								Keep Your Version
+								{m.conflict_keep_yours()}
 							</Button>
 							<Button
 								variant="outline"
@@ -218,7 +220,7 @@ import { errorToast } from "$lib/utils/toast";
 								onclick={() => handleResolve("theirs")}
 								disabled={isResolving}
 							>
-								Keep Their Version
+								{m.conflict_keep_theirs()}
 							</Button>
 							{#if currentContent.base}
 								<Button
@@ -227,19 +229,19 @@ import { errorToast } from "$lib/utils/toast";
 									onclick={() => handleResolve("base")}
 									disabled={isResolving}
 								>
-									Keep Base Version
+									{m.conflict_keep_base()}
 								</Button>
 							{/if}
 						</div>
 					{:else}
 						<div class="flex items-center justify-center gap-2 mt-4 py-2 text-sm text-green-600">
 							<CheckIcon class="size-4" />
-							This file has been resolved
+							{m.conflict_file_resolved()}
 						</div>
 					{/if}
 				{:else}
 					<div class="flex items-center justify-center h-full text-muted-foreground">
-						Select a file to view its conflict
+						{m.conflict_select_file()}
 					</div>
 				{/if}
 			</div>
@@ -247,16 +249,16 @@ import { errorToast } from "$lib/utils/toast";
 
 		<Dialog.Footer>
 			<div class="flex items-center gap-2 mr-auto text-sm text-muted-foreground">
-				{resolvedFiles.size} of {conflictFiles.length} resolved
+				{m.conflict_resolved_count({ resolved: resolvedFiles.size, total: conflictFiles.length })}
 			</div>
 			<Button variant="outline" onclick={() => onOpenChange(false)}>
-				Cancel
+				{m.common_cancel()}
 			</Button>
 			<Button onclick={handleFinish} disabled={!allResolved}>
 				{#if isResolving}
 					<Loader2Icon class="size-4 me-2 animate-spin" />
 				{/if}
-				Finish & Commit
+				{m.conflict_finish_commit()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

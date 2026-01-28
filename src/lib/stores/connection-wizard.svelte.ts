@@ -411,13 +411,14 @@ class ConnectionWizardStore {
 		this.currentStep = step;
 	}
 
-	// Set database type and update port
+	// Set database type, update port, and proceed to next step
 	setDatabaseType(type: DatabaseType): void {
 		this.formData.type = type;
 		const dbType = databaseTypes.find((t) => t.value === type);
 		if (dbType) {
 			this.formData.port = dbType.defaultPort;
 		}
+		this.nextStep();
 	}
 
 	// Parse connection string and populate form data

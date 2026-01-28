@@ -34,7 +34,12 @@ Think of CTEs as creating temporary "views" for your query.
 				criterion('has-with', 'Start with WITH keyword', sqlContains('WITH')),
 				criterion('has-as', 'Use AS to define the CTE', sqlContains('AS')),
 				criterion('has-cte-name', 'Name your CTE', sqlContains('expensive_products')),
-				criterion('has-products', 'Query products table', sqlContains('products'))
+				criterion('has-products', 'Query products table', sqlContains('products')),
+				criterion('has-where', 'Use WHERE to filter', sqlContains('WHERE')),
+				criterion('has-price-filter', 'Filter by price > 50', (_, sql) => {
+					// Must have price > 50 comparison
+					return /price\s*>\s*50/i.test(sql);
+				})
 			]
 		},
 		{
@@ -46,7 +51,12 @@ Think of CTEs as creating temporary "views" for your query.
 			criteria: [
 				criterion('has-with', 'Start with WITH keyword', sqlContains('WITH')),
 				criterion('has-avg', 'Calculate AVG() in CTE', sqlContains('AVG(')),
-				criterion('has-orders', 'Query the orders table', sqlContains('orders'))
+				criterion('has-orders', 'Query the orders table', sqlContains('orders')),
+				criterion('has-where', 'Use WHERE to filter', sqlContains('WHERE')),
+				criterion('has-comparison', 'Compare orders to the average using >', (_, sql) => {
+					// Must have a greater-than comparison (total > avg or similar)
+					return sql.includes('>');
+				})
 			]
 		},
 		{
@@ -59,7 +69,11 @@ Think of CTEs as creating temporary "views" for your query.
 				criterion('has-with', 'Start with WITH keyword', sqlContains('WITH')),
 				criterion('has-count', 'Use COUNT() in a CTE', sqlContains('COUNT(')),
 				criterion('has-avg', 'Use AVG() to find average', sqlContains('AVG(')),
-				criterion('has-category', 'Reference category_id', sqlContains('category_id'))
+				criterion('has-category', 'Reference category_id', sqlContains('category_id')),
+				criterion('has-where', 'Use WHERE to filter results', sqlContains('WHERE')),
+				criterion('has-comparison', 'Compare to average using >', (_, sql) => {
+					return sql.includes('>');
+				})
 			]
 		},
 		{
@@ -71,7 +85,9 @@ Think of CTEs as creating temporary "views" for your query.
 			criteria: [
 				criterion('has-with', 'Start with WITH keyword', sqlContains('WITH')),
 				criterion('has-sum', 'Use SUM() for total', sqlContains('SUM(')),
-				criterion('has-orders', 'Query orders table', sqlContains('orders'))
+				criterion('has-orders', 'Query orders table', sqlContains('orders')),
+				criterion('has-where', 'Use WHERE to filter by date', sqlContains('WHERE')),
+				criterion('has-2024', 'Filter for 2024', sqlContains('2024'))
 			]
 		},
 		{
@@ -84,7 +100,12 @@ Think of CTEs as creating temporary "views" for your query.
 				criterion('has-with', 'Start with WITH keyword', sqlContains('WITH')),
 				criterion('has-sum', 'Use SUM() for totals', sqlContains('SUM(')),
 				criterion('has-group-by', 'Use GROUP BY', sqlContains('GROUP BY')),
-				criterion('has-customer', 'Reference customer_id', sqlContains('customer_id'))
+				criterion('has-customer', 'Reference customer_id', sqlContains('customer_id')),
+				criterion('has-where', 'Use WHERE to filter', sqlContains('WHERE')),
+				criterion('has-200-filter', 'Filter for spending > 200', (_, sql) => {
+					// Must have > 200 comparison
+					return />\s*200/i.test(sql);
+				})
 			]
 		}
 	]

@@ -13,10 +13,28 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import XIcon from '@lucide/svelte/icons/x';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import type { FilterOperator, SortDirection, AggregateFunction, HavingOperator, DisplayAggregate } from '$lib/types';
+	import BracesIcon from '@lucide/svelte/icons/braces';
+	import type { FilterOperator, SortDirection, AggregateFunction, HavingOperator, DisplayAggregate, FilterCondition } from '$lib/types';
 	import CalculatorIcon from '@lucide/svelte/icons/calculator';
+	import LayersIcon from '@lucide/svelte/icons/layers';
+	import { m } from '$lib/paraglide/messages.js';
 
 	const qb = useQueryBuilder();
+
+	// Context indicator - shows when editing subquery or CTE vs top-level
+	const isEditingSubquery = $derived(qb.selectedSubqueryId !== null);
+	const isEditingCte = $derived(qb.selectedCteId !== null);
+	const isEditingNested = $derived(isEditingSubquery || isEditingCte);
+	const contextLabel = $derived(
+		isEditingCte
+			? m.qb_context_cte({ name: qb.selectedCte?.name || 'unnamed' })
+			: isEditingSubquery
+				? m.qb_context_subquery()
+				: m.qb_context_main_query()
+	);
+
+	// Get WHERE subqueries from active context for linking (supports nested subqueries)
+	const whereSubqueries = $derived(qb.activeSubqueries.filter((s) => s.role === 'where'));
 
 	// Collapsible state
 	let whereOpen = $state(true);
@@ -27,17 +45,25 @@
 	let aggregatesOpen = $state(true);
 
 	// Filter operators with labels
-	const FILTER_OPERATORS: { value: FilterOperator; label: string }[] = [
-		{ value: '=', label: 'equals' },
-		{ value: '!=', label: 'not equals' },
-		{ value: '>', label: 'greater than' },
-		{ value: '<', label: 'less than' },
-		{ value: '>=', label: '>=' },
-		{ value: '<=', label: '<=' },
-		{ value: 'LIKE', label: 'contains' },
-		{ value: 'IS NULL', label: 'is null' },
-		{ value: 'IS NOT NULL', label: 'is not null' }
+	const FILTER_OPERATORS: { value: FilterOperator; label: () => string }[] = [
+		{ value: '=', label: () => m.qb_op_equals() },
+		{ value: '!=', label: () => m.qb_op_not_equals() },
+		{ value: '>', label: () => m.qb_op_greater_than() },
+		{ value: '<', label: () => m.qb_op_less_than() },
+		{ value: '>=', label: () => m.qb_op_greater_than() },
+		{ value: '<=', label: () => m.qb_op_less_than() },
+		{ value: 'LIKE', label: () => m.qb_op_contains() },
+		{ value: 'IN', label: () => m.qb_op_in() },
+		{ value: 'NOT IN', label: () => m.qb_op_not_in() },
+		{ value: 'IS NULL', label: () => m.qb_op_is_null() },
+		{ value: 'IS NOT NULL', label: () => m.qb_op_is_not_null() }
 	];
+
+	// Helper to get operator label
+	function getOperatorLabel(op: FilterOperator): string {
+		const found = FILTER_OPERATORS.find(o => o.value === op);
+		return found ? found.label() : op;
+	}
 
 	// Sort directions
 	const SORT_DIRECTIONS: { value: SortDirection; label: string }[] = [
@@ -75,55 +101,89 @@
 		return operator !== 'IS NULL' && operator !== 'IS NOT NULL';
 	}
 
+	// Helper to check if filter is using a subquery
+	function filterUsesSubquery(filter: FilterCondition): boolean {
+		return Boolean(filter.subqueryId);
+	}
+
+	// Toggle subquery mode for a filter (works in active context - supports nested subqueries)
+	function handleToggleSubquery(filterId: string, useSubquery: boolean) {
+		if (useSubquery) {
+			// Create a new WHERE subquery in the active context and link it
+			const subquery = qb.addActiveSubquery('where', { x: 50, y: 50 }, filterId);
+			qb.updateActiveFilter(filterId, { subqueryId: subquery.id, value: '' });
+		} else {
+			// Unlink subquery
+			const filter = qb.activeFilters.find((f) => f.id === filterId);
+			if (filter?.subqueryId) {
+				qb.removeActiveSubquery(filter.subqueryId);
+			}
+			qb.updateActiveFilter(filterId, { subqueryId: undefined });
+		}
+	}
+
+	// Link filter to existing subquery (works in active context - supports nested subqueries)
+	function handleLinkSubquery(filterId: string, subqueryId: string) {
+		if (subqueryId === '__new__') {
+			// Create new subquery in active context
+			const subquery = qb.addActiveSubquery('where', { x: 50, y: 50 }, filterId);
+			qb.updateActiveFilter(filterId, { subqueryId: subquery.id, value: '' });
+		} else {
+			// Link to existing subquery in active context
+			qb.updateActiveFilter(filterId, { subqueryId, value: '' });
+			qb.linkActiveSubqueryToFilter(subqueryId, filterId);
+		}
+	}
+
 	// Add new filter
 	function handleAddFilter() {
-		qb.addFilter('', '=', '', 'AND');
+		qb.addActiveFilter('', '=', '', 'AND');
 	}
 
 	// Add new group by
 	function handleAddGroupBy() {
-		qb.addGroupBy('');
+		qb.addActiveGroupBy('');
 	}
 
 	// Add new having
 	function handleAddHaving() {
-		qb.addHaving('COUNT', '', '>', '', 'AND');
+		qb.addActiveHaving('COUNT', '', '>', '', 'AND');
 	}
 
 	// Add new order by
 	function handleAddOrderBy() {
-		qb.addOrderBy('', 'ASC');
+		qb.addActiveOrderBy('', 'ASC');
 	}
 
 	// Add new select aggregate
 	function handleAddSelectAggregate() {
-		qb.addSelectAggregate('COUNT', '*', '');
+		qb.addActiveSelectAggregate('COUNT', '*', '');
 	}
 
 	// Handle removing an aggregate (either column or select type)
 	function handleRemoveAggregate(aggregate: DisplayAggregate) {
 		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
-			qb.clearColumnAggregate(aggregate.tableId, aggregate.columnName);
+			qb.clearActiveColumnAggregate(aggregate.tableId, aggregate.columnName);
 		} else if (aggregate.source === 'select') {
-			qb.removeSelectAggregate(aggregate.id);
+			qb.removeActiveSelectAggregate(aggregate.id);
 		}
 	}
 
 	// Handle updating aggregate function (either column or select type)
 	function handleUpdateAggregateFunction(aggregate: DisplayAggregate, func: AggregateFunction) {
 		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
-			qb.setColumnAggregate(aggregate.tableId, aggregate.columnName, func, aggregate.alias);
+			qb.setActiveColumnAggregate(aggregate.tableId, aggregate.columnName, func, aggregate.alias);
 		} else if (aggregate.source === 'select') {
-			qb.updateSelectAggregate(aggregate.id, { function: func });
+			qb.updateActiveSelectAggregate(aggregate.id, { function: func });
 		}
 	}
 
 	// Handle updating aggregate alias (either column or select type)
 	function handleUpdateAggregateAlias(aggregate: DisplayAggregate, alias: string) {
 		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
-			qb.setColumnAggregate(aggregate.tableId, aggregate.columnName, aggregate.function, alias || undefined);
+			qb.setActiveColumnAggregate(aggregate.tableId, aggregate.columnName, aggregate.function, alias || undefined);
 		} else if (aggregate.source === 'select') {
-			qb.updateSelectAggregate(aggregate.id, { alias: alias || undefined });
+			qb.updateActiveSelectAggregate(aggregate.id, { alias: alias || undefined });
 		}
 	}
 
@@ -131,10 +191,10 @@
 	function handleUpdateAggregateExpression(aggregate: DisplayAggregate, expression: string) {
 		if (aggregate.source === 'column' && aggregate.tableId && aggregate.columnName) {
 			// Clear the column aggregate and create a select aggregate with the new expression
-			qb.clearColumnAggregate(aggregate.tableId, aggregate.columnName);
-			qb.addSelectAggregate(aggregate.function, expression, aggregate.alias);
+			qb.clearActiveColumnAggregate(aggregate.tableId, aggregate.columnName);
+			qb.addActiveSelectAggregate(aggregate.function, expression, aggregate.alias);
 		} else if (aggregate.source === 'select') {
-			qb.updateSelectAggregate(aggregate.id, { expression });
+			qb.updateActiveSelectAggregate(aggregate.id, { expression });
 		}
 	}
 
@@ -143,21 +203,42 @@
 		const target = event.target as HTMLInputElement;
 		const value = parseInt(target.value, 10);
 		if (!isNaN(value) && value > 0) {
-			qb.setLimit(value);
+			qb.setActiveLimit(value);
 		}
 	}
 
 	// Handle no limit checkbox
 	function handleNoLimitChange(checked: boolean) {
 		if (checked) {
-			qb.setLimit(null);
+			qb.setActiveLimit(null);
 		} else {
-			qb.setLimit(100);
+			qb.setActiveLimit(100);
 		}
 	}
 </script>
 
 <div class="border-t bg-muted/30 max-h-64 overflow-auto">
+	<!-- Context Indicator -->
+	{#if isEditingNested}
+		<div class="flex items-center gap-2 px-3 py-1.5 border-b {isEditingCte ? 'bg-violet-500/10 border-violet-500/20' : 'bg-indigo-500/10 border-indigo-500/20'}">
+			<LayersIcon class="size-3.5 {isEditingCte ? 'text-violet-500' : 'text-indigo-500'}" />
+			<span class="text-xs font-medium {isEditingCte ? 'text-violet-600 dark:text-violet-400' : 'text-indigo-600 dark:text-indigo-400'}">
+				{m.qb_editing_context({ context: contextLabel })}
+			</span>
+			<Button
+				variant="ghost"
+				size="sm"
+				class="h-5 px-2 text-xs ml-auto {isEditingCte ? 'text-violet-600 hover:text-violet-700 hover:bg-violet-500/10' : 'text-indigo-600 hover:text-indigo-700 hover:bg-indigo-500/10'}"
+				onclick={() => {
+					qb.selectedSubqueryId = null;
+					qb.selectedCteId = null;
+				}}
+			>
+				{m.qb_back_to_main()}
+			</Button>
+		</div>
+	{/if}
+
 	<!-- WHERE Section -->
 	<Collapsible bind:open={whereOpen}>
 		<div class="border-b border-border">
@@ -167,10 +248,10 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {whereOpen ? '' : '-rotate-90'}"
 					/>
 					<FilterIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">WHERE</span>
-					{#if qb.filters.length > 0}
+					<span class="font-medium text-sm">{m.qb_section_where()}</span>
+					{#if qb.activeFilters.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.filters.length}
+							{qb.activeFilters.length}
 						</span>
 					{/if}
 				</div>
@@ -184,27 +265,27 @@
 					}}
 				>
 					<PlusIcon class="size-3" />
-					Add
+					{m.qb_add()}
 				</Button>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.filters as filter, index (filter.id)}
+					{#each qb.activeFilters as filter, index (filter.id)}
 						<div class="flex items-center gap-2 flex-wrap">
 							{#if index > 0}
 								<!-- Connector before this filter -->
 								<Select.Root
 									type="single"
-									value={qb.filters[index - 1].connector}
+									value={qb.activeFilters[index - 1].connector}
 									onValueChange={(value) => {
 										if (value) {
-											qb.updateFilter(qb.filters[index - 1].id, { connector: value as 'AND' | 'OR' });
+											qb.updateActiveFilter(qb.activeFilters[index - 1].id, { connector: value as 'AND' | 'OR' });
 										}
 									}}
 								>
 									<Select.Trigger size="sm" class="w-16 h-7 text-xs">
-										{qb.filters[index - 1].connector}
+										{qb.activeFilters[index - 1].connector}
 									</Select.Trigger>
 									<Select.Content>
 										{#each CONNECTORS as connector}
@@ -223,7 +304,7 @@
 								value={filter.column}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateFilter(filter.id, { column: target.value });
+									qb.updateActiveFilter(filter.id, { column: target.value });
 								}}
 								class="h-7 text-xs w-32 font-mono"
 							/>
@@ -234,34 +315,83 @@
 								value={filter.operator}
 								onValueChange={(value) => {
 									if (value) {
-										qb.updateFilter(filter.id, { operator: value as FilterOperator });
+										qb.updateActiveFilter(filter.id, { operator: value as FilterOperator });
 									}
 								}}
 							>
 								<Select.Trigger size="sm" class="w-28 h-7 text-xs">
-									{FILTER_OPERATORS.find(op => op.value === filter.operator)?.label ?? 'equals'}
+									{getOperatorLabel(filter.operator)}
 								</Select.Trigger>
 								<Select.Content>
 									{#each FILTER_OPERATORS as op}
-										<Select.Item value={op.value} label={op.label}>
-											{op.label}
+										<Select.Item value={op.value} label={op.label()}>
+											{op.label()}
 										</Select.Item>
 									{/each}
 								</Select.Content>
 							</Select.Root>
 
-							<!-- Value input (hidden for IS NULL / IS NOT NULL) -->
+							<!-- Value input or Subquery selector (hidden for IS NULL / IS NOT NULL) -->
 							{#if operatorNeedsValue(filter.operator)}
-								<Input
-									type="text"
-									placeholder="value"
-									value={filter.value}
-									oninput={(e: Event) => {
-										const target = e.target as HTMLInputElement;
-										qb.updateFilter(filter.id, { value: target.value });
-									}}
-									class="h-7 text-xs w-24"
-								/>
+								{#if filterUsesSubquery(filter)}
+									<!-- Subquery indicator and selector -->
+									<div class="flex items-center gap-1">
+										<Select.Root
+											type="single"
+											value={filter.subqueryId ?? ''}
+											onValueChange={(value) => {
+												if (value) handleLinkSubquery(filter.id, value);
+											}}
+										>
+											<Select.Trigger size="sm" class="h-7 w-32 text-xs border-indigo-500/30 bg-indigo-500/5">
+												<BracesIcon class="size-3 mr-1 text-indigo-500" />
+												{filter.subqueryId ? m.qb_context_subquery() : m.qb_select_placeholder()}
+											</Select.Trigger>
+											<Select.Content>
+												{#each whereSubqueries as sq}
+													<Select.Item value={sq.id} label={m.qb_context_subquery()}>
+														{m.qb_subquery_tables({ count: sq.innerQuery.tables.length })}
+													</Select.Item>
+												{/each}
+												<Select.Item value="__new__" label={m.qb_create_new_subquery()}>
+													{m.qb_create_new_subquery()}
+												</Select.Item>
+											</Select.Content>
+										</Select.Root>
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											class="size-7 text-muted-foreground hover:text-foreground"
+											title={m.qb_use_literal_value()}
+											onclick={() => handleToggleSubquery(filter.id, false)}
+										>
+											<XIcon class="size-3" />
+										</Button>
+									</div>
+								{:else}
+									<!-- Regular value input with subquery toggle -->
+									<div class="flex items-center gap-1">
+										<Input
+											type="text"
+											placeholder="value"
+											value={filter.value}
+											oninput={(e: Event) => {
+												const target = e.target as HTMLInputElement;
+												qb.updateActiveFilter(filter.id, { value: target.value });
+											}}
+											class="h-7 text-xs w-24"
+										/>
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											class="size-7 text-indigo-500/70 hover:text-indigo-500 hover:bg-indigo-500/10"
+											title={m.qb_use_subquery()}
+											onclick={() => handleToggleSubquery(filter.id, true)}
+										>
+											<BracesIcon class="size-3" />
+										</Button>
+									</div>
+								{/if}
 							{/if}
 
 							<!-- Remove button -->
@@ -269,15 +399,15 @@
 								variant="ghost"
 								size="icon-sm"
 								class="size-7 text-muted-foreground hover:text-destructive"
-								onclick={() => qb.removeFilter(filter.id)}
+								onclick={() => qb.removeActiveFilter(filter.id)}
 							>
 								<XIcon class="size-3" />
 							</Button>
 						</div>
 					{/each}
 
-					{#if qb.filters.length === 0}
-						<p class="text-xs text-muted-foreground">No filters. Click "Add" to add a WHERE condition.</p>
+					{#if qb.activeFilters.length === 0}
+						<p class="text-xs text-muted-foreground">{m.qb_no_filters()}</p>
 					{/if}
 				</div>
 			</CollapsibleContent>
@@ -293,10 +423,10 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {groupByOpen ? '' : '-rotate-90'}"
 					/>
 					<GroupIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">GROUP BY</span>
-					{#if qb.groupBy.length > 0}
+					<span class="font-medium text-sm">{m.qb_section_group_by()}</span>
+					{#if qb.activeGroupBy.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.groupBy.length}
+							{qb.activeGroupBy.length}
 						</span>
 					{/if}
 				</div>
@@ -310,13 +440,13 @@
 					}}
 				>
 					<PlusIcon class="size-3" />
-					Add
+					{m.qb_add()}
 				</Button>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.groupBy as group (group.id)}
+					{#each qb.activeGroupBy as group (group.id)}
 						<div class="flex items-center gap-2">
 							<!-- Column input -->
 							<Input
@@ -325,7 +455,7 @@
 								value={group.column}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateGroupBy(group.id, target.value);
+									qb.updateActiveGroupBy(group.id, target.value);
 								}}
 								class="h-7 text-xs w-40 font-mono"
 							/>
@@ -335,15 +465,15 @@
 								variant="ghost"
 								size="icon-sm"
 								class="size-7 text-muted-foreground hover:text-destructive"
-								onclick={() => qb.removeGroupBy(group.id)}
+								onclick={() => qb.removeActiveGroupBy(group.id)}
 							>
 								<XIcon class="size-3" />
 							</Button>
 						</div>
 					{/each}
 
-					{#if qb.groupBy.length === 0}
-						<p class="text-xs text-muted-foreground">No grouping. Click "Add" to add a GROUP BY column.</p>
+					{#if qb.activeGroupBy.length === 0}
+						<p class="text-xs text-muted-foreground">{m.qb_no_grouping()}</p>
 					{/if}
 				</div>
 			</CollapsibleContent>
@@ -359,10 +489,10 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {aggregatesOpen ? '' : '-rotate-90'}"
 					/>
 					<CalculatorIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">AGGREGATES</span>
-					{#if qb.allDisplayAggregates.length > 0}
+					<span class="font-medium text-sm">{m.qb_section_aggregates()}</span>
+					{#if qb.activeDisplayAggregates.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.allDisplayAggregates.length}
+							{qb.activeDisplayAggregates.length}
 						</span>
 					{/if}
 				</div>
@@ -376,13 +506,13 @@
 					}}
 				>
 					<PlusIcon class="size-3" />
-					Add
+					{m.qb_add()}
 				</Button>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.allDisplayAggregates as aggregate (aggregate.id)}
+					{#each qb.activeDisplayAggregates as aggregate (aggregate.id)}
 						<div class="flex items-center gap-2 flex-wrap">
 							<!-- Aggregate function select -->
 							<Select.Root
@@ -421,7 +551,7 @@
 							<span class="text-xs text-muted-foreground">)</span>
 
 							<!-- AS label and alias input -->
-							<span class="text-xs text-muted-foreground">AS</span>
+							<span class="text-xs text-muted-foreground">{m.cte_as()}</span>
 							<Input
 								type="text"
 								placeholder="alias"
@@ -445,8 +575,8 @@
 						</div>
 					{/each}
 
-					{#if qb.allDisplayAggregates.length === 0}
-						<p class="text-xs text-muted-foreground">No aggregates. Click "Add" to add COUNT, SUM, etc.</p>
+					{#if qb.activeDisplayAggregates.length === 0}
+						<p class="text-xs text-muted-foreground">{m.qb_no_aggregates()}</p>
 					{/if}
 				</div>
 			</CollapsibleContent>
@@ -462,10 +592,10 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {havingOpen ? '' : '-rotate-90'}"
 					/>
 					<CalculatorIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">HAVING</span>
-					{#if qb.having.length > 0}
+					<span class="font-medium text-sm">{m.qb_section_having()}</span>
+					{#if qb.activeHaving.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.having.length}
+							{qb.activeHaving.length}
 						</span>
 					{/if}
 				</div>
@@ -479,27 +609,27 @@
 					}}
 				>
 					<PlusIcon class="size-3" />
-					Add
+					{m.qb_add()}
 				</Button>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.having as having, index (having.id)}
+					{#each qb.activeHaving as having, index (having.id)}
 						<div class="flex items-center gap-2 flex-wrap">
 							{#if index > 0}
 								<!-- Connector before this having -->
 								<Select.Root
 									type="single"
-									value={qb.having[index - 1].connector}
+									value={qb.activeHaving[index - 1].connector}
 									onValueChange={(value) => {
 										if (value) {
-											qb.updateHaving(qb.having[index - 1].id, { connector: value as 'AND' | 'OR' });
+											qb.updateActiveHaving(qb.activeHaving[index - 1].id, { connector: value as 'AND' | 'OR' });
 										}
 									}}
 								>
 									<Select.Trigger size="sm" class="w-16 h-7 text-xs">
-										{qb.having[index - 1].connector}
+										{qb.activeHaving[index - 1].connector}
 									</Select.Trigger>
 									<Select.Content>
 										{#each CONNECTORS as connector}
@@ -517,7 +647,7 @@
 								value={having.aggregateFunction}
 								onValueChange={(value) => {
 									if (value) {
-										qb.updateHaving(having.id, { aggregateFunction: value as AggregateFunction });
+										qb.updateActiveHaving(having.id, { aggregateFunction: value as AggregateFunction });
 									}
 								}}
 							>
@@ -541,7 +671,7 @@
 								value={having.column}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateHaving(having.id, { column: target.value });
+									qb.updateActiveHaving(having.id, { column: target.value });
 								}}
 								class="h-7 text-xs w-20 font-mono"
 							/>
@@ -553,7 +683,7 @@
 								value={having.operator}
 								onValueChange={(value) => {
 									if (value) {
-										qb.updateHaving(having.id, { operator: value as HavingOperator });
+										qb.updateActiveHaving(having.id, { operator: value as HavingOperator });
 									}
 								}}
 							>
@@ -576,7 +706,7 @@
 								value={having.value}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateHaving(having.id, { value: target.value });
+									qb.updateActiveHaving(having.id, { value: target.value });
 								}}
 								class="h-7 text-xs w-20"
 							/>
@@ -586,15 +716,15 @@
 								variant="ghost"
 								size="icon-sm"
 								class="size-7 text-muted-foreground hover:text-destructive"
-								onclick={() => qb.removeHaving(having.id)}
+								onclick={() => qb.removeActiveHaving(having.id)}
 							>
 								<XIcon class="size-3" />
 							</Button>
 						</div>
 					{/each}
 
-					{#if qb.having.length === 0}
-						<p class="text-xs text-muted-foreground">No HAVING conditions. Click "Add" to filter groups.</p>
+					{#if qb.activeHaving.length === 0}
+						<p class="text-xs text-muted-foreground">{m.qb_no_having()}</p>
 					{/if}
 				</div>
 			</CollapsibleContent>
@@ -610,10 +740,10 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {orderByOpen ? '' : '-rotate-90'}"
 					/>
 					<ArrowUpDownIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">ORDER BY</span>
-					{#if qb.orderBy.length > 0}
+					<span class="font-medium text-sm">{m.qb_section_order_by()}</span>
+					{#if qb.activeOrderBy.length > 0}
 						<span class="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-							{qb.orderBy.length}
+							{qb.activeOrderBy.length}
 						</span>
 					{/if}
 				</div>
@@ -627,13 +757,13 @@
 					}}
 				>
 					<PlusIcon class="size-3" />
-					Add
+					{m.qb_add()}
 				</Button>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3 space-y-2">
-					{#each qb.orderBy as sort (sort.id)}
+					{#each qb.activeOrderBy as sort (sort.id)}
 						<div class="flex items-center gap-2">
 							<!-- Column input -->
 							<Input
@@ -642,7 +772,7 @@
 								value={sort.column}
 								oninput={(e: Event) => {
 									const target = e.target as HTMLInputElement;
-									qb.updateOrderByColumn(sort.id, target.value);
+									qb.updateActiveOrderByColumn(sort.id, target.value);
 								}}
 								class="h-7 text-xs w-40 font-mono"
 							/>
@@ -653,7 +783,7 @@
 								value={sort.direction}
 								onValueChange={(value) => {
 									if (value) {
-										qb.updateOrderBy(sort.id, value as SortDirection);
+										qb.updateActiveOrderBy(sort.id, value as SortDirection);
 									}
 								}}
 							>
@@ -674,15 +804,15 @@
 								variant="ghost"
 								size="icon-sm"
 								class="size-7 text-muted-foreground hover:text-destructive"
-								onclick={() => qb.removeOrderBy(sort.id)}
+								onclick={() => qb.removeActiveOrderBy(sort.id)}
 							>
 								<XIcon class="size-3" />
 							</Button>
 						</div>
 					{/each}
 
-					{#if qb.orderBy.length === 0}
-						<p class="text-xs text-muted-foreground">No sorting. Click "Add" to add an ORDER BY clause.</p>
+					{#if qb.activeOrderBy.length === 0}
+						<p class="text-xs text-muted-foreground">{m.qb_no_sorting()}</p>
 					{/if}
 				</div>
 			</CollapsibleContent>
@@ -698,31 +828,31 @@
 						class="size-4 text-muted-foreground transition-transform duration-200 {limitOpen ? '' : '-rotate-90'}"
 					/>
 					<HashIcon class="size-4 text-muted-foreground" />
-					<span class="font-medium text-sm">LIMIT</span>
+					<span class="font-medium text-sm">{m.qb_section_limit()}</span>
 				</div>
 			</CollapsibleTrigger>
 
 			<CollapsibleContent>
 				<div class="px-3 pb-3">
 					<div class="flex items-center gap-3">
-						<span class="text-xs text-muted-foreground">Return first</span>
+						<span class="text-xs text-muted-foreground">{m.qb_return_first()}</span>
 						<Input
 							type="number"
-							value={qb.limit ?? ''}
+							value={qb.activeLimit ?? ''}
 							oninput={handleLimitChange}
-							disabled={qb.limit === null}
+							disabled={qb.activeLimit === null}
 							min={1}
 							class="h-7 text-xs w-20"
 						/>
-						<span class="text-xs text-muted-foreground">rows</span>
+						<span class="text-xs text-muted-foreground">{m.qb_rows()}</span>
 
 						<div class="flex items-center gap-2 ml-4">
 							<Checkbox
 								id="no-limit"
-								checked={qb.limit === null}
+								checked={qb.activeLimit === null}
 								onCheckedChange={handleNoLimitChange}
 							/>
-							<Label for="no-limit" class="text-xs cursor-pointer">No limit</Label>
+							<Label for="no-limit" class="text-xs cursor-pointer">{m.qb_no_limit()}</Label>
 						</div>
 					</div>
 				</div>

@@ -183,6 +183,7 @@
 	);
 	const showNext = $derived(
 		wizard.currentStep !== "string-choice" &&
+			wizard.currentStep !== "type" &&
 			wizard.currentStep !== "credentials" &&
 			wizard.currentStep !== "string-paste" &&
 			wizard.currentStep !== "advanced",
@@ -231,10 +232,7 @@
 					error={wizard.connectionError}
 				/>
 			{:else if wizard.currentStep === "type"}
-				<WizardStepType
-					selectedType={wizard.formData.type}
-					onSelect={(type) => wizard.setDatabaseType(type)}
-				/>
+				<WizardStepType onSelect={(type) => wizard.setDatabaseType(type)} />
 			{:else if wizard.currentStep === "host"}
 				<WizardStepHost bind:formData={wizard.formData} selectedDbType={wizard.selectedDbType} />
 			{:else if wizard.currentStep === "credentials"}

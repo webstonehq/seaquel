@@ -10,6 +10,7 @@ import { errorToast } from "$lib/utils/toast";
 	import { FolderIcon, GitBranchIcon, Loader2Icon } from "@lucide/svelte";
 	import { open as openDialog } from "@tauri-apps/plugin-dialog";
 	import { join, appDataDir } from "@tauri-apps/api/path";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		open: boolean;
@@ -48,7 +49,7 @@ import { errorToast } from "$lib/utils/toast";
 			const selected = await openDialog({
 				directory: true,
 				multiple: false,
-				title: "Select folder for shared queries"
+				title: m.shared_select_folder_title()
 			});
 			if (selected && typeof selected === "string") {
 				localPath = selected;
@@ -60,17 +61,17 @@ import { errorToast } from "$lib/utils/toast";
 
 	async function handleSubmit() {
 		if (!name.trim()) {
-			errorToast("Please enter a name for the repository");
+			errorToast(m.shared_name_required());
 			return;
 		}
 
 		if (!localPath.trim()) {
-			errorToast("Please specify a local folder path");
+			errorToast(m.shared_path_required());
 			return;
 		}
 
 		if (mode === "clone" && !remoteUrl.trim()) {
-			errorToast("Please enter a Git remote URL");
+			errorToast(m.shared_remote_required());
 			return;
 		}
 
@@ -79,10 +80,10 @@ import { errorToast } from "$lib/utils/toast";
 		try {
 			if (mode === "clone") {
 				await db.sharedRepos.cloneRepo(name, remoteUrl, localPath);
-				toast.success(`Repository "${name}" cloned successfully`);
+				toast.success(m.shared_repo_cloned({ name }));
 			} else {
 				await db.sharedRepos.initRepo(name, localPath);
-				toast.success(`Repository "${name}" initialized`);
+				toast.success(m.shared_repo_initialized({ name }));
 			}
 
 			// Reset form and close dialog
@@ -90,7 +91,7 @@ import { errorToast } from "$lib/utils/toast";
 			onOpenChange(false);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to ${mode === "clone" ? "clone" : "initialize"} repository: ${message}`);
+			errorToast(mode === "clone" ? m.shared_clone_failed({ message }) : m.shared_init_failed({ message }));
 		} finally {
 			isLoading = false;
 		}
@@ -114,9 +115,9 @@ import { errorToast } from "$lib/utils/toast";
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
 	<Dialog.Content class="max-w-lg">
 		<Dialog.Header>
-			<Dialog.Title>Add Shared Query Repository</Dialog.Title>
+			<Dialog.Title>{m.shared_add_repo_title()}</Dialog.Title>
 			<Dialog.Description>
-				Clone an existing Git repository or create a new one for sharing SQL queries with your team.
+				{m.shared_add_repo_description()}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -124,17 +125,17 @@ import { errorToast } from "$lib/utils/toast";
 			<TabsList class="grid w-full grid-cols-2">
 				<TabsTrigger value="clone">
 					<GitBranchIcon class="size-4 me-2" />
-					Clone Repository
+					{m.shared_clone_repo()}
 				</TabsTrigger>
 				<TabsTrigger value="init">
 					<FolderIcon class="size-4 me-2" />
-					New Repository
+					{m.shared_new_repo()}
 				</TabsTrigger>
 			</TabsList>
 
 			<TabsContent value="clone" class="space-y-4 mt-4">
 				<div class="space-y-2">
-					<Label for="name">Repository Name</Label>
+					<Label for="name">{m.shared_repo_name()}</Label>
 					<Input
 						id="name"
 						bind:value={name}
@@ -144,7 +145,7 @@ import { errorToast } from "$lib/utils/toast";
 				</div>
 
 				<div class="space-y-2">
-					<Label for="remote-url">Git Remote URL</Label>
+					<Label for="remote-url">{m.shared_git_remote_url()}</Label>
 					<Input
 						id="remote-url"
 						bind:value={remoteUrl}
@@ -152,12 +153,12 @@ import { errorToast } from "$lib/utils/toast";
 						disabled={isLoading}
 					/>
 					<p class="text-xs text-muted-foreground">
-						SSH or HTTPS URL to the Git repository
+						{m.shared_git_url_hint()}
 					</p>
 				</div>
 
 				<div class="space-y-2">
-					<Label for="local-path">Local Folder</Label>
+					<Label for="local-path">{m.shared_local_folder()}</Label>
 					<div class="flex gap-2">
 						<Input
 							id="local-path"
@@ -176,14 +177,14 @@ import { errorToast } from "$lib/utils/toast";
 						</Button>
 					</div>
 					<p class="text-xs text-muted-foreground">
-						Where to clone the repository on your computer
+						{m.shared_clone_folder_hint()}
 					</p>
 				</div>
 			</TabsContent>
 
 			<TabsContent value="init" class="space-y-4 mt-4">
 				<div class="space-y-2">
-					<Label for="init-name">Repository Name</Label>
+					<Label for="init-name">{m.shared_repo_name()}</Label>
 					<Input
 						id="init-name"
 						bind:value={name}
@@ -193,7 +194,7 @@ import { errorToast } from "$lib/utils/toast";
 				</div>
 
 				<div class="space-y-2">
-					<Label for="init-path">Local Folder</Label>
+					<Label for="init-path">{m.shared_local_folder()}</Label>
 					<div class="flex gap-2">
 						<Input
 							id="init-path"
@@ -212,7 +213,7 @@ import { errorToast } from "$lib/utils/toast";
 						</Button>
 					</div>
 					<p class="text-xs text-muted-foreground">
-						You can add a remote URL later to sync with your team
+						{m.shared_init_folder_hint()}
 					</p>
 				</div>
 			</TabsContent>
@@ -220,13 +221,13 @@ import { errorToast } from "$lib/utils/toast";
 
 		<Dialog.Footer class="mt-6">
 			<Button variant="outline" onclick={() => handleOpenChange(false)} disabled={isLoading}>
-				Cancel
+				{m.common_cancel()}
 			</Button>
 			<Button onclick={handleSubmit} disabled={isLoading}>
 				{#if isLoading}
 					<Loader2Icon class="size-4 me-2 animate-spin" />
 				{/if}
-				{mode === "clone" ? "Clone Repository" : "Create Repository"}
+				{mode === "clone" ? m.shared_clone_repo() : m.shared_create_repo()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
