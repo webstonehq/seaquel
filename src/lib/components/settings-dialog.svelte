@@ -46,6 +46,7 @@ import { errorToast } from "$lib/utils/toast";
 	import { Switch } from "$lib/components/ui/switch";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { goto } from "$app/navigation";
+	import { resolve } from "$app/paths";
 	import { page } from "$app/state";
 
 	// App info state
@@ -247,8 +248,8 @@ import { errorToast } from "$lib/utils/toast";
 	function handleLearnToggle(checked: boolean) {
 		onboardingStore.setLearnEnabled(checked);
 		// If disabling Learn and currently on a Learn page, redirect to Manage
-		if (!checked && page.url.pathname.startsWith("/learn")) {
-			goto("/manage");
+		if (!checked && page.url.pathname.startsWith(resolve("/learn"))) {
+			goto(resolve("/manage"));
 		}
 	}
 

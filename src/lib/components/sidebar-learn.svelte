@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { SvelteSet } from "svelte/reactivity";
 	import { page } from "$app/state";
+	import { resolve } from "$app/paths";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Badge } from "$lib/components/ui/badge";
 	import { ChevronRightIcon, BookOpenIcon, BoxIcon } from "@lucide/svelte";
@@ -13,12 +14,14 @@
 
 	// Auto-expand section containing the active lesson
 	$effect(() => {
-		const match = page.url.pathname.match(/^\/learn\/([^/]+)$/);
-		if (match) {
-			const lessonId = match[1];
-			const section = LESSON_SECTIONS.find(s => s.lessons.includes(lessonId));
-			if (section) {
-				expandedTutorialSections.add(section.id);
+		const learnPrefix = resolve("/learn") + "/";
+		if (page.url.pathname.startsWith(learnPrefix)) {
+			const lessonId = page.url.pathname.slice(learnPrefix.length).split('/')[0];
+			if (lessonId) {
+				const section = LESSON_SECTIONS.find(s => s.lessons.includes(lessonId));
+				if (section) {
+					expandedTutorialSections.add(section.id);
+				}
 			}
 		}
 	});
@@ -41,9 +44,9 @@
 		<Sidebar.GroupContent>
 			<Sidebar.Menu>
 				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={page.url.pathname === '/learn/sandbox'}>
+					<Sidebar.MenuButton isActive={page.url.pathname === resolve("/learn/sandbox")}>
 						{#snippet child({ props })}
-							<a href="/learn/sandbox" {...props}>
+							<a href={resolve("/learn/sandbox")} {...props}>
 								<BoxIcon class="size-4" />
 								<span>{m.learn_sandbox()}</span>
 							</a>
@@ -87,11 +90,11 @@
 										{#if lesson}
 											<Sidebar.MenuItem>
 												<Sidebar.MenuButton
-													isActive={page.url.pathname === `/learn/${lessonId}`}
+													isActive={page.url.pathname === resolve("/learn/[lessonId]", { lessonId })}
 													class="flex items-center gap-2"
 												>
 													{#snippet child({ props })}
-														<a href={`/learn/${lessonId}`} {...props}>
+														<a href={resolve("/learn/[lessonId]", { lessonId })} {...props}>
 															<!-- Pie chart progress indicator -->
 															<svg class="size-4 -rotate-90" viewBox="0 0 16 16">
 																<!-- Background circle -->

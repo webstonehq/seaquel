@@ -41,7 +41,8 @@
 	</div>
 
 	<!-- Table List -->
-	<ScrollArea class="flex-1">
+	<div class="flex-1 overflow-hidden">
+		<ScrollArea class="h-full">
 		<div class="p-2 space-y-0.5" role="list">
 			{#if tables.length === 0}
 				<div class="px-2 py-4 text-sm text-muted-foreground text-center">
@@ -137,5 +138,6 @@
 				{/if}
 			{/if}
 		</div>
-	</ScrollArea>
+		</ScrollArea>
+	</div>
 </div>

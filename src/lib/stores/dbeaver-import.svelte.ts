@@ -49,9 +49,6 @@ class DbeaverImportStore {
 	 * Called when user clicks on DBeaver card
 	 */
 	async checkAndShowDialog(existingConnectionIds: string[]): Promise<void> {
-		// Skip if already offered import
-		if (this.hasOfferedImport) return;
-
 		this.isLoading = true;
 
 		try {

@@ -97,20 +97,25 @@
 			<Resizable.PaneGroup direction="horizontal" class="flex-1">
 				<Resizable.Pane defaultSize={60} minSize={30}>
 					<Resizable.PaneGroup direction="vertical">
-						<Resizable.Pane defaultSize={65} minSize={20}>
-							<div class="flex flex-col h-full">
-								<!-- Canvas -->
-								<div class="flex-1 min-h-0">
-									<QueryBuilderCanvas />
-								</div>
-								<!-- Filter panel -->
+						<Resizable.Pane defaultSize={40} minSize={15}>
+							<!-- Canvas -->
+							<div class="h-full">
+								<QueryBuilderCanvas />
+							</div>
+						</Resizable.Pane>
+
+						<Resizable.Handle withHandle />
+
+						<Resizable.Pane defaultSize={35} minSize={10}>
+							<!-- Filter panel -->
+							<div class="h-full">
 								<FilterPanel />
 							</div>
 						</Resizable.Pane>
 
 						<Resizable.Handle withHandle />
 
-						<Resizable.Pane defaultSize={35} minSize={15}>
+						<Resizable.Pane defaultSize={25} minSize={10}>
 							<!-- Results panel -->
 							<div class="flex flex-col h-full border-t">
 								<div class="flex items-center justify-between px-3 py-2 border-b bg-muted/50">

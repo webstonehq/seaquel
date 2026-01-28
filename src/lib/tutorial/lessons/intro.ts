@@ -23,7 +23,7 @@ Let's start with the basics!
 			id: 'intro-1',
 			title: 'Explore the Interface',
 			description:
-				'Take a look around! On the left, you\'ll see a list of available tables. Drag the "categories" table onto the canvas to begin.',
+				'Take a look around! Above, you\'ll see a list of available tables. Drag the "categories" table onto the canvas to begin.',
 			hint: 'Find the "categories" table in the left panel and drag it onto the gray canvas area.',
 			criteria: [
 				criterion(

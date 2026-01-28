@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { resolve } from "$app/paths";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { GraduationCapIcon, Settings2Icon } from "@lucide/svelte";
 	import { isTauri } from "$lib/utils/environment";
@@ -9,14 +10,14 @@
 
 	// Navigation items for the icon sidebar
 	const navItems = [
-		{ id: "learn", title: "Learn", href: "/learn", icon: GraduationCapIcon },
-		{ id: "manage", title: "Manage", href: "/manage", icon: Settings2Icon },
+		{ id: "learn", title: "Learn", href: resolve("/learn"), icon: GraduationCapIcon },
+		{ id: "manage", title: "Manage", href: resolve("/manage"), icon: Settings2Icon },
 	] as const;
 
 	// Determine active nav item based on current URL
 	// When Learn is disabled, always show manage
 	const activeNavItem = $derived(
-		onboardingStore.learnEnabled && page.url.pathname.startsWith("/learn") ? "learn" : "manage"
+		onboardingStore.learnEnabled && page.url.pathname.startsWith(resolve("/learn")) ? "learn" : "manage"
 	);
 
 	let version = $state("");

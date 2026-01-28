@@ -1,5 +1,6 @@
 <script lang="ts">
     import { page } from "$app/state";
+    import { resolve } from "$app/paths";
     import { locales, localizeHref } from "$lib/paraglide/runtime";
     import "./layout.css";
     import { ModeWatcher } from "mode-watcher";
@@ -149,14 +150,14 @@
     });
     // When Learn is disabled, always treat as "manage" for sidebar width
     const activeNavItem = $derived(
-        onboardingStore.learnEnabled && page.url.pathname.startsWith("/learn") ? "learn" : "manage",
+        onboardingStore.learnEnabled && page.url.pathname.startsWith(resolve("/learn")) ? "learn" : "manage",
     );
 
     // Redirect to /manage if Learn is disabled and on a /learn route
     $effect(() => {
-        if (!onboardingStore.learnEnabled && page.url.pathname.startsWith("/learn")) {
+        if (!onboardingStore.learnEnabled && page.url.pathname.startsWith(resolve("/learn"))) {
             import("$app/navigation").then(({ goto }) => {
-                goto("/manage");
+                goto(resolve("/manage"));
             });
         }
     });

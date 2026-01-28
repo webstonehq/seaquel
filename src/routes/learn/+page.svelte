@@ -11,6 +11,7 @@
     BookOpenIcon,
   } from '@lucide/svelte';
   import { LESSONS, LESSON_SECTIONS } from '$lib/tutorial/lessons';
+  import { resolve } from '$app/paths';
 
   /** Extract first sentence and strip markdown formatting */
   function getDescription(introduction: string): string {
@@ -44,7 +45,7 @@
               Free-form playground to practice building queries
             </p>
           </div>
-          <Button href="/learn/sandbox">
+          <Button href={resolve("/learn/sandbox")}>
             <PlayIcon class="size-4 mr-2" />
             Open Sandbox
           </Button>
@@ -72,7 +73,7 @@
                   <CardContent>
                     <Button
                       size="sm"
-                      href={`/learn/${lessonId}`}
+                      href={resolve("/learn/[lessonId]", { lessonId })}
                     >
                       <BookOpenIcon class="size-4 mr-2" />
                       Start Lesson
