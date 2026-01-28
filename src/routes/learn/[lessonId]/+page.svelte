@@ -15,6 +15,11 @@
     } from "$lib/hooks/query-builder.svelte";
     import { getLesson, getNextLessonId } from "$lib/tutorial/lessons";
     import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte";
+    import {
+        ResizablePaneGroup,
+        ResizablePane,
+        ResizableHandle,
+    } from "$lib/components/ui/resizable";
     import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
     import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
     import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
@@ -214,14 +219,20 @@
         <!-- Main content -->
         <QueryBuilderWorkspace bind:this={workspace}>
             {#snippet leftPanel()}
-                <div class="w-64 border-r flex flex-col">
-                    <!-- Table palette -->
-                    <div>
-                        <TablePalette />
-                    </div>
+                <div class="w-64 border-r h-full">
+                    <ResizablePaneGroup direction="vertical" class="h-full">
+                        <!-- Table palette -->
+                        <ResizablePane defaultSize={40} minSize={15}>
+                            <div class="h-full overflow-hidden">
+                                <TablePalette />
+                            </div>
+                        </ResizablePane>
 
-                    <!-- Challenge card -->
-                    <div class="p-3 border-b flex-1">
+                        <ResizableHandle withHandle />
+
+                        <!-- Challenge card -->
+                        <ResizablePane defaultSize={60} minSize={20}>
+                            <div class="p-3 h-full overflow-y-auto">
                         {#if isLessonComplete && currentChallenge}
                             <div class="space-y-4">
                                 <!-- Completion banner -->
@@ -326,7 +337,9 @@
                                 allChallenges={lesson.challenges}
                             />
                         {/if}
-                    </div>
+                            </div>
+                        </ResizablePane>
+                    </ResizablePaneGroup>
                 </div>
             {/snippet}
         </QueryBuilderWorkspace>

@@ -221,7 +221,7 @@
 	}
 </script>
 
-<div class="border-t bg-muted/30 max-h-64 overflow-auto">
+<div class="border-t bg-muted/30 h-full overflow-auto">
 	<!-- Context Indicator -->
 	{#if isEditingNested}
 		<div class="flex items-center gap-2 px-3 py-1.5 border-b {isEditingCte ? 'bg-violet-500/10 border-violet-500/20' : 'bg-indigo-500/10 border-indigo-500/20'}">

@@ -114,7 +114,7 @@
 			<div class="max-h-64 overflow-y-auto space-y-2 border rounded-lg p-2">
 				{#each dbeaverImportStore.connections as conn, index}
 					<label
-						class="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
+						class="flex items-start gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
 						class:opacity-50={conn.isDuplicate}
 					>
 						<Checkbox
@@ -124,14 +124,14 @@
 						/>
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
-								<span class="font-medium truncate">{conn.name}</span>
-								<span class="text-xs text-muted-foreground uppercase"
+								<span class="font-medium">{conn.name}</span>
+								<span class="text-xs text-muted-foreground uppercase shrink-0"
 									>{conn.type}</span
 								>
 							</div>
-							<span class="text-xs text-muted-foreground truncate block">
+							<p class="text-xs text-muted-foreground break-all">
 								{conn.username}@{conn.host}:{conn.port}/{conn.databaseName}
-							</span>
+							</p>
 						</div>
 						{#if conn.isDuplicate}
 							<span class="text-xs text-amber-500 flex items-center gap-1">
