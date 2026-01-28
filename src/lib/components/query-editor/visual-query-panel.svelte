@@ -59,7 +59,7 @@
 		<Resizable.PaneGroup direction="horizontal" class="h-full">
 			<!-- Table Palette -->
 			<Resizable.Pane defaultSize={15} minSize={12} maxSize={25}>
-				<TablePalette {schema} showAdvancedOptions={false} />
+				<TablePalette {schema} />
 			</Resizable.Pane>
 
 			<Resizable.Handle />

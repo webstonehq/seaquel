@@ -533,6 +533,10 @@
 	"qb_op_not_in": "not in",
 	"qb_op_is_null": "is null",
 	"qb_op_is_not_null": "is not null",
+	"qb_op_is_true": "is true",
+	"qb_op_is_false": "is false",
+	"qb_op_is_not_true": "is not true",
+	"qb_op_is_not_false": "is not false",
 
 	"table_palette_title": "Tables",
 	"table_palette_hint": "Drag onto canvas",
