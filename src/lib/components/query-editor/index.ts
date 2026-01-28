@@ -6,3 +6,4 @@ export { default as QueryErrorDisplay } from './query-error-display.svelte';
 export { default as QueryResultViewToggle } from './query-result-view-toggle.svelte';
 export { default as ExplainResultPane } from './explain-result-pane.svelte';
 export { default as VisualizeResultPane } from './visualize-result-pane.svelte';
+export { default as VisualQueryPanel } from './visual-query-panel.svelte';

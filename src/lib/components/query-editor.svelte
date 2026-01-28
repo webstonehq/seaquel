@@ -9,7 +9,7 @@
 	import * as Popover from "$lib/components/ui/popover";
 	import { Label } from "$lib/components/ui/label";
 	import { Input } from "$lib/components/ui/input";
-	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon, DatabaseIcon, NetworkIcon } from "@lucide/svelte";
+	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon, DatabaseIcon, NetworkIcon, ColumnsIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -39,8 +39,10 @@ import { errorToast } from "$lib/utils/toast";
 		QueryErrorDisplay,
 		QueryResultViewToggle,
 		ExplainResultPane,
-		VisualizeResultPane
+		VisualizeResultPane,
+		VisualQueryPanel
 	} from "$lib/components/query-editor/index.js";
+	import { schemaToQueryBuilder } from "$lib/utils/schema-adapter";
 
 	// Import chart components
 	import { QueryChart, ChartConfigPopover, createDefaultChartConfig } from "$lib/components/charts/index.js";
@@ -120,6 +122,33 @@ import { errorToast } from "$lib/utils/toast";
 	};
 
 	const allResults = $derived(db.state.activeQueryTab?.results ?? []);
+
+	// Visual query builder panel state
+	let visualPanelOpen = $state(false);
+	let visualPanelGetSql: (() => string) | undefined = $state(undefined);
+
+	// Convert database schema to query builder format
+	const queryBuilderSchema = $derived(
+		db.state.activeSchema ? schemaToQueryBuilder(db.state.activeSchema) : []
+	);
+
+	// Sync SQL from visual builder back to query tab when panel closes
+	function syncVisualBuilderSql() {
+		if (visualPanelGetSql && db.state.activeQueryTabId) {
+			const sql = visualPanelGetSql();
+			db.queryTabs.updateContent(db.state.activeQueryTabId, sql);
+			currentQuery = sql;
+		}
+	}
+
+	// Toggle visual panel and sync SQL when closing
+	function toggleVisualPanel() {
+		if (visualPanelOpen) {
+			// Closing - sync SQL back
+			syncVisualBuilderSql();
+		}
+		visualPanelOpen = !visualPanelOpen;
+	}
 
 	// Track query content for live statement count
 	let currentQuery = $state(db.state.activeQueryTab?.query ?? '');
@@ -237,6 +266,9 @@ import { errorToast } from "$lib/utils/toast";
 	const handleExecute = () => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
 
+		// Sync SQL from visual builder if open
+		if (visualPanelOpen) syncVisualBuilderSql();
+
 		const query = db.state.activeQueryTab.query;
 
 		// Check if query has parameters
@@ -252,6 +284,9 @@ import { errorToast } from "$lib/utils/toast";
 
 	const handleExecuteCurrent = () => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		// Sync SQL from visual builder if open
+		if (visualPanelOpen) syncVisualBuilderSql();
 
 		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
@@ -314,6 +349,9 @@ import { errorToast } from "$lib/utils/toast";
 	const handleExplain = (analyze: boolean) => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
 
+		// Sync SQL from visual builder if open
+		if (visualPanelOpen) syncVisualBuilderSql();
+
 		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
 
@@ -334,6 +372,9 @@ import { errorToast } from "$lib/utils/toast";
 
 	const handleVisualize = () => {
 		if (!db.state.activeQueryTabId || !db.state.activeQueryTab) return;
+
+		// Sync SQL from visual builder if open
+		if (visualPanelOpen) syncVisualBuilderSql();
 
 		const query = db.state.activeQueryTab.query;
 		const cursorOffset = monacoRef?.getCursorOffset() ?? 0;
@@ -532,40 +573,73 @@ import { errorToast } from "$lib/utils/toast";
 
 <div class="flex flex-col h-full overflow-hidden">
 	{#if db.state.activeQueryTab}
-		<QueryToolbar
-			isExecuting={db.state.activeQueryTab.isExecuting}
-			hasQuery={!!db.state.activeQueryTab.query.trim()}
-			{activeResult}
-			{liveStatementCount}
-			onExecute={handleExecute}
-			onExecuteCurrent={handleExecuteCurrent}
-			onExplain={handleExplain}
-			onVisualize={handleVisualize}
-			onFormat={handleFormat}
-			onSave={handleSave}
-			onShare={handleShare}
-		/>
+		<div class="flex items-center justify-between border-b bg-muted/30 shrink-0">
+			<div class="flex-1">
+				<QueryToolbar
+					isExecuting={db.state.activeQueryTab.isExecuting}
+					hasQuery={!!db.state.activeQueryTab.query.trim()}
+					{activeResult}
+					{liveStatementCount}
+					onExecute={handleExecute}
+					onExecuteCurrent={handleExecuteCurrent}
+					onExplain={handleExplain}
+					onVisualize={handleVisualize}
+					onFormat={handleFormat}
+					onSave={handleSave}
+					onShare={handleShare}
+				/>
+			</div>
+			<!-- Visual Builder Toggle -->
+			{#if queryBuilderSchema.length > 0}
+				<div class="pe-2 shrink-0">
+					<Button
+						size="sm"
+						variant="outline"
+						class="h-7 gap-1.5 {visualPanelOpen ? 'bg-secondary border-secondary-foreground/30' : ''}"
+						onclick={toggleVisualPanel}
+					>
+						<ColumnsIcon class="size-3.5" />
+						{m.query_visual_builder()}
+					</Button>
+				</div>
+			{/if}
+		</div>
 
 		<Resizable.PaneGroup direction="vertical" class="flex-1 min-h-0">
-			<!-- Editor Pane -->
+			<!-- Editor Pane (visual builder or plain SQL editor) -->
 			<Resizable.Pane defaultSize={40} minSize={15}>
-				<div class="h-full">
-					{#key db.state.activeQueryTabId}
-						<MonacoEditor
-							bind:value={db.state.activeQueryTab.query}
-							bind:ref={monacoRef}
-							schema={db.state.activeSchema}
-							onExecute={handleExecuteCurrent}
-							onToggleSidebar={() => sidebar.toggle()}
-							onChange={(newValue) => {
-								currentQuery = newValue;
-								if (db.state.activeQueryTabId) {
-									db.queryTabs.updateContent(db.state.activeQueryTabId, newValue);
-								}
-							}}
-						/>
-					{/key}
-				</div>
+				{#if visualPanelOpen && queryBuilderSchema.length > 0}
+					<!-- Visual Builder (includes canvas, filter panel, and SQL editor) -->
+					<div class="h-full">
+						{#key db.state.activeQueryTabId}
+							<VisualQueryPanel
+								schema={queryBuilderSchema}
+								monacoSchema={db.state.activeSchema ?? undefined}
+								initialSql={db.state.activeQueryTab.query}
+								bind:getSql={visualPanelGetSql}
+							/>
+						{/key}
+					</div>
+				{:else}
+					<!-- Just SQL Editor -->
+					<div class="h-full">
+						{#key db.state.activeQueryTabId}
+							<MonacoEditor
+								bind:value={db.state.activeQueryTab.query}
+								bind:ref={monacoRef}
+								schema={db.state.activeSchema}
+								onExecute={handleExecuteCurrent}
+								onToggleSidebar={() => sidebar.toggle()}
+								onChange={(newValue) => {
+									currentQuery = newValue;
+									if (db.state.activeQueryTabId) {
+										db.queryTabs.updateContent(db.state.activeQueryTabId, newValue);
+									}
+								}}
+							/>
+						{/key}
+					</div>
+				{/if}
 			</Resizable.Pane>
 
 			<Resizable.Handle withHandle />

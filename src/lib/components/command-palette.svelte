@@ -3,6 +3,8 @@
 	import { useDatabase } from "$lib/hooks/database.svelte";
 	import { useShortcuts } from "$lib/shortcuts/shortcuts.svelte";
 	import { connectionDialogStore } from "$lib/stores/connection-dialog.svelte";
+	import { goto } from "$app/navigation";
+	import { LESSONS, LESSON_SECTIONS } from "$lib/tutorial/lessons";
 	import {
 		Plus,
 		Play,
@@ -19,6 +21,8 @@
 		Code,
 		BarChart3,
 		LayoutGrid,
+		BookOpen,
+		GraduationCap,
 	} from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 
@@ -149,6 +153,10 @@
 
 	function viewCanvas() {
 		runAndClose(() => db.canvasTabs.add());
+	}
+
+	function goToLearn(path: string) {
+		runAndClose(() => goto(path));
 	}
 
 	async function switchConnection(id: string) {
@@ -369,9 +377,29 @@
 				</Command.Item>
 				<Command.Item value="view-canvas" onSelect={viewCanvas}>
 					<LayoutGrid class="size-4" />
-					<span>Open Canvas Workspace</span>
+					<span>{m.command_open_canvas()}</span>
 				</Command.Item>
 			{/if}
+		</Command.Group>
+
+		<!-- Learning -->
+		<Command.Group heading={m.command_group_learning()}>
+			<Command.Item value="learn-sandbox" onSelect={() => goToLearn('/learn/sandbox')}>
+				<BookOpen class="size-4" />
+				<span>{m.command_learn_sandbox()}</span>
+			</Command.Item>
+			{#each LESSON_SECTIONS as section}
+				{#each section.lessons as lessonId}
+					{@const lesson = LESSONS[lessonId]}
+					{#if lesson}
+						<Command.Item value="learn-{lessonId}" onSelect={() => goToLearn(`/learn/${lessonId}`)}>
+							<GraduationCap class="size-4" />
+							<span>{lesson.title}</span>
+							<span class="text-muted-foreground ms-auto text-xs">{section.title}</span>
+						</Command.Item>
+					{/if}
+				{/each}
+			{/each}
 		</Command.Group>
 
 		<!-- Tables -->

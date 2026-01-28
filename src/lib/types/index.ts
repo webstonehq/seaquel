@@ -125,5 +125,12 @@ export type {
 	TutorialLesson,
 	SelectAggregate,
 	ColumnAggregate,
-	DisplayAggregate
+	DisplayAggregate,
+	SubqueryRole,
+	SubqueryInnerState,
+	CanvasSubquery,
+	CanvasCTE,
+	QueryBuilderForeignKey,
+	QueryBuilderColumn,
+	QueryBuilderTable
 } from './query-builder';

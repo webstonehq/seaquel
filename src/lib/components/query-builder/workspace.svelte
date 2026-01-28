@@ -11,6 +11,7 @@
 	import FilterPanel from './filter-panel.svelte';
 	import SqlEditor from './sql-editor.svelte';
 	import DndProvider from './dnd-provider.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 
 	interface Props {
 		/** Content for the left sidebar (e.g., table palette, challenge card) */
@@ -77,9 +78,9 @@
 		if (!queryError) return;
 		try {
 			await navigator.clipboard.writeText(queryError);
-			toast.success('Error copied to clipboard');
+			toast.success(m.workspace_error_copied());
 		} catch {
-			toast.error('Failed to copy error');
+			toast.error(m.workspace_copy_error_failed());
 		}
 	}
 </script>
@@ -113,10 +114,10 @@
 							<!-- Results panel -->
 							<div class="flex flex-col h-full border-t">
 								<div class="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
-									<span class="font-medium text-sm">Results</span>
+									<span class="font-medium text-sm">{m.workspace_results()}</span>
 									{#if queryResults !== null}
 										<span class="text-xs text-muted-foreground">
-											{queryResults.length} row{queryResults.length !== 1 ? 's' : ''}
+											{queryResults.length === 1 ? m.workspace_row_count({ count: 1 }) : m.workspace_rows_count({ count: queryResults.length })}
 											{#if executionTime !== null}
 												· {executionTime.toFixed(0)}ms
 											{/if}
@@ -128,7 +129,7 @@
 										<div class="p-4 text-sm text-destructive bg-destructive/10">
 											<div class="flex items-start justify-between gap-2">
 												<div>
-													<p class="font-medium">Error</p>
+													<p class="font-medium">{m.workspace_error()}</p>
 													<p class="font-mono text-xs mt-1">{queryError}</p>
 												</div>
 												<Button
@@ -146,11 +147,11 @@
 										<VirtualResultsTable columns={resultColumns} rows={queryResults} compact />
 									{:else if queryResults !== null}
 										<div class="p-4 text-sm text-muted-foreground text-center">
-											Query executed successfully. No rows returned.
+											{m.workspace_no_rows()}
 										</div>
 									{:else}
 										<div class="p-4 text-sm text-muted-foreground text-center">
-											Build a query and click "Run Query" to see results
+											{m.workspace_run_query_hint()}
 										</div>
 									{/if}
 								</div>

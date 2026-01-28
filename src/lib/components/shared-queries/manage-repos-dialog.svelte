@@ -8,6 +8,7 @@
 	import type { SharedQueryRepo } from "$lib/types";
 	import { PlusIcon, FolderGit2Icon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		open: boolean;
@@ -30,7 +31,7 @@
 	function handleDeleteConfirm() {
 		if (repoToDelete) {
 			db.sharedRepos.removeRepo(repoToDelete.id);
-			toast.success(`Repository "${repoToDelete.name}" removed`);
+			toast.success(m.shared_repo_removed({ name: repoToDelete.name }));
 			repoToDelete = null;
 		}
 		showDeleteConfirm = false;
@@ -50,9 +51,9 @@
 <Dialog.Root {open} {onOpenChange}>
 	<Dialog.Content class="max-w-lg max-h-[85vh] flex flex-col">
 		<Dialog.Header>
-			<Dialog.Title>Manage Repositories</Dialog.Title>
+			<Dialog.Title>{m.shared_manage_repos_title()}</Dialog.Title>
 			<Dialog.Description>
-				View, edit, and remove shared query repositories.
+				{m.shared_manage_repos_description()}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -61,11 +62,11 @@
 				<div class="flex flex-col items-center justify-center py-12 text-center">
 					<FolderGit2Icon class="size-12 text-muted-foreground/50 mb-4" />
 					<p class="text-sm text-muted-foreground mb-4">
-						No shared repositories yet
+						{m.shared_no_repos()}
 					</p>
 					<Button variant="outline" onclick={handleAddClick}>
 						<PlusIcon class="size-4 me-2" />
-						Add Repository
+						{m.shared_add_repo()}
 					</Button>
 				</div>
 			{:else}
@@ -87,7 +88,7 @@
 			<Dialog.Footer>
 				<Button variant="outline" onclick={handleAddClick}>
 					<PlusIcon class="size-4 me-2" />
-					Add Repository
+					{m.shared_add_repo()}
 				</Button>
 			</Dialog.Footer>
 		{/if}
@@ -97,14 +98,14 @@
 <AlertDialog.Root bind:open={showDeleteConfirm}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Remove Repository</AlertDialog.Title>
+			<AlertDialog.Title>{m.shared_remove_repo_title()}</AlertDialog.Title>
 			<AlertDialog.Description>
-				Are you sure you want to remove "{repoToDelete?.name}"? This will remove it from Seaquel but won't delete the local files.
+				{m.shared_remove_repo_description({ name: repoToDelete?.name ?? '' })}
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel onclick={handleDeleteCancel}>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={handleDeleteConfirm}>Remove</AlertDialog.Action>
+			<AlertDialog.Cancel onclick={handleDeleteCancel}>{m.common_cancel()}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={handleDeleteConfirm}>{m.shared_remove()}</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>

@@ -1,5 +1,11 @@
 // src/lib/tutorial/criteria.ts
-import type { QueryBuilderSnapshot, ChallengeCriterion } from '$lib/types';
+import type {
+	QueryBuilderSnapshot,
+	ChallengeCriterion,
+	SubqueryRole,
+	AggregateFunction,
+	CanvasSubquery
+} from '$lib/types';
 
 type CriterionCheck = (state: QueryBuilderSnapshot, sql: string) => boolean;
 
@@ -225,4 +231,97 @@ export function criterion(
 	check: CriterionCheck
 ): Omit<ChallengeCriterion, 'satisfied'> {
 	return { id, description, check };
+}
+
+// === SUBQUERY CRITERIA ===
+
+/**
+ * Check if a subquery with a specific role exists.
+ * @param role - The role of the subquery ('where', 'from', or 'select')
+ */
+export function hasSubquery(role: SubqueryRole): CriterionCheck {
+	return (state) => state.subqueries.some((s) => s.role === role);
+}
+
+/**
+ * Check if any subquery exists.
+ */
+export function hasAnySubquery(): CriterionCheck {
+	return (state) => state.subqueries.length > 0;
+}
+
+/**
+ * Check if a subquery contains a specific table.
+ * @param tableName - The name of the table to check for
+ */
+export function hasSubqueryWithTable(tableName: string): CriterionCheck {
+	return (state) =>
+		state.subqueries.some((s) => s.innerQuery.tables.some((t) => t.tableName === tableName));
+}
+
+/**
+ * Check if a subquery contains a specific aggregate function.
+ * @param func - The aggregate function to check for
+ */
+export function hasSubqueryAggregate(func: AggregateFunction): CriterionCheck {
+	return (state) =>
+		state.subqueries.some(
+			(s) =>
+				s.innerQuery.selectAggregates.some((a) => a.function === func) ||
+				s.innerQuery.tables.some((t) =>
+					Array.from(t.columnAggregates.values()).some((ca) => ca.function === func)
+				)
+		);
+}
+
+/**
+ * Check if a subquery with a specific role contains a table.
+ * @param role - The role of the subquery
+ * @param tableName - The table name
+ */
+export function hasSubqueryRoleWithTable(role: SubqueryRole, tableName: string): CriterionCheck {
+	return (state) =>
+		state.subqueries.some(
+			(s) => s.role === role && s.innerQuery.tables.some((t) => t.tableName === tableName)
+		);
+}
+
+/**
+ * Check if a subquery has selected columns.
+ */
+export function hasSubqueryWithSelectedColumns(): CriterionCheck {
+	return (state) =>
+		state.subqueries.some((s) => s.innerQuery.tables.some((t) => t.selectedColumns.size > 0));
+}
+
+/**
+ * Check if a WHERE filter is linked to a subquery.
+ */
+export function hasFilterWithSubquery(): CriterionCheck {
+	return (state) => state.filters.some((f) => f.subqueryId !== undefined);
+}
+
+/**
+ * Recursively check all subqueries (including nested) for a condition.
+ * @param predicate - Function to check on each subquery
+ */
+export function hasSubqueryMatching(
+	predicate: (subquery: CanvasSubquery) => boolean
+): CriterionCheck {
+	const checkRecursive = (subqueries: CanvasSubquery[]): boolean => {
+		for (const sq of subqueries) {
+			if (predicate(sq)) return true;
+			if (checkRecursive(sq.innerQuery.subqueries)) return true;
+		}
+		return false;
+	};
+
+	return (state) => checkRecursive(state.subqueries);
+}
+
+/**
+ * Check if nested subqueries exist (subquery inside subquery).
+ */
+export function hasNestedSubquery(): CriterionCheck {
+	return (state) => state.subqueries.some((s) => s.innerQuery.subqueries.length > 0);
 }

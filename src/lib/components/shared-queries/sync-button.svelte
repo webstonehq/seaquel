@@ -12,6 +12,7 @@ import { errorToast } from "$lib/utils/toast";
 		Loader2Icon,
 		ChevronDownIcon
 	} from "@lucide/svelte";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		repoId: string;
@@ -34,10 +35,10 @@ import { errorToast } from "$lib/utils/toast";
 		if (!repo) return;
 		try {
 			await db.sharedRepos.pullRepo(repoId);
-			toast.success("Repository updated");
+			toast.success(m.shared_repo_updated());
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Pull failed: ${message}`);
+			errorToast(m.shared_pull_failed({ message }));
 		}
 	}
 
@@ -45,10 +46,10 @@ import { errorToast } from "$lib/utils/toast";
 		if (!repo) return;
 		try {
 			await db.sharedRepos.pushRepo(repoId);
-			toast.success("Changes pushed");
+			toast.success(m.shared_changes_pushed());
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Push failed: ${message}`);
+			errorToast(m.shared_push_failed({ message }));
 		}
 	}
 
@@ -60,10 +61,10 @@ import { errorToast } from "$lib/utils/toast";
 			if (needsPush) {
 				await db.sharedRepos.pushRepo(repoId);
 			}
-			toast.success("Repository synced");
+			toast.success(m.shared_repo_synced());
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Sync failed: ${message}`);
+			errorToast(m.shared_sync_failed({ message }));
 		}
 	}
 
@@ -71,10 +72,10 @@ import { errorToast } from "$lib/utils/toast";
 		if (!repo) return;
 		try {
 			await db.sharedRepos.commitChanges(repoId, "Update shared queries");
-			toast.success("Changes committed");
+			toast.success(m.shared_changes_committed());
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Commit failed: ${message}`);
+			errorToast(m.shared_commit_failed({ message }));
 		}
 	}
 
@@ -101,7 +102,7 @@ import { errorToast } from "$lib/utils/toast";
 						<RefreshCwIcon class="size-4" />
 					{/if}
 					{#if size !== "icon"}
-						<span>Sync</span>
+						<span>{m.shared_sync()}</span>
 						<ChevronDownIcon class="size-3" />
 					{/if}
 				</Button>
@@ -110,19 +111,19 @@ import { errorToast } from "$lib/utils/toast";
 		<DropdownMenu.Content align="end" class="w-48">
 			<DropdownMenu.Item onclick={handleSync} disabled={isSyncing}>
 				<RefreshCwIcon class="size-4 me-2" />
-				Sync All
+				{m.shared_sync_all()}
 			</DropdownMenu.Item>
 			<DropdownMenu.Separator />
 			<DropdownMenu.Item onclick={handlePull} disabled={isSyncing}>
 				<ArrowDownIcon class="size-4 me-2" />
-				Pull Changes
+				{m.shared_pull_changes()}
 				{#if needsPull}
 					<span class="ms-auto text-xs text-muted-foreground">{syncState?.behindBy}</span>
 				{/if}
 			</DropdownMenu.Item>
 			<DropdownMenu.Item onclick={handlePush} disabled={isSyncing || !needsPush}>
 				<ArrowUpIcon class="size-4 me-2" />
-				Push Changes
+				{m.shared_push_changes()}
 				{#if needsPush}
 					<span class="ms-auto text-xs text-muted-foreground">{syncState?.aheadBy}</span>
 				{/if}
@@ -131,14 +132,14 @@ import { errorToast } from "$lib/utils/toast";
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item onclick={handleCommit} disabled={isSyncing}>
 					<GitCommitIcon class="size-4 me-2" />
-					Commit Changes
+					{m.shared_commit_changes()}
 					<span class="ms-auto text-xs text-muted-foreground">{syncState?.pendingChanges}</span>
 				</DropdownMenu.Item>
 			{/if}
 			<DropdownMenu.Separator />
 			<DropdownMenu.Item onclick={handleRefresh} disabled={isSyncing}>
 				<RefreshCwIcon class="size-4 me-2" />
-				Refresh Status
+				{m.shared_refresh_status()}
 			</DropdownMenu.Item>
 		</DropdownMenu.Content>
 	</DropdownMenu.Root>

@@ -1,15 +1,13 @@
 <script lang="ts">
 	import type { DatabaseTypeConfig } from "$lib/stores/connection-wizard.svelte.js";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
-	import CheckIcon from "@lucide/svelte/icons/check";
 
 	interface Props {
 		config: DatabaseTypeConfig;
-		selected: boolean;
 		onclick: () => void;
 	}
 
-	let { config, selected, onclick }: Props = $props();
+	let { config, onclick }: Props = $props();
 
 	// Database type colors for visual distinction
 	const typeColors: Record<string, string> = {
@@ -26,19 +24,9 @@
 
 <button
 	type="button"
-	class="relative flex flex-col items-start gap-3 p-4 rounded-lg border text-left transition-all hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 {selected
-		? 'border-primary bg-primary/5 ring-1 ring-primary'
-		: 'border-border'}"
+	class="flex flex-col items-start gap-3 p-4 rounded-lg text-left transition-all hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 	{onclick}
 >
-	{#if selected}
-		<div class="absolute top-3 right-3">
-			<div class="size-5 rounded-full bg-primary flex items-center justify-center">
-				<CheckIcon class="size-3 text-primary-foreground" />
-			</div>
-		</div>
-	{/if}
-
 	<div class="size-10 rounded-lg flex items-center justify-center {iconColor}">
 		<DatabaseIcon class="size-5" />
 	</div>

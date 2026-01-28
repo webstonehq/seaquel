@@ -3,6 +3,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { TableIcon, BarChart3Icon, DatabaseIcon, NetworkIcon } from '@lucide/svelte';
 	import type { ResultViewMode } from '$lib/types';
+	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
 		mode: ResultViewMode;
@@ -31,7 +32,7 @@
 		onclick={() => onModeChange('table')}
 	>
 		<TableIcon class="size-3" />
-		<span class="text-xs">Table</span>
+		<span class="text-xs">{m.result_view_table()}</span>
 	</Button>
 	<Button
 		variant={mode === 'chart' ? 'default' : 'ghost'}
@@ -40,7 +41,7 @@
 		onclick={() => onModeChange('chart')}
 	>
 		<BarChart3Icon class="size-3" />
-		<span class="text-xs">Chart</span>
+		<span class="text-xs">{m.result_view_chart()}</span>
 	</Button>
 	<Button
 		variant={mode === 'explain' ? 'default' : 'ghost'}
@@ -49,12 +50,7 @@
 		onclick={() => onModeChange('explain')}
 	>
 		<DatabaseIcon class="size-3" />
-		<span class="text-xs">Explain</span>
-		{#if hasExplainResult && isExplainStale}
-			<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
-				Changed
-			</Badge>
-		{/if}
+		<span class="text-xs">{m.result_view_explain()}</span>
 	</Button>
 	<Button
 		variant={mode === 'visualize' ? 'default' : 'ghost'}
@@ -63,11 +59,6 @@
 		onclick={() => onModeChange('visualize')}
 	>
 		<NetworkIcon class="size-3" />
-		<span class="text-xs">Visual</span>
-		{#if hasVisualizeResult && isVisualizeStale}
-			<Badge variant="outline" class="h-4 px-1 text-[10px] text-amber-500 border-amber-500/50">
-				Changed
-			</Badge>
-		{/if}
+		<span class="text-xs">{m.result_view_visual()}</span>
 	</Button>
 </div>

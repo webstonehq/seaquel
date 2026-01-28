@@ -3,12 +3,25 @@
 	import { page } from "$app/state";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Badge } from "$lib/components/ui/badge";
-	import { ChevronRightIcon, BookOpenIcon } from "@lucide/svelte";
+	import { ChevronRightIcon, BookOpenIcon, BoxIcon } from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
 	import { LESSONS, LESSON_SECTIONS } from "$lib/tutorial/lessons";
+	import { m } from "$lib/paraglide/messages.js";
 
 	let expandedTutorialSections = new SvelteSet<string>(["basics"]);
+
+	// Auto-expand section containing the active lesson
+	$effect(() => {
+		const match = page.url.pathname.match(/^\/learn\/([^/]+)$/);
+		if (match) {
+			const lessonId = match[1];
+			const section = LESSON_SECTIONS.find(s => s.lessons.includes(lessonId));
+			if (section) {
+				expandedTutorialSections.add(section.id);
+			}
+		}
+	});
 </script>
 
 <!-- Header -->
@@ -16,13 +29,32 @@
 	<Sidebar.Group class="py-2">
 		<div class="flex items-center gap-2 px-3 py-1">
 			<BookOpenIcon class="size-4 text-sidebar-foreground/70" />
-			<span class="text-xs font-medium text-sidebar-foreground/70">SQL Tutorial</span>
+			<span class="text-xs font-medium text-sidebar-foreground/70">{m.learn_sql_tutorial()}</span>
 		</div>
 	</Sidebar.Group>
 </Sidebar.Header>
 
 <!-- Content -->
 <Sidebar.Content>
+	<!-- Sandbox Link -->
+	<Sidebar.Group class="pb-0">
+		<Sidebar.GroupContent>
+			<Sidebar.Menu>
+				<Sidebar.MenuItem>
+					<Sidebar.MenuButton isActive={page.url.pathname === '/learn/sandbox'}>
+						{#snippet child({ props })}
+							<a href="/learn/sandbox" {...props}>
+								<BoxIcon class="size-4" />
+								<span>{m.learn_sandbox()}</span>
+							</a>
+						{/snippet}
+					</Sidebar.MenuButton>
+				</Sidebar.MenuItem>
+			</Sidebar.Menu>
+		</Sidebar.GroupContent>
+	</Sidebar.Group>
+
+	<!-- Lessons -->
 	<Sidebar.Group>
 		<Sidebar.GroupContent>
 			<Sidebar.Menu>
@@ -125,7 +157,7 @@
 <Sidebar.Footer class="p-4">
 	<div class="text-xs text-muted-foreground flex justify-between">
 		<span>
-			{LESSON_SECTIONS.reduce((acc, s) => acc + s.lessons.length, 0)} lessons
+			{m.learn_lessons_count({ count: LESSON_SECTIONS.reduce((acc, s) => acc + s.lessons.length, 0) })}
 		</span>
 	</div>
 </Sidebar.Footer>

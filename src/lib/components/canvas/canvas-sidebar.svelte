@@ -16,6 +16,7 @@
 	} from "@lucide/svelte";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 
@@ -79,12 +80,12 @@
 <div class="w-64 border-r border-border bg-sidebar flex flex-col h-full">
 	<!-- Header -->
 	<div class="p-3 border-b border-border flex items-center justify-between">
-		<span class="font-semibold text-sm">Canvas</span>
+		<span class="font-semibold text-sm">{m.canvas_title()}</span>
 		<div class="flex items-center gap-1">
-			<Button variant="ghost" size="icon" class="size-7" onclick={handleAddQueryNode} title="Add Query Node">
+			<Button variant="ghost" size="icon" class="size-7" onclick={handleAddQueryNode} title={m.canvas_add_query_node()}>
 				<CodeIcon class="size-4" />
 			</Button>
-			<Button variant="ghost" size="icon" class="size-7" onclick={handleSaveCanvas} title="Save Canvas">
+			<Button variant="ghost" size="icon" class="size-7" onclick={handleSaveCanvas} title={m.canvas_save()}>
 				<SaveIcon class="size-4" />
 			</Button>
 		</div>
@@ -98,7 +99,7 @@
 				<CollapsibleTrigger class="flex items-center gap-2 w-full p-2 hover:bg-muted/50 rounded-md">
 					<ChevronRightIcon class="size-4 transition-transform {savedExpanded ? 'rotate-90' : ''}" />
 					<SaveIcon class="size-4 text-muted-foreground" />
-					<span class="text-sm font-medium flex-1 text-left">Saved</span>
+					<span class="text-sm font-medium flex-1 text-left">{m.canvas_saved()}</span>
 					<span class="text-xs text-muted-foreground">{savedCanvases.length}</span>
 				</CollapsibleTrigger>
 				<CollapsibleContent>
@@ -108,7 +109,7 @@
 							onclick={handleNewCanvas}
 						>
 							<PlusIcon class="size-3.5 shrink-0" />
-							<span>New Canvas</span>
+							<span>{m.canvas_new()}</span>
 						</button>
 
 						{#each savedCanvases as canvas}
@@ -137,11 +138,11 @@
 									<ContextMenu.Content>
 										<ContextMenu.Item onclick={() => startRename(canvas.id, canvas.name)}>
 											<PencilIcon class="size-4 mr-2" />
-											Rename
+											{m.canvas_rename()}
 										</ContextMenu.Item>
 										<ContextMenu.Item onclick={() => handleDeleteCanvas(canvas.id)} class="text-destructive">
 											<Trash2Icon class="size-4 mr-2" />
-											Delete
+											{m.canvas_delete()}
 										</ContextMenu.Item>
 									</ContextMenu.Content>
 								</ContextMenu.Root>
@@ -150,7 +151,7 @@
 
 						{#if savedCanvases.length === 0}
 							<div class="p-2 text-xs text-muted-foreground text-center">
-								No saved canvases
+								{m.canvas_no_saved()}
 							</div>
 						{/if}
 					</div>
@@ -162,7 +163,7 @@
 				<CollapsibleTrigger class="flex items-center gap-2 w-full p-2 hover:bg-muted/50 rounded-md">
 					<ChevronRightIcon class="size-4 transition-transform {timelineExpanded ? 'rotate-90' : ''}" />
 					<ClockIcon class="size-4 text-muted-foreground" />
-					<span class="text-sm font-medium flex-1 text-left">Timeline</span>
+					<span class="text-sm font-medium flex-1 text-left">{m.canvas_timeline()}</span>
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<div class="pl-6 space-y-0.5 max-h-48 overflow-auto">
@@ -177,7 +178,7 @@
 
 						{#if db.canvasState.timeline.length === 0}
 							<div class="p-2 text-xs text-muted-foreground text-center">
-								No activity yet
+								{m.canvas_no_activity()}
 							</div>
 						{/if}
 					</div>

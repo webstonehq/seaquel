@@ -16,6 +16,7 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		repo: SharedQueryRepo;
@@ -54,7 +55,7 @@
 
 	async function handleSave() {
 		if (!editName.trim()) {
-			errorToast("Name cannot be empty");
+			errorToast(m.shared_name_empty());
 			return;
 		}
 
@@ -74,11 +75,11 @@
 				await db.sharedRepos.setRemoteUrl(repo.id, editRemoteUrl.trim());
 			}
 
-			toast.success("Repository settings saved");
+			toast.success(m.shared_settings_saved());
 			isExpanded = false;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to save: ${message}`);
+			errorToast(m.shared_save_settings_failed({ message }));
 		} finally {
 			isSaving = false;
 		}
@@ -96,7 +97,7 @@
 			await invoke("open_path", { path: repo.path });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to open folder: ${message}`);
+			errorToast(m.shared_open_folder_failed({ message }));
 		}
 	}
 </script>
@@ -120,7 +121,7 @@
 			size="icon"
 			class="size-7 [&_svg:not([class*='size-'])]:size-3.5"
 			onclick={handleOpenFolder}
-			title="Open in file explorer"
+			title={m.shared_open_folder()}
 		>
 			<FolderOpenIcon />
 		</Button>
@@ -130,7 +131,7 @@
 			size="icon"
 			class="size-7 text-destructive hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
 			onclick={() => onDelete(repo)}
-			title="Remove repository"
+			title={m.shared_remove_repo()}
 		>
 			<Trash2Icon />
 		</Button>
@@ -139,7 +140,7 @@
 	<CollapsibleContent>
 		<div class="px-3 pb-3 pt-1 border-t space-y-3">
 			<div class="space-y-1.5">
-				<Label for="edit-name-{repo.id}" class="text-xs">Name</Label>
+				<Label for="edit-name-{repo.id}" class="text-xs">{m.shared_name()}</Label>
 				<Input
 					id="edit-name-{repo.id}"
 					bind:value={editName}
@@ -149,7 +150,7 @@
 			</div>
 
 			<div class="space-y-1.5">
-				<Label for="edit-remote-{repo.id}" class="text-xs">Remote URL</Label>
+				<Label for="edit-remote-{repo.id}" class="text-xs">{m.shared_remote_url()}</Label>
 				<Input
 					id="edit-remote-{repo.id}"
 					bind:value={editRemoteUrl}
@@ -158,12 +159,12 @@
 					disabled={isSaving}
 				/>
 				{#if !repo.remoteUrl}
-					<p class="text-xs text-muted-foreground">Add a remote to sync with your team</p>
+					<p class="text-xs text-muted-foreground">{m.shared_add_remote_hint()}</p>
 				{/if}
 			</div>
 
 			<div class="space-y-1.5">
-				<Label for="edit-branch-{repo.id}" class="text-xs">Branch</Label>
+				<Label for="edit-branch-{repo.id}" class="text-xs">{m.shared_branch()}</Label>
 				<Input
 					id="edit-branch-{repo.id}"
 					bind:value={editBranch}
@@ -174,7 +175,7 @@
 			</div>
 
 			<div class="space-y-1.5">
-				<Label class="text-xs">Local Path</Label>
+				<Label class="text-xs">{m.shared_local_path()}</Label>
 				<p class="text-xs text-muted-foreground break-all">{repo.path}</p>
 			</div>
 
@@ -187,11 +188,11 @@
 						disabled={isSaving}
 					>
 						<XIcon class="size-3.5 me-1" />
-						Cancel
+						{m.common_cancel()}
 					</Button>
 					<Button size="sm" onclick={handleSave} disabled={isSaving}>
 						<SaveIcon class="size-3.5 me-1" />
-						Save
+						{m.common_save()}
 					</Button>
 				</div>
 			{/if}

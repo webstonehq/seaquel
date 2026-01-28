@@ -45,6 +45,8 @@ export interface CanvasTable {
 	selectedColumns: Set<string>;
 	/** Map of column name to aggregate function applied to it */
 	columnAggregates: Map<string, ColumnAggregate>;
+	/** If set, this table references a CTE instead of schema table */
+	cteId?: string;
 }
 
 /**
@@ -87,6 +89,7 @@ export type FilterOperator =
 	| 'IS NULL'
 	| 'IS NOT NULL'
 	| 'IN'
+	| 'NOT IN'
 	| 'BETWEEN';
 
 /**
@@ -100,10 +103,12 @@ export interface FilterCondition {
 	column: string;
 	/** Comparison operator */
 	operator: FilterOperator;
-	/** Value to compare against */
+	/** Value to compare against (ignored if subqueryId is set) */
 	value: string;
 	/** Logical connector to the next condition */
 	connector: 'AND' | 'OR';
+	/** Optional linked subquery ID for WHERE subqueries */
+	subqueryId?: string;
 }
 
 /**
@@ -212,6 +217,74 @@ export interface HavingCondition {
 }
 
 /**
+ * Subquery role - determines where the subquery appears in the outer query.
+ */
+export type SubqueryRole = 'where' | 'from' | 'select';
+
+/**
+ * Inner query state for a subquery.
+ * Contains all the query elements that can exist within a subquery.
+ */
+export interface SubqueryInnerState {
+	/** Tables within the subquery */
+	tables: CanvasTable[];
+	/** Joins between tables within the subquery */
+	joins: CanvasJoin[];
+	/** WHERE clause conditions for the subquery */
+	filters: FilterCondition[];
+	/** GROUP BY columns for the subquery */
+	groupBy: GroupByCondition[];
+	/** HAVING clause conditions for the subquery */
+	having: HavingCondition[];
+	/** ORDER BY clauses for the subquery */
+	orderBy: SortCondition[];
+	/** LIMIT value for the subquery */
+	limit: number | null;
+	/** Standalone aggregates in the subquery's SELECT clause */
+	selectAggregates: SelectAggregate[];
+	/** Nested subqueries (unlimited depth) */
+	subqueries: CanvasSubquery[];
+}
+
+/**
+ * A subquery placed on the canvas.
+ * Represents a nested query that can appear in WHERE, FROM, or SELECT clauses.
+ */
+export interface CanvasSubquery {
+	/** Unique identifier for this subquery */
+	id: string;
+	/** Position on the canvas */
+	position: { x: number; y: number };
+	/** Size of the subquery container */
+	size: { width: number; height: number };
+	/** Role determines where this subquery appears (WHERE, FROM, SELECT) */
+	role: SubqueryRole;
+	/** For WHERE subqueries: the filter this subquery is linked to */
+	linkedFilterId?: string;
+	/** For FROM/SELECT subqueries: the alias for referencing */
+	alias?: string;
+	/** The inner query state */
+	innerQuery: SubqueryInnerState;
+}
+
+/**
+ * A CTE (Common Table Expression) container on the canvas.
+ * Defines a named subquery in the WITH clause that can be referenced like a table.
+ */
+export interface CanvasCTE {
+	/** Unique identifier for this CTE */
+	id: string;
+	/** CTE name (required, used in WITH clause) */
+	name: string;
+	/** Position on the canvas */
+	position: { x: number; y: number };
+	/** Size of the CTE container */
+	size: { width: number; height: number };
+	/** The inner query state defining the CTE */
+	innerQuery: SubqueryInnerState;
+}
+
+/**
  * Complete query builder state.
  * Captures the full state of the query builder canvas and configuration.
  */
@@ -232,6 +305,10 @@ export interface QueryBuilderSnapshot {
 	limit: number | null;
 	/** Standalone aggregates in SELECT clause */
 	selectAggregates: SelectAggregate[];
+	/** Subqueries on the canvas */
+	subqueries: CanvasSubquery[];
+	/** CTEs (Common Table Expressions) on the canvas */
+	ctes: CanvasCTE[];
 }
 
 /**
@@ -279,4 +356,44 @@ export interface TutorialLesson {
 	introduction: string;
 	/** Challenges within this lesson */
 	challenges: Challenge[];
+}
+
+// ============================================
+// Schema Adapter Types (for Manage section)
+// ============================================
+
+/**
+ * Foreign key reference in unified format.
+ */
+export interface QueryBuilderForeignKey {
+	/** Referenced table name */
+	table: string;
+	/** Referenced column name */
+	column: string;
+}
+
+/**
+ * Column definition in unified format for the query builder.
+ * This interface bridges TutorialColumn and SchemaColumn formats.
+ */
+export interface QueryBuilderColumn {
+	/** Column name */
+	name: string;
+	/** Data type (e.g., 'integer', 'varchar', 'timestamp') */
+	type: string;
+	/** Whether this column is the primary key */
+	primaryKey: boolean;
+	/** Foreign key reference, if this column references another table */
+	foreignKey?: QueryBuilderForeignKey;
+}
+
+/**
+ * Table definition in unified format for the query builder.
+ * This interface bridges TutorialTable and SchemaTable formats.
+ */
+export interface QueryBuilderTable {
+	/** Table name */
+	name: string;
+	/** Column definitions for this table */
+	columns: QueryBuilderColumn[];
 }

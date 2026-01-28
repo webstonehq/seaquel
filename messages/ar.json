@@ -152,6 +152,8 @@
 	"command_export_csv": "تصدير كـ CSV",
 	"command_export_json": "تصدير كـ JSON",
 	"command_copy_results_json": "نسخ النتائج كـ JSON",
+	"command_group_learning": "التعلم",
+	"command_learn_sandbox": "صندوق رمل SQL",
 	"erd_title": "مخطط علاقات الكيانات",
 	"erd_tables_filtered": "{filtered} / {total} جداول",
 	"erd_tables": "{count} جداول",

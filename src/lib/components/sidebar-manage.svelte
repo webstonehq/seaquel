@@ -234,21 +234,21 @@
 											db.statisticsTabs.add();
 										}}>
 											<BarChart3Icon class="size-4 me-2" />
-											Database Statistics
+											{m.sidebar_database_statistics()}
 										</ContextMenu.Item>
 										<ContextMenu.Item onclick={() => {
 											db.connections.setActive(connection.id);
 											db.erdTabs.add();
 										}}>
 											<NetworkIcon class="size-4 me-2" />
-											Entity Relationship Diagram
+											{m.sidebar_erd_diagram()}
 										</ContextMenu.Item>
 										<ContextMenu.Item onclick={() => {
 											db.connections.setActive(connection.id);
 											db.canvasTabs.add();
 										}}>
 											<LayoutGridIcon class="size-4 me-2" />
-											Canvas Workspace
+											{m.sidebar_canvas_workspace()}
 										</ContextMenu.Item>
 									{:else}
 										<ContextMenu.Item onclick={() => handleConnectionClick(connection)}>
@@ -360,18 +360,18 @@
 															{#if db.state.activeView === 'canvas' && db.state.activeCanvasTabId}
 																<DropdownMenu.Item onclick={() => db.canvas.addTableNode(table)}>
 																	<LayoutGridIcon class="size-4 me-2" />
-																	Add to canvas
+																	{m.sidebar_add_to_canvas()}
 																</DropdownMenu.Item>
 															{:else}
 																<Tooltip.Root>
 																	<Tooltip.Trigger class="w-full">
 																		<DropdownMenu.Item disabled class="w-full">
 																			<LayoutGridIcon class="size-4 me-2" />
-																			Add to canvas
+																			{m.sidebar_add_to_canvas()}
 																		</DropdownMenu.Item>
 																	</Tooltip.Trigger>
 																	<Tooltip.Content side="right">
-																		Open a canvas view
+																		{m.sidebar_open_canvas_hint()}
 																	</Tooltip.Content>
 																</Tooltip.Root>
 															{/if}
@@ -418,7 +418,7 @@
 										<Sidebar.MenuButton {...props}>
 											<ChevronRightIcon class={["size-4 transition-transform", sharedExpanded && "rotate-90"]} />
 											<GitBranchIcon class="size-4" />
-											<span class="flex-1">Shared</span>
+											<span class="flex-1">{m.sidebar_shared()}</span>
 											<Badge variant="secondary" class="text-xs">{db.state.activeRepoQueries.length}</Badge>
 										</Sidebar.MenuButton>
 									{/snippet}

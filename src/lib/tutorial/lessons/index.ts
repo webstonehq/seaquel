@@ -10,9 +10,6 @@ export { havingLesson } from './having';
 export { subqueriesLesson } from './subqueries';
 export { cteLesson } from './cte';
 export { windowLesson } from './window';
-export { insertLesson } from './insert';
-export { updateLesson } from './update';
-export { deleteLesson } from './delete';
 
 import type { TutorialLesson } from '$lib/types';
 import { introLesson } from './intro';
@@ -26,9 +23,6 @@ import { havingLesson } from './having';
 import { subqueriesLesson } from './subqueries';
 import { cteLesson } from './cte';
 import { windowLesson } from './window';
-import { insertLesson } from './insert';
-import { updateLesson } from './update';
-import { deleteLesson } from './delete';
 
 export const LESSONS: Record<string, TutorialLesson> = {
 	// SQL Basics
@@ -47,11 +41,6 @@ export const LESSONS: Record<string, TutorialLesson> = {
 	subqueries: subqueriesLesson,
 	cte: cteLesson,
 	window: windowLesson,
-
-	// Data Manipulation
-	insert: insertLesson,
-	update: updateLesson,
-	delete: deleteLesson
 };
 
 export function getLesson(id: string): TutorialLesson | undefined {
@@ -74,7 +63,7 @@ export function getNextLessonId(currentId: string): string | undefined {
  * Lesson sections for organizing the tutorial sidebar and learn page.
  * Each section contains a group of related lessons.
  */
-export const LESSON_SECTIONS = [
+export const LESSON_SECTIONS: readonly { id: string; title: string; lessons: readonly string[] }[] = [
 	{
 		id: 'basics',
 		title: 'SQL Basics',
@@ -89,10 +78,5 @@ export const LESSON_SECTIONS = [
 		id: 'advanced',
 		title: 'Advanced SQL',
 		lessons: ['subqueries', 'cte', 'window']
-	},
-	{
-		id: 'data-manipulation',
-		title: 'Data Manipulation',
-		lessons: ['insert', 'update', 'delete']
 	}
-] as const;
+];

@@ -30,6 +30,7 @@
 	} from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();
 
@@ -117,25 +118,25 @@ import { errorToast } from "$lib/utils/toast";
 
 	const handleCopyToLocal = async (query: SharedQuery) => {
 		if (!db.state.activeConnectionId) {
-			errorToast("Please connect to a database first");
+			errorToast(m.shared_connect_first());
 			return;
 		}
 
 		const id = db.savedQueries.saveQuery(query.name, query.query, undefined, query.parameters);
 		if (id) {
-			toast.success(`Query "${query.name}" saved to local queries`);
+			toast.success(m.shared_saved_to_local({ name: query.name }));
 		} else {
-			errorToast("Failed to save query");
+			errorToast(m.shared_save_failed());
 		}
 	};
 
 	const handleDeleteQuery = async (query: SharedQuery) => {
 		try {
 			await db.sharedQueries.deleteQuery(query.id);
-			toast.success(`Query "${query.name}" deleted`);
+			toast.success(m.shared_query_deleted({ name: query.name }));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			errorToast(`Failed to delete query: ${message}`);
+			errorToast(m.shared_delete_failed({ message }));
 		}
 	};
 
@@ -144,7 +145,7 @@ import { errorToast } from "$lib/utils/toast";
 <div class="py-1">
 	{#if db.state.sharedRepos.length === 0}
 		<div class="py-2 text-center text-muted-foreground">
-			<p class="text-xs mb-2">No shared repositories</p>
+			<p class="text-xs mb-2">{m.shared_no_repos()}</p>
 			<Button
 				variant="outline"
 				size="sm"
@@ -152,7 +153,7 @@ import { errorToast } from "$lib/utils/toast";
 				onclick={() => (showAddRepoDialog = true)}
 			>
 				<PlusIcon class="size-3 me-1" />
-				Add Repository
+				{m.shared_add_repo()}
 			</Button>
 		</div>
 	{:else}
@@ -164,7 +165,7 @@ import { errorToast } from "$lib/utils/toast";
 				onValueChange={(v) => db.sharedRepos.setActiveRepo(v ?? null)}
 			>
 				<Select.Trigger class="h-7 text-xs w-full">
-					{db.state.activeRepo?.name ?? "Select repository"}
+					{db.state.activeRepo?.name ?? m.shared_select_repo()}
 				</Select.Trigger>
 				<Select.Content>
 					{#each db.state.sharedRepos as repo (repo.id)}
@@ -212,7 +213,7 @@ import { errorToast } from "$lib/utils/toast";
 						onclick={() => (showConflictDialog = true)}
 					>
 						<AlertTriangleIcon class="size-3" />
-						{conflictFiles.length} Conflict{conflictFiles.length === 1 ? "" : "s"} - Resolve Now
+						{conflictFiles.length === 1 ? m.shared_conflicts_resolve({ count: 1 }) : m.shared_conflicts_resolve_plural({ count: conflictFiles.length })}
 					</Button>
 				</div>
 			{/if}
@@ -282,7 +283,7 @@ import { errorToast } from "$lib/utils/toast";
 		{/each}
 		{#if folder.children.length === 0 && folder.queries.length === 0}
 			<div class="text-center py-4 text-muted-foreground px-2">
-				<p class="text-xs">No queries in this repository</p>
+				<p class="text-xs">{m.shared_no_queries()}</p>
 			</div>
 		{/if}
 	{/if}
@@ -313,11 +314,11 @@ import { errorToast } from "$lib/utils/toast";
 		<ContextMenu.Content class="w-48">
 			<ContextMenu.Item onclick={() => handleQueryClick(query)}>
 				<PlayIcon class="size-4 me-2" />
-				Open in Tab
+				{m.shared_open_in_tab()}
 			</ContextMenu.Item>
 			<ContextMenu.Item onclick={() => handleCopyToLocal(query)}>
 				<CopyIcon class="size-4 me-2" />
-				Copy to Local Queries
+				{m.shared_copy_to_local()}
 			</ContextMenu.Item>
 			<ContextMenu.Separator />
 			<ContextMenu.Item
@@ -325,7 +326,7 @@ import { errorToast } from "$lib/utils/toast";
 				onclick={() => handleDeleteQuery(query)}
 			>
 				<Trash2Icon class="size-4 me-2" />
-				Delete
+				{m.common_delete()}
 			</ContextMenu.Item>
 		</ContextMenu.Content>
 	</ContextMenu.Root>
