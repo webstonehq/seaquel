@@ -205,9 +205,21 @@
 	// Handle limit input change
 	function handleLimitChange(event: Event) {
 		const target = event.target as HTMLInputElement;
-		const value = parseInt(target.value, 10);
-		if (!isNaN(value) && value > 0) {
+		const value = target.value.trim();
+
+		// Allow template variables like {{limit}}
+		if (/^\{\{.+\}\}$/.test(value)) {
 			qb.setActiveLimit(value);
+			return;
+		}
+
+		// Otherwise parse as number
+		const numValue = parseInt(value, 10);
+		if (!isNaN(numValue) && numValue > 0) {
+			qb.setActiveLimit(numValue);
+		} else if (value === '') {
+			// Allow clearing to reset to default behavior
+			qb.setActiveLimit(100);
 		}
 	}
 
@@ -841,12 +853,12 @@
 					<div class="flex items-center gap-3">
 						<span class="text-xs text-muted-foreground">{m.qb_return_first()}</span>
 						<Input
-							type="number"
+							type="text"
 							value={qb.activeLimit ?? ''}
 							oninput={handleLimitChange}
 							disabled={qb.activeLimit === null}
-							min={1}
-							class="h-7 text-xs w-20"
+							placeholder="100"
+							class="h-7 text-xs w-24 font-mono"
 						/>
 						<span class="text-xs text-muted-foreground">{m.qb_rows()}</span>
 

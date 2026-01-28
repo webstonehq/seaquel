@@ -1396,9 +1396,9 @@ export class QueryBuilderState {
 	}
 
 	/**
-	 * Set the LIMIT in the active context.
+	 * Set the LIMIT in the active context. Can be a number, null, or a {{variable}} string.
 	 */
-	setActiveLimit(limit: number | null): void {
+	setActiveLimit(limit: string | number | null): void {
 		if (this.selectedCte) {
 			this.selectedCte.innerQuery.limit = limit;
 			this.ctes = [...this.ctes];
