@@ -33,6 +33,13 @@ function generateId(): string {
 }
 
 /**
+ * Check if a value is a template variable like {{my_var}}.
+ */
+function isTemplateVariable(value: string): boolean {
+	return /^\{\{.+\}\}$/.test(value.trim());
+}
+
+/**
  * QueryBuilderState manages the state for the interactive SQL query builder.
  * Uses Svelte 5 runes for reactivity.
  */
@@ -2177,12 +2184,21 @@ export class QueryBuilderState {
 				return `${column} BETWEEN ${value}`;
 			case 'LIKE':
 			case 'NOT LIKE':
+				// Template variables pass through unquoted
+				if (isTemplateVariable(value)) {
+					return `${column} ${operator} ${value}`;
+				}
 				return `${column} ${operator} '${value}'`;
-			default:
+			default: {
+				// Template variables pass through unquoted
+				if (isTemplateVariable(value)) {
+					return `${column} ${operator} ${value}`;
+				}
 				// Check if value looks like a number
 				const isNumeric = !isNaN(Number(value)) && value.trim() !== '';
 				const formattedValue = isNumeric ? value : `'${value}'`;
 				return `${column} ${operator} ${formattedValue}`;
+			}
 		}
 	}
 
