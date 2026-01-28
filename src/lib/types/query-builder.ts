@@ -88,6 +88,10 @@ export type FilterOperator =
 	| 'NOT LIKE'
 	| 'IS NULL'
 	| 'IS NOT NULL'
+	| 'IS TRUE'
+	| 'IS FALSE'
+	| 'IS NOT TRUE'
+	| 'IS NOT FALSE'
 	| 'IN'
 	| 'NOT IN'
 	| 'BETWEEN';

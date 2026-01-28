@@ -2158,6 +2158,14 @@ export class QueryBuilderState {
 				return `${column} IS NULL`;
 			case 'IS NOT NULL':
 				return `${column} IS NOT NULL`;
+			case 'IS TRUE':
+				return `${column} IS TRUE`;
+			case 'IS FALSE':
+				return `${column} IS FALSE`;
+			case 'IS NOT TRUE':
+				return `${column} IS NOT TRUE`;
+			case 'IS NOT FALSE':
+				return `${column} IS NOT FALSE`;
 			case 'IN':
 				// Assume value is comma-separated list
 				return `${column} IN (${value})`;
@@ -2189,6 +2197,24 @@ export class QueryBuilderState {
 	}
 
 	// === APPLY FROM PARSED SQL ===
+
+	/**
+	 * Expand selectedColumns, converting '*' to all column names from the schema.
+	 * @param tableName - The name of the table to look up in the schema
+	 * @param selectedColumns - The columns from parsed SQL (may contain '*')
+	 * @returns Expanded column names, or original if no '*' or table not found
+	 */
+	private expandSelectedColumns(tableName: string, selectedColumns: string[]): string[] {
+		// Check if selectedColumns contains '*' (SELECT * or table.*)
+		if (selectedColumns.includes('*')) {
+			const schemaTable = this.schema.find((t) => t.name === tableName);
+			if (schemaTable) {
+				// Return all column names from the schema
+				return schemaTable.columns.map((c) => c.name);
+			}
+		}
+		return selectedColumns;
+	}
 
 	/**
 	 * Type for parsed subquery inner query (recursive).
@@ -2283,7 +2309,7 @@ export class QueryBuilderState {
 					id: generateId(),
 					tableName: pt.tableName,
 					position: { x: 20 + j * 240, y: 50 },
-					selectedColumns: new SvelteSet(pt.selectedColumns),
+					selectedColumns: new SvelteSet(this.expandSelectedColumns(pt.tableName, pt.selectedColumns)),
 					columnAggregates: columnAggsForTable,
 					cteId // Will be undefined for regular tables, set for CTE references
 				});
@@ -2519,7 +2545,7 @@ export class QueryBuilderState {
 					id: generateId(),
 					tableName: pt.tableName,
 					position: { x: 20 + idx * 240, y: 50 },
-					selectedColumns: new SvelteSet(pt.selectedColumns),
+					selectedColumns: new SvelteSet(this.expandSelectedColumns(pt.tableName, pt.selectedColumns)),
 					columnAggregates: new Map(
 						(pc.innerQuery.columnAggregates || [])
 							.filter((ca) => ca.tableName === pt.tableName)
@@ -2631,7 +2657,7 @@ export class QueryBuilderState {
 				id: existing?.id ?? generateId(),
 				tableName: pt.tableName,
 				position,
-				selectedColumns: new SvelteSet(pt.selectedColumns),
+				selectedColumns: new SvelteSet(this.expandSelectedColumns(pt.tableName, pt.selectedColumns)),
 				columnAggregates: columnAggsForTable,
 				cteId // Will be undefined for regular tables, set for CTE references
 			});

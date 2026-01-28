@@ -56,7 +56,11 @@
 		{ value: 'IN', label: () => m.qb_op_in() },
 		{ value: 'NOT IN', label: () => m.qb_op_not_in() },
 		{ value: 'IS NULL', label: () => m.qb_op_is_null() },
-		{ value: 'IS NOT NULL', label: () => m.qb_op_is_not_null() }
+		{ value: 'IS NOT NULL', label: () => m.qb_op_is_not_null() },
+		{ value: 'IS TRUE', label: () => m.qb_op_is_true() },
+		{ value: 'IS FALSE', label: () => m.qb_op_is_false() },
+		{ value: 'IS NOT TRUE', label: () => m.qb_op_is_not_true() },
+		{ value: 'IS NOT FALSE', label: () => m.qb_op_is_not_false() }
 	];
 
 	// Helper to get operator label
@@ -98,7 +102,7 @@
 
 	// Helper to check if operator needs a value input
 	function operatorNeedsValue(operator: FilterOperator): boolean {
-		return operator !== 'IS NULL' && operator !== 'IS NOT NULL';
+		return !['IS NULL', 'IS NOT NULL', 'IS TRUE', 'IS FALSE', 'IS NOT TRUE', 'IS NOT FALSE'].includes(operator);
 	}
 
 	// Helper to check if filter is using a subquery
