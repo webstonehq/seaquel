@@ -7,6 +7,7 @@ import type { QueryType } from '../db/query-utils';
 import type { ConnectionLabel } from './project';
 import type { ExplainResult } from './explain';
 import type { ParsedQueryVisual } from './visualize';
+import type { DatabaseType } from './database';
 
 /**
  * Supported data types for query parameters.
@@ -206,4 +207,15 @@ export interface AIMessage {
 	timestamp: Date;
 	/** SQL query suggested or discussed, if any */
 	query?: string;
+}
+
+/**
+ * Interface for query execution backends.
+ * Allows the query editor to work with different database backends.
+ */
+export interface QueryExecutor {
+	/** Execute a SQL query and return rows */
+	execute(sql: string): Promise<Record<string, unknown>[]>;
+	/** Database type for parameter substitution style (defaults to inline) */
+	dbType?: DatabaseType;
 }

@@ -33,7 +33,8 @@ export type {
 	QueryTab,
 	QueryHistoryItem,
 	SavedQuery,
-	AIMessage
+	AIMessage,
+	QueryExecutor
 } from './query';
 
 // EXPLAIN types
