@@ -1,17 +1,13 @@
 <script lang="ts">
 	import { SvelteFlowProvider } from '@xyflow/svelte';
 	import * as Resizable from '$lib/components/ui/resizable';
-	import { Button } from '$lib/components/ui/button';
-	import { CopyIcon } from '@lucide/svelte';
-	import { toast } from 'svelte-sonner';
 	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte';
-	import { executeQuery } from '$lib/tutorial/database';
-	import VirtualResultsTable from '$lib/components/virtual-results-table.svelte';
+	import { executeQuery, getTutorialSchema } from '$lib/tutorial/database';
 	import QueryBuilderCanvas from './canvas.svelte';
 	import FilterPanel from './filter-panel.svelte';
-	import SqlEditor from './sql-editor.svelte';
 	import DndProvider from './dnd-provider.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import StandaloneQueryEditor from '$lib/components/standalone-query-editor.svelte';
+	import type { QueryExecutor } from '$lib/types';
 
 	interface Props {
 		/** Content for the left sidebar (e.g., table palette, challenge card) */
@@ -22,66 +18,42 @@
 
 	const qb = useQueryBuilder();
 
-	// Query execution state
-	let isExecuting = $state(false);
-	let queryResults = $state<Record<string, unknown>[] | null>(null);
-	let queryError = $state<string | null>(null);
-	let executionTime = $state<number | null>(null);
+	// Create tutorial executor
+	const tutorialExecutor: QueryExecutor = {
+		execute: executeQuery,
+		dbType: 'duckdb'
+	};
 
-	// Derived columns from results
-	const resultColumns = $derived(
-		queryResults && queryResults.length > 0 ? Object.keys(queryResults[0]) : []
-	);
+	// Get schema for Monaco autocomplete
+	const tutorialSchema = getTutorialSchema();
 
-	// The SQL to execute - use custom SQL if user has typed something, otherwise use generated SQL
-	const activeSql = $derived(qb.customSql ?? qb.generatedSql);
+	// The SQL value - use custom SQL if user has typed something, otherwise use generated SQL
+	const sqlValue = $derived(qb.customSql ?? qb.generatedSql);
 
-	// Can run query if there's SQL and not currently executing
-	const canRunQuery = $derived(activeSql.trim().length > 0 && !isExecuting);
+	// Handle SQL changes from the editor
+	function handleSqlChange(sql: string) {
+		qb.customSql = sql;
+	}
+
+	// Reference to the editor for external control
+	let editorRef: { reset: () => void; executeQuery: () => void; getState: () => { isExecuting: boolean; queryResults: Record<string, unknown>[] | null; queryError: string | null; executionTime: number | null; canRunQuery: boolean } } | undefined;
 
 	export function reset() {
-		queryResults = null;
-		queryError = null;
-		executionTime = null;
+		editorRef?.reset();
 	}
 
 	export async function runQuery() {
-		if (!canRunQuery) return;
-
-		isExecuting = true;
-		queryError = null;
-		const startTime = performance.now();
-
-		try {
-			queryResults = await executeQuery(activeSql);
-			executionTime = performance.now() - startTime;
-		} catch (err) {
-			queryError = err instanceof Error ? err.message : String(err);
-			queryResults = null;
-			executionTime = null;
-		} finally {
-			isExecuting = false;
-		}
+		editorRef?.executeQuery();
 	}
 
 	export function getState() {
-		return {
-			isExecuting,
-			queryResults,
-			queryError,
-			executionTime,
-			canRunQuery
+		return editorRef?.getState() ?? {
+			isExecuting: false,
+			queryResults: null,
+			queryError: null,
+			executionTime: null,
+			canRunQuery: false
 		};
-	}
-
-	async function copyError() {
-		if (!queryError) return;
-		try {
-			await navigator.clipboard.writeText(queryError);
-			toast.success(m.workspace_error_copied());
-		} catch {
-			toast.error(m.workspace_copy_error_failed());
-		}
 	}
 </script>
 
@@ -93,11 +65,11 @@
 				{@render leftPanel()}
 			{/if}
 
-			<!-- Canvas + SQL editor + Results -->
+			<!-- Canvas + Filter panel | SQL editor + Results -->
 			<Resizable.PaneGroup direction="horizontal" class="flex-1">
-				<Resizable.Pane defaultSize={60} minSize={30}>
+				<Resizable.Pane defaultSize={55} minSize={30}>
 					<Resizable.PaneGroup direction="vertical">
-						<Resizable.Pane defaultSize={40} minSize={15}>
+						<Resizable.Pane defaultSize={55} minSize={15}>
 							<!-- Canvas -->
 							<div class="h-full">
 								<QueryBuilderCanvas />
@@ -106,60 +78,10 @@
 
 						<Resizable.Handle withHandle />
 
-						<Resizable.Pane defaultSize={35} minSize={10}>
+						<Resizable.Pane defaultSize={45} minSize={10}>
 							<!-- Filter panel -->
 							<div class="h-full">
 								<FilterPanel />
-							</div>
-						</Resizable.Pane>
-
-						<Resizable.Handle withHandle />
-
-						<Resizable.Pane defaultSize={25} minSize={10}>
-							<!-- Results panel -->
-							<div class="flex flex-col h-full border-t">
-								<div class="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
-									<span class="font-medium text-sm">{m.workspace_results()}</span>
-									{#if queryResults !== null}
-										<span class="text-xs text-muted-foreground">
-											{queryResults.length === 1 ? m.workspace_row_count({ count: 1 }) : m.workspace_rows_count({ count: queryResults.length })}
-											{#if executionTime !== null}
-												· {executionTime.toFixed(0)}ms
-											{/if}
-										</span>
-									{/if}
-								</div>
-								<div class="flex-1 min-h-0 overflow-auto">
-									{#if queryError}
-										<div class="p-4 text-sm text-destructive bg-destructive/10">
-											<div class="flex items-start justify-between gap-2">
-												<div>
-													<p class="font-medium">{m.workspace_error()}</p>
-													<p class="font-mono text-xs mt-1">{queryError}</p>
-												</div>
-												<Button
-													variant="ghost"
-													size="icon"
-													class="shrink-0 size-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-													aria-label="Copy error"
-													onclick={copyError}
-												>
-													<CopyIcon class="size-4" />
-												</Button>
-											</div>
-										</div>
-									{:else if queryResults !== null && queryResults.length > 0}
-										<VirtualResultsTable columns={resultColumns} rows={queryResults} compact />
-									{:else if queryResults !== null}
-										<div class="p-4 text-sm text-muted-foreground text-center">
-											{m.workspace_no_rows()}
-										</div>
-									{:else}
-										<div class="p-4 text-sm text-muted-foreground text-center">
-											{m.workspace_run_query_hint()}
-										</div>
-									{/if}
-								</div>
 							</div>
 						</Resizable.Pane>
 					</Resizable.PaneGroup>
@@ -167,8 +89,17 @@
 
 				<Resizable.Handle withHandle />
 
-				<Resizable.Pane defaultSize={40} minSize={20}>
-					<SqlEditor />
+				<Resizable.Pane defaultSize={45} minSize={20}>
+					<!-- SQL Editor + Results (unified component) -->
+					<div class="h-full border-l">
+						<StandaloneQueryEditor
+							bind:this={editorRef}
+							executor={tutorialExecutor}
+							value={sqlValue}
+							onSqlChange={handleSqlChange}
+							schema={tutorialSchema}
+						/>
+					</div>
 				</Resizable.Pane>
 			</Resizable.PaneGroup>
 		</div>
