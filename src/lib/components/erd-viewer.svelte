@@ -10,7 +10,7 @@ import { errorToast } from "$lib/utils/toast";
   import { writeFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
   import { tempDir } from "@tauri-apps/api/path";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { invoke } from "@tauri-apps/api/core";
+  import { copyImageToClipboard } from "$lib/api/tauri";
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -183,7 +183,7 @@ import { errorToast } from "$lib/utils/toast";
       const filePath = `${tempPath}erd-clipboard-${Date.now()}.png`;
       await writeFile(filePath, bytes);
 
-      await invoke('copy_image_to_clipboard', { path: filePath });
+      await copyImageToClipboard(filePath);
 
       // Clean up temp file
       await remove(filePath).catch(() => {});

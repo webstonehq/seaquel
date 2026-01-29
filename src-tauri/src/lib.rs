@@ -15,6 +15,20 @@ use duckdb_commands::DuckDBState;
 use mssql::MssqlConnectionManager;
 use ssh_tunnel::TunnelManager;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct CommandError {
+    message: String,
+    code: String,
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for CommandError {}
+
 struct PendingUpdate {
     bytes: Mutex<Option<Vec<u8>>>,
 }
@@ -26,8 +40,11 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn read_dbeaver_config() -> Result<Option<String>, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+fn read_dbeaver_config() -> Result<Option<String>, CommandError> {
+    let home = dirs::home_dir().ok_or(CommandError {
+        message: "Could not find home directory".to_string(),
+        code: "HOME_DIR_ERROR".to_string(),
+    })?;
 
     #[cfg(target_os = "macos")]
     let config_path = home.join("Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
@@ -40,7 +57,10 @@ fn read_dbeaver_config() -> Result<Option<String>, String> {
 
     if config_path.exists() {
         let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read DBeaver config: {}", e))?;
+            .map_err(|e| CommandError {
+                message: format!("Failed to read DBeaver config: {}", e),
+                code: "READ_ERROR".to_string(),
+            })?;
         Ok(Some(content))
     } else {
         Ok(None)
@@ -48,11 +68,17 @@ fn read_dbeaver_config() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn copy_image_to_clipboard(path: String) -> Result<(), String> {
+fn copy_image_to_clipboard(path: String) -> Result<(), CommandError> {
     let img = ImageReader::open(&path)
-        .map_err(|e| format!("Failed to open image: {}", e))?
+        .map_err(|e| CommandError {
+            message: format!("Failed to open image: {}", e),
+            code: "IMAGE_ERROR".to_string(),
+        })?
         .decode()
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
+        .map_err(|e| CommandError {
+            message: format!("Failed to decode image: {}", e),
+            code: "IMAGE_ERROR".to_string(),
+        })?;
 
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
@@ -64,33 +90,48 @@ fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     };
 
     let mut clipboard = Clipboard::new()
-        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        .map_err(|e| CommandError {
+            message: format!("Failed to access clipboard: {}", e),
+            code: "CLIPBOARD_ERROR".to_string(),
+        })?;
 
     clipboard.set_image(img_data)
-        .map_err(|e| format!("Failed to copy image: {}", e))?;
+        .map_err(|e| CommandError {
+            message: format!("Failed to copy image: {}", e),
+            code: "CLIPBOARD_ERROR".to_string(),
+        })?;
 
     Ok(())
 }
 
 #[tauri::command]
-fn open_path(path: String) -> Result<(), String> {
-    opener::open(&path).map_err(|e| e.to_string())
+fn open_path(path: String) -> Result<(), CommandError> {
+    opener::open(&path).map_err(|e| CommandError {
+        message: format!("Failed to open path: {}", e),
+        code: "OPEN_ERROR".to_string(),
+    })
 }
 
 #[tauri::command]
-fn get_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+fn get_data_dir(app: tauri::AppHandle) -> Result<String, CommandError> {
     if let Ok(custom_dir) = std::env::var("SEAQUEL_DATA_DIR") {
         let path = std::path::PathBuf::from(&custom_dir);
         if !path.exists() {
             std::fs::create_dir_all(&path)
-                .map_err(|e| format!("Failed to create data dir: {}", e))?;
+                .map_err(|e| CommandError {
+                    message: format!("Failed to create data dir: {}", e),
+                    code: "DIR_ERROR".to_string(),
+                })?;
         }
         Ok(custom_dir)
     } else {
         app.path()
             .app_data_dir()
             .map(|p| p.to_string_lossy().to_string())
-            .map_err(|e| e.to_string())
+            .map_err(|e| CommandError {
+                message: format!("Failed to get app data dir: {}", e),
+                code: "DIR_ERROR".to_string(),
+            })
     }
 }
 
@@ -98,12 +139,24 @@ fn get_data_dir(app: tauri::AppHandle) -> Result<String, String> {
 async fn install_update(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
-) -> Result<(), String> {
-    let bytes = pending.bytes.lock().unwrap().take();
+) -> Result<(), CommandError> {
+    let bytes = pending.bytes.lock().map_err(|e| CommandError {
+        message: format!("Failed to lock update state: {}", e),
+        code: "LOCK_ERROR".to_string(),
+    })?.take();
     if let Some(bytes) = bytes {
         // Re-check for update to get the Update object needed for install
-        if let Some(update) = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())? {
-            update.install(&bytes).map_err(|e| e.to_string())?;
+        if let Some(update) = app.updater().map_err(|e| CommandError {
+            message: format!("Failed to get updater: {}", e),
+            code: "UPDATE_ERROR".to_string(),
+        })?.check().await.map_err(|e| CommandError {
+            message: format!("Failed to check for update: {}", e),
+            code: "UPDATE_ERROR".to_string(),
+        })? {
+            update.install(&bytes).map_err(|e| CommandError {
+                message: format!("Failed to install update: {}", e),
+                code: "UPDATE_ERROR".to_string(),
+            })?;
             app.restart();
         }
     }
@@ -296,7 +349,7 @@ async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result
 
         // Store the bytes for later installation
         let pending = app.state::<PendingUpdate>();
-        *pending.bytes.lock().unwrap() = Some(bytes);
+        *pending.bytes.lock().expect("Failed to lock pending update bytes") = Some(bytes);
 
         let _ = app.emit("update-downloaded", version);
     }

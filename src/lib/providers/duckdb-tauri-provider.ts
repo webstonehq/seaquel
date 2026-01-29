@@ -3,21 +3,17 @@
  * Uses custom Rust backend with DuckDB crate.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import {
+	duckdbConnect,
+	duckdbDisconnect,
+	duckdbQuery,
+	duckdbExecute,
+	duckdbTest,
+	type DuckDBConnectResult,
+	type DuckDBQueryResult,
+	type DuckDBExecuteResult
+} from '$lib/api/tauri';
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from './types';
-
-interface DuckDBConnectResult {
-	connection_id: string;
-}
-
-interface DuckDBQueryResult {
-	columns: string[];
-	rows: unknown[][];
-}
-
-interface DuckDBExecuteResultRust {
-	rows_affected: number;
-}
 
 /**
  * DuckDB provider implementation for Tauri (desktop).
@@ -47,7 +43,7 @@ export class DuckDBTauriProvider implements DatabaseProvider {
 				.replace(/^duckdb:/, '') || ':memory:';
 		}
 
-		const result = await invoke<DuckDBConnectResult>('duckdb_connect', { path });
+		const result = await duckdbConnect(path);
 		return result.connection_id;
 	}
 
@@ -55,7 +51,7 @@ export class DuckDBTauriProvider implements DatabaseProvider {
 	 * Disconnect from a DuckDB database.
 	 */
 	async disconnect(connectionId: string): Promise<void> {
-		await invoke('duckdb_disconnect', { connectionId });
+		await duckdbDisconnect(connectionId);
 	}
 
 	/**
@@ -66,10 +62,7 @@ export class DuckDBTauriProvider implements DatabaseProvider {
 		sql: string,
 		_params?: unknown[]
 	): Promise<T[]> {
-		const result = await invoke<DuckDBQueryResult>('duckdb_query', {
-			connectionId,
-			sql,
-		});
+		const result = await duckdbQuery(connectionId, sql);
 
 		// Convert array rows to objects using column names
 		return result.rows.map((row) => {
@@ -89,10 +82,7 @@ export class DuckDBTauriProvider implements DatabaseProvider {
 		sql: string,
 		_params?: unknown[]
 	): Promise<ExecuteResult> {
-		const result = await invoke<DuckDBExecuteResultRust>('duckdb_execute', {
-			connectionId,
-			sql,
-		});
+		const result = await duckdbExecute(connectionId, sql);
 
 		return {
 			rowsAffected: result.rows_affected,
@@ -111,6 +101,6 @@ export class DuckDBTauriProvider implements DatabaseProvider {
 				.replace(/^duckdb:/, '') || ':memory:';
 		}
 
-		await invoke('duckdb_test', { path });
+		await duckdbTest(path);
 	}
 }

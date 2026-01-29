@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { readDbeaverConfig } from "$lib/api/tauri";
 import type { DatabaseType } from "$lib/types";
 import type {
 	DbeaverDataSources,
@@ -38,7 +38,7 @@ const DEFAULT_PORTS: Record<DatabaseType, number> = {
  */
 export async function parseDbeaverConnections(): Promise<DbeaverConnection[]> {
 	try {
-		const content = await invoke<string | null>("read_dbeaver_config");
+		const content = await readDbeaverConfig();
 
 		if (!content) {
 			return [];

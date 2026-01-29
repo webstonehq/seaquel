@@ -5,7 +5,7 @@
 
 import { load as tauriLoad } from '@tauri-apps/plugin-store';
 import { remove } from '@tauri-apps/plugin-fs';
-import { invoke } from '@tauri-apps/api/core';
+import { getDataDir } from '$lib/api/tauri';
 import type { StorageProvider, Store, StoreLoadOptions } from './types';
 
 /**
@@ -58,7 +58,7 @@ export class TauriStorageProvider implements StorageProvider {
 	}
 
 	async load(name: string, options?: StoreLoadOptions): Promise<Store> {
-		const dataDir = await invoke<string>('get_data_dir');
+		const dataDir = await getDataDir();
 		const fullPath = `${dataDir}/${name}`;
 		const store = await tauriLoad(fullPath, {
 			autoSave: options?.autoSave ?? true,
