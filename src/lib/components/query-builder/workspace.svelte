@@ -12,9 +12,11 @@
 	interface Props {
 		/** Content for the left sidebar (e.g., table palette, challenge card) */
 		leftPanel?: import('svelte').Snippet;
+		/** Callback when executing state changes */
+		onExecutingChange?: (isExecuting: boolean) => void;
 	}
 
-	let { leftPanel }: Props = $props();
+	let { leftPanel, onExecutingChange }: Props = $props();
 
 	const qb = useQueryBuilder();
 
@@ -38,6 +40,10 @@
 	// Reference to the editor for external control
 	let editorRef: { reset: () => void; executeQuery: () => void; getState: () => { isExecuting: boolean; queryResults: Record<string, unknown>[] | null; queryError: string | null; executionTime: number | null; canRunQuery: boolean } } | undefined;
 
+	// Reactive state for external consumers
+	let isExecutingState = $state(false);
+	const canRunQueryState = $derived(sqlValue.trim().length > 0 && !isExecutingState);
+
 	export function reset() {
 		editorRef?.reset();
 	}
@@ -46,13 +52,15 @@
 		editorRef?.executeQuery();
 	}
 
+	function setExecuting(value: boolean) {
+		isExecutingState = value;
+		onExecutingChange?.(value);
+	}
+
 	export function getState() {
-		return editorRef?.getState() ?? {
-			isExecuting: false,
-			queryResults: null,
-			queryError: null,
-			executionTime: null,
-			canRunQuery: false
+		return {
+			canRunQuery: canRunQueryState,
+			isExecuting: isExecutingState
 		};
 	}
 </script>
@@ -97,6 +105,7 @@
 							executor={tutorialExecutor}
 							value={sqlValue}
 							onSqlChange={handleSqlChange}
+							onExecutingChange={setExecuting}
 							schema={tutorialSchema}
 							enableVisualSync
 						/>

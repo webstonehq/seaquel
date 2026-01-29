@@ -10,7 +10,9 @@
 	const qb = setQueryBuilder(new QueryBuilderState());
 
 	let workspace = $state<ReturnType<typeof QueryBuilderWorkspace> | undefined>();
-	const workspaceState = $derived(workspace?.getState?.() ?? { canRunQuery: false, isExecuting: false });
+	let isExecuting = $state(false);
+	const sqlValue = $derived(qb.customSql ?? qb.generatedSql);
+	const canRunQuery = $derived(sqlValue.trim().length > 0 && !isExecuting);
 
 	function handleReset() {
 		qb.reset();
@@ -19,6 +21,10 @@
 
 	function handleRunQuery() {
 		workspace?.runQuery?.();
+	}
+
+	function handleExecutingChange(value: boolean) {
+		isExecuting = value;
 	}
 </script>
 
@@ -36,8 +42,8 @@
 				<RotateCcwIcon class="size-4 mr-2" />
 				Reset
 			</Button>
-			<Button size="sm" disabled={!workspaceState.canRunQuery} onclick={handleRunQuery}>
-				{#if workspaceState.isExecuting}
+			<Button size="sm" disabled={!canRunQuery} onclick={handleRunQuery}>
+				{#if isExecuting}
 					<Loader2Icon class="size-4 mr-2 animate-spin" />
 					Running...
 				{:else}
@@ -49,7 +55,7 @@
 	</div>
 
 	<!-- Main content -->
-	<QueryBuilderWorkspace bind:this={workspace}>
+	<QueryBuilderWorkspace bind:this={workspace} onExecutingChange={handleExecutingChange}>
 		{#snippet leftPanel()}
 			<div class="w-56 shrink-0 border-r flex flex-col">
 				<TablePalette />

@@ -78,9 +78,13 @@
     let workspace = $state<
         ReturnType<typeof QueryBuilderWorkspace> | undefined
     >();
-    const workspaceState = $derived(
-        workspace?.getState?.() ?? { canRunQuery: false, isExecuting: false },
-    );
+    let isExecuting = $state(false);
+    const sqlValue = $derived(qb.customSql ?? qb.generatedSql);
+    const canRunQuery = $derived(sqlValue.trim().length > 0 && !isExecuting);
+
+    function handleExecutingChange(value: boolean) {
+        isExecuting = value;
+    }
 
     /**
      * Load saved state for a challenge, or reset if none exists
@@ -202,10 +206,10 @@
                 </Button>
                 <Button
                     size="sm"
-                    disabled={!workspaceState.canRunQuery}
+                    disabled={!canRunQuery}
                     onclick={handleRunQuery}
                 >
-                    {#if workspaceState.isExecuting}
+                    {#if isExecuting}
                         <Loader2Icon class="size-4 mr-2 animate-spin" />
                         Running...
                     {:else}
@@ -217,7 +221,7 @@
         </div>
 
         <!-- Main content -->
-        <QueryBuilderWorkspace bind:this={workspace}>
+        <QueryBuilderWorkspace bind:this={workspace} onExecutingChange={handleExecutingChange}>
             {#snippet leftPanel()}
                 <div class="w-64 border-r h-full">
                     <ResizablePaneGroup direction="vertical" class="h-full">

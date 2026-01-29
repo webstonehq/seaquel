@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { PlayIcon, CopyIcon } from '@lucide/svelte';
+	import { CopyIcon } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import MonacoEditor from '$lib/components/monaco-editor.svelte';
 	import VirtualResultsTable from '$lib/components/virtual-results-table.svelte';
@@ -24,13 +24,15 @@
 		value?: string;
 		/** Callback when SQL changes */
 		onSqlChange?: (sql: string) => void;
+		/** Callback when executing state changes */
+		onExecutingChange?: (isExecuting: boolean) => void;
 		/** Schema for Monaco autocomplete */
 		schema?: SchemaTable[];
 		/** Enable two-way sync with visual query builder */
 		enableVisualSync?: boolean;
 	}
 
-	let { executor, value = '', onSqlChange, schema, enableVisualSync = false }: Props = $props();
+	let { executor, value = '', onSqlChange, onExecutingChange, schema, enableVisualSync = false }: Props = $props();
 
 	// Get query builder for two-way sync (only if enabled)
 	const qb = enableVisualSync ? useQueryBuilder() : null;
@@ -99,6 +101,7 @@
 
 	async function runQuery(sql: string) {
 		isExecuting = true;
+		onExecutingChange?.(true);
 		queryError = null;
 		const startTime = performance.now();
 
@@ -111,6 +114,7 @@
 			executionTime = null;
 		} finally {
 			isExecuting = false;
+			onExecutingChange?.(false);
 		}
 	}
 
@@ -172,16 +176,6 @@
 						>
 							<CopyIcon class="size-3.5" />
 							Copy
-						</Button>
-						<Button
-							variant="default"
-							size="sm"
-							class="h-7 gap-1.5 px-3 text-xs"
-							onclick={handleExecute}
-							disabled={!canRunQuery}
-						>
-							<PlayIcon class="size-3.5" />
-							{isExecuting ? 'Running...' : 'Run'}
 						</Button>
 					</div>
 				</div>
