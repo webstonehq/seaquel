@@ -6,7 +6,7 @@ import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelt
 import { getAdapter, type ExplainNode } from '$lib/db';
 import { getStatementAtOffset } from '$lib/db/sql-parser';
 import { substituteParameters } from '$lib/db/query-params';
-import { getProvider, getDuckDBProvider, type DatabaseProvider } from '$lib/providers';
+import type { ProviderRegistry } from '$lib/providers';
 
 /**
  * Callback for setting explain result on a query tab.
@@ -40,7 +40,8 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 		state: DatabaseState,
 		tabOrdering: TabOrderingManager,
 		schedulePersistence: (projectId: string | null) => void,
-		setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd') => void
+		setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd') => void,
+		private providers: ProviderRegistry
 	) {
 		super(state, tabOrdering, schedulePersistence);
 		this.setActiveView = setActiveView;
@@ -64,17 +65,6 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 	): void {
 		this.setExplainResult = setResult;
 		this.setExplainExecuting = setExecuting;
-	}
-
-	/**
-	 * Get the appropriate provider based on connection type.
-	 */
-	private async getProviderForConnection(): Promise<DatabaseProvider> {
-		const connection = this.state.activeConnection;
-		if (connection?.type === 'duckdb') {
-			return getDuckDBProvider();
-		}
-		return getProvider();
 	}
 
 	/**
@@ -118,7 +108,7 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 				throw new Error('No connection established');
 			}
 
-			const provider = await this.getProviderForConnection();
+			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			let actualRowCount: number | undefined;
@@ -211,7 +201,7 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 				throw new Error('No connection established');
 			}
 
-			const provider = await this.getProviderForConnection();
+			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			let actualRowCount: number | undefined;
@@ -346,7 +336,7 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 				throw new Error('No connection established');
 			}
 
-			const provider = await this.getProviderForConnection();
+			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
@@ -459,7 +449,7 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 				throw new Error('No connection established');
 			}
 
-			const provider = await this.getProviderForConnection();
+			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
 			// For SQLite with analyze=true, we need to actually execute the query
 			// to get real row counts and timing

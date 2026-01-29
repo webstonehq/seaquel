@@ -91,10 +91,13 @@ class UseDatabase {
     // UI
     this.ui = new UIStateManager(this.state, scheduleProjectPersistence);
 
+    // Shared provider registry (used by connections, query execution, schema tabs, explain tabs)
+    const providers = new ProviderRegistry();
+
     // Tab managers
     this.queryTabs = new QueryTabManager(this.state, this.tabs, scheduleProjectPersistence);
-    this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence);
-    this.explainTabs = new ExplainTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
+    this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence, providers);
+    this.explainTabs = new ExplainTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView, providers);
     this.erdTabs = new ErdTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
     this.statisticsTabs = new StatisticsTabManager(
       this.state,
@@ -121,9 +124,6 @@ class UseDatabase {
         return await this.queries.executeRaw(query);
       }
     );
-
-    // Shared provider registry (used by connections and query execution)
-    const providers = new ProviderRegistry();
 
     // Query-related
     this.history = new QueryHistoryManager(
