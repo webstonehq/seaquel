@@ -24,6 +24,7 @@ import { CanvasState } from "./database/canvas-state.svelte.js";
 import { CanvasManager } from "./database/canvas-manager.svelte.js";
 import { SharedRepoManager } from "./database/shared-repo-manager.svelte.js";
 import { SharedQueryManager } from "./database/shared-query-manager.svelte.js";
+import { ProviderRegistry } from "$lib/providers";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -136,11 +137,13 @@ class UseDatabase {
     this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
 
     // Connections (depends on other managers)
+    const providers = new ProviderRegistry();
     this.connections = new ConnectionManager(
       this.state,
       this.persistence,
       this._stateRestoration,
       this.tabs,
+      providers,
       (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, providerConnectionId?: string, mssqlConnectionId?: string) => {
         this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, providerConnectionId, mssqlConnectionId);
       },
