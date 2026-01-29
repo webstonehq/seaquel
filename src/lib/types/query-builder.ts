@@ -243,7 +243,7 @@ export interface SubqueryInnerState {
 	/** ORDER BY clauses for the subquery */
 	orderBy: SortCondition[];
 	/** LIMIT value for the subquery */
-	limit: number | null;
+	limit: string | number | null;
 	/** Standalone aggregates in the subquery's SELECT clause */
 	selectAggregates: SelectAggregate[];
 	/** Nested subqueries (unlimited depth) */
@@ -306,7 +306,7 @@ export interface QueryBuilderSnapshot {
 	/** ORDER BY clauses */
 	orderBy: SortCondition[];
 	/** LIMIT value, or null for no limit */
-	limit: number | null;
+	limit: string | number | null;
 	/** Standalone aggregates in SELECT clause */
 	selectAggregates: SelectAggregate[];
 	/** Subqueries on the canvas */

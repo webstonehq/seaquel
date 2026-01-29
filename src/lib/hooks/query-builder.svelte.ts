@@ -33,6 +33,13 @@ function generateId(): string {
 }
 
 /**
+ * Check if a value is a template variable like {{my_var}}.
+ */
+function isTemplateVariable(value: string): boolean {
+	return /^\{\{.+\}\}$/.test(value.trim());
+}
+
+/**
  * QueryBuilderState manages the state for the interactive SQL query builder.
  * Uses Svelte 5 runes for reactivity.
  */
@@ -60,8 +67,8 @@ export class QueryBuilderState {
 	/** ORDER BY clauses */
 	orderBy = $state<SortCondition[]>([]);
 
-	/** LIMIT value, or null for no limit */
-	limit = $state<number | null>(100);
+	/** LIMIT value, or null for no limit. Can be a {{variable}} string. */
+	limit = $state<string | number | null>(100);
 
 	/** User's custom SQL text (preserved even if it differs from generated) */
 	customSql = $state<string | null>(null);
@@ -1389,9 +1396,9 @@ export class QueryBuilderState {
 	}
 
 	/**
-	 * Set the LIMIT in the active context.
+	 * Set the LIMIT in the active context. Can be a number, null, or a {{variable}} string.
 	 */
-	setActiveLimit(limit: number | null): void {
+	setActiveLimit(limit: string | number | null): void {
 		if (this.selectedCte) {
 			this.selectedCte.innerQuery.limit = limit;
 			this.ctes = [...this.ctes];
@@ -1973,7 +1980,7 @@ export class QueryBuilderState {
 		groupBy: GroupByCondition[],
 		having: HavingCondition[],
 		orderBy: SortCondition[],
-		limit: number | null,
+		limit: string | number | null,
 		selectAggregates: SelectAggregate[],
 		subqueries: CanvasSubquery[]
 	): string {
@@ -2177,12 +2184,21 @@ export class QueryBuilderState {
 				return `${column} BETWEEN ${value}`;
 			case 'LIKE':
 			case 'NOT LIKE':
+				// Template variables pass through unquoted
+				if (isTemplateVariable(value)) {
+					return `${column} ${operator} ${value}`;
+				}
 				return `${column} ${operator} '${value}'`;
-			default:
+			default: {
+				// Template variables pass through unquoted
+				if (isTemplateVariable(value)) {
+					return `${column} ${operator} ${value}`;
+				}
 				// Check if value looks like a number
 				const isNumeric = !isNaN(Number(value)) && value.trim() !== '';
 				const formattedValue = isNumeric ? value : `'${value}'`;
 				return `${column} ${operator} ${formattedValue}`;
+			}
 		}
 	}
 
@@ -2973,7 +2989,7 @@ export interface SerializableInnerQuery {
 	groupBy: GroupByCondition[];
 	having: HavingCondition[];
 	orderBy: SortCondition[];
-	limit: number | null;
+	limit: string | number | null;
 	selectAggregates: SelectAggregate[];
 	subqueries?: SerializableSubquery[];
 }
@@ -3012,7 +3028,7 @@ export interface SerializableQueryBuilderState {
 	groupBy?: GroupByCondition[];
 	having?: HavingCondition[];
 	orderBy: SortCondition[];
-	limit: number | null;
+	limit: string | number | null;
 	/** User's custom SQL text (preserved even if it differs from generated) */
 	customSql?: string | null;
 	/** Standalone aggregates in SELECT clause */
