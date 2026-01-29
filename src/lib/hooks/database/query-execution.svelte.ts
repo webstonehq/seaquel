@@ -9,6 +9,7 @@ import { substituteParameters } from "$lib/db/query-params";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
 import type { ProviderRegistry } from "$lib/providers";
+import { extractErrorMessage } from "$lib/errors";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
@@ -21,16 +22,6 @@ export class QueryExecutionManager {
     private queryHistory: QueryHistoryManager,
     private providers: ProviderRegistry
   ) {}
-
-  /**
-   * Formats an unknown error into a user-friendly string message.
-   */
-  private formatError(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return String(error);
-  }
 
   /**
    * Update a query tab's state with proper Svelte 5 reactivity.
@@ -283,7 +274,7 @@ export class QueryExecutionManager {
     } catch (error) {
       const results: StatementResult[] = [{
         columns: ["Error"],
-        rows: [{ Error: this.formatError(error) }],
+        rows: [{ Error: extractErrorMessage(error) }],
         rowCount: 1,
         totalRows: 1,
         executionTime: 0,
@@ -292,7 +283,7 @@ export class QueryExecutionManager {
         totalPages: 1,
         statementIndex: 0,
         statementSql: statement.sql,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       }];
 
@@ -368,7 +359,7 @@ export class QueryExecutionManager {
     } catch (error) {
       const results: StatementResult[] = [{
         columns: ["Error"],
-        rows: [{ Error: this.formatError(error) }],
+        rows: [{ Error: extractErrorMessage(error) }],
         rowCount: 1,
         totalRows: 1,
         executionTime: 0,
@@ -377,7 +368,7 @@ export class QueryExecutionManager {
         totalPages: 1,
         statementIndex: 0,
         statementSql: statement.sql,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       }];
 
@@ -446,7 +437,7 @@ export class QueryExecutionManager {
         // Continue on error - add error result
         results.push({
           columns: ["Error"],
-          rows: [{ Error: this.formatError(error) }],
+          rows: [{ Error: extractErrorMessage(error) }],
           rowCount: 1,
           totalRows: 1,
           executionTime: 0,
@@ -455,7 +446,7 @@ export class QueryExecutionManager {
           totalPages: 1,
           statementIndex: i,
           statementSql: stmt.sql,
-          error: this.formatError(error),
+          error: extractErrorMessage(error),
           isError: true,
         });
       }
@@ -539,7 +530,7 @@ export class QueryExecutionManager {
       } catch (error) {
         results.push({
           columns: ["Error"],
-          rows: [{ Error: this.formatError(error) }],
+          rows: [{ Error: extractErrorMessage(error) }],
           rowCount: 1,
           totalRows: 1,
           executionTime: 0,
@@ -548,7 +539,7 @@ export class QueryExecutionManager {
           totalPages: 1,
           statementIndex: i,
           statementSql: stmt.sql,
-          error: this.formatError(error),
+          error: extractErrorMessage(error),
           isError: true,
         });
       }
@@ -637,7 +628,7 @@ export class QueryExecutionManager {
       const newResults = [...tab.results];
       newResults[resultIndex] = {
         ...existingResult,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       };
       this.updateQueryTabState(tabId, { results: newResults });
@@ -709,7 +700,7 @@ export class QueryExecutionManager {
       row[column] = newValue;
       return { success: true };
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 
@@ -752,7 +743,7 @@ export class QueryExecutionManager {
         return { success: false, error: "No connection established" };
       }
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 
@@ -816,7 +807,7 @@ export class QueryExecutionManager {
       }
       return { success: true };
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 }
