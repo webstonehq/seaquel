@@ -1,8 +1,8 @@
-import { toast } from 'svelte-sonner';
 import { errorToast } from '$lib/utils/toast';
 import type { VisualizeTab, ParsedQueryVisual, ParameterValue } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
+import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelte.js';
 import { parseQueryForVisualization, getParseError } from '$lib/db/sql-ast-parser';
 import { getStatementAtOffset } from '$lib/db/sql-parser';
 import { substituteParameters } from '$lib/db/query-params';
@@ -21,15 +21,28 @@ export type SetVisualizeResultCallback = (
  * Manages query visualizer tabs: parse, visualize, remove, set active.
  * Tabs are organized per-project.
  */
-export class VisualizeTabManager {
+export class VisualizeTabManager extends BaseTabManager<VisualizeTab> {
 	private setVisualizeResult?: SetVisualizeResultCallback;
+	private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize') => void;
 
 	constructor(
-		private state: DatabaseState,
-		private tabOrdering: TabOrderingManager,
-		private schedulePersistence: (projectId: string | null) => void,
-		private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize') => void
-	) {}
+		state: DatabaseState,
+		tabOrdering: TabOrderingManager,
+		schedulePersistence: (projectId: string | null) => void,
+		setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics' | 'canvas' | 'visualize') => void
+	) {
+		super(state, tabOrdering, schedulePersistence);
+		this.setActiveView = setActiveView;
+	}
+
+	protected get accessors(): TabStateAccessors<VisualizeTab> {
+		return {
+			getTabs: () => this.state.visualizeTabsByProject,
+			setTabs: (r) => (this.state.visualizeTabsByProject = r),
+			getActiveId: () => this.state.activeVisualizeTabIdByProject,
+			setActiveId: (r) => (this.state.activeVisualizeTabIdByProject = r)
+		};
+	}
 
 	/**
 	 * Set callback for embedded visualize results (stored on QueryTab).
@@ -195,31 +208,17 @@ export class VisualizeTabManager {
 		const parseError = parsedQuery ? undefined : getParseError(substitutedQuery, dbType) || 'Unable to parse query';
 
 		// Create a new visualize tab
-		const visualizeTabs = this.state.visualizeTabsByProject[projectId] ?? [];
-		const visualizeTabId = `visualize-${Date.now()}`;
 		const queryPreview = queryToVisualize.substring(0, 30).replace(/\s+/g, ' ').trim();
 		const newVisualizeTab: VisualizeTab = $state({
-			id: visualizeTabId,
+			id: `visualize-${Date.now()}`,
 			name: `Visual: ${queryPreview}...`,
 			sourceQuery: queryToVisualize, // Keep original with {{}} for display
 			parsedQuery,
 			parseError
 		});
 
-		this.state.visualizeTabsByProject = {
-			...this.state.visualizeTabsByProject,
-			[projectId]: [...visualizeTabs, newVisualizeTab]
-		};
-
-		this.tabOrdering.add(visualizeTabId);
-
-		// Set as active and switch view
-		this.state.activeVisualizeTabIdByProject = {
-			...this.state.activeVisualizeTabIdByProject,
-			[projectId]: visualizeTabId
-		};
+		this.appendTab(newVisualizeTab);
 		this.setActiveView('visualize');
-		this.schedulePersistence(projectId);
 
 		if (parseError) {
 			errorToast(`Parse warning: ${parseError}`);
@@ -262,31 +261,17 @@ export class VisualizeTabManager {
 		const parseError = parsedQuery ? undefined : getParseError(queryToVisualize, dbType) || 'Unable to parse query';
 
 		// Create a new visualize tab
-		const visualizeTabs = this.state.visualizeTabsByProject[projectId] ?? [];
-		const visualizeTabId = `visualize-${Date.now()}`;
 		const queryPreview = queryToVisualize.substring(0, 30).replace(/\s+/g, ' ').trim();
 		const newVisualizeTab: VisualizeTab = $state({
-			id: visualizeTabId,
+			id: `visualize-${Date.now()}`,
 			name: `Visual: ${queryPreview}...`,
 			sourceQuery: queryToVisualize,
 			parsedQuery,
 			parseError
 		});
 
-		this.state.visualizeTabsByProject = {
-			...this.state.visualizeTabsByProject,
-			[projectId]: [...visualizeTabs, newVisualizeTab]
-		};
-
-		this.tabOrdering.add(visualizeTabId);
-
-		// Set as active and switch view
-		this.state.activeVisualizeTabIdByProject = {
-			...this.state.activeVisualizeTabIdByProject,
-			[projectId]: visualizeTabId
-		};
+		this.appendTab(newVisualizeTab);
 		this.setActiveView('visualize');
-		this.schedulePersistence(projectId);
 
 		if (parseError) {
 			errorToast(`Parse warning: ${parseError}`);
@@ -296,31 +281,11 @@ export class VisualizeTabManager {
 	/**
 	 * Remove a visualize tab by ID.
 	 */
-	remove(id: string): void {
-		this.tabOrdering.removeTabGeneric(
-			() => this.state.visualizeTabsByProject,
-			(r) => (this.state.visualizeTabsByProject = r),
-			() => this.state.activeVisualizeTabIdByProject,
-			(r) => (this.state.activeVisualizeTabIdByProject = r),
-			id
-		);
-		this.schedulePersistence(this.state.activeProjectId);
+	override remove(id: string): void {
+		super.remove(id);
 		// Switch to query view if no visualize tabs left
 		if (this.state.activeProjectId && this.state.visualizeTabs.length === 0) {
 			this.setActiveView('query');
 		}
-	}
-
-	/**
-	 * Set the active visualize tab by ID.
-	 */
-	setActive(id: string): void {
-		if (!this.state.activeProjectId) return;
-
-		this.state.activeVisualizeTabIdByProject = {
-			...this.state.activeVisualizeTabIdByProject,
-			[this.state.activeProjectId]: id
-		};
-		this.schedulePersistence(this.state.activeProjectId);
 	}
 }

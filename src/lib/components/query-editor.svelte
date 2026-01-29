@@ -4,12 +4,8 @@
 	import { useShortcuts } from "$lib/shortcuts/index.js";
 	import { useSidebar } from "$lib/components/ui/sidebar/context.svelte.js";
 	import { Button } from "$lib/components/ui/button";
-	import { Badge } from "$lib/components/ui/badge";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import * as Popover from "$lib/components/ui/popover";
-	import { Label } from "$lib/components/ui/label";
-	import { Input } from "$lib/components/ui/input";
-	import { PlayIcon, RefreshCwIcon, XIcon, SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon, DatabaseIcon, NetworkIcon, ColumnsIcon } from "@lucide/svelte";
+	import { PlayIcon, DatabaseIcon, NetworkIcon, ColumnsIcon } from "@lucide/svelte";
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
@@ -34,10 +30,9 @@ import { errorToast } from "$lib/utils/toast";
 	import {
 		QueryToolbar,
 		QueryResultTabs,
-		QueryExportMenu,
 		QueryPagination,
 		QueryErrorDisplay,
-		QueryResultViewToggle,
+		QueryResultsControlBar,
 		ExplainResultPane,
 		VisualizeResultPane,
 		VisualQueryPanel
@@ -45,9 +40,9 @@ import { errorToast } from "$lib/utils/toast";
 	import { schemaToQueryBuilder } from "$lib/utils/schema-adapter";
 
 	// Import chart components
-	import { QueryChart, ChartConfigPopover, createDefaultChartConfig } from "$lib/components/charts/index.js";
+	import { QueryChart, createDefaultChartConfig } from "$lib/components/charts/index.js";
 	import type { ResultViewMode, ChartConfig } from "$lib/types";
-	import { DEFAULT_LAYOUT_OPTIONS, type QueryLayoutOptions, type LayoutDirection } from "$lib/utils/query-visual-layout";
+	import { DEFAULT_LAYOUT_OPTIONS, type QueryLayoutOptions } from "$lib/utils/query-visual-layout";
 
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
@@ -104,22 +99,6 @@ import { errorToast } from "$lib/utils/toast";
 
 	// Visualize layout options state
 	let visualizeLayoutOptions = $state<QueryLayoutOptions>({ ...DEFAULT_LAYOUT_OPTIONS });
-
-	// Direction options for visualize layout
-	const layoutDirections: { value: LayoutDirection; label: string; icon: typeof ArrowDownIcon }[] = [
-		{ value: 'TB', label: 'Top to Bottom', icon: ArrowDownIcon },
-		{ value: 'BT', label: 'Bottom to Top', icon: ArrowUpIcon },
-		{ value: 'LR', label: 'Left to Right', icon: ArrowRightIcon },
-		{ value: 'RL', label: 'Right to Left', icon: ArrowLeftIcon }
-	];
-
-	const setVisualizeDirection = (dir: LayoutDirection) => {
-		visualizeLayoutOptions = { ...visualizeLayoutOptions, direction: dir };
-	};
-
-	const resetVisualizeLayout = () => {
-		visualizeLayoutOptions = { ...DEFAULT_LAYOUT_OPTIONS };
-	};
 
 	const allResults = $derived(db.state.activeQueryTab?.results ?? []);
 
@@ -655,278 +634,40 @@ import { errorToast } from "$lib/utils/toast";
 						/>
 
 						{#if activeResult && !activeResult.isError}
-							<div class="flex items-center justify-between px-2 py-1.5 border-b bg-muted/20">
-								<div class="flex items-center gap-2">
-									<QueryResultViewToggle
-										mode={currentViewMode}
-										onModeChange={handleViewModeChange}
-										hasExplainResult={!!explainResult?.result}
-										hasVisualizeResult={!!visualizeResult?.parsedQuery || !!visualizeResult?.parseError}
-										isExplainStale={isExplainStale}
-										isVisualizeStale={isVisualizeStale}
-									/>
-									{#if currentViewMode === 'explain' && explainResult?.result}
-										<Badge variant={explainResult.isAnalyze ? "default" : "secondary"} class="h-5">
-											{explainResult.isAnalyze ? "ANALYZE" : "EXPLAIN"}
-										</Badge>
-									{/if}
-								</div>
-								<div class="flex items-center gap-1">
-									{#if currentViewMode === 'chart' && currentChartConfig}
-										<ChartConfigPopover
-											config={currentChartConfig}
-											columns={activeResult.columns}
-											onConfigChange={handleChartConfigChange}
-										/>
-									{/if}
-									{#if currentViewMode === 'table' || currentViewMode === 'chart'}
-										<QueryExportMenu onExport={handleExport} onCopy={handleCopy} />
-									{/if}
-									{#if currentViewMode === 'explain' && explainResult}
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 gap-1.5 px-2"
-											onclick={() => handleRefreshExplain(explainResult.isAnalyze)}
-											title={isExplainStale ? "Refresh with updated query" : "Re-run explain"}
-										>
-											<RefreshCwIcon class="size-3.5" />
-											{isExplainStale ? "Refresh" : "Re-run"}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 px-2"
-											onclick={handleCloseExplain}
-											title="Close"
-										>
-											<XIcon class="size-3.5" />
-										</Button>
-									{/if}
-									{#if currentViewMode === 'visualize' && visualizeResult}
-										<!-- Layout Settings Popover -->
-										<Popover.Root>
-											<Popover.Trigger>
-												<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2">
-													<SettingsIcon class="size-3.5" />
-													Layout
-												</Button>
-											</Popover.Trigger>
-											<Popover.Content class="w-64" align="end">
-												<div class="space-y-4">
-													<div class="flex items-center justify-between">
-														<h4 class="font-medium text-sm">Layout Settings</h4>
-														<Button variant="ghost" size="sm" class="h-6 text-xs" onclick={resetVisualizeLayout}>
-															Reset
-														</Button>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Direction</Label>
-														<div class="grid grid-cols-4 gap-1">
-															{#each layoutDirections as dir}
-																<Button
-																	variant={visualizeLayoutOptions.direction === dir.value ? "default" : "outline"}
-																	size="sm"
-																	class="h-8 px-2"
-																	onclick={() => setVisualizeDirection(dir.value)}
-																	title={dir.label}
-																>
-																	<dir.icon class="size-4" />
-																</Button>
-															{/each}
-														</div>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Node Spacing (px)</Label>
-														<Input
-															type="number"
-															min={20}
-															max={200}
-															step={10}
-															value={visualizeLayoutOptions.nodeSpacing}
-															oninput={(e) => {
-																const val = parseInt(e.currentTarget.value, 10);
-																if (!isNaN(val) && val >= 20 && val <= 200) {
-																	visualizeLayoutOptions = { ...visualizeLayoutOptions, nodeSpacing: val };
-																}
-															}}
-															class="h-8"
-														/>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Level Spacing (px)</Label>
-														<Input
-															type="number"
-															min={40}
-															max={300}
-															step={10}
-															value={visualizeLayoutOptions.rankSpacing}
-															oninput={(e) => {
-																const val = parseInt(e.currentTarget.value, 10);
-																if (!isNaN(val) && val >= 40 && val <= 300) {
-																	visualizeLayoutOptions = { ...visualizeLayoutOptions, rankSpacing: val };
-																}
-															}}
-															class="h-8"
-														/>
-													</div>
-												</div>
-											</Popover.Content>
-										</Popover.Root>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 gap-1.5 px-2"
-											onclick={handleRefreshVisualize}
-											title={isVisualizeStale ? "Refresh with updated query" : "Re-run visualization"}
-										>
-											<RefreshCwIcon class="size-3.5" />
-											{isVisualizeStale ? "Refresh" : "Re-run"}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 px-2"
-											onclick={handleCloseVisualize}
-											title="Close"
-										>
-											<XIcon class="size-3.5" />
-										</Button>
-									{/if}
-								</div>
-							</div>
+							<QueryResultsControlBar
+								{currentViewMode}
+								onViewModeChange={handleViewModeChange}
+								{explainResult}
+								{visualizeResult}
+								{isExplainStale}
+								{isVisualizeStale}
+								{currentChartConfig}
+								{activeResult}
+								onChartConfigChange={handleChartConfigChange}
+								onExport={handleExport}
+								onCopy={handleCopy}
+								onRefreshExplain={handleRefreshExplain}
+								onCloseExplain={handleCloseExplain}
+								{visualizeLayoutOptions}
+								onVisualizeLayoutChange={(opts) => visualizeLayoutOptions = opts}
+								onRefreshVisualize={handleRefreshVisualize}
+								onCloseVisualize={handleCloseVisualize}
+							/>
 						{:else if (explainResult?.result || explainResult?.isExecuting || visualizeResult?.parsedQuery || visualizeResult?.parseError)}
-							<!-- Show view toggle even without query results if explain/visualize exists -->
-							<div class="flex items-center justify-between px-2 py-1.5 border-b bg-muted/20">
-								<div class="flex items-center gap-2">
-									<QueryResultViewToggle
-										mode={currentViewMode}
-										onModeChange={handleViewModeChange}
-										hasExplainResult={!!explainResult?.result || explainResult?.isExecuting}
-										hasVisualizeResult={!!visualizeResult?.parsedQuery || !!visualizeResult?.parseError}
-										isExplainStale={isExplainStale}
-										isVisualizeStale={isVisualizeStale}
-									/>
-									{#if currentViewMode === 'explain' && explainResult?.result}
-										<Badge variant={explainResult.isAnalyze ? "default" : "secondary"} class="h-5">
-											{explainResult.isAnalyze ? "ANALYZE" : "EXPLAIN"}
-										</Badge>
-									{/if}
-								</div>
-								<div class="flex items-center gap-1">
-									{#if currentViewMode === 'explain' && explainResult}
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 gap-1.5 px-2"
-											onclick={() => handleRefreshExplain(explainResult.isAnalyze)}
-											title={isExplainStale ? "Refresh with updated query" : "Re-run explain"}
-										>
-											<RefreshCwIcon class="size-3.5" />
-											{isExplainStale ? "Refresh" : "Re-run"}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 px-2"
-											onclick={handleCloseExplain}
-											title="Close"
-										>
-											<XIcon class="size-3.5" />
-										</Button>
-									{/if}
-									{#if currentViewMode === 'visualize' && visualizeResult}
-										<!-- Layout Settings Popover -->
-										<Popover.Root>
-											<Popover.Trigger>
-												<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2">
-													<SettingsIcon class="size-3.5" />
-													Layout
-												</Button>
-											</Popover.Trigger>
-											<Popover.Content class="w-64" align="end">
-												<div class="space-y-4">
-													<div class="flex items-center justify-between">
-														<h4 class="font-medium text-sm">Layout Settings</h4>
-														<Button variant="ghost" size="sm" class="h-6 text-xs" onclick={resetVisualizeLayout}>
-															Reset
-														</Button>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Direction</Label>
-														<div class="grid grid-cols-4 gap-1">
-															{#each layoutDirections as dir}
-																<Button
-																	variant={visualizeLayoutOptions.direction === dir.value ? "default" : "outline"}
-																	size="sm"
-																	class="h-8 px-2"
-																	onclick={() => setVisualizeDirection(dir.value)}
-																	title={dir.label}
-																>
-																	<dir.icon class="size-4" />
-																</Button>
-															{/each}
-														</div>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Node Spacing (px)</Label>
-														<Input
-															type="number"
-															min={20}
-															max={200}
-															step={10}
-															value={visualizeLayoutOptions.nodeSpacing}
-															oninput={(e) => {
-																const val = parseInt(e.currentTarget.value, 10);
-																if (!isNaN(val) && val >= 20 && val <= 200) {
-																	visualizeLayoutOptions = { ...visualizeLayoutOptions, nodeSpacing: val };
-																}
-															}}
-															class="h-8"
-														/>
-													</div>
-													<div class="space-y-2">
-														<Label class="text-xs text-muted-foreground">Level Spacing (px)</Label>
-														<Input
-															type="number"
-															min={40}
-															max={300}
-															step={10}
-															value={visualizeLayoutOptions.rankSpacing}
-															oninput={(e) => {
-																const val = parseInt(e.currentTarget.value, 10);
-																if (!isNaN(val) && val >= 40 && val <= 300) {
-																	visualizeLayoutOptions = { ...visualizeLayoutOptions, rankSpacing: val };
-																}
-															}}
-															class="h-8"
-														/>
-													</div>
-												</div>
-											</Popover.Content>
-										</Popover.Root>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 gap-1.5 px-2"
-											onclick={handleRefreshVisualize}
-											title={isVisualizeStale ? "Refresh with updated query" : "Re-run visualization"}
-										>
-											<RefreshCwIcon class="size-3.5" />
-											{isVisualizeStale ? "Refresh" : "Re-run"}
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											class="h-7 px-2"
-											onclick={handleCloseVisualize}
-											title="Close"
-										>
-											<XIcon class="size-3.5" />
-										</Button>
-									{/if}
-								</div>
-							</div>
+							<QueryResultsControlBar
+								{currentViewMode}
+								onViewModeChange={handleViewModeChange}
+								{explainResult}
+								{visualizeResult}
+								{isExplainStale}
+								{isVisualizeStale}
+								onRefreshExplain={handleRefreshExplain}
+								onCloseExplain={handleCloseExplain}
+								{visualizeLayoutOptions}
+								onVisualizeLayoutChange={(opts) => visualizeLayoutOptions = opts}
+								onRefreshVisualize={handleRefreshVisualize}
+								onCloseVisualize={handleCloseVisualize}
+							/>
 						{/if}
 
 						{#if currentViewMode === 'explain' && explainResult}
@@ -1012,67 +753,18 @@ import { errorToast } from "$lib/utils/toast";
 						{/if}
 					{:else}
 						<!-- Show view toggle and content even without query results -->
-						<div class="flex items-center justify-between px-2 py-1.5 border-b bg-muted/20">
-							<div class="flex items-center gap-2">
-								<QueryResultViewToggle
-									mode={currentViewMode}
-									onModeChange={handleViewModeChange}
-									hasExplainResult={!!explainResult?.result || explainResult?.isExecuting}
-									hasVisualizeResult={!!visualizeResult?.parsedQuery || !!visualizeResult?.parseError}
-									isExplainStale={isExplainStale}
-									isVisualizeStale={isVisualizeStale}
-								/>
-								{#if currentViewMode === 'explain' && explainResult?.result}
-									<Badge variant={explainResult.isAnalyze ? "default" : "secondary"} class="h-5">
-										{explainResult.isAnalyze ? "ANALYZE" : "EXPLAIN"}
-									</Badge>
-								{/if}
-							</div>
-							<div class="flex items-center gap-1">
-								{#if currentViewMode === 'explain' && explainResult}
-									<Button
-										size="sm"
-										variant="ghost"
-										class="h-7 gap-1.5 px-2"
-										onclick={() => handleRefreshExplain(explainResult.isAnalyze)}
-										title={isExplainStale ? "Refresh with updated query" : "Re-run explain"}
-									>
-										<RefreshCwIcon class="size-3.5" />
-										{isExplainStale ? "Refresh" : "Re-run"}
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										class="h-7 px-2"
-										onclick={handleCloseExplain}
-										title="Close"
-									>
-										<XIcon class="size-3.5" />
-									</Button>
-								{/if}
-								{#if currentViewMode === 'visualize' && visualizeResult}
-									<Button
-										size="sm"
-										variant="ghost"
-										class="h-7 gap-1.5 px-2"
-										onclick={handleRefreshVisualize}
-										title={isVisualizeStale ? "Refresh with updated query" : "Re-run visualization"}
-									>
-										<RefreshCwIcon class="size-3.5" />
-										{isVisualizeStale ? "Refresh" : "Re-run"}
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										class="h-7 px-2"
-										onclick={handleCloseVisualize}
-										title="Close"
-									>
-										<XIcon class="size-3.5" />
-									</Button>
-								{/if}
-							</div>
-						</div>
+						<QueryResultsControlBar
+							{currentViewMode}
+							onViewModeChange={handleViewModeChange}
+							{explainResult}
+							{visualizeResult}
+							{isExplainStale}
+							{isVisualizeStale}
+							onRefreshExplain={handleRefreshExplain}
+							onCloseExplain={handleCloseExplain}
+							onRefreshVisualize={handleRefreshVisualize}
+							onCloseVisualize={handleCloseVisualize}
+						/>
 						{#if currentViewMode === 'explain' && explainResult}
 							<ExplainResultPane {explainResult} />
 						{:else if currentViewMode === 'explain' && !explainResult}

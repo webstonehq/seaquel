@@ -13,6 +13,7 @@
 	import { connectionWizardStore } from "$lib/stores/connection-wizard.svelte.js";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { toast } from "svelte-sonner";
+	import { extractErrorMessage } from "$lib/errors/types";
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 	import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
 
@@ -65,20 +66,6 @@
 			wizard.setError(extractErrorMessage(error));
 			wizard.showDialog();
 		}
-	};
-
-	const extractErrorMessage = (error: unknown): string => {
-		if (error instanceof Error) {
-			return error.message;
-		}
-		if (typeof error === "string") {
-			const match = error.match(/error returned from database: (.+)/);
-			if (match) {
-				return match[1];
-			}
-			return error;
-		}
-		return "An unknown error occurred";
 	};
 
 	const handleTestConnection = async () => {

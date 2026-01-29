@@ -1,17 +1,29 @@
 import type { QueryTab, ExplainResult, ParsedQueryVisual } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
+import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelte.js';
 
 /**
  * Manages query tabs: add, remove, rename, update content.
  * Tabs are organized per-project.
  */
-export class QueryTabManager {
+export class QueryTabManager extends BaseTabManager<QueryTab> {
 	constructor(
-		private state: DatabaseState,
-		private tabOrdering: TabOrderingManager,
-		private schedulePersistence: (projectId: string | null) => void
-	) {}
+		state: DatabaseState,
+		tabOrdering: TabOrderingManager,
+		schedulePersistence: (projectId: string | null) => void
+	) {
+		super(state, tabOrdering, schedulePersistence);
+	}
+
+	protected get accessors(): TabStateAccessors<QueryTab> {
+		return {
+			getTabs: () => this.state.queryTabsByProject,
+			setTabs: (r) => (this.state.queryTabsByProject = r),
+			getActiveId: () => this.state.activeQueryTabIdByProject,
+			setActiveId: (r) => (this.state.activeQueryTabIdByProject = r)
+		};
+	}
 
 	/**
 	 * Add a new query tab.
@@ -19,8 +31,7 @@ export class QueryTabManager {
 	add(name?: string, query?: string, savedQueryId?: string): string | null {
 		if (!this.state.activeProjectId) return null;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const newTab: QueryTab = $state({
 			id: `tab-${Date.now()}`,
 			name: name || `Query ${tabs.length + 1}`,
@@ -29,34 +40,7 @@ export class QueryTabManager {
 			savedQueryId
 		});
 
-		// Update tabs using spread syntax
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: [...tabs, newTab]
-		};
-
-		this.state.activeQueryTabIdByProject = {
-			...this.state.activeQueryTabIdByProject,
-			[projectId]: newTab.id
-		};
-
-		this.tabOrdering.add(newTab.id);
-		this.schedulePersistence(projectId);
-		return newTab.id;
-	}
-
-	/**
-	 * Remove a query tab by ID.
-	 */
-	remove(id: string): void {
-		this.tabOrdering.removeTabGeneric(
-			() => this.state.queryTabsByProject,
-			(r) => (this.state.queryTabsByProject = r),
-			() => this.state.activeQueryTabIdByProject,
-			(r) => (this.state.activeQueryTabIdByProject = r),
-			id
-		);
-		this.schedulePersistence(this.state.activeProjectId);
+		return this.appendTab(newTab);
 	}
 
 	/**
@@ -65,16 +49,10 @@ export class QueryTabManager {
 	rename(id: string, newName: string): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const tab = tabs.find((t) => t.id === id);
 		if (tab) {
-			// Create new array with updated tab object for proper reactivity
-			const updatedTabs = tabs.map((t) => (t.id === id ? { ...t, name: newName } : t));
-			this.state.queryTabsByProject = {
-				...this.state.queryTabsByProject,
-				[projectId]: updatedTabs
-			};
+			this.updateTab(id, (t) => ({ ...t, name: newName }));
 
 			// Also update linked saved query name if exists (saved queries are per-connection)
 			if (tab.savedQueryId && this.state.activeConnectionId) {
@@ -89,21 +67,8 @@ export class QueryTabManager {
 				};
 			}
 
-			this.schedulePersistence(projectId);
+			this.schedulePersistence(this.state.activeProjectId);
 		}
-	}
-
-	/**
-	 * Set the active query tab by ID.
-	 */
-	setActive(id: string): void {
-		if (!this.state.activeProjectId) return;
-
-		this.state.activeQueryTabIdByProject = {
-			...this.state.activeQueryTabIdByProject,
-			[this.state.activeProjectId]: id
-		};
-		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -144,17 +109,11 @@ export class QueryTabManager {
 	updateContent(id: string, query: string): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const tab = tabs.find((t) => t.id === id);
 		if (tab && tab.query !== query) {
-			// Create new objects for proper reactivity
-			const updatedTabs = tabs.map((t) => (t.id === id ? { ...t, query } : t));
-			this.state.queryTabsByProject = {
-				...this.state.queryTabsByProject,
-				[projectId]: updatedTabs
-			};
-			this.schedulePersistence(projectId);
+			this.updateTab(id, (t) => ({ ...t, query }));
+			this.schedulePersistence(this.state.activeProjectId);
 		}
 	}
 
@@ -165,7 +124,7 @@ export class QueryTabManager {
 	focusOrCreate(query: string, name?: string, setActiveView?: () => void): string | null {
 		if (!this.state.activeProjectId) return null;
 
-		const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const existingTab = tabs.find((t) => t.query.trim() === query.trim());
 
 		if (existingTab) {
@@ -192,7 +151,7 @@ export class QueryTabManager {
 		if (!savedQuery) return;
 
 		// Check if a tab with this saved query is already open
-		const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const existingTab = tabs.find((t) => t.savedQueryId === savedQueryId);
 
 		if (existingTab) {
@@ -218,7 +177,7 @@ export class QueryTabManager {
 		if (!this.state.activeProjectId) return;
 
 		// Check if a tab with this shared query is already open
-		const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const existingTab = tabs.find((t) => t.sharedQueryId === sharedQueryId);
 
 		if (existingTab) {
@@ -227,7 +186,6 @@ export class QueryTabManager {
 			setActiveView?.();
 		} else {
 			// Create new tab with sharedQueryId
-			const projectId = this.state.activeProjectId;
 			const newTab: QueryTab = $state({
 				id: `tab-${Date.now()}`,
 				name,
@@ -236,18 +194,7 @@ export class QueryTabManager {
 				sharedQueryId
 			});
 
-			this.state.queryTabsByProject = {
-				...this.state.queryTabsByProject,
-				[projectId]: [...tabs, newTab]
-			};
-
-			this.state.activeQueryTabIdByProject = {
-				...this.state.activeQueryTabIdByProject,
-				[projectId]: newTab.id
-			};
-
-			this.tabOrdering.add(newTab.id);
-			this.schedulePersistence(projectId);
+			this.appendTab(newTab);
 			setActiveView?.();
 		}
 	}
@@ -264,7 +211,7 @@ export class QueryTabManager {
 		if (!item) return;
 
 		// Check if a tab with the exact same query is already open
-		const tabs = this.state.queryTabsByProject[this.state.activeProjectId] ?? [];
+		const tabs = this.getProjectTabs();
 		const existingTab = tabs.find((t) => t.query.trim() === item.query.trim());
 
 		if (existingTab) {
@@ -284,21 +231,11 @@ export class QueryTabManager {
 	setExplainResult(tabId: string, result: ExplainResult, sourceQuery: string, isAnalyze: boolean): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
-		const updatedTabs = tabs.map((t) =>
-			t.id === tabId
-				? {
-						...t,
-						explainResult: { result, sourceQuery, isAnalyze, isExecuting: false }
-					}
-				: t
-		);
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: updatedTabs
-		};
-		this.schedulePersistence(projectId);
+		this.updateTab(tabId, (t) => ({
+			...t,
+			explainResult: { result, sourceQuery, isAnalyze, isExecuting: false }
+		}));
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -307,24 +244,12 @@ export class QueryTabManager {
 	setExplainExecuting(tabId: string, isExecuting: boolean, isAnalyze: boolean = false): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
-		const tab = tabs.find((t) => t.id === tabId);
-
-		const updatedTabs = tabs.map((t) =>
-			t.id === tabId
-				? {
-						...t,
-						explainResult: t.explainResult
-							? { ...t.explainResult, isExecuting }
-							: { result: undefined as unknown as ExplainResult, sourceQuery: '', isAnalyze, isExecuting }
-					}
-				: t
-		);
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: updatedTabs
-		};
+		this.updateTab(tabId, (t) => ({
+			...t,
+			explainResult: t.explainResult
+				? { ...t.explainResult, isExecuting }
+				: { result: undefined as unknown as ExplainResult, sourceQuery: '', isAnalyze, isExecuting }
+		}));
 	}
 
 	/**
@@ -333,16 +258,8 @@ export class QueryTabManager {
 	clearExplainResult(tabId: string): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
-		const updatedTabs = tabs.map((t) =>
-			t.id === tabId ? { ...t, explainResult: undefined } : t
-		);
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: updatedTabs
-		};
-		this.schedulePersistence(projectId);
+		this.updateTab(tabId, (t) => ({ ...t, explainResult: undefined }));
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -356,21 +273,11 @@ export class QueryTabManager {
 	): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
-		const updatedTabs = tabs.map((t) =>
-			t.id === tabId
-				? {
-						...t,
-						visualizeResult: { parsedQuery, sourceQuery, parseError }
-					}
-				: t
-		);
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: updatedTabs
-		};
-		this.schedulePersistence(projectId);
+		this.updateTab(tabId, (t) => ({
+			...t,
+			visualizeResult: { parsedQuery, sourceQuery, parseError }
+		}));
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -379,15 +286,7 @@ export class QueryTabManager {
 	clearVisualizeResult(tabId: string): void {
 		if (!this.state.activeProjectId) return;
 
-		const projectId = this.state.activeProjectId;
-		const tabs = this.state.queryTabsByProject[projectId] ?? [];
-		const updatedTabs = tabs.map((t) =>
-			t.id === tabId ? { ...t, visualizeResult: undefined } : t
-		);
-		this.state.queryTabsByProject = {
-			...this.state.queryTabsByProject,
-			[projectId]: updatedTabs
-		};
-		this.schedulePersistence(projectId);
+		this.updateTab(tabId, (t) => ({ ...t, visualizeResult: undefined }));
+		this.schedulePersistence(this.state.activeProjectId);
 	}
 }

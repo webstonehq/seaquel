@@ -13,7 +13,7 @@
 		SaveIcon,
 		XIcon
 	} from "@lucide/svelte";
-	import { invoke } from "@tauri-apps/api/core";
+	import { openPath } from "$lib/api/tauri";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
@@ -94,7 +94,7 @@
 
 	async function handleOpenFolder() {
 		try {
-			await invoke("open_path", { path: repo.path });
+			await openPath(repo.path);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			errorToast(m.shared_open_folder_failed({ message }));

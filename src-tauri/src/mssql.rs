@@ -178,7 +178,7 @@ pub async fn mssql_connect(
     let client = if use_encryption {
         // Wrap with TLS - Azure SQL and most production servers require encryption
         let tls_connector = async_native_tls::TlsConnector::new()
-            .danger_accept_invalid_certs(config.trust_cert.unwrap_or(true))
+            .danger_accept_invalid_certs(config.trust_cert.unwrap_or(false))
             .use_sni(true);
 
         let tls_stream = tls_connector

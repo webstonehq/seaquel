@@ -1,9 +1,23 @@
 use duckdb::{Connection, types::ValueRef};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DuckDBError {
+    pub message: String,
+    pub code: String,
+}
+
+impl std::fmt::Display for DuckDBError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for DuckDBError {}
 
 /// State for managing DuckDB connections
 pub struct DuckDBState {
@@ -39,19 +53,25 @@ pub struct DuckDBExecuteResult {
 pub fn duckdb_connect(
     state: State<DuckDBState>,
     path: String,
-) -> Result<DuckDBConnectResult, String> {
+) -> Result<DuckDBConnectResult, DuckDBError> {
     let conn = if path == ":memory:" || path.is_empty() {
         Connection::open_in_memory()
     } else {
         Connection::open(&path)
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| DuckDBError {
+        message: format!("Failed to open connection: {}", e),
+        code: "CONNECTION_ERROR".to_string(),
+    })?;
 
     let connection_id = format!("duckdb-{}", Uuid::new_v4());
     state
         .connections
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| DuckDBError {
+            message: format!("Failed to lock connections: {}", e),
+            code: "LOCK_ERROR".to_string(),
+        })?
         .insert(connection_id.clone(), conn);
 
     Ok(DuckDBConnectResult { connection_id })
@@ -62,11 +82,14 @@ pub fn duckdb_connect(
 pub fn duckdb_disconnect(
     state: State<DuckDBState>,
     connection_id: String,
-) -> Result<(), String> {
+) -> Result<(), DuckDBError> {
     state
         .connections
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| DuckDBError {
+            message: format!("Failed to lock connections: {}", e),
+            code: "LOCK_ERROR".to_string(),
+        })?
         .remove(&connection_id);
     Ok(())
 }
@@ -77,16 +100,28 @@ pub fn duckdb_query(
     state: State<DuckDBState>,
     connection_id: String,
     sql: String,
-) -> Result<DuckDBQueryResult, String> {
-    let connections = state.connections.lock().map_err(|e| e.to_string())?;
+) -> Result<DuckDBQueryResult, DuckDBError> {
+    let connections = state.connections.lock().map_err(|e| DuckDBError {
+        message: format!("Failed to lock connections: {}", e),
+        code: "LOCK_ERROR".to_string(),
+    })?;
     let conn = connections
         .get(&connection_id)
-        .ok_or("Connection not found")?;
+        .ok_or(DuckDBError {
+            message: format!("Connection not found: {}", connection_id),
+            code: "CONNECTION_NOT_FOUND".to_string(),
+        })?;
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(&sql).map_err(|e| DuckDBError {
+        message: format!("Failed to prepare query: {}", e),
+        code: "QUERY_ERROR".to_string(),
+    })?;
 
     // Execute query first - column metadata is only available after execution
-    let mut result_rows = stmt.query([]).map_err(|e| e.to_string())?;
+    let mut result_rows = stmt.query([]).map_err(|e| DuckDBError {
+        message: format!("Failed to execute query: {}", e),
+        code: "QUERY_ERROR".to_string(),
+    })?;
 
     // Get column info from the executed statement
     let column_count = result_rows.as_ref().map(|s| s.column_count()).unwrap_or(0);
@@ -102,10 +137,16 @@ pub fn duckdb_query(
 
     let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
 
-    while let Some(row) = result_rows.next().map_err(|e| e.to_string())? {
+    while let Some(row) = result_rows.next().map_err(|e| DuckDBError {
+        message: format!("Failed to read row: {}", e),
+        code: "QUERY_ERROR".to_string(),
+    })? {
         let mut values: Vec<serde_json::Value> = Vec::new();
         for i in 0..column_count {
-            let value = row.get_ref(i).map_err(|e| e.to_string())?;
+            let value = row.get_ref(i).map_err(|e| DuckDBError {
+                message: format!("Failed to get column value: {}", e),
+                code: "QUERY_ERROR".to_string(),
+            })?;
             let json_value = convert_value_to_json(value);
             values.push(json_value);
         }
@@ -121,26 +162,38 @@ pub fn duckdb_execute(
     state: State<DuckDBState>,
     connection_id: String,
     sql: String,
-) -> Result<DuckDBExecuteResult, String> {
-    let connections = state.connections.lock().map_err(|e| e.to_string())?;
+) -> Result<DuckDBExecuteResult, DuckDBError> {
+    let connections = state.connections.lock().map_err(|e| DuckDBError {
+        message: format!("Failed to lock connections: {}", e),
+        code: "LOCK_ERROR".to_string(),
+    })?;
     let conn = connections
         .get(&connection_id)
-        .ok_or("Connection not found")?;
+        .ok_or(DuckDBError {
+            message: format!("Connection not found: {}", connection_id),
+            code: "CONNECTION_NOT_FOUND".to_string(),
+        })?;
 
-    let rows_affected = conn.execute(&sql, []).map_err(|e| e.to_string())?;
+    let rows_affected = conn.execute(&sql, []).map_err(|e| DuckDBError {
+        message: format!("Failed to execute statement: {}", e),
+        code: "EXECUTE_ERROR".to_string(),
+    })?;
 
     Ok(DuckDBExecuteResult { rows_affected })
 }
 
 /// Test a DuckDB connection by opening and immediately closing it
 #[tauri::command]
-pub fn duckdb_test(path: String) -> Result<(), String> {
+pub fn duckdb_test(path: String) -> Result<(), DuckDBError> {
     let _conn = if path == ":memory:" || path.is_empty() {
         Connection::open_in_memory()
     } else {
         Connection::open(&path)
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| DuckDBError {
+        message: format!("Failed to open connection: {}", e),
+        code: "CONNECTION_ERROR".to_string(),
+    })?;
 
     Ok(())
 }

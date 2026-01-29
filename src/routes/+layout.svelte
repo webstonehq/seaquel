@@ -85,7 +85,7 @@
 
         (async () => {
             const { listen } = await import("@tauri-apps/api/event");
-            const { invoke } = await import("@tauri-apps/api/core");
+            const { installUpdate } = await import("$lib/api/tauri");
 
             // Listen for app updates
             const unlistenUpdate = await listen<string>(
@@ -94,7 +94,7 @@
                     toast.success(`Update v${event.payload} downloaded`, {
                         action: {
                             label: "Install & Restart",
-                            onClick: () => invoke("install_update"),
+                            onClick: () => installUpdate(),
                         },
                         duration: Infinity,
                     });

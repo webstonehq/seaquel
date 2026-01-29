@@ -1,20 +1,37 @@
 import type { StatisticsTab, DatabaseStatistics } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
+import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelte.js';
 import { getAdapter } from '$lib/db/index.js';
 
 /**
  * Manages Statistics dashboard tabs.
  * Tabs are organized per-project.
  */
-export class StatisticsTabManager {
+export class StatisticsTabManager extends BaseTabManager<StatisticsTab> {
+	private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics') => void;
+	private executeQuery: (query: string) => Promise<Record<string, unknown>[]>;
+
 	constructor(
-		private state: DatabaseState,
-		private tabOrdering: TabOrderingManager,
-		private schedulePersistence: (projectId: string | null) => void,
-		private setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics') => void,
-		private executeQuery: (query: string) => Promise<Record<string, unknown>[]>
-	) {}
+		state: DatabaseState,
+		tabOrdering: TabOrderingManager,
+		schedulePersistence: (projectId: string | null) => void,
+		setActiveView: (view: 'query' | 'schema' | 'explain' | 'erd' | 'statistics') => void,
+		executeQuery: (query: string) => Promise<Record<string, unknown>[]>
+	) {
+		super(state, tabOrdering, schedulePersistence);
+		this.setActiveView = setActiveView;
+		this.executeQuery = executeQuery;
+	}
+
+	protected get accessors(): TabStateAccessors<StatisticsTab> {
+		return {
+			getTabs: () => this.state.statisticsTabsByProject,
+			setTabs: (r) => (this.state.statisticsTabsByProject = r),
+			getActiveId: () => this.state.activeStatisticsTabIdByProject,
+			setActiveId: (r) => (this.state.activeStatisticsTabIdByProject = r)
+		};
+	}
 
 	/**
 	 * Add a Statistics tab for the current connection.
@@ -24,81 +41,46 @@ export class StatisticsTabManager {
 		if (!this.state.activeProjectId || !this.state.activeConnectionId || !this.state.activeConnection) return null;
 
 		const projectId = this.state.activeProjectId;
-		const tabs = this.state.statisticsTabsByProject[projectId] ?? [];
+		const tabs = this.getProjectTabs();
 
 		// Check if a Statistics tab already exists for this connection
 		const existingTab = tabs.find((t) => t.connectionId === this.state.activeConnectionId);
 		if (existingTab) {
 			// Just switch to the existing tab
-			this.state.activeStatisticsTabIdByProject = {
-				...this.state.activeStatisticsTabIdByProject,
-				[projectId]: existingTab.id
-			};
+			this.setActiveTabId(existingTab.id);
 			this.setActiveView('statistics');
 			// Refresh the data
 			this.refresh(existingTab.id);
 			return existingTab.id;
 		}
 
-		const tabId = `stats-${Date.now()}`;
 		const newTab: StatisticsTab = {
-			id: tabId,
+			id: `stats-${Date.now()}`,
 			name: `Stats: ${this.state.activeConnection.name}`,
 			connectionId: this.state.activeConnectionId,
 			isLoading: true
 		};
 
-		this.state.statisticsTabsByProject = {
-			...this.state.statisticsTabsByProject,
-			[projectId]: [...tabs, newTab]
-		};
-
-		this.tabOrdering.add(tabId);
-
-		this.state.activeStatisticsTabIdByProject = {
-			...this.state.activeStatisticsTabIdByProject,
-			[projectId]: tabId
-		};
-
+		this.appendTab(newTab);
 		this.setActiveView('statistics');
-		this.schedulePersistence(projectId);
 
 		// Load the statistics data
-		this.loadStatistics(tabId);
+		this.loadStatistics(newTab.id);
 
-		return tabId;
+		return newTab.id;
 	}
 
 	/**
 	 * Remove a Statistics tab by ID.
 	 */
-	remove(id: string): void {
-		this.tabOrdering.removeTabGeneric(
-			() => this.state.statisticsTabsByProject,
-			(r) => (this.state.statisticsTabsByProject = r),
-			() => this.state.activeStatisticsTabIdByProject,
-			(r) => (this.state.activeStatisticsTabIdByProject = r),
-			id
-		);
-		this.schedulePersistence(this.state.activeProjectId);
+	override remove(id: string): void {
+		super.remove(id);
 
 		// If no more statistics tabs, switch back to query view
 		const remainingTabs = this.state.statisticsTabsByProject[this.state.activeProjectId!] ?? [];
 		if (remainingTabs.length === 0) {
 			this.setActiveView('query');
 		}
-	}
-
-	/**
-	 * Set the active Statistics tab by ID.
-	 */
-	setActive(id: string): void {
-		if (!this.state.activeProjectId) return;
-		this.state.activeStatisticsTabIdByProject = {
-			...this.state.activeStatisticsTabIdByProject,
-			[this.state.activeProjectId]: id
-		};
-		this.schedulePersistence(this.state.activeProjectId);
 	}
 
 	/**
@@ -115,16 +97,15 @@ export class StatisticsTabManager {
 		const projectId = this.state.activeProjectId;
 		if (!projectId) return;
 
-		const tabs = this.state.statisticsTabsByProject[projectId] ?? [];
-		const tabIndex = tabs.findIndex((t) => t.id === tabId);
-		if (tabIndex === -1) return;
+		const tabs = this.getProjectTabs();
+		const tab = tabs.find((t) => t.id === tabId);
+		if (!tab) return;
 
-		const tab = tabs[tabIndex];
 		const connection = this.state.connections.find((c) => c.id === tab.connectionId);
 		if (!connection) return;
 
 		// Set loading state
-		this.updateTab(projectId, tabId, { isLoading: true, error: undefined });
+		this.updateTab(tabId, (t) => ({ ...t, isLoading: true, error: undefined }));
 
 		try {
 			const adapter = getAdapter(connection.type);
@@ -165,33 +146,18 @@ export class StatisticsTabManager {
 				indexUsage: adapter.parseIndexUsageResult?.(indexUsageRows) ?? []
 			};
 
-			this.updateTab(projectId, tabId, {
+			this.updateTab(tabId, (t) => ({
+				...t,
 				data: statistics,
 				isLoading: false,
 				lastRefreshed: new Date()
-			});
+			}));
 		} catch (error) {
-			this.updateTab(projectId, tabId, {
+			this.updateTab(tabId, (t) => ({
+				...t,
 				isLoading: false,
 				error: error instanceof Error ? error.message : 'Failed to load statistics'
-			});
+			}));
 		}
-	}
-
-	/**
-	 * Update a specific tab's properties.
-	 */
-	private updateTab(projectId: string, tabId: string, updates: Partial<StatisticsTab>): void {
-		const tabs = this.state.statisticsTabsByProject[projectId] ?? [];
-		const tabIndex = tabs.findIndex((t) => t.id === tabId);
-		if (tabIndex === -1) return;
-
-		const updatedTabs = [...tabs];
-		updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], ...updates };
-
-		this.state.statisticsTabsByProject = {
-			...this.state.statisticsTabsByProject,
-			[projectId]: updatedTabs
-		};
 	}
 }
