@@ -34,7 +34,7 @@ export class TauriDatabaseProvider implements DatabaseProvider {
 	async disconnect(connectionId: string): Promise<void> {
 		const db = this.connections.get(connectionId);
 		if (db) {
-			await db.close();
+			await db.close(db.path);
 			this.connections.delete(connectionId);
 		}
 	}
@@ -64,7 +64,7 @@ export class TauriDatabaseProvider implements DatabaseProvider {
 			throw new Error('Connection string is required for Tauri provider');
 		}
 		const db = await Database.load(config.connectionString);
-		await db.close();
+		await db.close(db.path);
 	}
 
 	/**
