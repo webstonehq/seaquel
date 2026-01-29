@@ -5,6 +5,7 @@ import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelt
 import { getAdapter, type DatabaseAdapter } from '$lib/db';
 import { mssqlQuery } from '$lib/services/mssql';
 import type { ProviderRegistry } from '$lib/providers';
+import { handleError, createError } from '$lib/errors';
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -216,7 +217,15 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
 					};
 				}
 			} catch (error) {
-				console.error(`Failed to load metadata for table ${table.schema}.${table.name}:`, error);
+				handleError(
+					createError(
+						'SCHEMA_LOAD_FAILED',
+						error instanceof Error ? error.message : String(error),
+						`Failed to load metadata for ${table.schema}.${table.name}`,
+						{ table: table.name, schema: table.schema }
+					),
+					{ silent: true }
+				);
 			}
 		});
 

@@ -1,5 +1,4 @@
-import { toast } from "svelte-sonner";
-import { errorToast } from "$lib/utils/toast";
+import { withErrorHandling } from "$lib/errors";
 import type {
   PersistedQueryTab,
   PersistedSchemaTab,
@@ -490,105 +489,107 @@ export class PersistenceManager {
       sshKeyPassphrase?: string;
     }
   ): Promise<void> {
-    try {
-      const store = await loadStore("database_connections.json", {
-        autoSave: true,
-        defaults: { connections: [] },
-      });
+    await withErrorHandling(
+      async () => {
+        const store = await loadStore("database_connections.json", {
+          autoSave: true,
+          defaults: { connections: [] },
+        });
 
-      const existingConnections = (await store.get("connections")) as PersistedConnection[] | null;
-      const connections = existingConnections || [];
+        const existingConnections = (await store.get("connections")) as PersistedConnection[] | null;
+        const connections = existingConnections || [];
 
-      // Remove if already exists (update case)
-      const filtered = connections.filter((c) => c.id !== connection.id);
+        // Remove if already exists (update case)
+        const filtered = connections.filter((c) => c.id !== connection.id);
 
-      // Create persisted version without password and database instance
-      const persistedConnection: PersistedConnection = {
-        id: connection.id,
-        name: connection.name,
-        type: connection.type,
-        host: connection.host,
-        port: connection.port,
-        databaseName: connection.databaseName,
-        username: connection.username,
-        sslMode: connection.sslMode,
-        connectionString: this.stripPasswordFromConnectionString(connection.connectionString),
-        lastConnected: connection.lastConnected,
-        sshTunnel: connection.sshTunnel,
-        savePassword: options?.savePassword,
-        saveSshPassword: options?.saveSshPassword,
-        saveSshKeyPassphrase: options?.saveSshKeyPassphrase,
-        projectId: connection.projectId,
-        labelIds: connection.labelIds,
-      };
+        // Create persisted version without password and database instance
+        const persistedConnection: PersistedConnection = {
+          id: connection.id,
+          name: connection.name,
+          type: connection.type,
+          host: connection.host,
+          port: connection.port,
+          databaseName: connection.databaseName,
+          username: connection.username,
+          sslMode: connection.sslMode,
+          connectionString: this.stripPasswordFromConnectionString(connection.connectionString),
+          lastConnected: connection.lastConnected,
+          sshTunnel: connection.sshTunnel,
+          savePassword: options?.savePassword,
+          saveSshPassword: options?.saveSshPassword,
+          saveSshKeyPassphrase: options?.saveSshKeyPassphrase,
+          projectId: connection.projectId,
+          labelIds: connection.labelIds,
+        };
 
-      filtered.push(persistedConnection);
-      await store.set("connections", filtered);
-      await store.save();
+        filtered.push(persistedConnection);
+        await store.set("connections", filtered);
+        await store.save();
 
-      // Save passwords to keyring if enabled
-      const keyring = getKeyringService();
-      if (keyring.isAvailable()) {
-        try {
-          if (options?.savePassword && connection.password) {
-            await keyring.setDbPassword(connection.id, connection.password);
-          } else if (!options?.savePassword) {
-            // Delete existing password if save is disabled
-            await keyring.deleteDbPassword(connection.id);
-          }
+        // Save passwords to keyring if enabled
+        const keyring = getKeyringService();
+        if (keyring.isAvailable()) {
+          await withErrorHandling(
+            async () => {
+              if (options?.savePassword && connection.password) {
+                await keyring.setDbPassword(connection.id, connection.password);
+              } else if (!options?.savePassword) {
+                await keyring.deleteDbPassword(connection.id);
+              }
 
-          if (options?.saveSshPassword && options.sshPassword) {
-            await keyring.setSshPassword(connection.id, options.sshPassword);
-          } else if (!options?.saveSshPassword) {
-            await keyring.deleteSshPassword(connection.id);
-          }
+              if (options?.saveSshPassword && options.sshPassword) {
+                await keyring.setSshPassword(connection.id, options.sshPassword);
+              } else if (!options?.saveSshPassword) {
+                await keyring.deleteSshPassword(connection.id);
+              }
 
-          if (options?.saveSshKeyPassphrase && options.sshKeyPassphrase) {
-            await keyring.setSshKeyPassphrase(connection.id, options.sshKeyPassphrase);
-          } else if (!options?.saveSshKeyPassphrase) {
-            await keyring.deleteSshKeyPassphrase(connection.id);
-          }
-        } catch (error) {
-          console.warn("Failed to save credentials to keyring:", error);
-          errorToast("Could not save password to system keychain");
+              if (options?.saveSshKeyPassphrase && options.sshKeyPassphrase) {
+                await keyring.setSshKeyPassphrase(connection.id, options.sshKeyPassphrase);
+              } else if (!options?.saveSshKeyPassphrase) {
+                await keyring.deleteSshKeyPassphrase(connection.id);
+              }
+            },
+            'PERSISTENCE_FAILED',
+            'Could not save password to system keychain'
+          );
         }
-      }
-    } catch (error) {
-      console.error("Failed to persist connection:", error);
-      errorToast("Failed to save connection to storage");
-    }
+      },
+      'PERSISTENCE_FAILED',
+      'Failed to save connection to storage'
+    );
   }
 
   async removePersistedConnection(connectionId: string): Promise<void> {
-    try {
-      const store = await loadStore("database_connections.json", {
-        autoSave: true,
-        defaults: { connections: [] },
-      });
+    await withErrorHandling(
+      async () => {
+        const store = await loadStore("database_connections.json", {
+          autoSave: true,
+          defaults: { connections: [] },
+        });
 
-      const existingConnections = (await store.get("connections")) as PersistedConnection[] | null;
-      const connections = existingConnections || [];
+        const existingConnections = (await store.get("connections")) as PersistedConnection[] | null;
+        const connections = existingConnections || [];
 
-      const filtered = connections.filter((c) => c.id !== connectionId);
-      await store.set("connections", filtered);
-      await store.save();
+        const filtered = connections.filter((c) => c.id !== connectionId);
+        await store.set("connections", filtered);
+        await store.save();
 
-      // Delete passwords from keyring
-      const keyring = getKeyringService();
-      if (keyring.isAvailable()) {
-        try {
-          await keyring.deleteAllForConnection(connectionId);
-        } catch (error) {
-          console.warn("Failed to delete credentials from keyring:", error);
+        // Delete passwords from keyring
+        const keyring = getKeyringService();
+        if (keyring.isAvailable()) {
+          try {
+            await keyring.deleteAllForConnection(connectionId);
+          } catch (error) {
+            console.warn("Failed to delete credentials from keyring:", error);
+          }
         }
-      }
 
-      // Remove connection data
-      await this.removeConnectionData(connectionId);
-    } catch (error) {
-      console.error("Failed to delete persisted connection:", error);
-      errorToast("Failed to delete connection from storage");
-    }
+        // Remove connection data
+        await this.removeConnectionData(connectionId);
+      },
+      'PERSISTENCE_FAILED',
+      'Failed to delete connection from storage'
+    );
   }
 
   async loadPersistedConnections(): Promise<PersistedConnection[]> {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Handle, Position, NodeResizer } from "@xyflow/svelte";
 	import type { CanvasQueryNodeData } from "$lib/types/canvas";
-	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { useCanvasNode } from "./use-canvas-node.svelte.js";
 	import SuggestiveHandle from "../suggestive-handle.svelte";
 	import CodeIcon from "@lucide/svelte/icons/code";
 	import PlayIcon from "@lucide/svelte/icons/play";
@@ -24,7 +24,7 @@
 
 	let { id, data, isConnectable = true, selected = false }: Props = $props();
 
-	const db = useDatabase();
+	const { db, handleRemove, handleResizeEnd } = useCanvasNode(() => id);
 
 	let localQuery = $state('');
 	let editorOpen = $state(false);
@@ -50,14 +50,6 @@
 	async function handleExecuteAndClose() {
 		editorOpen = false;
 		await db.canvas.executeQueryNode(id);
-	}
-
-	function handleRemove() {
-		db.canvas.removeNode(id);
-	}
-
-	function handleResizeEnd(_event: unknown, params: { width: number; height: number }) {
-		db.canvas.updateNodeDimensions(id, params.width, params.height);
 	}
 
 	// Get preview lines for display

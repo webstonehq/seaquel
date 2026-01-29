@@ -19,12 +19,14 @@ import { errorToast } from "$lib/utils/toast";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
 	import { m } from "$lib/paraglide/messages.js";
+	import { copyCell as clipboardCopyCell, copyRowAsJSON as clipboardCopyRowAsJSON, copyColumn as clipboardCopyColumn } from "$lib/utils/clipboard";
 	import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser.js";
 	import { hasParameters, extractParameters, createDefaultParameters } from "$lib/db/query-params.js";
 	import type { QueryParameter, ParameterValue } from "$lib/types";
 	import QueryExampleCard from "$lib/components/empty-states/query-example-card.svelte";
 	import { sampleQueries } from "$lib/config/sample-queries.js";
 	import PlusIcon from "@lucide/svelte/icons/plus";
+	import { EmptyState } from "$lib/components/ui/empty-state";
 
 	// Import subcomponents
 	import {
@@ -516,26 +518,17 @@ import { errorToast } from "$lib/utils/toast";
 
 	const copyCell = async () => {
 		if (!contextCell) return;
-		const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
-		await navigator.clipboard.writeText(value);
-		toast.success(m.query_cell_copied());
+		await clipboardCopyCell(contextCell.value);
 	};
 
 	const copyRowAsJSON = async () => {
 		if (!contextCell) return;
-		await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
-		toast.success(m.query_row_copied());
+		await clipboardCopyRowAsJSON(contextCell.row);
 	};
 
 	const copyColumn = async () => {
 		if (!contextCell || !activeResult) return;
-		const col = contextCell.column;
-		const values = activeResult.rows
-			.map(row => row[col])
-			.map(v => v === null || v === undefined ? "" : String(v))
-			.join("\n");
-		await navigator.clipboard.writeText(values);
-		toast.success(m.query_column_copied());
+		await clipboardCopyColumn(contextCell.column, activeResult.rows);
 	};
 
 	// Register keyboard shortcuts
@@ -673,13 +666,12 @@ import { errorToast } from "$lib/utils/toast";
 						{#if currentViewMode === 'explain' && explainResult}
 							<ExplainResultPane {explainResult} />
 						{:else if currentViewMode === 'explain' && !explainResult}
-							<div class="flex-1 flex items-center justify-center p-6">
-								<div class="text-center max-w-xs">
-									<DatabaseIcon class="size-10 mx-auto mb-3 opacity-20" />
-									<p class="font-medium mb-2">No Explain Results</p>
-									<p class="text-xs text-muted-foreground mb-4">
-										Analyze your query's execution plan to understand how the database processes it.
-									</p>
+							<EmptyState
+								icon={DatabaseIcon}
+								title="No Explain Results"
+								description="Analyze your query's execution plan to understand how the database processes it."
+							>
+								{#snippet actions()}
 									<div class="flex gap-2 justify-center">
 										<Button size="sm" variant="outline" onclick={() => handleExplain(false)}>
 											Explain
@@ -688,26 +680,25 @@ import { errorToast } from "$lib/utils/toast";
 											Explain Analyze
 										</Button>
 									</div>
-								</div>
-							</div>
+								{/snippet}
+							</EmptyState>
 						{:else if currentViewMode === 'visualize' && visualizeResult}
 							<VisualizeResultPane
 								{visualizeResult}
 								layoutOptions={visualizeLayoutOptions}
 							/>
 						{:else if currentViewMode === 'visualize' && !visualizeResult}
-							<div class="flex-1 flex items-center justify-center p-6">
-								<div class="text-center max-w-xs">
-									<NetworkIcon class="size-10 mx-auto mb-3 opacity-20" />
-									<p class="font-medium mb-2">No Visual Results</p>
-									<p class="text-xs text-muted-foreground mb-4">
-										See a visual representation of your query structure.
-									</p>
+							<EmptyState
+								icon={NetworkIcon}
+								title="No Visual Results"
+								description="See a visual representation of your query structure."
+							>
+								{#snippet actions()}
 									<Button size="sm" onclick={handleVisualize}>
 										Visualize Query
 									</Button>
-								</div>
-							</div>
+								{/snippet}
+							</EmptyState>
 						{:else if activeResult?.isError}
 							<QueryErrorDisplay
 								statementIndex={activeResultIndex}
@@ -768,13 +759,12 @@ import { errorToast } from "$lib/utils/toast";
 						{#if currentViewMode === 'explain' && explainResult}
 							<ExplainResultPane {explainResult} />
 						{:else if currentViewMode === 'explain' && !explainResult}
-							<div class="flex-1 flex items-center justify-center p-6">
-								<div class="text-center max-w-xs">
-									<DatabaseIcon class="size-10 mx-auto mb-3 opacity-20" />
-									<p class="font-medium mb-2">No Explain Results</p>
-									<p class="text-xs text-muted-foreground mb-4">
-										Analyze your query's execution plan to understand how the database processes it.
-									</p>
+							<EmptyState
+								icon={DatabaseIcon}
+								title="No Explain Results"
+								description="Analyze your query's execution plan to understand how the database processes it."
+							>
+								{#snippet actions()}
 									<div class="flex gap-2 justify-center">
 										<Button size="sm" variant="outline" onclick={() => handleExplain(false)}>
 											Explain
@@ -783,26 +773,25 @@ import { errorToast } from "$lib/utils/toast";
 											Explain Analyze
 										</Button>
 									</div>
-								</div>
-							</div>
+								{/snippet}
+							</EmptyState>
 						{:else if currentViewMode === 'visualize' && visualizeResult}
 							<VisualizeResultPane
 								{visualizeResult}
 								layoutOptions={visualizeLayoutOptions}
 							/>
 						{:else if currentViewMode === 'visualize' && !visualizeResult}
-							<div class="flex-1 flex items-center justify-center p-6">
-								<div class="text-center max-w-xs">
-									<NetworkIcon class="size-10 mx-auto mb-3 opacity-20" />
-									<p class="font-medium mb-2">No Visual Results</p>
-									<p class="text-xs text-muted-foreground mb-4">
-										See a visual representation of your query structure.
-									</p>
+							<EmptyState
+								icon={NetworkIcon}
+								title="No Visual Results"
+								description="See a visual representation of your query structure."
+							>
+								{#snippet actions()}
 									<Button size="sm" onclick={handleVisualize}>
 										Visualize Query
 									</Button>
-								</div>
-							</div>
+								{/snippet}
+							</EmptyState>
 						{:else}
 							<div class="flex-1 flex items-center justify-center p-6 overflow-auto">
 								<div class="w-full max-w-md space-y-6">

@@ -34,7 +34,9 @@
 
 	let { executor, value = '', onSqlChange, onExecutingChange, schema, enableVisualSync = false }: Props = $props();
 
-	// Get query builder for two-way sync (only if enabled)
+	// Get query builder for two-way sync (only if enabled at mount time).
+	// enableVisualSync is only read at init; getContext() must run during component initialization.
+	// svelte-ignore state_referenced_locally
 	const qb = enableVisualSync ? useQueryBuilder() : null;
 
 	// Local state

@@ -2,7 +2,7 @@
 	import { Handle, Position, NodeResizer } from "@xyflow/svelte";
 	import type { CanvasChartNodeData } from "$lib/types/canvas";
 	import type { ChartType } from "$lib/types";
-	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { useCanvasNode } from "./use-canvas-node.svelte.js";
 	import { BarChart, LineChart, PieChart, ScatterChart } from "layerchart";
 	import ChartBarIcon from "@lucide/svelte/icons/chart-bar";
 	import ChartLineIcon from "@lucide/svelte/icons/chart-line";
@@ -22,20 +22,12 @@
 
 	let { id, data, isConnectable = true, selected = false }: Props = $props();
 
-	const db = useDatabase();
-
-	function handleRemove() {
-		db.canvas.removeNode(id);
-	}
+	const { db, handleRemove, handleResizeEnd } = useCanvasNode(() => id);
 
 	function handleChartTypeChange(newType: ChartType) {
 		db.canvas.updateNodeData(id, {
 			chartConfig: { ...data.chartConfig, type: newType },
 		});
-	}
-
-	function handleResizeEnd(_event: unknown, params: { width: number; height: number }) {
-		db.canvas.updateNodeDimensions(id, params.width, params.height);
 	}
 
 	// Transform data for the chart
