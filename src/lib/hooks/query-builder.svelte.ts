@@ -24,19 +24,18 @@ import type {
 } from '$lib/types';
 import { TUTORIAL_SCHEMA } from '$lib/tutorial/schema';
 import { tutorialToQueryBuilder, getQueryBuilderTable } from '$lib/utils/schema-adapter';
+import { buildSql as generateSqlFromState } from './query-builder-sql';
+import {
+	serializeQueryBuilderState,
+	deserializeQueryBuilderState,
+	type SerializableQueryBuilderState
+} from './query-builder-serialization';
 
 /**
  * Generates a unique ID for canvas elements.
  */
 function generateId(): string {
 	return crypto.randomUUID();
-}
-
-/**
- * Check if a value is a template variable like {{my_var}}.
- */
-function isTemplateVariable(value: string): boolean {
-	return /^\{\{.+\}\}$/.test(value.trim());
 }
 
 /**
@@ -1930,32 +1929,10 @@ export class QueryBuilderState {
 
 	/**
 	 * Build SQL from the current canvas state.
-	 * Delegates to buildQuerySql with top-level state.
+	 * Delegates to pure SQL generation functions in query-builder-sql.ts.
 	 */
 	private buildSql(): string {
-		let sql = '';
-
-		// Build WITH clause if CTEs exist
-		if (this.ctes.length > 0) {
-			const cteParts = this.ctes
-				.filter((cte) => cte.name && cte.innerQuery.tables.length > 0)
-				.map((cte) => {
-					const innerSql = this.buildSubquerySql(cte.innerQuery);
-					// Indent each line of the inner SQL
-					const indentedInnerSql = innerSql
-						.split('\n')
-						.map((line) => '  ' + line)
-						.join('\n');
-					return `${cte.name} AS (\n${indentedInnerSql}\n)`;
-				});
-
-			if (cteParts.length > 0) {
-				sql = `WITH ${cteParts.join(',\n')}\n`;
-			}
-		}
-
-		// Build main query
-		sql += this.buildQuerySql(
+		return generateSqlFromState(
 			this.tables,
 			this.joins,
 			this.filters,
@@ -1964,252 +1941,9 @@ export class QueryBuilderState {
 			this.orderBy,
 			this.limit,
 			this.selectAggregates,
-			this.subqueries
+			this.subqueries,
+			this.ctes
 		);
-
-		return sql;
-	}
-
-	/**
-	 * Build SQL from query state (recursive for subqueries).
-	 */
-	private buildQuerySql(
-		tables: CanvasTable[],
-		joins: CanvasJoin[],
-		filters: FilterCondition[],
-		groupBy: GroupByCondition[],
-		having: HavingCondition[],
-		orderBy: SortCondition[],
-		limit: string | number | null,
-		selectAggregates: SelectAggregate[],
-		subqueries: CanvasSubquery[]
-	): string {
-		// No tables and no FROM subqueries = empty query
-		const fromSubqueries = subqueries.filter((s) => s.role === 'from');
-		if (tables.length === 0 && fromSubqueries.length === 0) {
-			return '';
-		}
-
-		// Collect all selected columns and aggregates
-		const selectParts: string[] = [];
-
-		for (const table of tables) {
-			for (const column of table.selectedColumns) {
-				const agg = table.columnAggregates.get(column);
-				if (agg) {
-					// Column with aggregate
-					const expr = `${agg.function}(${table.tableName}.${column})`;
-					selectParts.push(agg.alias ? `${expr} AS ${agg.alias}` : expr);
-				} else {
-					// Regular column
-					selectParts.push(`${table.tableName}.${column}`);
-				}
-			}
-		}
-
-		// Add standalone aggregates
-		for (const agg of selectAggregates) {
-			const expr = `${agg.function}(${agg.expression})`;
-			selectParts.push(agg.alias ? `${expr} AS ${agg.alias}` : expr);
-		}
-
-		// Add SELECT subqueries (scalar subqueries)
-		const selectSubqueries = subqueries.filter((s) => s.role === 'select');
-		for (const sq of selectSubqueries) {
-			const subquerySql = this.buildSubquerySql(sq.innerQuery);
-			if (subquerySql) {
-				const expr = `(${subquerySql})`;
-				selectParts.push(sq.alias ? `${expr} AS ${sq.alias}` : expr);
-			}
-		}
-
-		// If no columns selected, use * from first table (or first FROM subquery alias)
-		let selectClause: string;
-		if (selectParts.length > 0) {
-			selectClause = selectParts.join(', ');
-		} else if (tables.length > 0) {
-			selectClause = `${tables[0].tableName}.*`;
-		} else if (fromSubqueries.length > 0 && fromSubqueries[0].alias) {
-			selectClause = `${fromSubqueries[0].alias}.*`;
-		} else {
-			selectClause = '*';
-		}
-
-		// Build FROM clause - start with first table or FROM subquery
-		let fromClause: string;
-		if (tables.length > 0) {
-			fromClause = tables[0].tableName;
-		} else if (fromSubqueries.length > 0) {
-			const firstFromSq = fromSubqueries[0];
-			const subquerySql = this.buildSubquerySql(firstFromSq.innerQuery);
-			fromClause = `(${subquerySql}) AS ${firstFromSq.alias || 'subquery'}`;
-		} else {
-			fromClause = '';
-		}
-
-		// Add JOINs
-		for (const join of joins) {
-			fromClause += `\n  ${join.joinType} JOIN ${join.targetTable} ON ${join.sourceTable}.${join.sourceColumn} = ${join.targetTable}.${join.targetColumn}`;
-		}
-
-		// Add additional FROM subqueries (after the first one)
-		for (let i = tables.length > 0 ? 0 : 1; i < fromSubqueries.length; i++) {
-			const sq = fromSubqueries[i];
-			const subquerySql = this.buildSubquerySql(sq.innerQuery);
-			if (subquerySql) {
-				// For simplicity, add as CROSS JOIN or the user can manually adjust
-				fromClause += `,\n  (${subquerySql}) AS ${sq.alias || `subquery_${i}`}`;
-			}
-		}
-
-		// Build WHERE clause with subquery support
-		let whereClause = '';
-		if (filters.length > 0) {
-			const filterConditions = filters.map((f, index) => {
-				const condition = this.buildFilterCondition(f, subqueries);
-				// Don't add connector before the first condition
-				if (index === 0) {
-					return condition;
-				}
-				// Use the previous filter's connector
-				const prevConnector = filters[index - 1].connector;
-				return `${prevConnector} ${condition}`;
-			});
-			whereClause = `\nWHERE ${filterConditions.join('\n  ')}`;
-		}
-
-		// Build GROUP BY clause
-		let groupByClause = '';
-		if (groupBy.length > 0) {
-			const groupByColumns = groupBy.map((g) => g.column);
-			groupByClause = `\nGROUP BY ${groupByColumns.join(', ')}`;
-		}
-
-		// Build HAVING clause
-		let havingClause = '';
-		if (having.length > 0) {
-			const havingConditions = having.map((h, index) => {
-				const condition = this.buildHavingCondition(h);
-				// Don't add connector before the first condition
-				if (index === 0) {
-					return condition;
-				}
-				// Use the previous having's connector
-				const prevConnector = having[index - 1].connector;
-				return `${prevConnector} ${condition}`;
-			});
-			havingClause = `\nHAVING ${havingConditions.join('\n  ')}`;
-		}
-
-		// Build ORDER BY clause
-		let orderByClause = '';
-		if (orderBy.length > 0) {
-			const orderConditions = orderBy.map((o) => `${o.column} ${o.direction}`);
-			orderByClause = `\nORDER BY ${orderConditions.join(', ')}`;
-		}
-
-		// Build LIMIT clause
-		let limitClause = '';
-		if (limit !== null) {
-			limitClause = `\nLIMIT ${limit}`;
-		}
-
-		return `SELECT ${selectClause}\nFROM ${fromClause}${whereClause}${groupByClause}${havingClause}${orderByClause}${limitClause}`;
-	}
-
-	/**
-	 * Build SQL for a subquery's inner state (recursive).
-	 */
-	private buildSubquerySql(inner: SubqueryInnerState): string {
-		return this.buildQuerySql(
-			inner.tables,
-			inner.joins,
-			inner.filters,
-			inner.groupBy,
-			inner.having,
-			inner.orderBy,
-			inner.limit,
-			inner.selectAggregates,
-			inner.subqueries
-		);
-	}
-
-	/**
-	 * Build a single filter condition string.
-	 * Supports subquery values for WHERE subqueries.
-	 */
-	private buildFilterCondition(
-		filter: FilterCondition,
-		subqueries: CanvasSubquery[] = []
-	): string {
-		const { column, operator, value, subqueryId } = filter;
-
-		// If filter is linked to a subquery, use subquery SQL as value
-		if (subqueryId) {
-			const subquery = subqueries.find((s) => s.id === subqueryId);
-			if (subquery && subquery.innerQuery.tables.length > 0) {
-				const subquerySql = this.buildSubquerySql(subquery.innerQuery);
-				if (operator === 'IN') {
-					return `${column} IN (${subquerySql})`;
-				} else if (operator === 'NOT IN') {
-					return `${column} NOT IN (${subquerySql})`;
-				} else {
-					// Scalar subquery comparison
-					return `${column} ${operator} (${subquerySql})`;
-				}
-			}
-		}
-
-		switch (operator) {
-			case 'IS NULL':
-				return `${column} IS NULL`;
-			case 'IS NOT NULL':
-				return `${column} IS NOT NULL`;
-			case 'IS TRUE':
-				return `${column} IS TRUE`;
-			case 'IS FALSE':
-				return `${column} IS FALSE`;
-			case 'IS NOT TRUE':
-				return `${column} IS NOT TRUE`;
-			case 'IS NOT FALSE':
-				return `${column} IS NOT FALSE`;
-			case 'IN':
-				// Assume value is comma-separated list
-				return `${column} IN (${value})`;
-			case 'NOT IN':
-				// Assume value is comma-separated list
-				return `${column} NOT IN (${value})`;
-			case 'BETWEEN':
-				// Assume value is "low AND high"
-				return `${column} BETWEEN ${value}`;
-			case 'LIKE':
-			case 'NOT LIKE':
-				// Template variables pass through unquoted
-				if (isTemplateVariable(value)) {
-					return `${column} ${operator} ${value}`;
-				}
-				return `${column} ${operator} '${value}'`;
-			default: {
-				// Template variables pass through unquoted
-				if (isTemplateVariable(value)) {
-					return `${column} ${operator} ${value}`;
-				}
-				// Check if value looks like a number
-				const isNumeric = !isNaN(Number(value)) && value.trim() !== '';
-				const formattedValue = isNumeric ? value : `'${value}'`;
-				return `${column} ${operator} ${formattedValue}`;
-			}
-		}
-	}
-
-	/**
-	 * Build a single HAVING condition string.
-	 */
-	private buildHavingCondition(having: HavingCondition): string {
-		const { aggregateFunction, column, operator, value } = having;
-		// Use * for empty column (COUNT(*)), otherwise use the column name
-		const columnPart = column === '' ? '*' : column;
-		return `${aggregateFunction}(${columnPart}) ${operator} ${value}`;
 	}
 
 	// === APPLY FROM PARSED SQL ===
@@ -2813,230 +2547,26 @@ export class QueryBuilderState {
 	 * Converts Sets to arrays.
 	 */
 	toSerializable(): SerializableQueryBuilderState {
-		return {
-			tables: this.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: Array.from(t.selectedColumns),
-				columnAggregates: Object.fromEntries(t.columnAggregates),
-				cteId: t.cteId
-			})),
-			joins: [...this.joins],
-			filters: [...this.filters],
-			groupBy: [...this.groupBy],
-			having: [...this.having],
-			orderBy: [...this.orderBy],
-			limit: this.limit,
-			customSql: this.customSql,
-			selectAggregates: [...this.selectAggregates],
-			subqueries: this.serializeSubqueries(this.subqueries),
-			ctes: this.serializeCtes(this.ctes)
-		};
-	}
-
-	/**
-	 * Serialize subqueries recursively.
-	 */
-	private serializeSubqueries(subqueries: CanvasSubquery[]): SerializableSubquery[] {
-		return subqueries.map((sq) => ({
-			id: sq.id,
-			position: sq.position,
-			size: sq.size,
-			role: sq.role,
-			linkedFilterId: sq.linkedFilterId,
-			alias: sq.alias,
-			innerQuery: this.serializeInnerQuery(sq.innerQuery)
-		}));
-	}
-
-	/**
-	 * Serialize CTEs.
-	 */
-	private serializeCtes(ctes: CanvasCTE[]): SerializableCTE[] {
-		return ctes.map((cte) => ({
-			id: cte.id,
-			name: cte.name,
-			position: cte.position,
-			size: cte.size,
-			innerQuery: this.serializeInnerQuery(cte.innerQuery)
-		}));
-	}
-
-	/**
-	 * Serialize inner query state.
-	 */
-	private serializeInnerQuery(inner: SubqueryInnerState): SerializableInnerQuery {
-		return {
-			tables: inner.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: Array.from(t.selectedColumns),
-				columnAggregates: Object.fromEntries(t.columnAggregates)
-			})),
-			joins: [...inner.joins],
-			filters: [...inner.filters],
-			groupBy: [...inner.groupBy],
-			having: [...inner.having],
-			orderBy: [...inner.orderBy],
-			limit: inner.limit,
-			selectAggregates: [...inner.selectAggregates],
-			subqueries: this.serializeSubqueries(inner.subqueries)
-		};
+		return serializeQueryBuilderState(this);
 	}
 
 	/**
 	 * Restore state from a serialized snapshot.
 	 */
 	fromSerializable(state: SerializableQueryBuilderState): void {
-		this.tables = state.tables.map((t) => ({
-			id: t.id,
-			tableName: t.tableName,
-			position: t.position,
-			selectedColumns: new SvelteSet(t.selectedColumns),
-			columnAggregates: new Map(
-				Object.entries(t.columnAggregates ?? {}) as [string, ColumnAggregate][]
-			),
-			cteId: t.cteId
-		}));
-		this.joins = state.joins.map((j) => ({ ...j }));
-		this.filters = state.filters.map((f) => ({ ...f }));
-		this.groupBy = (state.groupBy ?? []).map((g) => ({ ...g }));
-		this.having = (state.having ?? []).map((h) => ({ ...h }));
-		this.orderBy = state.orderBy.map((o) => ({ ...o }));
-		this.limit = state.limit;
-		this.customSql = state.customSql ?? null;
-		this.selectAggregates = (state.selectAggregates ?? []).map((a) => ({ ...a }));
-		this.subqueries = this.deserializeSubqueries(state.subqueries ?? []);
-		this.ctes = this.deserializeCtes(state.ctes ?? []);
+		const deserialized = deserializeQueryBuilderState(state);
+		this.tables = deserialized.tables;
+		this.joins = deserialized.joins;
+		this.filters = deserialized.filters;
+		this.groupBy = deserialized.groupBy;
+		this.having = deserialized.having;
+		this.orderBy = deserialized.orderBy;
+		this.limit = deserialized.limit;
+		this.customSql = deserialized.customSql;
+		this.selectAggregates = deserialized.selectAggregates;
+		this.subqueries = deserialized.subqueries;
+		this.ctes = deserialized.ctes;
 	}
-
-	/**
-	 * Deserialize subqueries recursively.
-	 */
-	private deserializeSubqueries(subqueries: SerializableSubquery[]): CanvasSubquery[] {
-		return subqueries.map((sq) => ({
-			id: sq.id,
-			position: sq.position,
-			size: sq.size,
-			role: sq.role,
-			linkedFilterId: sq.linkedFilterId,
-			alias: sq.alias,
-			innerQuery: this.deserializeInnerQuery(sq.innerQuery)
-		}));
-	}
-
-	/**
-	 * Deserialize CTEs.
-	 */
-	private deserializeCtes(ctes: SerializableCTE[]): CanvasCTE[] {
-		return ctes.map((cte) => ({
-			id: cte.id,
-			name: cte.name,
-			position: cte.position,
-			size: cte.size,
-			innerQuery: this.deserializeInnerQuery(cte.innerQuery)
-		}));
-	}
-
-	/**
-	 * Deserialize inner query state.
-	 */
-	private deserializeInnerQuery(inner: SerializableInnerQuery): SubqueryInnerState {
-		return {
-			tables: inner.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: new SvelteSet(t.selectedColumns),
-				columnAggregates: new Map(
-					Object.entries(t.columnAggregates ?? {}) as [string, ColumnAggregate][]
-				)
-			})),
-			joins: inner.joins.map((j) => ({ ...j })),
-			filters: inner.filters.map((f) => ({ ...f })),
-			groupBy: inner.groupBy.map((g) => ({ ...g })),
-			having: inner.having.map((h) => ({ ...h })),
-			orderBy: inner.orderBy.map((o) => ({ ...o })),
-			limit: inner.limit,
-			selectAggregates: inner.selectAggregates.map((a) => ({ ...a })),
-			subqueries: this.deserializeSubqueries(inner.subqueries ?? [])
-		};
-	}
-}
-
-/**
- * Serializable table for persistence.
- */
-export interface SerializableTable {
-	id: string;
-	tableName: string;
-	position: { x: number; y: number };
-	selectedColumns: string[];
-	columnAggregates?: Record<string, ColumnAggregate>;
-	/** If set, this table references a CTE instead of schema table */
-	cteId?: string;
-}
-
-/**
- * Serializable inner query for subqueries.
- */
-export interface SerializableInnerQuery {
-	tables: SerializableTable[];
-	joins: CanvasJoin[];
-	filters: FilterCondition[];
-	groupBy: GroupByCondition[];
-	having: HavingCondition[];
-	orderBy: SortCondition[];
-	limit: string | number | null;
-	selectAggregates: SelectAggregate[];
-	subqueries?: SerializableSubquery[];
-}
-
-/**
- * Serializable subquery for persistence.
- */
-export interface SerializableSubquery {
-	id: string;
-	position: { x: number; y: number };
-	size: { width: number; height: number };
-	role: SubqueryRole;
-	linkedFilterId?: string;
-	alias?: string;
-	innerQuery: SerializableInnerQuery;
-}
-
-/**
- * Serializable CTE for persistence.
- */
-export interface SerializableCTE {
-	id: string;
-	name: string;
-	position: { x: number; y: number };
-	size: { width: number; height: number };
-	innerQuery: SerializableInnerQuery;
-}
-
-/**
- * Serializable version of query builder state for persistence.
- */
-export interface SerializableQueryBuilderState {
-	tables: SerializableTable[];
-	joins: CanvasJoin[];
-	filters: FilterCondition[];
-	groupBy?: GroupByCondition[];
-	having?: HavingCondition[];
-	orderBy: SortCondition[];
-	limit: string | number | null;
-	/** User's custom SQL text (preserved even if it differs from generated) */
-	customSql?: string | null;
-	/** Standalone aggregates in SELECT clause */
-	selectAggregates?: SelectAggregate[];
-	/** Subqueries on the canvas */
-	subqueries?: SerializableSubquery[];
-	/** CTEs (Common Table Expressions) on the canvas */
-	ctes?: SerializableCTE[];
 }
 
 // === CONTEXT FUNCTIONS ===
@@ -3063,3 +2593,12 @@ export function setQueryBuilder(state?: QueryBuilderState): QueryBuilderState {
 export function useQueryBuilder(): QueryBuilderState {
 	return getContext<QueryBuilderState>(QUERY_BUILDER_CONTEXT_KEY);
 }
+
+// Re-export serialization types for backward compatibility
+export type {
+	SerializableTable,
+	SerializableInnerQuery,
+	SerializableSubquery,
+	SerializableCTE,
+	SerializableQueryBuilderState
+} from './query-builder-serialization';

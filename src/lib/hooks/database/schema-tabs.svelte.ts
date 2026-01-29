@@ -4,7 +4,7 @@ import type { TabOrderingManager } from './tab-ordering.svelte.js';
 import { BaseTabManager, type TabStateAccessors } from './base-tab-manager.svelte.js';
 import { getAdapter, type DatabaseAdapter } from '$lib/db';
 import { mssqlQuery } from '$lib/services/mssql';
-import { getProvider, getDuckDBProvider, type DatabaseProvider } from '$lib/providers';
+import type { ProviderRegistry } from '$lib/providers';
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -15,7 +15,8 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
 	constructor(
 		state: DatabaseState,
 		tabOrdering: TabOrderingManager,
-		schedulePersistence: (projectId: string | null) => void
+		schedulePersistence: (projectId: string | null) => void,
+		private providers: ProviderRegistry
 	) {
 		super(state, tabOrdering, schedulePersistence);
 	}
@@ -27,17 +28,6 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
 			getActiveId: () => this.state.activeSchemaTabIdByProject,
 			setActiveId: (r) => (this.state.activeSchemaTabIdByProject = r)
 		};
-	}
-
-	/**
-	 * Get the appropriate provider based on connection type.
-	 */
-	private async getProviderForConnection(dbType?: string): Promise<DatabaseProvider> {
-		const connectionType = dbType ?? this.state.activeConnection?.type;
-		if (connectionType === 'duckdb') {
-			return getDuckDBProvider();
-		}
-		return getProvider();
 	}
 
 	/**
@@ -82,7 +72,7 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
 				foreignKeysResult = fkQueryResult.rows;
 			}
 		} else if (providerConnectionId) {
-			const provider = await this.getProviderForConnection();
+			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 			columnsResult = await provider.select(
 				providerConnectionId,
 				adapter.getColumnsQuery(table.name, table.schema)
@@ -157,7 +147,7 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
 	): Promise<void> {
 		// Get provider once for all tables - look up connection type from state
 		const connectionType = this.state.connections.find(c => c.id === connectionId)?.type;
-		const provider = providerConnectionId ? await this.getProviderForConnection(connectionType) : null;
+		const provider = providerConnectionId ? await this.providers.getForType(connectionType ?? '') : null;
 
 		// Process tables in parallel but update state as each completes
 		const promises = tables.map(async (table, index) => {

@@ -8,60 +8,20 @@ import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser";
 import { substituteParameters } from "$lib/db/query-params";
 import { m } from "$lib/paraglide/messages.js";
 import { mssqlQuery, mssqlExecute } from "$lib/services/mssql";
-import { getProvider, getDuckDBProvider, type DatabaseProvider } from "$lib/providers";
+import type { ProviderRegistry } from "$lib/providers";
+import { extractErrorMessage } from "$lib/errors";
 
 /**
  * Manages query execution, pagination, and CRUD operations.
  */
 export class QueryExecutionManager {
   private readonly DEFAULT_PAGE_SIZE = 100;
-  private provider: DatabaseProvider | null = null;
-  private duckdbProvider: DatabaseProvider | null = null;
 
   constructor(
     private state: DatabaseState,
-    private queryHistory: QueryHistoryManager
+    private queryHistory: QueryHistoryManager,
+    private providers: ProviderRegistry
   ) {}
-
-  /**
-   * Get or create the database provider.
-   */
-  private async getOrCreateProvider(): Promise<DatabaseProvider> {
-    if (!this.provider) {
-      this.provider = await getProvider();
-    }
-    return this.provider;
-  }
-
-  /**
-   * Get or create the DuckDB provider.
-   */
-  private async getOrCreateDuckDBProvider(): Promise<DatabaseProvider> {
-    if (!this.duckdbProvider) {
-      this.duckdbProvider = await getDuckDBProvider();
-    }
-    return this.duckdbProvider;
-  }
-
-  /**
-   * Get the appropriate provider based on connection type.
-   */
-  private async getProviderForConnection(connection: DatabaseConnection): Promise<DatabaseProvider> {
-    if (connection.type === "duckdb") {
-      return this.getOrCreateDuckDBProvider();
-    }
-    return this.getOrCreateProvider();
-  }
-
-  /**
-   * Formats an unknown error into a user-friendly string message.
-   */
-  private formatError(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return String(error);
-  }
 
   /**
    * Update a query tab's state with proper Svelte 5 reactivity.
@@ -126,7 +86,7 @@ export class QueryExecutionManager {
         const result = await mssqlExecute(connection.mssqlConnectionId!, baseQuery);
         rowsAffected = result.rowsAffected;
       } else if (providerConnectionId) {
-        const provider = await this.getProviderForConnection(connection);
+        const provider = await this.providers.getForType(connection.type);
         const executeResult = await provider.execute(providerConnectionId, baseQuery, bindValues);
         rowsAffected = executeResult?.rowsAffected ?? 0;
         lastInsertId = executeResult?.lastInsertId;
@@ -171,7 +131,7 @@ export class QueryExecutionManager {
           const result = await mssqlQuery(connection.mssqlConnectionId!, countQuery);
           countResult = result.rows as { total: string | number }[];
         } else if (providerConnectionId) {
-          const provider = await this.getProviderForConnection(connection);
+          const provider = await this.providers.getForType(connection.type);
           // Pass bind values since count query wraps the parameterized query
           countResult = await provider.select<{ total: string | number }>(providerConnectionId, countQuery, bindValues);
         } else {
@@ -211,7 +171,7 @@ export class QueryExecutionManager {
       dbResult = result.rows as Record<string, unknown>[];
       resultColumns = result.columns;
     } else if (providerConnectionId) {
-      const provider = await this.getProviderForConnection(connection);
+      const provider = await this.providers.getForType(connection.type);
       // Pass bind values for parameterized queries
       dbResult = await provider.select<Record<string, unknown>>(providerConnectionId, paginatedQuery, bindValues);
       resultColumns = (dbResult?.length ?? 0) > 0 ? Object.keys(dbResult[0]) : [];
@@ -314,7 +274,7 @@ export class QueryExecutionManager {
     } catch (error) {
       const results: StatementResult[] = [{
         columns: ["Error"],
-        rows: [{ Error: this.formatError(error) }],
+        rows: [{ Error: extractErrorMessage(error) }],
         rowCount: 1,
         totalRows: 1,
         executionTime: 0,
@@ -323,7 +283,7 @@ export class QueryExecutionManager {
         totalPages: 1,
         statementIndex: 0,
         statementSql: statement.sql,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       }];
 
@@ -399,7 +359,7 @@ export class QueryExecutionManager {
     } catch (error) {
       const results: StatementResult[] = [{
         columns: ["Error"],
-        rows: [{ Error: this.formatError(error) }],
+        rows: [{ Error: extractErrorMessage(error) }],
         rowCount: 1,
         totalRows: 1,
         executionTime: 0,
@@ -408,7 +368,7 @@ export class QueryExecutionManager {
         totalPages: 1,
         statementIndex: 0,
         statementSql: statement.sql,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       }];
 
@@ -477,7 +437,7 @@ export class QueryExecutionManager {
         // Continue on error - add error result
         results.push({
           columns: ["Error"],
-          rows: [{ Error: this.formatError(error) }],
+          rows: [{ Error: extractErrorMessage(error) }],
           rowCount: 1,
           totalRows: 1,
           executionTime: 0,
@@ -486,7 +446,7 @@ export class QueryExecutionManager {
           totalPages: 1,
           statementIndex: i,
           statementSql: stmt.sql,
-          error: this.formatError(error),
+          error: extractErrorMessage(error),
           isError: true,
         });
       }
@@ -570,7 +530,7 @@ export class QueryExecutionManager {
       } catch (error) {
         results.push({
           columns: ["Error"],
-          rows: [{ Error: this.formatError(error) }],
+          rows: [{ Error: extractErrorMessage(error) }],
           rowCount: 1,
           totalRows: 1,
           executionTime: 0,
@@ -579,7 +539,7 @@ export class QueryExecutionManager {
           totalPages: 1,
           statementIndex: i,
           statementSql: stmt.sql,
-          error: this.formatError(error),
+          error: extractErrorMessage(error),
           isError: true,
         });
       }
@@ -668,7 +628,7 @@ export class QueryExecutionManager {
       const newResults = [...tab.results];
       newResults[resultIndex] = {
         ...existingResult,
-        error: this.formatError(error),
+        error: extractErrorMessage(error),
         isError: true,
       };
       this.updateQueryTabState(tabId, { results: newResults });
@@ -728,7 +688,7 @@ export class QueryExecutionManager {
         await mssqlExecute(connection.mssqlConnectionId!, query);
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getProviderForConnection(connection);
+        const provider = await this.providers.getForType(connection.type);
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
         const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
@@ -740,7 +700,7 @@ export class QueryExecutionManager {
       row[column] = newValue;
       return { success: true };
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 
@@ -773,7 +733,7 @@ export class QueryExecutionManager {
         return { success: true };
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getProviderForConnection(connection);
+        const provider = await this.providers.getForType(connection.type);
         const columnNames = columns.map((c) => `"${c}"`).join(", ");
         const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
         const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
@@ -783,7 +743,7 @@ export class QueryExecutionManager {
         return { success: false, error: "No connection established" };
       }
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 
@@ -804,7 +764,7 @@ export class QueryExecutionManager {
       const result = await mssqlQuery(connection.mssqlConnectionId!, query);
       return result.rows as Record<string, unknown>[];
     } else if (connection.providerConnectionId) {
-      const provider = await this.getProviderForConnection(connection);
+      const provider = await this.providers.getForType(connection.type);
       return await provider.select<Record<string, unknown>>(connection.providerConnectionId, query);
     } else {
       throw new Error("No connection established");
@@ -837,7 +797,7 @@ export class QueryExecutionManager {
         await mssqlExecute(connection.mssqlConnectionId!, query);
       } else if (connection?.providerConnectionId) {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
-        const provider = await this.getProviderForConnection(connection);
+        const provider = await this.providers.getForType(connection.type);
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 1}`);
         const query = `DELETE FROM "${sourceTable.schema}"."${sourceTable.name}" WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = sourceTable.primaryKeys.map((pk) => row[pk]);
@@ -847,7 +807,7 @@ export class QueryExecutionManager {
       }
       return { success: true };
     } catch (error) {
-      return { success: false, error: this.formatError(error) };
+      return { success: false, error: extractErrorMessage(error) };
     }
   }
 }

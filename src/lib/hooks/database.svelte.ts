@@ -24,6 +24,7 @@ import { CanvasState } from "./database/canvas-state.svelte.js";
 import { CanvasManager } from "./database/canvas-manager.svelte.js";
 import { SharedRepoManager } from "./database/shared-repo-manager.svelte.js";
 import { SharedQueryManager } from "./database/shared-query-manager.svelte.js";
+import { ProviderRegistry } from "$lib/providers";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -90,10 +91,13 @@ class UseDatabase {
     // UI
     this.ui = new UIStateManager(this.state, scheduleProjectPersistence);
 
+    // Shared provider registry (used by connections, query execution, schema tabs, explain tabs)
+    const providers = new ProviderRegistry();
+
     // Tab managers
     this.queryTabs = new QueryTabManager(this.state, this.tabs, scheduleProjectPersistence);
-    this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence);
-    this.explainTabs = new ExplainTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
+    this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence, providers);
+    this.explainTabs = new ExplainTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView, providers);
     this.erdTabs = new ErdTabManager(this.state, this.tabs, scheduleProjectPersistence, setActiveView);
     this.statisticsTabs = new StatisticsTabManager(
       this.state,
@@ -129,7 +133,7 @@ class UseDatabase {
       (connectionId) => this.state.connections.find((c) => c.id === connectionId)?.name || ""
     );
     this.savedQueries = new SavedQueryManager(this.state, scheduleConnectionDataPersistence, scheduleProjectPersistence);
-    this.queries = new QueryExecutionManager(this.state, this.history);
+    this.queries = new QueryExecutionManager(this.state, this.history, providers);
 
     // Shared query library
     this.sharedRepos = new SharedRepoManager(this.state, () => this.persistence.scheduleSharedRepos());
@@ -141,6 +145,7 @@ class UseDatabase {
       this.persistence,
       this._stateRestoration,
       this.tabs,
+      providers,
       (connectionId: string, schemas: SchemaTable[], adapter: DatabaseAdapter, providerConnectionId?: string, mssqlConnectionId?: string) => {
         this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, adapter, providerConnectionId, mssqlConnectionId);
       },
