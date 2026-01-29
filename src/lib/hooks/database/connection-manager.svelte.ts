@@ -12,6 +12,7 @@ import { mssqlConnect, mssqlDisconnect, mssqlQuery } from "$lib/services/mssql";
 import type { ProviderRegistry } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
 import { getKeyringService } from "$lib/services/keyring";
+import { withErrorHandling } from "$lib/errors";
 
 type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
   projectId?: string;
@@ -503,94 +504,105 @@ export class ConnectionManager {
   /**
    * Test a connection without persisting it.
    */
-  async test(connection: ConnectionInput): Promise<void> {
-    let effectiveConnectionString = connection.connectionString;
-    let tunnelId: string | undefined;
-    let tunnelLocalPort: number | undefined;
+  async test(connection: ConnectionInput): Promise<boolean> {
+    const result = await withErrorHandling(
+      async () => {
+        let effectiveConnectionString = connection.connectionString;
+        let tunnelId: string | undefined;
+        let tunnelLocalPort: number | undefined;
 
-    // Establish SSH tunnel if enabled (only in Tauri)
-    if (connection.sshTunnel?.enabled) {
-      if (!isTauri()) {
-        throw new Error("SSH tunnels are only available in the desktop app");
-      }
-      const tunnelResult = await createSshTunnel({
-        sshHost: connection.sshTunnel.host,
-        sshPort: connection.sshTunnel.port,
-        sshUsername: connection.sshTunnel.username,
-        authMethod: connection.sshTunnel.authMethod,
-        password: connection.sshPassword,
-        keyPath: connection.sshKeyPath,
-        keyPassphrase: connection.sshKeyPassphrase,
-        remoteHost: connection.host,
-        remotePort: connection.port,
-      });
+        // Establish SSH tunnel if enabled (only in Tauri)
+        if (connection.sshTunnel?.enabled) {
+          if (!isTauri()) {
+            throw new Error("SSH tunnels are only available in the desktop app");
+          }
+          const tunnelResult = await createSshTunnel({
+            sshHost: connection.sshTunnel.host,
+            sshPort: connection.sshTunnel.port,
+            sshUsername: connection.sshTunnel.username,
+            authMethod: connection.sshTunnel.authMethod,
+            password: connection.sshPassword,
+            keyPath: connection.sshKeyPath,
+            keyPassphrase: connection.sshKeyPassphrase,
+            remoteHost: connection.host,
+            remotePort: connection.port,
+          });
 
-      tunnelId = tunnelResult.tunnelId;
-      tunnelLocalPort = tunnelResult.localPort;
+          tunnelId = tunnelResult.tunnelId;
+          tunnelLocalPort = tunnelResult.localPort;
 
-      // Build new connection string using tunnel (for non-MSSQL databases)
-      if (effectiveConnectionString) {
-        const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-        url.hostname = "127.0.0.1";
-        url.port = String(tunnelResult.localPort);
-        effectiveConnectionString = url.toString();
-      }
-    }
-
-    let mssqlTestConnectionId: string | undefined;
-    let providerTestConnectionId: string | undefined;
-
-    try {
-      // MSSQL and DuckDB use custom backends, others use provider
-      if (connection.type === "mssql") {
-        if (!isTauri()) {
-          throw new Error("MSSQL connections are only available in the desktop app");
+          // Build new connection string using tunnel (for non-MSSQL databases)
+          if (effectiveConnectionString) {
+            const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
+            url.hostname = "127.0.0.1";
+            url.port = String(tunnelResult.localPort);
+            effectiveConnectionString = url.toString();
+          }
         }
-        const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
-        const port = tunnelLocalPort || connection.port;
-        const mssqlConn = await mssqlConnect({
-          host,
-          port,
-          database: connection.databaseName,
-          username: connection.username,
-          password: connection.password,
-          encrypt: connection.sslMode !== "disable",
-          trustCert: connection.sslMode !== "require",
-        });
-        mssqlTestConnectionId = mssqlConn.connectionId;
-        // Close the test connection immediately
-        await mssqlDisconnect(mssqlTestConnectionId);
-      } else if (connection.type === "duckdb") {
-        // DuckDB uses dedicated provider
-        const duckdbProvider = await this.providers.getOrCreateDuckDB();
-        providerTestConnectionId = await duckdbProvider.connect({
-          type: connection.type,
-          connectionString: effectiveConnectionString,
-          databaseName: connection.databaseName,
-        });
-        // Close the test connection immediately
-        await duckdbProvider.disconnect(providerTestConnectionId);
-      } else if (effectiveConnectionString) {
-        // Use provider for PostgreSQL, SQLite
-        const provider = await this.providers.getOrCreateDefault();
-        providerTestConnectionId = await provider.connect({
-          type: connection.type,
-          connectionString: effectiveConnectionString,
-          databaseName: connection.databaseName,
-        });
-        // Close the test connection immediately
-        await provider.disconnect(providerTestConnectionId);
-      }
-    } finally {
-      // Clean up SSH tunnel if we created one
-      if (tunnelId) {
+
+        let mssqlTestConnectionId: string | undefined;
+        let providerTestConnectionId: string | undefined;
+
         try {
-          await closeSshTunnel(tunnelId);
-        } catch {
-          // Ignore cleanup errors
+          // MSSQL and DuckDB use custom backends, others use provider
+          if (connection.type === "mssql") {
+            if (!isTauri()) {
+              throw new Error("MSSQL connections are only available in the desktop app");
+            }
+            const host = tunnelLocalPort ? "127.0.0.1" : connection.host;
+            const port = tunnelLocalPort || connection.port;
+            const mssqlConn = await mssqlConnect({
+              host,
+              port,
+              database: connection.databaseName,
+              username: connection.username,
+              password: connection.password,
+              encrypt: connection.sslMode !== "disable",
+              trustCert: connection.sslMode !== "require",
+            });
+            mssqlTestConnectionId = mssqlConn.connectionId;
+            // Close the test connection immediately
+            await mssqlDisconnect(mssqlTestConnectionId);
+          } else if (connection.type === "duckdb") {
+            // DuckDB uses dedicated provider
+            const duckdbProvider = await this.providers.getOrCreateDuckDB();
+            providerTestConnectionId = await duckdbProvider.connect({
+              type: connection.type,
+              connectionString: effectiveConnectionString,
+              databaseName: connection.databaseName,
+            });
+            // Close the test connection immediately
+            await duckdbProvider.disconnect(providerTestConnectionId);
+          } else if (effectiveConnectionString) {
+            // Use provider for PostgreSQL, SQLite
+            const provider = await this.providers.getOrCreateDefault();
+            providerTestConnectionId = await provider.connect({
+              type: connection.type,
+              connectionString: effectiveConnectionString,
+              databaseName: connection.databaseName,
+            });
+            // Close the test connection immediately
+            await provider.disconnect(providerTestConnectionId);
+          }
+        } finally {
+          // Clean up SSH tunnel if we created one
+          if (tunnelId) {
+            try {
+              await closeSshTunnel(tunnelId);
+            } catch {
+              // Ignore cleanup errors
+            }
+          }
         }
-      }
+      },
+      'CONNECTION_FAILED',
+      `Failed to connect to ${connection.name || 'database'}`
+    );
+
+    if (result.ok) {
+      return true;
     }
+    return false;
   }
 
   /**

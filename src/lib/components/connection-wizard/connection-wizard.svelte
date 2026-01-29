@@ -87,15 +87,12 @@
 		}
 
 		wizard.isTesting = true;
-		try {
-			const connectionData = wizard.getConnectionData();
-			await db.connections.test(connectionData);
+		const connectionData = wizard.getConnectionData();
+		const success = await db.connections.test(connectionData);
+		if (success) {
 			toast.success(m.wizard_test_success());
-		} catch (error) {
-			wizard.setError(extractErrorMessage(error));
-		} finally {
-			wizard.isTesting = false;
 		}
+		wizard.isTesting = false;
 	};
 
 	const handleConnect = async () => {
