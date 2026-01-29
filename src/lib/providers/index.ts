@@ -62,3 +62,5 @@ export function resetProvider(): void {
 	provider = null;
 	duckdbProvider = null;
 }
+
+export { ProviderRegistry } from './provider-registry';
