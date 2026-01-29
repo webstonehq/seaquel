@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Handle, Position, NodeResizer } from "@xyflow/svelte";
 	import type { CanvasResultNodeData } from "$lib/types/canvas";
-	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { useCanvasNode } from "./use-canvas-node.svelte.js";
 	import SuggestiveHandle from "../suggestive-handle.svelte";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import TableIcon from "@lucide/svelte/icons/table-2";
@@ -14,8 +14,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
 	import MoreHorizontalIcon from "@lucide/svelte/icons/more-horizontal";
-	import { toast } from "svelte-sonner";
-	import { m } from "$lib/paraglide/messages.js";
+	import { copyCell as clipboardCopyCell, copyRowAsJSON as clipboardCopyRowAsJSON, copyColumn as clipboardCopyColumn } from "$lib/utils/clipboard";
 
 	interface Props {
 		id: string;
@@ -26,7 +25,7 @@
 
 	let { id, data, isConnectable = true, selected = false }: Props = $props();
 
-	const db = useDatabase();
+	const { db, handleRemove, handleResizeEnd } = useCanvasNode(() => id);
 
 	// Pagination state
 	const pageSize = 50;
@@ -45,31 +44,18 @@
 
 	const copyCell = async () => {
 		if (!contextCell) return;
-		const value = contextCell.value === null || contextCell.value === undefined ? "" : String(contextCell.value);
-		await navigator.clipboard.writeText(value);
-		toast.success(m.query_cell_copied());
+		await clipboardCopyCell(contextCell.value);
 	};
 
 	const copyRowAsJSON = async () => {
 		if (!contextCell) return;
-		await navigator.clipboard.writeText(JSON.stringify(contextCell.row, null, 2));
-		toast.success(m.query_row_copied());
+		await clipboardCopyRowAsJSON(contextCell.row);
 	};
 
 	const copyColumn = async () => {
 		if (!contextCell) return;
-		const col = contextCell.column;
-		const values = paginatedRows
-			.map(row => row[col])
-			.map(v => v === null || v === undefined ? "" : String(v))
-			.join("\n");
-		await navigator.clipboard.writeText(values);
-		toast.success(m.query_column_copied());
+		await clipboardCopyColumn(contextCell.column, paginatedRows);
 	};
-
-	function handleRemove() {
-		db.canvas.removeNode(id);
-	}
 
 	function handleViewAsChart() {
 		db.canvas.addChartNode(id, data.columns, data.rows);
@@ -77,10 +63,6 @@
 
 	function goToPage(page: number) {
 		currentPage = Math.max(1, Math.min(page, totalPages));
-	}
-
-	function handleResizeEnd(_event: unknown, params: { width: number; height: number }) {
-		db.canvas.updateNodeDimensions(id, params.width, params.height);
 	}
 
 	// Suggestions for the output handle (only if we have data)

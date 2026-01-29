@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Position, NodeResizer } from "@xyflow/svelte";
 	import type { CanvasTableNodeData } from "$lib/types/canvas";
-	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { useCanvasNode } from "./use-canvas-node.svelte.js";
 	import SuggestiveHandle from "../suggestive-handle.svelte";
 	import TableIcon from "@lucide/svelte/icons/table";
 	import Trash2Icon from "@lucide/svelte/icons/trash-2";
@@ -22,15 +22,11 @@
 
 	let { id, data, isConnectable = true, selected = false }: Props = $props();
 
-	const db = useDatabase();
+	const { db, handleRemove, handleResizeEnd } = useCanvasNode(() => id);
 
 	const maxVisibleColumns = 12;
 	const visibleColumns = $derived(data.columns.slice(0, maxVisibleColumns));
 	const hiddenColumnCount = $derived(data.columns.length - maxVisibleColumns);
-
-	function handleRemove() {
-		db.canvas.removeNode(id);
-	}
 
 	function handleQueryTable() {
 		const type = db.state.activeConnection?.type;
@@ -47,10 +43,6 @@
 		const queryNodeId = db.canvas.addQueryNode(query);
 		// Connect table node to query node
 		db.canvas.connect(id, queryNodeId, "output", "input");
-	}
-
-	function handleResizeEnd(_event: unknown, params: { width: number; height: number }) {
-		db.canvas.updateNodeDimensions(id, params.width, params.height);
 	}
 
 	// Suggestions for the output handle

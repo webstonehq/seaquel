@@ -1,4 +1,4 @@
-import { errorToast } from '$lib/utils/toast';
+import { withErrorHandling } from '$lib/errors';
 import type { ExplainTab, ExplainResult, ExplainPlanNode, ParameterValue } from '$lib/types';
 import type { DatabaseState } from './state.svelte.js';
 import type { TabOrderingManager } from './tab-ordering.svelte.js';
@@ -99,53 +99,60 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 		// Mark as executing
 		this.setExplainExecuting(tabId, true, analyze);
 
-		try {
-			const adapter = getAdapter(this.state.activeConnection.type);
-			const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
-			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+		const result = await withErrorHandling(
+			async () => {
+				const adapter = getAdapter(this.state.activeConnection!.type);
+				const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
+				const providerConnectionId = this.state.activeConnection!.providerConnectionId;
 
-			if (!providerConnectionId) {
-				throw new Error('No connection established');
-			}
+				if (!providerConnectionId) {
+					throw new Error('No connection established');
+				}
 
-			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
+				const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
-			// For SQLite with analyze=true, we need to actually execute the query
-			let actualRowCount: number | undefined;
-			let executionTime: number | undefined;
+				// For SQLite with analyze=true, we need to actually execute the query
+				let actualRowCount: number | undefined;
+				let executionTime: number | undefined;
 
-			if (dbType === 'sqlite' && analyze) {
-				const startTime = performance.now();
-				const queryResult = await provider.select(providerConnectionId, queryToExplain);
-				executionTime = performance.now() - startTime;
-				actualRowCount = queryResult.length;
-			}
+				if (dbType === 'sqlite' && analyze) {
+					const startTime = performance.now();
+					const queryResult = await provider.select(providerConnectionId, queryToExplain);
+					executionTime = performance.now() - startTime;
+					actualRowCount = queryResult.length;
+				}
 
-			const result = await provider.select(providerConnectionId, explainQuery);
+				const queryResult = await provider.select(providerConnectionId, explainQuery);
 
-			// Use adapter to parse the results into common format
-			const parsedNode = adapter.parseExplainResult(result, analyze);
+				// Use adapter to parse the results into common format
+				const parsedNode = adapter.parseExplainResult(queryResult, analyze);
 
-			// For SQLite analyze, inject the actual execution stats into the root node
-			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
-				parsedNode.actualRows = actualRowCount;
-				parsedNode.rows = actualRowCount;
-				parsedNode.actualTime = executionTime;
-			}
+				// For SQLite analyze, inject the actual execution stats into the root node
+				if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+					parsedNode.actualRows = actualRowCount;
+					parsedNode.rows = actualRowCount;
+					parsedNode.actualTime = executionTime;
+				}
 
-			// Convert to ExplainResult format for rendering
-			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+				// Convert to ExplainResult format for rendering
+				const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
 
-			// For SQLite analyze, set execution time on the result
-			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
-				explainResult.executionTime = executionTime;
-			}
+				// For SQLite analyze, set execution time on the result
+				if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+					explainResult.executionTime = executionTime;
+				}
 
+				return explainResult;
+			},
+			'QUERY_FAILED',
+			'Explain failed'
+		);
+
+		if (result.ok) {
 			// Store result on query tab (use full query for staleness detection)
-			this.setExplainResult(tabId, explainResult, tab.query, analyze);
-		} catch (error) {
+			this.setExplainResult(tabId, result.value, tab.query, analyze);
+		} else {
 			this.setExplainExecuting(tabId, false, analyze);
-			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -192,59 +199,66 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 		// Mark as executing
 		this.setExplainExecuting(tabId, true, analyze);
 
-		try {
-			const adapter = getAdapter(this.state.activeConnection.type);
-			const explainQuery = adapter.getExplainQuery(substitutedQuery, analyze);
-			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+		const result = await withErrorHandling(
+			async () => {
+				const adapter = getAdapter(this.state.activeConnection!.type);
+				const explainQuery = adapter.getExplainQuery(substitutedQuery, analyze);
+				const providerConnectionId = this.state.activeConnection!.providerConnectionId;
 
-			if (!providerConnectionId) {
-				throw new Error('No connection established');
-			}
+				if (!providerConnectionId) {
+					throw new Error('No connection established');
+				}
 
-			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
+				const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
-			// For SQLite with analyze=true, we need to actually execute the query
-			let actualRowCount: number | undefined;
-			let executionTime: number | undefined;
+				// For SQLite with analyze=true, we need to actually execute the query
+				let actualRowCount: number | undefined;
+				let executionTime: number | undefined;
 
-			if (dbType === 'sqlite' && analyze) {
-				const startTime = performance.now();
-				const queryResult = await provider.select(providerConnectionId, substitutedQuery, bindValues);
-				executionTime = performance.now() - startTime;
-				actualRowCount = queryResult.length;
-			}
+				if (dbType === 'sqlite' && analyze) {
+					const startTime = performance.now();
+					const queryResult = await provider.select(providerConnectionId, substitutedQuery, bindValues);
+					executionTime = performance.now() - startTime;
+					actualRowCount = queryResult.length;
+				}
 
-			// For EXPLAIN queries, bind values handling
-			const useBindValues = dbType !== 'mssql' && dbType !== 'duckdb';
-			const result = await provider.select(
-				providerConnectionId,
-				explainQuery,
-				useBindValues ? bindValues : undefined
-			);
+				// For EXPLAIN queries, bind values handling
+				const useBindValues = dbType !== 'mssql' && dbType !== 'duckdb';
+				const queryResult = await provider.select(
+					providerConnectionId,
+					explainQuery,
+					useBindValues ? bindValues : undefined
+				);
 
-			// Use adapter to parse the results into common format
-			const parsedNode = adapter.parseExplainResult(result, analyze);
+				// Use adapter to parse the results into common format
+				const parsedNode = adapter.parseExplainResult(queryResult, analyze);
 
-			// For SQLite analyze, inject the actual execution stats into the root node
-			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
-				parsedNode.actualRows = actualRowCount;
-				parsedNode.rows = actualRowCount;
-				parsedNode.actualTime = executionTime;
-			}
+				// For SQLite analyze, inject the actual execution stats into the root node
+				if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+					parsedNode.actualRows = actualRowCount;
+					parsedNode.rows = actualRowCount;
+					parsedNode.actualTime = executionTime;
+				}
 
-			// Convert to ExplainResult format for rendering
-			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+				// Convert to ExplainResult format for rendering
+				const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
 
-			// For SQLite analyze, set execution time on the result
-			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
-				explainResult.executionTime = executionTime;
-			}
+				// For SQLite analyze, set execution time on the result
+				if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+					explainResult.executionTime = executionTime;
+				}
 
+				return explainResult;
+			},
+			'QUERY_FAILED',
+			'Explain failed'
+		);
+
+		if (result.ok) {
 			// Store result on query tab (use full query for staleness detection)
-			this.setExplainResult(tabId, explainResult, tab.query, analyze);
-		} catch (error) {
+			this.setExplainResult(tabId, result.value, tab.query, analyze);
+		} else {
 			this.setExplainExecuting(tabId, false, analyze);
-			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -327,65 +341,72 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 		this.appendTab(newExplainTab);
 		this.setActiveView('explain');
 
-		try {
-			const adapter = getAdapter(this.state.activeConnection.type);
-			const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
-			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+		const result = await withErrorHandling(
+			async () => {
+				const adapter = getAdapter(this.state.activeConnection!.type);
+				const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
+				const providerConnectionId = this.state.activeConnection!.providerConnectionId;
 
-			if (!providerConnectionId) {
-				throw new Error('No connection established');
-			}
+				if (!providerConnectionId) {
+					throw new Error('No connection established');
+				}
 
-			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
+				const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
-			// For SQLite with analyze=true, we need to actually execute the query
-			// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
-			// doesn't provide this information
-			let actualRowCount: number | undefined;
-			let executionTime: number | undefined;
+				// For SQLite with analyze=true, we need to actually execute the query
+				// to get real row counts and timing, since SQLite's EXPLAIN QUERY PLAN
+				// doesn't provide this information
+				let actualRowCount: number | undefined;
+				let executionTime: number | undefined;
 
-			if (dbType === 'sqlite' && analyze) {
-				const startTime = performance.now();
-				const queryResult = await provider.select(providerConnectionId, queryToExplain);
-				executionTime = performance.now() - startTime;
-				actualRowCount = queryResult.length;
-			}
+				if (dbType === 'sqlite' && analyze) {
+					const startTime = performance.now();
+					const queryResult = await provider.select(providerConnectionId, queryToExplain);
+					executionTime = performance.now() - startTime;
+					actualRowCount = queryResult.length;
+				}
 
-			const result = await provider.select(providerConnectionId, explainQuery);
+				const queryResult = await provider.select(providerConnectionId, explainQuery);
 
-			// Use adapter to parse the results into common format
-			const parsedNode = adapter.parseExplainResult(result, analyze);
+				// Use adapter to parse the results into common format
+				const parsedNode = adapter.parseExplainResult(queryResult, analyze);
 
-			// For SQLite analyze, inject the actual execution stats into the root node
-			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
-				parsedNode.actualRows = actualRowCount;
-				parsedNode.rows = actualRowCount;
-				parsedNode.actualTime = executionTime;
-			}
+				// For SQLite analyze, inject the actual execution stats into the root node
+				if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+					parsedNode.actualRows = actualRowCount;
+					parsedNode.rows = actualRowCount;
+					parsedNode.actualTime = executionTime;
+				}
 
-			// Convert to ExplainResult format for rendering
-			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+				// Convert to ExplainResult format for rendering
+				const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
 
-			// For SQLite analyze, set execution time on the result
-			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
-				explainResult.executionTime = executionTime;
-			}
+				// For SQLite analyze, set execution time on the result
+				if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+					explainResult.executionTime = executionTime;
+				}
 
+				return explainResult;
+			},
+			'QUERY_FAILED',
+			'Explain failed'
+		);
+
+		if (result.ok) {
 			// Update the explain tab with results
-			newExplainTab.result = explainResult;
+			newExplainTab.result = result.value;
 			newExplainTab.isExecuting = false;
 
 			// Trigger reactivity by creating new array
 			const currentTabs = this.getProjectTabs();
 			this.setProjectTabs([...currentTabs]);
-		} catch (error) {
+		} else {
 			// Remove failed explain tab
 			const currentTabs = this.getProjectTabs();
 			this.setProjectTabs(currentTabs.filter((t) => t.id !== explainTabId));
 
 			// Switch back to query view
 			this.setActiveView('query');
-			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
@@ -440,71 +461,78 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
 		this.appendTab(newExplainTab);
 		this.setActiveView('explain');
 
-		try {
-			const adapter = getAdapter(this.state.activeConnection.type);
-			const explainQuery = adapter.getExplainQuery(substitutedQuery, analyze);
-			const providerConnectionId = this.state.activeConnection.providerConnectionId;
+		const result = await withErrorHandling(
+			async () => {
+				const adapter = getAdapter(this.state.activeConnection!.type);
+				const explainQuery = adapter.getExplainQuery(substitutedQuery, analyze);
+				const providerConnectionId = this.state.activeConnection!.providerConnectionId;
 
-			if (!providerConnectionId) {
-				throw new Error('No connection established');
-			}
+				if (!providerConnectionId) {
+					throw new Error('No connection established');
+				}
 
-			const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
+				const provider = await this.providers.getForType(this.state.activeConnection?.type ?? '');
 
-			// For SQLite with analyze=true, we need to actually execute the query
-			// to get real row counts and timing
-			let actualRowCount: number | undefined;
-			let executionTime: number | undefined;
+				// For SQLite with analyze=true, we need to actually execute the query
+				// to get real row counts and timing
+				let actualRowCount: number | undefined;
+				let executionTime: number | undefined;
 
-			if (dbType === 'sqlite' && analyze) {
-				const startTime = performance.now();
-				const queryResult = await provider.select(providerConnectionId, substitutedQuery, bindValues);
-				executionTime = performance.now() - startTime;
-				actualRowCount = queryResult.length;
-			}
+				if (dbType === 'sqlite' && analyze) {
+					const startTime = performance.now();
+					const queryResult = await provider.select(providerConnectionId, substitutedQuery, bindValues);
+					executionTime = performance.now() - startTime;
+					actualRowCount = queryResult.length;
+				}
 
-			// For EXPLAIN queries, bind values are already inlined for MSSQL/DuckDB,
-			// and for PostgreSQL/SQLite we need to pass them
-			const useBindValues = dbType !== 'mssql' && dbType !== 'duckdb';
-			const result = await provider.select(
-				providerConnectionId,
-				explainQuery,
-				useBindValues ? bindValues : undefined
-			);
+				// For EXPLAIN queries, bind values are already inlined for MSSQL/DuckDB,
+				// and for PostgreSQL/SQLite we need to pass them
+				const useBindValues = dbType !== 'mssql' && dbType !== 'duckdb';
+				const queryResult = await provider.select(
+					providerConnectionId,
+					explainQuery,
+					useBindValues ? bindValues : undefined
+				);
 
-			// Use adapter to parse the results into common format
-			const parsedNode = adapter.parseExplainResult(result, analyze);
+				// Use adapter to parse the results into common format
+				const parsedNode = adapter.parseExplainResult(queryResult, analyze);
 
-			// For SQLite analyze, inject the actual execution stats into the root node
-			if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
-				parsedNode.actualRows = actualRowCount;
-				parsedNode.rows = actualRowCount;
-				parsedNode.actualTime = executionTime;
-			}
+				// For SQLite analyze, inject the actual execution stats into the root node
+				if (dbType === 'sqlite' && analyze && actualRowCount !== undefined) {
+					parsedNode.actualRows = actualRowCount;
+					parsedNode.rows = actualRowCount;
+					parsedNode.actualTime = executionTime;
+				}
 
-			// Convert to ExplainResult format for rendering
-			const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
+				// Convert to ExplainResult format for rendering
+				const explainResult: ExplainResult = this.convertExplainNodeToResult(parsedNode, analyze);
 
-			// For SQLite analyze, set execution time on the result
-			if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
-				explainResult.executionTime = executionTime;
-			}
+				// For SQLite analyze, set execution time on the result
+				if (dbType === 'sqlite' && analyze && executionTime !== undefined) {
+					explainResult.executionTime = executionTime;
+				}
 
+				return explainResult;
+			},
+			'QUERY_FAILED',
+			'Explain failed'
+		);
+
+		if (result.ok) {
 			// Update the explain tab with results
-			newExplainTab.result = explainResult;
+			newExplainTab.result = result.value;
 			newExplainTab.isExecuting = false;
 
 			// Trigger reactivity by creating new array
 			const currentTabs = this.getProjectTabs();
 			this.setProjectTabs([...currentTabs]);
-		} catch (error) {
+		} else {
 			// Remove failed explain tab
 			const currentTabs = this.getProjectTabs();
 			this.setProjectTabs(currentTabs.filter((t) => t.id !== explainTabId));
 
 			// Switch back to query view
 			this.setActiveView('query');
-			errorToast(`Explain failed: ${error}`);
 		}
 	}
 
