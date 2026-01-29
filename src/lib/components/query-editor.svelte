@@ -998,7 +998,7 @@ import { errorToast } from "$lib/utils/toast";
 								/>
 							{/if}
 
-							{#if activeResult.totalPages > 1 && currentViewMode === 'table'}
+							{#if (activeResult.totalPages > 1 || activeResult.pageSize === 0) && currentViewMode === 'table'}
 								<QueryPagination
 									page={activeResult.page}
 									pageSize={activeResult.pageSize}

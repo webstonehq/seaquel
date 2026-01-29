@@ -184,7 +184,8 @@ export class QueryExecutionManager {
       }
 
       // Add pagination if we successfully got a count (it's a SELECT)
-      if (totalRows >= 0) {
+      // pageSize === 0 means "all rows" — skip LIMIT/OFFSET
+      if (totalRows >= 0 && pageSize > 0) {
         const offset = (page - 1) * pageSize;
         if (isMssql) {
           // SQL Server uses OFFSET FETCH syntax (requires ORDER BY)
@@ -224,7 +225,7 @@ export class QueryExecutionManager {
       totalRows = dbResult?.length ?? 0;
     }
 
-    const totalPages = hasPagination ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
+    const totalPages = hasPagination || pageSize === 0 ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
 
     // Try to extract source table info for CRUD operations
     const tableInfo = extractTableFromSelect(baseQuery);
