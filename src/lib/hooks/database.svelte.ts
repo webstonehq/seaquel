@@ -122,6 +122,9 @@ class UseDatabase {
       }
     );
 
+    // Shared provider registry (used by connections and query execution)
+    const providers = new ProviderRegistry();
+
     // Query-related
     this.history = new QueryHistoryManager(
       this.state,
@@ -130,14 +133,13 @@ class UseDatabase {
       (connectionId) => this.state.connections.find((c) => c.id === connectionId)?.name || ""
     );
     this.savedQueries = new SavedQueryManager(this.state, scheduleConnectionDataPersistence, scheduleProjectPersistence);
-    this.queries = new QueryExecutionManager(this.state, this.history);
+    this.queries = new QueryExecutionManager(this.state, this.history, providers);
 
     // Shared query library
     this.sharedRepos = new SharedRepoManager(this.state, () => this.persistence.scheduleSharedRepos());
     this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
 
     // Connections (depends on other managers)
-    const providers = new ProviderRegistry();
     this.connections = new ConnectionManager(
       this.state,
       this.persistence,
