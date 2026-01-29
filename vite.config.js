@@ -38,8 +38,9 @@ export default defineConfig(async ({ mode }) => {
             hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
 
             watch: {
-              // 3. tell vite to ignore watching `src-tauri`
-              ignored: ["**/src-tauri/**"]
+              // 3. tell vite to ignore watching `src-tauri` and database files
+              // SQLite WAL/SHM files change on connection and trigger full page reloads
+              ignored: ["**/src-tauri/**", "**/*.sqlite", "**/*.sqlite-shm", "**/*.sqlite-wal", "**/*.db"]
             }
           }
         }),
