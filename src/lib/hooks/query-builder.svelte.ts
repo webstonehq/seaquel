@@ -25,6 +25,11 @@ import type {
 import { TUTORIAL_SCHEMA } from '$lib/tutorial/schema';
 import { tutorialToQueryBuilder, getQueryBuilderTable } from '$lib/utils/schema-adapter';
 import { buildSql as generateSqlFromState } from './query-builder-sql';
+import {
+	serializeQueryBuilderState,
+	deserializeQueryBuilderState,
+	type SerializableQueryBuilderState
+} from './query-builder-serialization';
 
 /**
  * Generates a unique ID for canvas elements.
@@ -2542,230 +2547,26 @@ export class QueryBuilderState {
 	 * Converts Sets to arrays.
 	 */
 	toSerializable(): SerializableQueryBuilderState {
-		return {
-			tables: this.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: Array.from(t.selectedColumns),
-				columnAggregates: Object.fromEntries(t.columnAggregates),
-				cteId: t.cteId
-			})),
-			joins: [...this.joins],
-			filters: [...this.filters],
-			groupBy: [...this.groupBy],
-			having: [...this.having],
-			orderBy: [...this.orderBy],
-			limit: this.limit,
-			customSql: this.customSql,
-			selectAggregates: [...this.selectAggregates],
-			subqueries: this.serializeSubqueries(this.subqueries),
-			ctes: this.serializeCtes(this.ctes)
-		};
-	}
-
-	/**
-	 * Serialize subqueries recursively.
-	 */
-	private serializeSubqueries(subqueries: CanvasSubquery[]): SerializableSubquery[] {
-		return subqueries.map((sq) => ({
-			id: sq.id,
-			position: sq.position,
-			size: sq.size,
-			role: sq.role,
-			linkedFilterId: sq.linkedFilterId,
-			alias: sq.alias,
-			innerQuery: this.serializeInnerQuery(sq.innerQuery)
-		}));
-	}
-
-	/**
-	 * Serialize CTEs.
-	 */
-	private serializeCtes(ctes: CanvasCTE[]): SerializableCTE[] {
-		return ctes.map((cte) => ({
-			id: cte.id,
-			name: cte.name,
-			position: cte.position,
-			size: cte.size,
-			innerQuery: this.serializeInnerQuery(cte.innerQuery)
-		}));
-	}
-
-	/**
-	 * Serialize inner query state.
-	 */
-	private serializeInnerQuery(inner: SubqueryInnerState): SerializableInnerQuery {
-		return {
-			tables: inner.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: Array.from(t.selectedColumns),
-				columnAggregates: Object.fromEntries(t.columnAggregates)
-			})),
-			joins: [...inner.joins],
-			filters: [...inner.filters],
-			groupBy: [...inner.groupBy],
-			having: [...inner.having],
-			orderBy: [...inner.orderBy],
-			limit: inner.limit,
-			selectAggregates: [...inner.selectAggregates],
-			subqueries: this.serializeSubqueries(inner.subqueries)
-		};
+		return serializeQueryBuilderState(this);
 	}
 
 	/**
 	 * Restore state from a serialized snapshot.
 	 */
 	fromSerializable(state: SerializableQueryBuilderState): void {
-		this.tables = state.tables.map((t) => ({
-			id: t.id,
-			tableName: t.tableName,
-			position: t.position,
-			selectedColumns: new SvelteSet(t.selectedColumns),
-			columnAggregates: new Map(
-				Object.entries(t.columnAggregates ?? {}) as [string, ColumnAggregate][]
-			),
-			cteId: t.cteId
-		}));
-		this.joins = state.joins.map((j) => ({ ...j }));
-		this.filters = state.filters.map((f) => ({ ...f }));
-		this.groupBy = (state.groupBy ?? []).map((g) => ({ ...g }));
-		this.having = (state.having ?? []).map((h) => ({ ...h }));
-		this.orderBy = state.orderBy.map((o) => ({ ...o }));
-		this.limit = state.limit;
-		this.customSql = state.customSql ?? null;
-		this.selectAggregates = (state.selectAggregates ?? []).map((a) => ({ ...a }));
-		this.subqueries = this.deserializeSubqueries(state.subqueries ?? []);
-		this.ctes = this.deserializeCtes(state.ctes ?? []);
+		const deserialized = deserializeQueryBuilderState(state);
+		this.tables = deserialized.tables;
+		this.joins = deserialized.joins;
+		this.filters = deserialized.filters;
+		this.groupBy = deserialized.groupBy;
+		this.having = deserialized.having;
+		this.orderBy = deserialized.orderBy;
+		this.limit = deserialized.limit;
+		this.customSql = deserialized.customSql;
+		this.selectAggregates = deserialized.selectAggregates;
+		this.subqueries = deserialized.subqueries;
+		this.ctes = deserialized.ctes;
 	}
-
-	/**
-	 * Deserialize subqueries recursively.
-	 */
-	private deserializeSubqueries(subqueries: SerializableSubquery[]): CanvasSubquery[] {
-		return subqueries.map((sq) => ({
-			id: sq.id,
-			position: sq.position,
-			size: sq.size,
-			role: sq.role,
-			linkedFilterId: sq.linkedFilterId,
-			alias: sq.alias,
-			innerQuery: this.deserializeInnerQuery(sq.innerQuery)
-		}));
-	}
-
-	/**
-	 * Deserialize CTEs.
-	 */
-	private deserializeCtes(ctes: SerializableCTE[]): CanvasCTE[] {
-		return ctes.map((cte) => ({
-			id: cte.id,
-			name: cte.name,
-			position: cte.position,
-			size: cte.size,
-			innerQuery: this.deserializeInnerQuery(cte.innerQuery)
-		}));
-	}
-
-	/**
-	 * Deserialize inner query state.
-	 */
-	private deserializeInnerQuery(inner: SerializableInnerQuery): SubqueryInnerState {
-		return {
-			tables: inner.tables.map((t) => ({
-				id: t.id,
-				tableName: t.tableName,
-				position: t.position,
-				selectedColumns: new SvelteSet(t.selectedColumns),
-				columnAggregates: new Map(
-					Object.entries(t.columnAggregates ?? {}) as [string, ColumnAggregate][]
-				)
-			})),
-			joins: inner.joins.map((j) => ({ ...j })),
-			filters: inner.filters.map((f) => ({ ...f })),
-			groupBy: inner.groupBy.map((g) => ({ ...g })),
-			having: inner.having.map((h) => ({ ...h })),
-			orderBy: inner.orderBy.map((o) => ({ ...o })),
-			limit: inner.limit,
-			selectAggregates: inner.selectAggregates.map((a) => ({ ...a })),
-			subqueries: this.deserializeSubqueries(inner.subqueries ?? [])
-		};
-	}
-}
-
-/**
- * Serializable table for persistence.
- */
-export interface SerializableTable {
-	id: string;
-	tableName: string;
-	position: { x: number; y: number };
-	selectedColumns: string[];
-	columnAggregates?: Record<string, ColumnAggregate>;
-	/** If set, this table references a CTE instead of schema table */
-	cteId?: string;
-}
-
-/**
- * Serializable inner query for subqueries.
- */
-export interface SerializableInnerQuery {
-	tables: SerializableTable[];
-	joins: CanvasJoin[];
-	filters: FilterCondition[];
-	groupBy: GroupByCondition[];
-	having: HavingCondition[];
-	orderBy: SortCondition[];
-	limit: string | number | null;
-	selectAggregates: SelectAggregate[];
-	subqueries?: SerializableSubquery[];
-}
-
-/**
- * Serializable subquery for persistence.
- */
-export interface SerializableSubquery {
-	id: string;
-	position: { x: number; y: number };
-	size: { width: number; height: number };
-	role: SubqueryRole;
-	linkedFilterId?: string;
-	alias?: string;
-	innerQuery: SerializableInnerQuery;
-}
-
-/**
- * Serializable CTE for persistence.
- */
-export interface SerializableCTE {
-	id: string;
-	name: string;
-	position: { x: number; y: number };
-	size: { width: number; height: number };
-	innerQuery: SerializableInnerQuery;
-}
-
-/**
- * Serializable version of query builder state for persistence.
- */
-export interface SerializableQueryBuilderState {
-	tables: SerializableTable[];
-	joins: CanvasJoin[];
-	filters: FilterCondition[];
-	groupBy?: GroupByCondition[];
-	having?: HavingCondition[];
-	orderBy: SortCondition[];
-	limit: string | number | null;
-	/** User's custom SQL text (preserved even if it differs from generated) */
-	customSql?: string | null;
-	/** Standalone aggregates in SELECT clause */
-	selectAggregates?: SelectAggregate[];
-	/** Subqueries on the canvas */
-	subqueries?: SerializableSubquery[];
-	/** CTEs (Common Table Expressions) on the canvas */
-	ctes?: SerializableCTE[];
 }
 
 // === CONTEXT FUNCTIONS ===
@@ -2792,3 +2593,12 @@ export function setQueryBuilder(state?: QueryBuilderState): QueryBuilderState {
 export function useQueryBuilder(): QueryBuilderState {
 	return getContext<QueryBuilderState>(QUERY_BUILDER_CONTEXT_KEY);
 }
+
+// Re-export serialization types for backward compatibility
+export type {
+	SerializableTable,
+	SerializableInnerQuery,
+	SerializableSubquery,
+	SerializableCTE,
+	SerializableQueryBuilderState
+} from './query-builder-serialization';
