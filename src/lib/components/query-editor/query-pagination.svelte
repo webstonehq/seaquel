@@ -23,8 +23,9 @@
 	let { page, pageSize, totalPages, totalRows, isExecuting, onGoToPage, onSetPageSize }: Props =
 		$props();
 
-	const start = $derived((page - 1) * pageSize + 1);
-	const end = $derived(Math.min(page * pageSize, totalRows));
+	const isAllRows = $derived(pageSize === 0);
+	const start = $derived(isAllRows ? 1 : (page - 1) * pageSize + 1);
+	const end = $derived(isAllRows ? totalRows : Math.min(page * pageSize, totalRows));
 </script>
 
 <div class="flex items-center justify-between p-2 border-t bg-muted/30 shrink-0 text-xs">
@@ -39,7 +40,7 @@
 					size: "sm"
 				}) + " h-7 gap-1 text-xs"}
 			>
-				{pageSize} rows
+				{isAllRows ? "All (YOLO)" : `${pageSize} rows`}
 				<ChevronDownIcon class="size-3" />
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end">
@@ -51,6 +52,13 @@
 						{m.query_rows_count({ count: size })}
 					</DropdownMenu.Item>
 				{/each}
+				<DropdownMenu.Separator />
+				<DropdownMenu.Item
+					onclick={() => onSetPageSize(0)}
+					class={isAllRows ? "bg-accent" : ""}
+				>
+					All (YOLO)
+				</DropdownMenu.Item>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>
 
