@@ -34,7 +34,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "signCommand": "trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel %1"
+    }
   },
   "plugins": {
     "updater": {
