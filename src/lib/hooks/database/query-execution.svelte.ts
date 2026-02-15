@@ -56,6 +56,36 @@ export class QueryExecutionManager {
   }
 
   /**
+   * Get a SQL placeholder with an explicit CAST if the column type requires it.
+   * sqlx binds JS strings as PostgreSQL TEXT, which won't auto-cast to
+   * timestamp, date, boolean, etc. This adds CAST($N AS <type>) when needed.
+   */
+  private getCastPlaceholder(paramIndex: number, schema: string, tableName: string, column: string): string {
+    const placeholder = `$${paramIndex}`;
+    const connectionId = this.state.activeConnectionId;
+    if (!connectionId) return placeholder;
+
+    const tables = this.state.schemas[connectionId] ?? [];
+    const table = tables.find((t) => t.name === tableName && t.schema === schema);
+    if (!table) return placeholder;
+
+    const col = table.columns.find((c) => c.name === column);
+    if (!col) return placeholder;
+
+    const colType = col.type.toLowerCase();
+    // Text types don't need casting — the bind value is already TEXT
+    const textTypes = ["text", "character varying", "character"];
+    // Types we can't reliably cast to (enums, arrays, composite)
+    const skipTypes = ["user-defined", "array"];
+
+    if (textTypes.includes(colType) || skipTypes.includes(colType)) {
+      return placeholder;
+    }
+
+    return `CAST(${placeholder} AS ${col.type})`;
+  }
+
+  /**
    * Execute a single SQL statement and return the result.
    * @param sql The SQL statement to execute (may contain $1, $2, etc. placeholders)
    * @param page Page number for pagination
@@ -690,7 +720,10 @@ export class QueryExecutionManager {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
         const provider = await this.providers.getForType(connection.type);
         const whereConditions = sourceTable.primaryKeys.map((pk, i) => `"${pk}" = $${i + 2}`);
-        const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = $1 WHERE ${whereConditions.join(" AND ")}`;
+        // Look up column type for explicit CAST — sqlx binds strings as TEXT,
+        // and PostgreSQL won't implicitly cast TEXT to timestamp, date, etc.
+        const valuePlaceholder = this.getCastPlaceholder(1, sourceTable.schema, sourceTable.name, column);
+        const query = `UPDATE "${sourceTable.schema}"."${sourceTable.name}" SET "${column}" = ${valuePlaceholder} WHERE ${whereConditions.join(" AND ")}`;
         const bindValues = [newValue, ...sourceTable.primaryKeys.map((pk) => row[pk])];
         await provider.execute(connection.providerConnectionId, query, bindValues);
       } else {
@@ -735,7 +768,9 @@ export class QueryExecutionManager {
         // PostgreSQL/SQLite/DuckDB: use double quotes and parameterized queries
         const provider = await this.providers.getForType(connection.type);
         const columnNames = columns.map((c) => `"${c}"`).join(", ");
-        const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
+        const placeholders = columns.map((col, i) =>
+          this.getCastPlaceholder(i + 1, sourceTable.schema, sourceTable.name, col)
+        ).join(", ");
         const query = `INSERT INTO "${sourceTable.schema}"."${sourceTable.name}" (${columnNames}) VALUES (${placeholders})`;
         const result = await provider.execute(connection.providerConnectionId, query, Object.values(values));
         return { success: true, lastInsertId: result?.lastInsertId };
