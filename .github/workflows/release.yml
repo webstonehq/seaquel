@@ -107,7 +107,10 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Release ${{ github.ref_name }}"
-          releaseBody: "See the assets to download this version and install."
+          releaseBody: |
+            See the assets to download this version and install.
+
+            > These binaries follow Seaquel's [pricing terms](https://seaquel.app/pricing): free for personal use, license required for commercial use. The source is MIT licensed and can be built and run for free, for both personal and commercial use.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
