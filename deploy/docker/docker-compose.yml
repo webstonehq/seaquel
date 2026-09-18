@@ -1,0 +1,65 @@
+# Seaquel — self-hosted single-container deployment
+#
+# Two variants below. Pick one and delete the other (or keep both, comment
+# out the one you aren't using).
+#
+#   A) Pull the pre-built image from GHCR — fastest, recommended for most
+#      self-hosters. Just runs.
+#
+#   B) Build from source — useful for development or when you're tracking
+#      `main` instead of a release tag. Requires the whole repo checked out.
+#
+# Usage:
+#   docker compose -f deploy/docker/docker-compose.yml up -d
+#
+# Defaults work out of the box: port 8787, data at /data, a session secret
+# auto-generated at /data/auth-secret on first boot. Copy .env.example to
+# .env only if you need to override one of the variables in the env_file
+# block below.
+#
+# First visit → /signup → that user pastes an owner-tier Seaquel
+# subscription license key and becomes the Owner of this install.
+# Subsequent teammates sign up by pasting their own member license key
+# from the same subscription's seat pool.
+
+services:
+  seaquel:
+    # --- Variant A: pre-built image (default) ---------------------------
+    image: ghcr.io/webstonehq/seaquel:latest
+    # --- Variant B: build locally (uncomment, comment `image` above) ----
+    # build:
+    #   context: ../..
+    #   dockerfile: Dockerfile
+
+    ports:
+      - "${PORT:-8787}:8787"
+    volumes:
+      - seaquel-data:/data
+
+    # All env vars are optional. If `.env` exists alongside this file Compose
+    # will load it; otherwise the container runs with built-in defaults.
+    # See README.md → "Configuration" for what each variable does.
+    env_file:
+      - path: .env
+        required: false
+
+    restart: unless-stopped
+
+    # Dockerfile already declares a HEALTHCHECK; this block is explicit so
+    # `docker compose ps` surfaces it clearly and so `depends_on` from
+    # other services can gate on `service_healthy`.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  seaquel-data:

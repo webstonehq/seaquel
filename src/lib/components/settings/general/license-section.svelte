@@ -1,15 +1,24 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { m } from "$lib/paraglide/messages.js";
 	import { Button } from "$lib/components/ui/button";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { licenseStore } from "$lib/stores/license.svelte.js";
-	import { isTauri } from "$lib/utils/environment";
+	import { tenantLicenseStore } from "$lib/stores/tenant-license.svelte.js";
+	import { isTauri, isWeb } from "$lib/utils/environment";
 	import CopyIcon from "@lucide/svelte/icons/copy";
 
 	let showActivationInput = $state(false);
 	let licenseKeyInput = $state("");
 	let isRetrying = $state(false);
+
+	// Web build: read-only, sourced from the control plane via
+	// /api/account/tenant + /api/team. Tauri keeps the existing
+	// keychain-backed activate/deactivate flow.
+	onMount(() => {
+		if (isWeb()) void tenantLicenseStore.refresh();
+	});
 
 	async function handleRetryValidation() {
 		isRetrying = true;
@@ -63,7 +72,83 @@
 		</p>
 	</div>
 
-	{#if licenseStore.status === "active"}
+	{#if isWeb()}
+		<!-- Cloud / per-tenant container: license is implicit from
+		     membership. No activate/deactivate controls — billing changes
+		     happen at seaquel.app/dashboard, propagate here via webhook +
+		     cache TTL. -->
+		{#if !tenantLicenseStore.loaded}
+			<p class="text-sm text-muted-foreground">Loading…</p>
+		{:else if tenantLicenseStore.loadError}
+			<p class="text-sm text-destructive">{tenantLicenseStore.loadError}</p>
+		{:else}
+			<div class="space-y-4 border rounded-lg p-4">
+				<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
+					<span class="text-muted-foreground">{m.license_status_label()}</span>
+					<span>
+						{#if tenantLicenseStore.status === "active"}
+							<span
+								class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+							>
+								{m.license_status_active()}
+							</span>
+						{:else if tenantLicenseStore.status === "suspended"}
+							<span
+								class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive"
+							>
+								Suspended
+							</span>
+						{:else}
+							<span class="text-muted-foreground">{tenantLicenseStore.status}</span>
+						{/if}
+					</span>
+				</div>
+				<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
+					<span class="text-muted-foreground">{m.license_tier_label()}</span>
+					<span class="font-medium">
+						{#if tenantLicenseStore.tier === "individual"}
+							{m.license_tier_individual()}
+						{:else if tenantLicenseStore.tier === "business"}
+							{m.license_tier_business()}
+						{:else}
+							{m.license_tier_personal()}
+						{/if}
+					</span>
+				</div>
+				{#if tenantLicenseStore.maskedLicenseKey}
+					<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
+						<span class="text-muted-foreground">{m.license_key_label()}</span>
+						<span class="font-mono">{tenantLicenseStore.maskedLicenseKey}</span>
+					</div>
+				{/if}
+				<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
+					<span class="text-muted-foreground">Seats</span>
+					<span>{tenantLicenseStore.memberCount} / {tenantLicenseStore.seatLimit}</span>
+				</div>
+				{#if tenantLicenseStore.currentPeriodEnd}
+					<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
+						<span class="text-muted-foreground">Renews</span>
+						<span>
+							{tenantLicenseStore.currentPeriodEnd.toLocaleDateString()}
+						</span>
+					</div>
+				{/if}
+				{#if tenantLicenseStore.role === "owner"}
+					<div class="pt-2">
+						<Button
+							variant="outline"
+							size="sm"
+							href="https://seaquel.app/dashboard"
+							target="_blank"
+							rel="noopener"
+						>
+							Manage billing
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	{:else if licenseStore.status === "active"}
 		<div class="space-y-4 border rounded-lg p-4">
 			<div class="grid grid-cols-[140px_1fr] gap-2 text-sm">
 				<span class="text-muted-foreground">{m.license_status_label()}</span>

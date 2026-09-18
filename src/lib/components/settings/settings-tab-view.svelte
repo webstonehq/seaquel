@@ -7,6 +7,7 @@
 		type SettingsGroup,
 		type SettingsView,
 		groupSections,
+		sectionToGroup,
 	} from "$lib/stores/settings-dialog.svelte.js";
 	import SettingsIcon from "@lucide/svelte/icons/settings";
 	import PaletteIcon from "@lucide/svelte/icons/palette";
@@ -19,9 +20,11 @@
 	import ShieldIcon from "@lucide/svelte/icons/shield";
 	import HistoryIcon from "@lucide/svelte/icons/history";
 	import KeyboardIcon from "@lucide/svelte/icons/keyboard";
+	import WifiOffIcon from "@lucide/svelte/icons/wifi-off";
 	import type { SettingsTab } from "$lib/types";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
-	import { isTauri } from "$lib/utils/environment";
+	import { isTauri, isWeb } from "$lib/utils/environment";
+	import UsersIcon from "@lucide/svelte/icons/users";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 
 	import AppInfoSection from "./general/app-info-section.svelte";
@@ -33,6 +36,8 @@
 	import FeaturesSection from "./features/features-section.svelte";
 	import AiProviderSection from "./ai/ai-provider-section.svelte";
 	import AiPrivacySection from "./ai/ai-privacy-section.svelte";
+	import TeamSection from "./general/team-section.svelte";
+	import AirgapSection from "./general/airgap-section.svelte";
 
 	interface Props {
 		tab: SettingsTab;
@@ -69,21 +74,7 @@
 		) {
 			return activeView;
 		}
-		return (
-			{
-				"app-info": "general",
-				license: "general",
-				"query-history": "general",
-				theme: "appearance",
-				themes: "appearance",
-				editor: "appearance",
-				"ai-feature": "features",
-				learn: "features",
-				"pending-changes": "features",
-				"ai-provider": "ai",
-				"ai-privacy": "ai",
-			} as Record<SettingsSection, SettingsGroup>
-		)[activeView as SettingsSection];
+		return sectionToGroup[activeView as SettingsSection];
 	}
 
 	// Navigation structure
@@ -108,6 +99,8 @@
 			items: [
 				{ id: "app-info", name: m.settings_app_info(), icon: InfoIcon },
 				...(isTauri() ? [{ id: "license" as const, name: m.settings_license(), icon: KeyIcon }] : []),
+				...(isWeb() ? [{ id: "team" as const, name: "Team", icon: UsersIcon }] : []),
+				...(isWeb() ? [{ id: "airgap" as const, name: "Offline bundle", icon: WifiOffIcon }] : []),
 				{ id: "query-history", name: m.settings_query_history(), icon: HistoryIcon },
 			],
 		},
@@ -164,24 +157,13 @@
 		return false;
 	}
 
-	// Map section IDs to their parent group
-	const sectionToGroup: Record<string, SettingsGroup> = {
-		"app-info": "general",
-		license: "general",
-		theme: "appearance",
-		themes: "appearance",
-		editor: "appearance",
-		"ai-feature": "features",
-		learn: "features",
-		"pending-changes": "features",
-		"ai-provider": "ai",
-		"ai-privacy": "ai",
-		"query-history": "general",
-	};
+	function lookupGroup(id: string): SettingsGroup | undefined {
+		return sectionToGroup[id as SettingsSection];
+	}
 
 	// Get scroll-spy section only if it belongs to the current view's group
 	function visibleInGroup(groupId: SettingsGroup): string | null {
-		return visibleSectionId && sectionToGroup[visibleSectionId] === groupId ? visibleSectionId : null;
+		return visibleSectionId && lookupGroup(visibleSectionId) === groupId ? visibleSectionId : null;
 	}
 
 	// Check if a menu item is active
@@ -197,9 +179,9 @@
 
 	// Check if a group label is active (for scroll spy highlighting)
 	function isGroupActive(groupId: SettingsGroup): boolean {
-		if (activeView === "all" && visibleSectionId) return sectionToGroup[visibleSectionId] === groupId;
+		if (activeView === "all" && visibleSectionId) return lookupGroup(visibleSectionId) === groupId;
 		if (activeView === groupId) return true;
-		if (!isGroupView() && activeView) return sectionToGroup[activeView] === groupId;
+		if (!isGroupView() && activeView) return lookupGroup(activeView) === groupId;
 		return false;
 	}
 
@@ -311,6 +293,14 @@
 
 			{#if shouldShowSection("license")}
 				<LicenseSection />
+			{/if}
+
+			{#if shouldShowSection("team")}
+				<TeamSection />
+			{/if}
+
+			{#if isWeb() && shouldShowSection("airgap")}
+				<AirgapSection />
 			{/if}
 
 			{#if shouldShowSection("query-history")}

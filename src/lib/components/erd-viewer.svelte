@@ -32,8 +32,10 @@ import { errorToast } from "$lib/utils/toast";
   import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
   import { mode } from "mode-watcher";
   import { m } from "$lib/paraglide/messages.js";
+  import { isFeatureEnabled } from "$lib/features";
 
   const db = useDatabase();
+  const canExportFiles = isFeatureEnabled("fileExport");
 
   // Map mode-watcher theme to xyflow colorMode
   const colorMode: ColorMode = $derived(mode.current === "dark" ? "dark" : "light");
@@ -285,36 +287,41 @@ import { errorToast } from "$lib/utils/toast";
             </Popover.Root>
           {/if}
 
-          <!-- Export Dropdown -->
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger>
-              <Button variant="outline" size="sm" class="h-8">
-                <DownloadIcon class="size-4 me-2" />
-                {m.erd_export()}
-              </Button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Content>
-              <DropdownMenu.Label>{m.erd_download()}</DropdownMenu.Label>
-              <DropdownMenu.Item onclick={exportToPng}>
-                <ImageIcon class="size-4 me-2" />
-                {m.erd_download_png()}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onclick={exportToSvg}>
-                <FileCodeIcon class="size-4 me-2" />
-                {m.erd_download_svg()}
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator />
-              <DropdownMenu.Label>{m.erd_copy_to_clipboard()}</DropdownMenu.Label>
-              <DropdownMenu.Item onclick={copyPngToClipboard}>
-                <ClipboardIcon class="size-4 me-2" />
-                {m.erd_copy_as_png()}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onclick={copySvgToClipboard}>
-                <ClipboardIcon class="size-4 me-2" />
-                {m.erd_copy_as_svg()}
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Root>
+          <!-- Export Dropdown — Tauri-only. Uses the OS save dialog and
+               filesystem plugin to write PNG/SVG to disk, plus the clipboard
+               plugin to roundtrip PNG through a temp file. Hidden in web/demo
+               (see $lib/features/index.ts → fileExport). -->
+          {#if canExportFiles}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                <Button variant="outline" size="sm" class="h-8">
+                  <DownloadIcon class="size-4 me-2" />
+                  {m.erd_export()}
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content>
+                <DropdownMenu.Label>{m.erd_download()}</DropdownMenu.Label>
+                <DropdownMenu.Item onclick={exportToPng}>
+                  <ImageIcon class="size-4 me-2" />
+                  {m.erd_download_png()}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onclick={exportToSvg}>
+                  <FileCodeIcon class="size-4 me-2" />
+                  {m.erd_download_svg()}
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator />
+                <DropdownMenu.Label>{m.erd_copy_to_clipboard()}</DropdownMenu.Label>
+                <DropdownMenu.Item onclick={copyPngToClipboard}>
+                  <ClipboardIcon class="size-4 me-2" />
+                  {m.erd_copy_as_png()}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onclick={copySvgToClipboard}>
+                  <ClipboardIcon class="size-4 me-2" />
+                  {m.erd_copy_as_svg()}
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+          {/if}
         </div>
       </div>
 

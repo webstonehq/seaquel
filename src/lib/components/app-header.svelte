@@ -31,7 +31,10 @@
     import { licenseStore } from "$lib/stores/license.svelte.js";
     import { updateStore } from "$lib/stores/update.svelte.js";
 
-    import { isTauri } from "$lib/utils/environment";
+    import { isTauri, isWeb } from "$lib/utils/environment";
+    import LogOutIcon from "@lucide/svelte/icons/log-out";
+    import UsersIcon from "@lucide/svelte/icons/users";
+    import { authClient } from "$lib/auth-client";
     import { page } from "$app/state";
     import { resolve } from "$app/paths";
     import UpdateBadge from "./update-badge.svelte";
@@ -78,7 +81,7 @@
         }
     };
 
-    const isLearnPage = $derived(page.url.pathname.startsWith(resolve("/learn")));
+    const isLearnPage = $derived(page.url.pathname.startsWith(resolve("/(app)/learn")));
 
     const db = useDatabase();
     const sidebar = Sidebar.useSidebar();
@@ -342,6 +345,22 @@
                         Changelog
                         <DropdownMenu.Shortcut><ExternalLinkIcon class="size-3" /></DropdownMenu.Shortcut>
                     </DropdownMenu.Item>
+                    {#if isWeb()}
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item onclick={() => db.settingsTabs.open("app", "team")}>
+                            <UsersIcon class="size-4" />
+                            Team
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                            onclick={async () => {
+                                await authClient.signOut();
+                                window.location.href = "/login";
+                            }}
+                        >
+                            <LogOutIcon class="size-4" />
+                            Sign out
+                        </DropdownMenu.Item>
+                    {/if}
                 </DropdownMenu.Content>
             </DropdownMenu.Root>
         </div>

@@ -30,6 +30,7 @@
 	import { errorToast } from "$lib/utils/toast";
 	import { getUsername } from "$lib/api/tauri";
 	import { isTauri } from "$lib/utils/environment";
+	import { isFeatureEnabled } from "$lib/features";
 
 	const keyring = getKeyringService();
 	const keychainAvailable = keyring.isAvailable();
@@ -329,8 +330,11 @@
 							</div>
 						{/if}
 
-						<!-- SSH Tunnel -->
-						{#if formData.type !== "sqlite"}
+						<!-- SSH Tunnel — Tauri-only runtime; hidden in web/demo (see
+							 $lib/features/index.ts → sshTunnels). The whole subtree
+							 calls `createSshTunnel` via `invoke()` which has no
+							 implementation outside the Tauri shell. -->
+						{#if formData.type !== "sqlite" && isFeatureEnabled("sshTunnels")}
 							<div class="space-y-4">
 								<div class="flex items-center justify-between">
 									<Label class="flex items-center gap-2 cursor-pointer" for="ssh-toggle">

@@ -1,0 +1,25 @@
+# Ignore everything, then allowlist only what the Dockerfile needs.
+*
+
+# --- Rust builder stage ---
+!Cargo.toml
+!Cargo.lock
+!crates/
+# Only the workspace member manifest + build script — NOT src-tauri/src/
+# or src-tauri/target/ (the desktop app's source + 100GB of build artifacts).
+!src-tauri/Cargo.toml
+!src-tauri/build.rs
+
+# --- Node builder stage (COPY . .) ---
+!package.json
+!package-lock.json
+!src/
+!static/
+!messages/
+!project.inlang/
+!svelte.config.js
+!vite.config.js
+!tsconfig.json
+!components.json
+!server.js
+!shared/

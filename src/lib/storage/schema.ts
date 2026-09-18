@@ -261,6 +261,33 @@ const DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_chats_connection ON ai_chats(connection_id)`,
 
+  // Vault state (singleton per meta.db — used only on web builds).
+  // `verifier` is a known-plaintext blob encrypted with VK; unlocking
+  // decrypts it to confirm the passphrase before trusting any other
+  // decryption. Binary columns are base64-encoded TEXT so they travel
+  // unchanged through the JSON /api/storage/* pipe.
+  `CREATE TABLE IF NOT EXISTS vault_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    salt TEXT NOT NULL,
+    kdf_params TEXT NOT NULL,
+    verifier TEXT NOT NULL,
+    verifier_nonce TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+
+  // Encrypted credentials (web-only — desktop keeps using the OS keychain
+  // via TauriKeyringService). One row per (scope, key). `scope` mirrors
+  // KeyringService categories; `key` is the connectionId / providerId, or
+  // empty string for singletons (license key, primary AI API key).
+  `CREATE TABLE IF NOT EXISTS user_credentials (
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (scope, key)
+  )`,
+
   // AI messages
   `CREATE TABLE IF NOT EXISTS ai_messages (
     id TEXT PRIMARY KEY,

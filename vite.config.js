@@ -4,11 +4,19 @@ import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 
 const host = process.env.TAURI_DEV_HOST;
-const isDemo = process.env.BUILD_TARGET === "demo";
 
 // https://vitejs.dev/config/
 export default defineConfig(async ({ mode }) => {
-  const isDemoMode = mode === "demo" || isDemo;
+  // Resolve the build target from env var OR --mode flag. Env var wins when
+  // both are set (keeps scripted builds predictable). This is load-bearing:
+  // `import.meta.env.VITE_BUILD_TARGET` is read at runtime by isWeb() /
+  // isDemo(), so a mismatch between "which mode is active" and "which define
+  // got baked in" means the UI renders demo chrome in web mode.
+  const buildTarget =
+    process.env.BUILD_TARGET ?? (mode === "web" ? "web" : mode === "demo" ? "demo" : undefined);
+  const isDemoMode = buildTarget === "demo";
+  const isWebMode = buildTarget === "web";
+  const skipTauriConfig = isDemoMode || isWebMode;
 
   return {
     plugins: [
@@ -21,14 +29,17 @@ export default defineConfig(async ({ mode }) => {
       }),
     ],
 
-    // Define environment variables
+    // Define environment variables. VITE_BUILD_TARGET is read by
+    // src/lib/utils/environment.ts to pick between Tauri, web, and demo
+    // providers.
     define: {
       "import.meta.env.VITE_IS_DEMO": JSON.stringify(isDemoMode),
+      "import.meta.env.VITE_BUILD_TARGET": JSON.stringify(buildTarget ?? "desktop"),
     },
 
-    // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-    // Skip Tauri-specific config in demo mode
-    ...(isDemoMode
+    // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`.
+    // Skip for browser-targeted builds (demo, web).
+    ...(skipTauriConfig
       ? {}
       : {
           // 1. prevent vite from obscuring rust errors
@@ -55,28 +66,64 @@ export default defineConfig(async ({ mode }) => {
           },
         }),
 
+    // Web-mode dev proxy: forward /api/db/* (including the WebSocket
+    // upgrade for /api/db/stream) to the local seaquel-server. The rest of
+    // /api (e.g. /api/auth, /api/meta) stays inside SvelteKit so hooks +
+    // Better Auth + Kysely routes work during HMR.
+    //
+    // /health is NOT proxied — SvelteKit has its own /health route and in
+    // dev we want that path to reflect the Node app's liveness, consistent
+    // with the production shape.
+    //
+    // Override the target via SEAQUEL_SERVER_URL if the Rust server runs elsewhere.
+    ...(isWebMode
+      ? {
+          server: {
+            proxy: {
+              "/api/db": {
+                target: process.env.SEAQUEL_SERVER_URL || "http://127.0.0.1:8788",
+                changeOrigin: true,
+                ws: true,
+              },
+            },
+          },
+        }
+      : {}),
+
     // Monaco Editor and DuckDB optimization
     optimizeDeps: {
       include: ["monaco-editor", "monaco-sql-languages"],
-      // Include DuckDB-WASM in demo mode
+      // DuckDB-WASM is only needed in demo mode (in-browser DB engine).
       ...(isDemoMode
         ? { include: ["monaco-editor", "monaco-sql-languages", "@duckdb/duckdb-wasm"] }
         : {}),
     },
 
-    // Build configuration for demo mode
+    // Server-side externals. `better-sqlite3` is a native CommonJS module —
+    // bundling it as ESM breaks because of `__filename` references. Loading
+    // it from node_modules at runtime is the correct shape anyway.
+    ssr: {
+      external: ["better-sqlite3"],
+    },
+
+    // Per-target output directory. The web build is what gets embedded into
+    // the seaquel-server binary via rust-embed (Phase 3).
     build: isDemoMode
       ? {
           outDir: "build-demo",
-          // Externalize Tauri packages in demo mode (they won't be used)
           rollupOptions: {
-            external: (/** @type {string} */ _id) => {
-              // Don't externalize - let the dynamic imports handle it
-              // The environment checks will prevent Tauri code from running
-              return false;
-            },
+            // Don't externalize; runtime environment checks keep Tauri code
+            // from executing in the browser.
+            external: (/** @type {string} */ _id) => false,
           },
         }
-      : {},
+      : isWebMode
+        ? {
+            outDir: "build-web",
+            rollupOptions: {
+              external: (/** @type {string} */ _id) => false,
+            },
+          }
+        : {},
   };
 });
