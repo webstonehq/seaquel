@@ -41,10 +41,12 @@ import { errorToast } from "$lib/utils/toast";
 	} from "$lib/utils/query-visual-layout";
 	import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";
 	import { mode } from "mode-watcher";
+	import { isFeatureEnabled } from "$lib/features";
 
 	let { tabId: propTabId = undefined }: { tabId?: string } = $props();
 
 	const db = useDatabase();
+	const canExportFiles = isFeatureEnabled("fileExport");
 	const activeVisualizeTab = $derived(
 		propTabId
 			? db.state.visualizeTabs.find(t => t.id === propTabId) ?? null
@@ -240,21 +242,25 @@ import { errorToast } from "$lib/utils/toast";
 						</Popover.Content>
 					</Popover.Root>
 
-					<!-- Export Dropdown -->
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger>
-							<Button variant="outline" size="sm" class="h-8">
-								<DownloadIcon class="size-4 me-2" />
-								Export
-							</Button>
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Content>
-							<DropdownMenu.Item onclick={exportToPng}>
-								<ImageIcon class="size-4 me-2" />
-								Download PNG
-							</DropdownMenu.Item>
-						</DropdownMenu.Content>
-					</DropdownMenu.Root>
+					<!-- Export Dropdown — Tauri-only (uses OS save dialog +
+						 `@tauri-apps/plugin-fs`). Hidden in web/demo; see
+						 $lib/features/index.ts → fileExport. -->
+					{#if canExportFiles}
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger>
+								<Button variant="outline" size="sm" class="h-8">
+									<DownloadIcon class="size-4 me-2" />
+									Export
+								</Button>
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content>
+								<DropdownMenu.Item onclick={exportToPng}>
+									<ImageIcon class="size-4 me-2" />
+									Download PNG
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+					{/if}
 				</div>
 			</div>
 

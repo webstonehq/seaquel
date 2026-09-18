@@ -14,7 +14,7 @@
 
 	// Auto-expand section containing the active lesson
 	$effect(() => {
-		const learnPrefix = resolve("/learn") + "/";
+		const learnPrefix = resolve("/(app)/learn") + "/";
 		if (page.url.pathname.startsWith(learnPrefix)) {
 			const lessonId = page.url.pathname.slice(learnPrefix.length).split('/')[0];
 			if (lessonId) {
@@ -44,9 +44,9 @@
 		<Sidebar.GroupContent>
 			<Sidebar.Menu>
 				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={page.url.pathname === resolve("/learn/sandbox")}>
+					<Sidebar.MenuButton isActive={page.url.pathname === resolve("/(app)/learn/sandbox")}>
 						{#snippet child({ props })}
-							<a href={resolve("/learn/sandbox")} {...props}>
+							<a href={resolve("/(app)/learn/sandbox")} {...props}>
 								<BoxIcon class="size-4" />
 								<span>{m.learn_sandbox()}</span>
 							</a>
@@ -90,11 +90,11 @@
 										{#if lesson}
 											<Sidebar.MenuItem>
 												<Sidebar.MenuButton
-													isActive={page.url.pathname === resolve("/learn/[lessonId]", { lessonId })}
+													isActive={page.url.pathname === resolve("/(app)/learn/[lessonId]", { lessonId })}
 													class="flex items-center gap-2"
 												>
 													{#snippet child({ props })}
-														<a href={resolve("/learn/[lessonId]", { lessonId })} {...props}>
+														<a href={resolve("/(app)/learn/[lessonId]", { lessonId })} {...props}>
 															<!-- Pie chart progress indicator -->
 															<svg class="size-4 -rotate-90" viewBox="0 0 16 16">
 																<!-- Background circle -->

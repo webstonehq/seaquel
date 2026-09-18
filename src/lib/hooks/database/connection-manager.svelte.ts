@@ -10,7 +10,9 @@ import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import type { ProviderRegistry } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
+import { isFeatureEnabled } from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
+import { VaultCancelledError } from "$lib/services/vault/vault-state.svelte";
 import { SvelteSet } from "svelte/reactivity";
 import type { SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import { log } from "$lib/utils/logger";
@@ -71,7 +73,13 @@ export class ConnectionManager {
       const connectionEntries = await Promise.all(
         persistedConnections.map(async (persisted) => {
           let password = "";
-          if (persisted.savePassword && keyring.isAvailable()) {
+          // Only pre-fetch when the keyring is *currently unlocked* — on
+          // desktop that's always true; on web it's true only if the
+          // user has already unlocked the vault in this tab. The web
+          // connect flow prompts to unlock on demand when the user
+          // actually hits Connect, so skipping here just avoids an
+          // unsolicited passphrase dialog on every page load.
+          if (persisted.savePassword && keyring.isUnlocked()) {
             try {
               const savedPassword = await keyring.getDbPassword(persisted.id);
               if (savedPassword) {
@@ -164,6 +172,17 @@ export class ConnectionManager {
   ): Promise<{ effectiveConnectionString: string | undefined; tunnelLocalPort?: number }> {
     if (!connection.sshTunnel?.enabled) {
       return { effectiveConnectionString: connection.connectionString };
+    }
+
+    // Belt-and-braces guard for environments that don't support tunnels
+    // (web tenant container, demo). The wizard hides the form there so
+    // new connections won't have `sshTunnel.enabled = true`, but a
+    // connection imported from a desktop install could; surface a clean
+    // error instead of letting the Tauri `invoke()` blow up.
+    if (!isFeatureEnabled("sshTunnels")) {
+      const msg = "SSH tunnels are not available in this build";
+      void log.warn(`${msg} (connection ${connectionId})`);
+      throw new Error(msg);
     }
 
     try {
@@ -295,14 +314,34 @@ export class ConnectionManager {
       // Create initial query tab for new connection
       this.onCreateInitialTab();
 
-      // Persist the connection to store (password saved to keyring if enabled)
-      await this.persistence.persistConnection(newConnection, {
-        savePassword: connection.savePassword,
-        saveSshPassword: connection.saveSshPassword,
-        saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-        sshPassword: connection.sshPassword,
-        sshKeyPassphrase: connection.sshKeyPassphrase,
-      });
+      // Persist the connection to store (password saved to keyring if enabled).
+      //
+      // Separate the "vault unlock cancelled" path from any other persistence
+      // failure: the connection is already in memory, fully usable this
+      // session — we just can't encrypt its credentials to disk yet. Roll it
+      // back from memory + disconnect the provider so we don't leave an
+      // orphaned half-state, then surface a specific toast.
+      try {
+        await this.persistence.persistConnection(newConnection, {
+          savePassword: connection.savePassword,
+          saveSshPassword: connection.saveSshPassword,
+          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+          sshPassword: connection.sshPassword,
+          sshKeyPassphrase: connection.sshKeyPassphrase,
+        });
+      } catch (err) {
+        if (err instanceof VaultCancelledError) {
+          this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
+          this.stateRestoration.cleanupConnectionMaps(newConnection.id);
+          const cleanupProvider = await this.providers.getForType(newConnection.type);
+          await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+          errorToast(
+            "Vault unlock cancelled — connection not saved. Unlock the vault and try again.",
+          );
+          throw err;
+        }
+        throw err;
+      }
 
       void log.info(`Connection established: ${newConnection.id}`);
       return newConnection.id;

@@ -17,3 +17,7 @@ export { dashboardsRepo } from "./repos/dashboards-repo";
 export type { PersistedDashboard } from "./repos/dashboards-repo";
 export { dashboardVersionsRepo } from "./repos/dashboard-versions-repo";
 export { aiChatsRepo } from "./repos/ai-chats-repo";
+export { vaultStateRepo } from "./repos/vault-state-repo";
+export type { PersistedVaultState } from "./repos/vault-state-repo";
+export { userCredentialsRepo } from "./repos/user-credentials-repo";
+export type { PersistedCredential } from "./repos/user-credentials-repo";

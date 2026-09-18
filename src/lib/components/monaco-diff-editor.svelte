@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { mode } from "mode-watcher";
-	import { initMonaco, monaco } from "$lib/monaco";
+	import { initMonaco, type Monaco } from "$lib/monaco";
+	// Type-only import — erased at compile time. The runtime monaco namespace
+	// is captured from `initMonaco()` into the `monaco` local below.
+	import type * as MonacoNS from "monaco-editor";
 
 	let {
 		original = "",
@@ -17,13 +20,14 @@
 
 	// oxlint-disable-next-line eslint(no-unassigned-vars)
 	let container: HTMLDivElement;
-	let diffEditor = $state<monaco.editor.IDiffEditor | null>(null);
-	let originalModel: monaco.editor.ITextModel | null = null;
-	let modifiedModel: monaco.editor.ITextModel | null = null;
-	let layoutDisposable: monaco.IDisposable | null = null;
+	let monaco: Monaco | null = null;
+	let diffEditor = $state<MonacoNS.editor.IDiffEditor | null>(null);
+	let originalModel: MonacoNS.editor.ITextModel | null = null;
+	let modifiedModel: MonacoNS.editor.ITextModel | null = null;
+	let layoutDisposable: MonacoNS.IDisposable | null = null;
 
 	onMount(async () => {
-		await initMonaco();
+		monaco = await initMonaco();
 
 		const theme = mode.current === "dark" ? "seaquel-dark" : "seaquel-light";
 
@@ -78,7 +82,7 @@
 	// React to theme changes
 	$effect(() => {
 		const theme = mode.current === "dark" ? "seaquel-dark" : "seaquel-light";
-		if (diffEditor) {
+		if (diffEditor && monaco) {
 			monaco.editor.setTheme(theme);
 		}
 	});
