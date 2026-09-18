@@ -2,6 +2,8 @@
 node_modules
 /build
 /build-demo
+/build-web
+/target
 /.svelte-kit
 /package
 .env

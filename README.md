@@ -5,6 +5,7 @@
 **Explore, query, and visualize your databases — all in one app.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Free for personal use](https://img.shields.io/badge/Free-for%20personal%20use-blue.svg)](https://seaquel.app/pricing)
 [![Version](https://img.shields.io/github/v/release/webstonehq/seaquel)](https://github.com/webstonehq/seaquel/releases)
 [![GitHub Stars](https://img.shields.io/github/stars/webstonehq/seaquel)](https://github.com/webstonehq/seaquel/stargazers)
 [![Discord](https://img.shields.io/discord/1452421515164385436?label=Discord&logo=discord&logoColor=white)](https://seaquel.app/discord)
@@ -12,7 +13,7 @@
 
 ![Seaquel Screenshot](https://seaquel.app/product-screenshot.png)
 
-Works with 6 database engines. No account required. Free and open source.<br>
+Works with 6 database engines. No account required. Open source, free for personal use.<br>
 [Try it in your browser](https://seaquel.app/demo) in seconds.
 
 </div>
@@ -52,16 +53,16 @@ Works with 6 database engines. No account required. Free and open source.<br>
 
 ## Comparison with Alternatives
 
-|                      |      Seaquel       |      DBeaver       |     TablePlus      |      DataGrip      |      pgAdmin       |
-| -------------------- | :----------------: | :----------------: | :----------------: | :----------------: | :----------------: |
-| Open source          | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         | :white_check_mark: |
-| Multi-database       | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         |
-| Browser demo         | :white_check_mark: |        :x:         |        :x:         |        :x:         |        :x:         |
-| ERD generation       | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         |
-| Visual query builder | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         | :white_check_mark: |
-| EXPLAIN visualizer   | :white_check_mark: | :white_check_mark: |        :x:         | :white_check_mark: | :white_check_mark: |
-| Free                 | :white_check_mark: |      Freemium      |        Paid        |        Paid        | :white_check_mark: |
-| Lightweight          | :white_check_mark: |        :x:         | :white_check_mark: |        :x:         | :white_check_mark: |
+|                       |      Seaquel       |      DBeaver       |     TablePlus      |      DataGrip      |      pgAdmin       |
+| --------------------- | :----------------: | :----------------: | :----------------: | :----------------: | :----------------: |
+| Open source           | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         | :white_check_mark: |
+| Multi-database        | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         |
+| Browser demo          | :white_check_mark: |        :x:         |        :x:         |        :x:         |        :x:         |
+| ERD generation        | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         |
+| Visual query builder  | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         | :white_check_mark: |
+| EXPLAIN visualizer    | :white_check_mark: | :white_check_mark: |        :x:         | :white_check_mark: | :white_check_mark: |
+| Free for personal use | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         | :white_check_mark: |
+| Lightweight           | :white_check_mark: |        :x:         | :white_check_mark: |        :x:         | :white_check_mark: |
 
 ## Installation
 
@@ -139,4 +140,19 @@ npm run check:watch     # Type checking (watch mode)
 
 ## License
 
-[MIT](LICENSE)
+Seaquel splits its source from the binaries we distribute.
+
+**Source code** — [MIT](LICENSE). View it, modify it, redistribute it, and
+build and run your own binaries, including at work, with no license from us.
+The MIT grant does not extend to the Seaquel name, logo, or branding, so please
+don't ship your builds under them.
+
+**Official desktop binaries** — the builds on
+[seaquel.app/download](https://seaquel.app/download), GitHub Releases, and the
+in-app updater are free for personal, non-commercial use. Using them for work
+requires a commercial license: see [pricing](https://seaquel.app/pricing).
+
+**Seaquel Cloud and the self-host image** — a subscription is required for all
+use, personal included.
+
+Full terms: [seaquel.app/terms](https://seaquel.app/terms).
