@@ -30,7 +30,7 @@
 
 
     const isManagePage = $derived(
-        page.url.pathname === resolve("/manage") || page.url.pathname === resolve("/")
+        page.url.pathname === resolve("/(app)/manage") || page.url.pathname === resolve("/")
     );
 
     let activeTabType = $derived(db.state.activeView);

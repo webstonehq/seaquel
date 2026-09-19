@@ -22,8 +22,8 @@
 
 	function handleLearnToggle(checked: boolean) {
 		onboardingStore.setLearnEnabled(checked);
-		if (!checked && page.url.pathname.startsWith(resolve("/learn"))) {
-			goto(resolve("/manage"));
+		if (!checked && page.url.pathname.startsWith(resolve("/(app)/learn"))) {
+			goto(resolve("/(app)/manage"));
 		}
 	}
 </script>

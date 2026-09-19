@@ -6,54 +6,14 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
+import type { DbConnectResult, DbExecuteResult, DbQueryResult, DbStreamEvent } from "./wire";
+import {
+  formatError,
+  formatStreamErrorFrame,
+  formatUnknownStreamFrame,
+  toRustConfig,
+} from "./wire";
 import { dedupeColumnNames } from "$lib/utils/row-access";
-
-interface DbConnectResult {
-  connection_id: string;
-}
-
-interface DbQueryResult {
-  columns: string[];
-  rows: unknown[][];
-}
-
-/**
- * Wire format for streaming events sent back through the Tauri Channel.
- * Matches the Rust `StreamEvent` enum — internally-tagged (`serde(tag = "type")`),
- * which flattens the wrapped `StreamBatch` fields into the event object for the
- * `batch` variant. Variant names are camelCased.
- */
-type DbStreamEvent =
-  | { type: "batch"; columns: string[] | null; rows: unknown[][]; is_final: boolean }
-  | { type: "done" }
-  | { type: "error"; message: string; code: string };
-
-interface DbExecuteResult {
-  rows_affected: number;
-  last_insert_id: number | null;
-}
-
-interface DbError {
-  message: string;
-  code: string;
-}
-
-function isDbError(error: unknown): error is DbError {
-  return typeof error === "object" && error !== null && "message" in error && "code" in error;
-}
-
-function formatError(error: unknown): Error {
-  if (isDbError(error)) {
-    return new Error(`${error.code}: ${error.message}`);
-  }
-  if (error instanceof Error) {
-    return error;
-  }
-  if (typeof error === "string") {
-    return new Error(error);
-  }
-  return new Error("An unknown error occurred");
-}
 
 export class UnifiedTauriProvider implements DatabaseProvider {
   readonly id = "unified-tauri";
@@ -65,7 +25,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
   async connect(config: ConnectionConfig): Promise<string> {
     try {
       const result = await invoke<DbConnectResult>("db_connect", {
-        config: this.toRustConfig(config),
+        config: toRustConfig(config),
       });
       return result.connection_id;
     } catch (error) {
@@ -187,10 +147,12 @@ export class UnifiedTauriProvider implements DatabaseProvider {
           } else if (event.type === "done") {
             finish({ aborted: cancelled });
           } else if (event.type === "error") {
-            finish({
-              aborted: false,
-              error: `${event.code}: ${event.message}`,
-            });
+            finish({ aborted: false, error: formatStreamErrorFrame(event) });
+          } else {
+            // Protocol drift (unknown `type`). Fail explicitly — the old
+            // silent-ignore branch left `selectStream` hanging on the
+            // terminal promise until the channel was torn down.
+            finish({ aborted: false, error: formatUnknownStreamFrame(event) });
           }
         } catch (e) {
           finish({
@@ -270,37 +232,9 @@ export class UnifiedTauriProvider implements DatabaseProvider {
 
   async test(config: ConnectionConfig): Promise<void> {
     try {
-      await invoke("db_test", { config: this.toRustConfig(config) });
+      await invoke("db_test", { config: toRustConfig(config) });
     } catch (error) {
       throw formatError(error);
     }
-  }
-
-  private toRustConfig(config: ConnectionConfig): Record<string, unknown> {
-    if (config.type === "mssql") {
-      return {
-        driver: "mssql",
-        host: config.host,
-        port: config.port,
-        database: config.databaseName,
-        username: config.username,
-        password: config.password,
-        encrypt: config.sslMode !== "disable",
-        trust_cert: config.sslMode !== "require",
-      };
-    }
-
-    if (config.type === "duckdb") {
-      const path = config.connectionString
-        ? config.connectionString.replace(/^duckdb:\/\//, "").replace(/^duckdb:/, "") || ":memory:"
-        : config.databaseName || ":memory:";
-      return { driver: "duckdb", path };
-    }
-
-    // PostgreSQL, MySQL, MariaDB, SQLite
-    return {
-      driver: config.type === "mariadb" ? "mysql" : config.type,
-      connection_string: config.connectionString,
-    };
   }
 }

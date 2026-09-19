@@ -10,14 +10,14 @@
 
 	// Navigation items for the icon sidebar
 	const navItems = [
-		{ id: "learn", title: "Learn", href: resolve("/learn"), icon: GraduationCapIcon },
-		{ id: "manage", title: "Manage", href: resolve("/manage"), icon: Settings2Icon },
+		{ id: "learn", title: "Learn", href: resolve("/(app)/learn"), icon: GraduationCapIcon },
+		{ id: "manage", title: "Manage", href: resolve("/(app)/manage"), icon: Settings2Icon },
 	] as const;
 
 	// Determine active nav item based on current URL
 	// When Learn is disabled, always show manage
 	const activeNavItem = $derived(
-		onboardingStore.learnEnabled && page.url.pathname.startsWith(resolve("/learn")) ? "learn" : "manage"
+		onboardingStore.learnEnabled && page.url.pathname.startsWith(resolve("/(app)/learn")) ? "learn" : "manage"
 	);
 
 	let version = $state("");

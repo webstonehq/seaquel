@@ -82,11 +82,14 @@ export class DuckDBAdapter implements DatabaseAdapter {
   }
 
   getForeignKeysQuery(table: string, schema: string): string {
-    // Query DuckDB's constraint information for foreign keys
+    // DuckDB disallows cross-schema foreign keys, so the referenced table
+    // always lives in the source table's schema. Parallel unnest zips the
+    // source and referenced column arrays position-wise.
     return `SELECT
-			unnest(constraint_column_names) AS column_name,
-			split_part(unnest(constraint_column_names), '.', 1) AS source_column,
-			split_part(constraint_text, 'REFERENCES ', 2) AS ref_info
+			schema_name,
+			referenced_table,
+			unnest(constraint_column_names) AS source_column,
+			unnest(referenced_column_names) AS referenced_column
 		FROM duckdb_constraints()
 		WHERE constraint_type = 'FOREIGN KEY'
 			AND table_name = '${validateIdentifier(table)}'
@@ -296,20 +299,20 @@ export class DuckDBAdapter implements DatabaseAdapter {
   }
 
   parseColumnsResult(rows: unknown[], foreignKeys?: unknown[]): SchemaColumn[] {
-    // Build foreign key map from column name to reference
     const fkMap = new Map<string, ForeignKeyRef>();
     if (foreignKeys) {
-      for (const fk of foreignKeys as { column_name: string; ref_info: string }[]) {
-        // Parse ref_info which looks like "schema.table(column)"
-        const refInfo = fk.ref_info || "";
-        const match = refInfo.match(/^([^.]+)\.([^(]+)\(([^)]+)\)/);
-        if (match) {
-          fkMap.set(fk.column_name, {
-            referencedSchema: match[1],
-            referencedTable: match[2],
-            referencedColumn: match[3],
-          });
-        }
+      for (const fk of foreignKeys as {
+        schema_name: string;
+        referenced_table: string;
+        source_column: string;
+        referenced_column: string;
+      }[]) {
+        if (!fk.source_column || !fk.referenced_table || !fk.referenced_column) continue;
+        fkMap.set(fk.source_column, {
+          referencedSchema: fk.schema_name,
+          referencedTable: fk.referenced_table,
+          referencedColumn: fk.referenced_column,
+        });
       }
     }
 

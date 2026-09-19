@@ -1,0 +1,33 @@
+[workspace]
+members = [
+    "crates/seaquel-db",
+    "crates/seaquel-server",
+    "src-tauri",
+]
+resolver = "2"
+
+[workspace.dependencies]
+async-trait = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+log = { version = "0.4", features = ["kv"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "sqlite", "json", "time", "rust_decimal", "ipnetwork", "mac_address", "bit-vec"] }
+tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "native-tls"] }
+async-native-tls = "0.5"
+duckdb = { version = "1.1", features = ["bundled"] }
+rust_decimal = "1"
+time = { version = "0.3", features = ["formatting"] }
+
+# Server-side only
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+http-body-util = "0.1"

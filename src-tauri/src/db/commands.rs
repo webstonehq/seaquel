@@ -4,10 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{command, ipc::Channel, State};
 
-use super::{
-    duckdb::DuckdbDriver, mssql::MssqlDriver, mysql::MysqlDriver, postgres::PostgresDriver,
-    sqlite::SqliteDriver, BatchStatement, ConnectConfig, ConnectResult, ConnectionManager, DbError,
-    Driver, DriverType, ExecuteResult, QueryResult, StreamBatch,
+use seaquel_db::{
+    open, BatchStatement, ConnectConfig, ConnectResult, ConnectionManager, DbError,
+    ExecuteResult, QueryResult, StreamBatch,
 };
 
 /// Events sent back to the frontend through a streaming query's Channel.
@@ -25,17 +24,6 @@ fn sql_keyword(sql: &str) -> &str {
     sql.trim_start().split_whitespace().next().unwrap_or("?")
 }
 
-async fn connect_driver(config: &ConnectConfig) -> Result<Box<dyn Driver>, DbError> {
-    let driver: Box<dyn Driver> = match config.driver {
-        DriverType::Postgres => Box::new(PostgresDriver::connect(config).await?),
-        DriverType::Mysql => Box::new(MysqlDriver::connect(config).await?),
-        DriverType::Sqlite => Box::new(SqliteDriver::connect(config).await?),
-        DriverType::Mssql => Box::new(MssqlDriver::connect(config).await?),
-        DriverType::Duckdb => Box::new(DuckdbDriver::connect(config)?),
-    };
-    Ok(driver)
-}
-
 #[command]
 pub async fn db_connect(
     config: ConnectConfig,
@@ -50,7 +38,7 @@ pub async fn db_connect(
         uuid::Uuid::new_v4()
     );
 
-    let driver = connect_driver(&config).await?;
+    let driver = open(&config).await?;
 
     manager
         .connections
@@ -71,10 +59,7 @@ pub async fn db_query(
 ) -> Result<QueryResult, DbError> {
     let keyword = sql_keyword(&sql).to_uppercase();
     debug!(activity = "db.query", connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = values.len(); "Query");
-    let connections = manager.connections.read().await;
-    let driver = connections
-        .get(&connection_id)
-        .ok_or_else(|| DbError::connection_not_found(&connection_id))?;
+    let driver = manager.get_driver(&connection_id).await?;
     driver.query(&sql, values).await
 }
 
@@ -107,10 +92,7 @@ pub async fn db_query_stream(
     // connection-not-found, stream error, user cancel), we always remove
     // the flag from the manager on the way out.
     let outcome: Result<(), DbError> = async {
-        let connections = manager.connections.read().await;
-        let driver = connections
-            .get(&connection_id)
-            .ok_or_else(|| DbError::connection_not_found(&connection_id))?;
+        let driver = manager.get_driver(&connection_id).await?;
 
         let mut stream = driver.query_stream(sql, values);
         while let Some(batch_result) = stream.next().await {
@@ -171,10 +153,7 @@ pub async fn db_execute(
 ) -> Result<ExecuteResult, DbError> {
     let keyword = sql_keyword(&sql).to_uppercase();
     debug!(activity = "db.execute", connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = values.len(); "Execute");
-    let connections = manager.connections.read().await;
-    let driver = connections
-        .get(&connection_id)
-        .ok_or_else(|| DbError::connection_not_found(&connection_id))?;
+    let driver = manager.get_driver(&connection_id).await?;
     driver.execute(&sql, values).await
 }
 
@@ -185,10 +164,7 @@ pub async fn db_transaction(
     manager: State<'_, ConnectionManager>,
 ) -> Result<(), DbError> {
     debug!(activity = "db.transaction", connection_id = connection_id.as_str(), statements = statements.len(); "Executing transaction");
-    let connections = manager.connections.read().await;
-    let driver = connections
-        .get(&connection_id)
-        .ok_or_else(|| DbError::connection_not_found(&connection_id))?;
+    let driver = manager.get_driver(&connection_id).await?;
     driver.transaction(statements).await
 }
 
@@ -198,8 +174,15 @@ pub async fn db_disconnect(
     manager: State<'_, ConnectionManager>,
 ) -> Result<(), DbError> {
     info!(activity = "db.disconnect", connection_id = connection_id.as_str(); "Disconnecting");
-    let mut connections = manager.connections.write().await;
-    if let Some(driver) = connections.remove(&connection_id) {
+    let driver = {
+        let mut connections = manager.connections.write().await;
+        connections.remove(&connection_id)
+    };
+    if let Some(driver) = driver {
+        // `pool.close()` waits for in-flight queries to return their
+        // connections to the pool. Any stream holding an Arc clone will
+        // also drop it when done — either way, close() only resolves once
+        // the driver has truly shut down.
         driver.close().await?;
     }
     Ok(())
@@ -208,6 +191,6 @@ pub async fn db_disconnect(
 #[command]
 pub async fn db_test(config: ConnectConfig) -> Result<(), DbError> {
     debug!(activity = "db.test", driver = format!("{:?}", config.driver).as_str(); "Testing connection");
-    let driver = connect_driver(&config).await?;
+    let driver = open(&config).await?;
     driver.close().await
 }

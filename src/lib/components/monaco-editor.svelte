@@ -8,7 +8,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { mode } from "mode-watcher";
-	import { initMonaco, monaco, createSchemaCompletionProvider } from "$lib/monaco";
+	import { initMonaco, createSchemaCompletionProvider, type Monaco } from "$lib/monaco";
+	// Type-only import — erased at compile time. The runtime monaco namespace
+	// is captured from `initMonaco()` into the `monaco` local below.
+	import type * as MonacoNS from "monaco-editor";
 	import { editorSettingsStore } from "$lib/stores/editor-settings.svelte.js";
 	import type { SchemaTable } from "$lib/types";
 
@@ -36,9 +39,10 @@
 	let container: HTMLDivElement;
 	// oxlint-disable-next-line eslint(no-unassigned-vars)
 	let vimStatusBar: HTMLDivElement;
-	let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-	let completionDisposable: monaco.IDisposable | null = null;
-	let keybindingDisposable: monaco.IDisposable | null = null;
+	let monaco: Monaco | null = null;
+	let editor: MonacoNS.editor.IStandaloneCodeEditor | null = null;
+	let completionDisposable: MonacoNS.IDisposable | null = null;
+	let keybindingDisposable: MonacoNS.IDisposable | null = null;
 	let unsubscribeKeybindings: (() => void) | null = null;
 
 	function applyKeybindingMode() {
@@ -75,19 +79,19 @@
 	const editorTheme = $derived(mode.current === "dark" ? "seaquel-dark" : "seaquel-light");
 
 	// Decoration type for template variables
-	let variableDecorationType: monaco.editor.IEditorDecorationsCollection | null = null;
+	let variableDecorationType: MonacoNS.editor.IEditorDecorationsCollection | null = null;
 
 	/**
 	 * Find all template variables ({{var}}) in the editor and apply decorations
 	 */
 	function updateVariableDecorations() {
-		if (!editor) return;
+		if (!editor || !monaco) return;
 
 		const model = editor.getModel();
 		if (!model) return;
 
 		const text = model.getValue();
-		const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+		const decorations: MonacoNS.editor.IModelDeltaDecoration[] = [];
 
 		// Match {{variable_name}} patterns
 		const regex = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
@@ -119,7 +123,7 @@
 	}
 
 	onMount(async () => {
-		await initMonaco();
+		monaco = await initMonaco();
 
 		editor = monaco.editor.create(container, {
 			value: value,
@@ -143,7 +147,7 @@
 		// Register schema-aware completion provider
 		completionDisposable = monaco.languages.registerCompletionItemProvider(
 			"pgsql",
-			createSchemaCompletionProvider(() => schema)
+			createSchemaCompletionProvider(monaco, () => schema)
 		);
 
 		// Sync editor content to bound value and notify parent
@@ -219,7 +223,7 @@
 				return editor.getModel()?.getOffsetAt(position) ?? 0;
 			},
 			insertText: (text: string) => {
-				if (!editor) return;
+				if (!editor || !monaco) return;
 				const position = editor.getPosition();
 				if (!position) return;
 				editor.executeEdits("ai-inline", [{
@@ -271,7 +275,7 @@
 	$effect(() => {
 		// Explicitly access mode.current to ensure reactivity
 		const theme = mode.current === "dark" ? "seaquel-dark" : "seaquel-light";
-		if (editor) {
+		if (editor && monaco) {
 			monaco.editor.setTheme(theme);
 		}
 	});

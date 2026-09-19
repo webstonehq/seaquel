@@ -5,6 +5,15 @@ import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelt
 import type { QueryExecutionManager } from "./query-execution.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
 
+// Dialect-specific placeholder syntax and CAST-to-string type for filter
+// conditions. MySQL/MariaDB reject `$N` placeholders and `CAST(... AS TEXT)`;
+// SQL Server disallows TEXT as a CAST target ("Explicit conversion ... not allowed").
+function filterDialect(dbType: string, paramIndex: number): { paramRef: string; textType: string } {
+  if (dbType === "mssql") return { paramRef: `@p${paramIndex}`, textType: "NVARCHAR(MAX)" };
+  if (dbType === "mysql" || dbType === "mariadb") return { paramRef: "?", textType: "CHAR" };
+  return { paramRef: `$${paramIndex}`, textType: "TEXT" };
+}
+
 /**
  * Manages data viewer tabs: add, remove, set active.
  * Handles query building with filters, sorting, and pagination.
@@ -326,8 +335,8 @@ export class DataTabManager extends BaseTabManager<DataTab> {
         if (f.operator === "IS NULL") return `${col} IS NULL`;
         if (f.operator === "IS NOT NULL") return `${col} IS NOT NULL`;
         params.push(f.value);
-        const paramRef = dbType === "mssql" ? `@p${params.length}` : `$${params.length}`;
-        return `CAST(${col} AS TEXT) ${f.operator} ${paramRef}`;
+        const { paramRef, textType } = filterDialect(dbType, params.length);
+        return `CAST(${col} AS ${textType}) ${f.operator} ${paramRef}`;
       });
       where = ` WHERE ${conditions.join(` ${tab.filterLogic} `)}`;
     }
@@ -368,8 +377,8 @@ export class DataTabManager extends BaseTabManager<DataTab> {
       if (f.operator === "IS NULL") return `${col} IS NULL`;
       if (f.operator === "IS NOT NULL") return `${col} IS NOT NULL`;
       params.push(f.value);
-      const paramRef = dbType === "mssql" ? `@p${params.length}` : `$${params.length}`;
-      return `CAST(${col} AS TEXT) ${f.operator} ${paramRef}`;
+      const { paramRef, textType } = filterDialect(dbType, params.length);
+      return `CAST(${col} AS ${textType}) ${f.operator} ${paramRef}`;
     });
 
     return { sql: `${base} WHERE ${conditions.join(` ${tab.filterLogic} `)}`, params };

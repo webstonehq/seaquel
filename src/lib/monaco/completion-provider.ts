@@ -1,5 +1,9 @@
-import * as monaco from "monaco-editor";
+// Type-only import — erased at compile time so it doesn't pull monaco-editor
+// into the SSR bundle. The actual monaco namespace is passed in as `m` by the
+// caller (which got it from `initMonaco()`).
+import type * as monaco from "monaco-editor";
 import type { SchemaTable } from "$lib/types";
+import type { Monaco } from "./setup";
 
 interface TableReference {
   table: SchemaTable;
@@ -126,6 +130,7 @@ function isColumnContext(textBeforeCursor: string): boolean {
 }
 
 export function createSchemaCompletionProvider(
+  m: Monaco,
   getSchema: () => SchemaTable[],
 ): monaco.languages.CompletionItemProvider {
   return {
@@ -181,7 +186,7 @@ export function createSchemaCompletionProvider(
 
             suggestions.push({
               label: col.name,
-              kind: monaco.languages.CompletionItemKind.Field,
+              kind: m.languages.CompletionItemKind.Field,
               detail: `${col.type}${markers.length ? ` (${markers.join(", ")})` : ""}`,
               insertText: col.name,
               range,
@@ -199,7 +204,7 @@ export function createSchemaCompletionProvider(
         // Add * for select all
         suggestions.push({
           label: "*",
-          kind: monaco.languages.CompletionItemKind.Constant,
+          kind: m.languages.CompletionItemKind.Constant,
           detail: "Select all columns",
           insertText: "*",
           range,
@@ -220,7 +225,7 @@ export function createSchemaCompletionProvider(
             const label = showPrefix ? `${prefix}.${col.name}` : col.name;
             suggestions.push({
               label,
-              kind: monaco.languages.CompletionItemKind.Field,
+              kind: m.languages.CompletionItemKind.Field,
               detail: `${ref.table.name}.${col.name} (${col.type}${markers.length ? `, ${markers.join(", ")}` : ""})`,
               insertText: label,
               range,
@@ -242,7 +247,7 @@ export function createSchemaCompletionProvider(
       uniqueSchemas.forEach((schemaName, idx) => {
         suggestions.push({
           label: schemaName,
-          kind: monaco.languages.CompletionItemKind.Folder,
+          kind: m.languages.CompletionItemKind.Folder,
           detail: "schema",
           insertText: schemaName,
           range,
@@ -258,8 +263,8 @@ export function createSchemaCompletionProvider(
           label: table.name,
           kind:
             table.type !== "table"
-              ? monaco.languages.CompletionItemKind.Interface
-              : monaco.languages.CompletionItemKind.Struct,
+              ? m.languages.CompletionItemKind.Interface
+              : m.languages.CompletionItemKind.Struct,
           detail: `${table.schema}.${table.name} (${table.type})`,
           insertText: table.name,
           range,
@@ -271,8 +276,8 @@ export function createSchemaCompletionProvider(
           label: `${table.schema}.${table.name}`,
           kind:
             table.type !== "table"
-              ? monaco.languages.CompletionItemKind.Interface
-              : monaco.languages.CompletionItemKind.Struct,
+              ? m.languages.CompletionItemKind.Interface
+              : m.languages.CompletionItemKind.Struct,
           detail: table.columns.length ? `${table.columns.length} columns` : "",
           insertText: `${table.schema}.${table.name}`,
           range,
@@ -349,7 +354,7 @@ export function createSchemaCompletionProvider(
       keywords.forEach((kw) => {
         suggestions.push({
           label: kw,
-          kind: monaco.languages.CompletionItemKind.Keyword,
+          kind: m.languages.CompletionItemKind.Keyword,
           insertText: kw,
           range,
         });
@@ -388,7 +393,7 @@ export function createSchemaCompletionProvider(
       pgTypes.forEach((type) => {
         suggestions.push({
           label: type,
-          kind: monaco.languages.CompletionItemKind.TypeParameter,
+          kind: m.languages.CompletionItemKind.TypeParameter,
           insertText: type,
           range,
         });

@@ -19,4 +19,6 @@ export {
   dashboardVersionsRepo,
   connectionOverridesRepo,
   aiChatsRepo,
+  vaultStateRepo,
+  userCredentialsRepo,
 } from "./repository";

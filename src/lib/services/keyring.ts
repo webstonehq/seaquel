@@ -1,13 +1,17 @@
 /**
- * Keyring service for secure password storage using OS-native keychains.
- * - macOS: Keychain
- * - Windows: Credential Manager
- * - Linux: Secret Service (GNOME Keyring, KWallet)
- *
- * Falls back to a no-op implementation in browser demo mode.
+ * Keyring service for secure credential storage. Three implementations:
+ * - Desktop (Tauri): OS-native keychain
+ *   - macOS: Keychain
+ *   - Windows: Credential Manager
+ *   - Linux: Secret Service (GNOME Keyring, KWallet)
+ * - Web (hosted / self-hosted): `VaultKeyringService` — browser-derived VK
+ *   encrypts payloads, server stores ciphertext in `user_credentials`. See
+ *   `src/lib/services/vault/`.
+ * - Demo (in-browser only): no-op — credentials are not persisted.
  */
 
-import { isTauri } from "$lib/utils/environment";
+import { isTauri, isWeb } from "$lib/utils/environment";
+import { VaultKeyringService } from "$lib/services/vault/vault-keyring";
 
 const SERVICE = "app.seaquel.desktop";
 
@@ -38,7 +42,17 @@ export interface KeyringService {
   getAIApiKeyForProvider(id: string): Promise<string | null>;
   deleteAIApiKeyForProvider(id: string): Promise<void>;
 
+  /** Plumbing check — can this service store/retrieve credentials at all? */
   isAvailable(): boolean;
+
+  /**
+   * Does a `get*` call complete without user interaction? Desktop's OS
+   * keychain is always "unlocked" for the logged-in user; the web vault
+   * requires an explicit passphrase unlock, tab-scoped. Startup-time
+   * pre-fetch paths gate on this to avoid popping the unlock dialog on
+   * every page load.
+   */
+  isUnlocked(): boolean;
 }
 
 /**
@@ -209,6 +223,12 @@ class TauriKeyringService implements KeyringService {
   isAvailable(): boolean {
     return true;
   }
+
+  isUnlocked(): boolean {
+    // OS keychain is unlocked for the logged-in user — `get*` calls
+    // complete synchronously without further interaction.
+    return true;
+  }
 }
 
 /**
@@ -249,19 +269,30 @@ class NoopKeyringService implements KeyringService {
   isAvailable(): boolean {
     return false;
   }
+  isUnlocked(): boolean {
+    return false;
+  }
 }
 
 let keyringService: KeyringService | null = null;
 
 /**
  * Get the keyring service instance.
- * Returns a Tauri implementation in desktop app, or a no-op in browser demo.
+ * - Tauri desktop → OS keychain
+ * - Web build (hosted / self-hosted) → `VaultKeyringService` (browser-
+ *   derived key encrypts, server stores ciphertext)
+ * - Anything else (demo) → no-op
+ *
+ * `isWeb()` resolves at build time from `VITE_BUILD_TARGET` so Vite's
+ * tree-shaker drops the unused branches from desktop / demo bundles.
  */
 export function getKeyringService(): KeyringService {
   if (keyringService) return keyringService;
 
   if (isTauri()) {
     keyringService = new TauriKeyringService();
+  } else if (isWeb()) {
+    keyringService = new VaultKeyringService();
   } else {
     keyringService = new NoopKeyringService();
   }

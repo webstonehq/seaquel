@@ -13,6 +13,15 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 sample.db
 
+# Seaquel server (web mode)
+/auth.db*
+/meta.db
+/meta.db-shm
+/meta.db-wal
+/seaquel-server
+/seaquel.db
+/users/
+
 # Paraglide
 src/lib/paraglide
 project.inlang/cache/
