@@ -11,6 +11,8 @@
 	import { openLogViewer } from "$lib/utils/log-viewer-window";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import FileTextIcon from "@lucide/svelte/icons/file-text";
+	import MessageCircleIcon from "@lucide/svelte/icons/message-circle";
+	import ArrowUpRightIcon from "@lucide/svelte/icons/arrow-up-right";
 	import type { SettingsTab } from "$lib/types";
 
 	interface Props {
@@ -85,6 +87,17 @@
 			isConnectingInternal = false;
 		}
 	}
+
+	// Opens the web form rather than collecting an email in-app: consent
+	// capture lives in one place, and nothing here needs storing locally.
+	function openFeedback() {
+		const url = "https://seaquel.app/feedback?from=settings";
+		if (isTauri()) {
+			import("$lib/api/tauri").then(({ openPath }) => openPath(url));
+		} else {
+			window.open(url, "_blank");
+		}
+	}
 </script>
 
 <div class="space-y-6" data-section="app-info">
@@ -131,6 +144,18 @@
 		>
 			<FileTextIcon class="size-4 mr-1" />
 			{m.settings_view_logs()}
+		</Button>
+	</div>
+
+	<div class="rounded-lg border p-4">
+		<h3 class="text-sm font-medium">{m.settings_feedback_title()}</h3>
+		<p class="text-sm text-muted-foreground mt-1 mb-3">
+			{m.settings_feedback_description()}
+		</p>
+		<Button variant="outline" size="sm" onclick={openFeedback}>
+			<MessageCircleIcon class="size-4 mr-1" />
+			{m.settings_feedback_action()}
+			<ArrowUpRightIcon class="size-4 ml-1" />
 		</Button>
 	</div>
 </div>

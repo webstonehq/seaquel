@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { m } from "$lib/paraglide/messages.js";
     import { updateStore } from "$lib/stores/update.svelte.js";
     import * as Popover from "$lib/components/ui/popover/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
@@ -7,6 +8,7 @@
     import PackageIcon from "@lucide/svelte/icons/package";
     import CheckCircleIcon from "@lucide/svelte/icons/circle-check";
     import FileTextIcon from "@lucide/svelte/icons/file-text";
+    import MessageCircleIcon from "@lucide/svelte/icons/message-circle";
     import { isTauri } from "$lib/utils/environment";
 
     const openExternal = (url: string) => {
@@ -112,6 +114,19 @@
                 >
                     <FileTextIcon class="size-4" />
                     <span>View Release Notes</span>
+                    <div class="flex-1"></div>
+                    <ArrowUpRightIcon class="size-4" />
+                </button>
+
+                <!-- Opens the web form rather than collecting an email here:
+                     consent capture stays in one place, and this popover
+                     stays a one-task surface. -->
+                <button
+                    class="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-foreground cursor-pointer w-full transition-colors hover:bg-muted/50 border-t"
+                    onclick={() => openExternal("https://seaquel.app/feedback?from=update")}
+                >
+                    <MessageCircleIcon class="size-4" />
+                    <span>{m.update_help_shape()}</span>
                     <div class="flex-1"></div>
                     <ArrowUpRightIcon class="size-4" />
                 </button>
