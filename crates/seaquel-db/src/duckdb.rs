@@ -87,6 +87,9 @@ fn convert_value_to_json(value: ValueRef) -> serde_json::Value {
         ValueRef::Map(..) => serde_json::json!(format!("{:?}", value)),
         ValueRef::Array(..) => serde_json::json!(format!("{:?}", value)),
         ValueRef::Union(..) => serde_json::json!(format!("{:?}", value)),
+        // `ValueRef` is `#[non_exhaustive]`; fall back to the debug rendering
+        // used for the other composite types.
+        _ => serde_json::json!(format!("{:?}", value)),
     }
 }
 
