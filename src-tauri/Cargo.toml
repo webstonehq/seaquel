@@ -37,8 +37,6 @@ async-trait = "0.1"
 async-stream = "0.3"
 futures = "0.3"
 tokio = { version = "1", features = ["sync", "net", "io-util"] }
-tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "native-tls"] }
-async-native-tls = "0.5"
 tokio-util = { version = "0.7", features = ["compat"] }
 base64 = "0.22"
 tauri-plugin-os = "2"

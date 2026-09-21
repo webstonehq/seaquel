@@ -1,4 +1,3 @@
-use async_native_tls::TlsStream;
 use async_trait::async_trait;
 use futures::FutureExt;
 use log::{error, info, warn};
@@ -6,42 +5,25 @@ use std::panic::AssertUnwindSafe;
 use tiberius::{AuthMethod, Client, Config, Query, Row};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use super::{ConnectConfig, DbError, Driver, ExecuteResult, QueryResult};
 
-/// Support both TLS and non-TLS connections
-enum MssqlClient {
-    Tls(Client<TlsStream<Compat<TcpStream>>>),
-    Plain(Client<Compat<TcpStream>>),
+/// rustls reports certificate verification failures as I/O errors rather
+/// than `Error::Tls`, so match on the message for those.
+fn is_tls_error(e: &tiberius::error::Error) -> bool {
+    match e {
+        tiberius::error::Error::Tls(_) => true,
+        tiberius::error::Error::Io { message, .. } => message.contains("certificate"),
+        _ => false,
+    }
 }
 
-impl MssqlClient {
-    async fn run_query(
-        &mut self,
-        query: Query<'_>,
-    ) -> Result<Vec<Row>, tiberius::error::Error> {
-        match self {
-            MssqlClient::Tls(client) => {
-                let stream = query.query(client).await?;
-                stream.into_first_result().await
-            }
-            MssqlClient::Plain(client) => {
-                let stream = query.query(client).await?;
-                stream.into_first_result().await
-            }
-        }
-    }
-
-    async fn run_execute(
-        &mut self,
-        query: Query<'_>,
-    ) -> Result<tiberius::ExecuteResult, tiberius::error::Error> {
-        match self {
-            MssqlClient::Tls(client) => query.execute(client).await,
-            MssqlClient::Plain(client) => query.execute(client).await,
-        }
-    }
+async fn run_query(
+    client: &mut Client<Compat<TcpStream>>,
+    query: Query<'_>,
+) -> Result<Vec<Row>, tiberius::error::Error> {
+    query.query(client).await?.into_first_result().await
 }
 
 /// Bind a JSON parameter onto a tiberius `Query`. Scalars (null, bool, int,
@@ -82,7 +64,7 @@ fn bind_mssql_param(query: &mut Query<'_>, v: &serde_json::Value) -> Result<(), 
 }
 
 pub struct MssqlDriver {
-    client: Mutex<MssqlClient>,
+    client: Mutex<Client<Compat<TcpStream>>>,
 }
 
 impl MssqlDriver {
@@ -124,53 +106,43 @@ impl MssqlDriver {
             code: "TCP_ERROR".to_string(),
         })?;
 
-        let tcp_compat = tcp.compat();
+        // TLS is negotiated by tiberius itself: TDS sends a plaintext PRELOGIN
+        // packet first and only then runs the TLS handshake inside TDS packets.
+        // Wrapping the raw TCP stream in TLS up front makes the server reject
+        // the handshake (e.g. Azure SQL, which always requires encryption).
+        if encrypt && config.trust_cert.unwrap_or(false) {
+            // The operator explicitly opted in to skipping cert validation.
+            // This is unsafe against MITM — log it prominently so it shows
+            // up in audits. `tls = "insecure"` is the structured field to
+            // grep for in aggregated logs.
+            warn!(
+                activity = "db.connect",
+                driver = "mssql",
+                tls = "insecure",
+                host = host;
+                "MSSQL connecting with TLS certificate verification disabled (trust_cert=true)"
+            );
+            tiberius_config.trust_cert();
+        }
 
-        let client = if encrypt {
-            let trust_cert = config.trust_cert.unwrap_or(false);
-            if trust_cert {
-                // The operator explicitly opted in to skipping cert validation.
-                // This is unsafe against MITM — log it prominently so it shows
-                // up in audits. `tls = "insecure"` is the structured field to
-                // grep for in aggregated logs.
-                warn!(
-                    activity = "db.connect",
-                    driver = "mssql",
-                    tls = "insecure",
-                    host = host;
-                    "MSSQL connecting with TLS certificate verification disabled (trust_cert=true)"
-                );
-            }
-            let tls_connector = async_native_tls::TlsConnector::new()
-                .danger_accept_invalid_certs(trust_cert)
-                .use_sni(true);
-
-            let tls_stream = tls_connector
-                .connect(host, tcp_compat)
-                .await
-                .map_err(|e| DbError {
-                    message: format!("TLS connection failed: {}. Try setting SSL Mode to 'disable' for localhost servers without TLS.", e),
-                    code: "TLS_ERROR".to_string(),
-                })?;
-
-            let inner_client = Client::connect(tiberius_config, tls_stream)
-                .await
-                .map_err(|e| DbError {
-                    message: format!("Failed to connect to SQL Server: {}", e),
-                    code: "AUTH_ERROR".to_string(),
-                })?;
-
-            MssqlClient::Tls(inner_client)
-        } else {
-            let inner_client = Client::connect(tiberius_config, tcp_compat)
-                .await
-                .map_err(|e| DbError {
-                    message: format!("Failed to connect to SQL Server: {}", e),
-                    code: "AUTH_ERROR".to_string(),
-                })?;
-
-            MssqlClient::Plain(inner_client)
-        };
+        let client = Client::connect(tiberius_config, tcp.compat_write())
+            .await
+            .map_err(|e| {
+                if is_tls_error(&e) {
+                    DbError {
+                        message: format!(
+                            "TLS connection failed: {}. Try setting SSL Mode to 'disable' for servers without TLS, or 'prefer' to skip certificate verification.",
+                            e
+                        ),
+                        code: "TLS_ERROR".to_string(),
+                    }
+                } else {
+                    DbError {
+                        message: format!("Failed to connect to SQL Server: {}", e),
+                        code: "AUTH_ERROR".to_string(),
+                    }
+                }
+            })?;
 
         Ok(Self {
             client: Mutex::new(client),
@@ -256,7 +228,7 @@ impl Driver for MssqlDriver {
         // Tauri command returns an error instead of hanging the UI forever.
         // TODO: drop the catch_unwind once tiberius >0.12.3 ships fixes for
         // token_col_metadata SQL_VARIANT/UDT decoding.
-        let rows = match AssertUnwindSafe(client.run_query(query)).catch_unwind().await {
+        let rows = match AssertUnwindSafe(run_query(&mut client, query)).catch_unwind().await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
                 error!(activity = "db.query", driver = "mssql", error_code = "QUERY_ERROR"; "Query failed");
@@ -312,7 +284,7 @@ impl Driver for MssqlDriver {
 
         let mut client = self.client.lock().await;
 
-        let result = match AssertUnwindSafe(client.run_execute(query)).catch_unwind().await {
+        let result = match AssertUnwindSafe(query.execute(&mut *client)).catch_unwind().await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
                 error!(activity = "db.execute", driver = "mssql", error_code = "EXECUTE_ERROR"; "Execute failed");

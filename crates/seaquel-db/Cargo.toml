@@ -18,7 +18,6 @@ base64 = { workspace = true }
 
 sqlx = { workspace = true }
 tiberius = { workspace = true }
-async-native-tls = { workspace = true }
 duckdb = { workspace = true }
 rust_decimal = { workspace = true }
 time = { workspace = true }
