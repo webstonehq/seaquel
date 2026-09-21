@@ -1,5 +1,6 @@
 import type { QueryResult, QueryHistoryItem, ConnectionLabel } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
+import { licenseNudgeStore } from "$lib/stores/license-nudge.svelte.js";
 
 /**
  * Manages query history: adding entries, toggling favorites.
@@ -45,6 +46,7 @@ export class QueryHistoryManager {
       ],
     };
     this.schedulePersistence(connectionId);
+    licenseNudgeStore.recordQuery();
   }
 
   /**

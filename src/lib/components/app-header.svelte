@@ -28,6 +28,7 @@
     import { m } from "$lib/paraglide/messages.js";
     import { DEFAULT_PROJECT_ID } from "$lib/types";
     import { Badge } from "$lib/components/ui/badge/index.js";
+    import * as Tooltip from "$lib/components/ui/tooltip/index.js";
     import { licenseStore } from "$lib/stores/license.svelte.js";
     import { updateStore } from "$lib/stores/update.svelte.js";
 
@@ -234,14 +235,31 @@
         <!-- Right section: action buttons -->
         <div class="flex items-center gap-1 shrink-0">
             {#if isTauri()}
-                <button
-                    class="cursor-pointer"
-                    onclick={() => db.settingsTabs.open("app", "license")}
-                >
+                {#snippet licenseBadge()}
                     <Badge variant={licenseStore.status === "active" ? "default" : licenseStore.status === "expired" || licenseStore.status === "invalid" ? "destructive" : "secondary"}>
                         {licenseStore.badgeLabel}
                     </Badge>
-                </button>
+                {/snippet}
+                {#if licenseStore.status === "personal"}
+                    <Tooltip.Root delayDuration={300}>
+                        <Tooltip.Trigger
+                            class="cursor-pointer"
+                            onclick={() => db.settingsTabs.open("app", "license")}
+                        >
+                            {@render licenseBadge()}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content side="bottom" class="max-w-64">
+                            {m.license_badge_tooltip()}
+                        </Tooltip.Content>
+                    </Tooltip.Root>
+                {:else}
+                    <button
+                        class="cursor-pointer"
+                        onclick={() => db.settingsTabs.open("app", "license")}
+                    >
+                        {@render licenseBadge()}
+                    </button>
+                {/if}
             {/if}
             {#if !isLearnPage && (db.state.activeConnection?.providerConnectionId)}
                 {#if db.state.activePendingChangesCount > 0}

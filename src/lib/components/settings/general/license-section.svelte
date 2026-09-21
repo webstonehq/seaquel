@@ -276,6 +276,9 @@
 	{:else}
 		<div class="space-y-4">
 			<p class="text-sm text-muted-foreground">
+				{m.license_personal_explainer()}
+			</p>
+			<p class="text-sm text-muted-foreground">
 				{m.license_activate_description()}
 			</p>
 			{#if showActivationInput}

@@ -22,6 +22,8 @@
     import { onMount } from "svelte";
     import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
     import { licenseStore } from "$lib/stores/license.svelte.js";
+    import { licenseNudgeStore } from "$lib/stores/license-nudge.svelte.js";
+    import LicenseNudgeCard from "$lib/components/license-nudge-card.svelte";
     import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
     import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
     import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
@@ -85,6 +87,7 @@
                 ...commonInit,
                 onboardingStore.initialize(),
                 licenseStore.initialize(),
+                licenseNudgeStore.initialize(),
                 dbeaverImportStore.initialize(),
                 tablePlusImportStore.initialize(),
                 updateStore.initialize(),
@@ -239,6 +242,9 @@
     <TablePlusImportDialog />
     <DeepLinkCloneDialog />
     <DeepLinkProjectPickerDialog />
+    {#if isTauri()}
+        <LicenseNudgeCard />
+    {/if}
     {#if isWeb()}
         <VaultGate />
     {/if}
