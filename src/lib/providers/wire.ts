@@ -55,6 +55,11 @@ export function formatError(error: unknown): Error {
   return new Error("An unknown error occurred");
 }
 
+/** True for the error a SQLite connect/test returns when the database file doesn't exist. */
+export function isFileNotFoundError(message: string | null): boolean {
+  return message?.startsWith("FILE_NOT_FOUND:") ?? false;
+}
+
 // -------- Stream-frame helpers --------
 
 /**
@@ -109,7 +114,15 @@ export function toRustConfig(config: ConnectionConfig): Record<string, unknown> 
     return { driver: "duckdb", path };
   }
 
-  // PostgreSQL, MySQL, MariaDB, SQLite
+  if (config.type === "sqlite") {
+    return {
+      driver: "sqlite",
+      connection_string: config.connectionString,
+      create_if_missing: config.createIfMissing ?? false,
+    };
+  }
+
+  // PostgreSQL, MySQL, MariaDB
   return {
     driver: config.type === "mariadb" ? "mysql" : config.type,
     connection_string: config.connectionString,

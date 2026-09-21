@@ -6,6 +6,7 @@
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { toast } from "svelte-sonner";
 	import { extractErrorMessage } from "$lib/errors/types";
+	import { isFileNotFoundError } from "$lib/providers/wire";
 	import {
 		getConnectionData,
 		parseConnectionString,
@@ -185,7 +186,13 @@
 		}
 	};
 
-	const handleConnect = async () => {
+	// A SQLite path that doesn't exist fails with FILE_NOT_FOUND instead of
+	// silently creating an empty database; offer to create it explicitly.
+	const canCreateDatabase = $derived(
+		formData.type === "sqlite" && tab.mode !== "edit" && isFileNotFoundError(connectionError),
+	);
+
+	const handleConnect = async ({ createIfMissing = false } = {}) => {
 		if (!validate()) return;
 
 		isConnecting = true;
@@ -196,7 +203,10 @@
 		const tabMode = tab.mode;
 		const tabConnectionId = tab.connectionId;
 		try {
-			const connectionData = getConnectionData(formData as ConnectionFormData);
+			const connectionData = {
+				...getConnectionData(formData as ConnectionFormData),
+				createIfMissing,
+			};
 
 			if (tabMode === "edit" && tabConnectionId) {
 				// Edit mode - just update settings without reconnecting
@@ -303,6 +313,9 @@
 						{isEditing}
 						{isTesting}
 						onTest={handleTestConnection}
+						onCreateDatabase={canCreateDatabase
+							? () => handleConnect({ createIfMissing: true })
+							: undefined}
 						error={connectionError}
 					/>
 				{/if}
@@ -336,7 +349,7 @@
 
 					<div class="flex gap-2">
 						<Button
-							onclick={handleConnect}
+							onclick={() => handleConnect()}
 							disabled={!canProceed || isConnecting || isTesting}
 						>
 							{#if isConnecting}

@@ -59,6 +59,7 @@ pub async fn connect_sqlite(app: axum::Router, conn_str: &str) -> String {
         serde_json::json!({
             "driver": "sqlite",
             "connection_string": conn_str,
+            "create_if_missing": true,
         }),
     )
     .await;

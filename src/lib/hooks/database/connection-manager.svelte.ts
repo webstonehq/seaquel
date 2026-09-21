@@ -26,6 +26,7 @@ type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds">
   savePassword?: boolean;
   saveSshPassword?: boolean;
   saveSshKeyPassphrase?: boolean;
+  createIfMissing?: boolean;
 };
 
 /**
@@ -252,11 +253,15 @@ export class ConnectionManager {
         password: connection.password,
         sslMode: connection.sslMode,
         connectionString: effectiveConnectionString,
+        createIfMissing: connection.createIfMissing,
       });
 
       const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
+      // createIfMissing applies to this connect only — don't persist it, or a
+      // deleted/moved database would be silently recreated on reconnect.
+      const { createIfMissing: _createIfMissing, ...persisted } = connection;
       const newConnection: DatabaseConnection = {
-        ...connection,
+        ...persisted,
         id: connectionId,
         projectId,
         isLocalOnly: connection.isLocalOnly ?? true,
@@ -413,6 +418,7 @@ export class ConnectionManager {
         password: connection.password,
         sslMode: connection.sslMode,
         connectionString: effectiveConnectionString,
+        createIfMissing: connection.createIfMissing,
       });
 
       // Create updated connection object to ensure Svelte reactivity sees the change
@@ -591,6 +597,7 @@ export class ConnectionManager {
         password: connection.password,
         sslMode: connection.sslMode,
         connectionString: effectiveConnectionString,
+        createIfMissing: connection.createIfMissing,
       });
     } finally {
       // Clean up SSH tunnel if we created one

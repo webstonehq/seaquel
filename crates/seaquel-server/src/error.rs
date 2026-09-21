@@ -24,7 +24,7 @@ impl IntoResponse for ApiError {
         let status = match self.0.code.as_str() {
             "CONNECTION_NOT_FOUND" => StatusCode::NOT_FOUND,
             "CONNECTION_ERROR" => StatusCode::BAD_GATEWAY,
-            "QUERY_ERROR" | "EXECUTE_ERROR" => StatusCode::BAD_REQUEST,
+            "QUERY_ERROR" | "EXECUTE_ERROR" | "FILE_NOT_FOUND" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self.0)).into_response()

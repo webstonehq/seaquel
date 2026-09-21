@@ -473,6 +473,7 @@
   "wizard_next": "Weiter",
   "wizard_connect": "Verbinden",
   "wizard_test_success": "Verbindung erfolgreich!",
+  "wizard_create_database": "Datenbank erstellen",
   "wizard_connect_success": "Erfolgreich verbunden",
   "wizard_connect_empty": "Verbunden, aber Datenbank ist leer - keine Tabellen gefunden",
   "wizard_dialog_title_edit": "Verbindung bearbeiten",

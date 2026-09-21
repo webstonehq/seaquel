@@ -28,22 +28,33 @@ impl SqliteDriver {
             .as_deref()
             .ok_or_else(|| DbError::connection_error("connection_string is required for SQLite"))?;
 
-        // Ensure the parent directory exists before creating the database file
-        if let Some(parent) = database_parent_dir(conn_str)? {
-            if !parent.exists() {
-                std::fs::create_dir_all(&parent)
-                    .map_err(|e| DbError::connection_error(format!("Failed to create database directory: {}", e)))?;
-            }
-        }
-
-        // Ensure the database file exists for SQLite
-        if !sqlx::sqlite::Sqlite::database_exists(conn_str)
+        let exists = Sqlite::database_exists(conn_str)
             .await
-            .unwrap_or(false)
-        {
-            sqlx::sqlite::Sqlite::create_database(conn_str)
+            .map_err(DbError::connection_error)?;
+
+        if !exists {
+            if !config.create_if_missing.unwrap_or(false) {
+                let path = SqliteConnectOptions::from_str(conn_str)
+                    .map_err(DbError::connection_error)?
+                    .get_filename()
+                    .display()
+                    .to_string();
+                return Err(DbError {
+                    message: format!("Database file not found: {}", path),
+                    code: "FILE_NOT_FOUND".to_string(),
+                });
+            }
+
+            if let Some(parent) = database_parent_dir(conn_str)? {
+                if !parent.exists() {
+                    std::fs::create_dir_all(&parent)
+                        .map_err(|e| DbError::connection_error(format!("Failed to create database directory: {}", e)))?;
+                }
+            }
+
+            Sqlite::create_database(conn_str)
                 .await
-                .map_err(|e| DbError::connection_error(e))?;
+                .map_err(DbError::connection_error)?;
         }
 
         let pool = Pool::<Sqlite>::connect(conn_str)

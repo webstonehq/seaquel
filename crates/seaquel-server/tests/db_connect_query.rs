@@ -48,7 +48,7 @@ async fn connect_and_query_sqlite_roundtrip() {
     let (status, body) = post_json(
         app.clone(),
         "/api/db/connect",
-        json!({ "driver": "sqlite", "connection_string": conn_str }),
+        json!({ "driver": "sqlite", "connection_string": conn_str, "create_if_missing": true }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "connect failed: {body}");

@@ -473,6 +473,7 @@
   "wizard_next": "계속",
   "wizard_connect": "연결",
   "wizard_test_success": "연결 성공!",
+  "wizard_create_database": "데이터베이스 생성",
   "wizard_connect_success": "성공적으로 연결되었습니다",
   "wizard_connect_empty": "연결되었지만 데이터베이스가 비어 있습니다 - 테이블을 찾을 수 없습니다",
   "wizard_dialog_title_edit": "연결 편집",

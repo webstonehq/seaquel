@@ -497,6 +497,7 @@
   "wizard_next": "Continue",
   "wizard_connect": "Connect",
   "wizard_test_success": "Connection successful!",
+  "wizard_create_database": "Create database",
   "wizard_connect_success": "Connected successfully",
   "wizard_connect_empty": "Connected, but database is empty - no tables found",
   "wizard_dialog_title_edit": "Edit Connection",
