@@ -43,6 +43,22 @@ impl DuckdbDriver {
         let conn = if path == ":memory:" || path.is_empty() {
             Connection::open_in_memory()
         } else {
+            // DuckDB creates missing files on open; only allow that when asked
+            // so a mistyped path fails instead of opening a new, empty database.
+            let file = std::path::Path::new(path);
+            if !file.exists() {
+                if !config.create_if_missing.unwrap_or(false) {
+                    return Err(DbError {
+                        message: format!("Database file not found: {}", path),
+                        code: "FILE_NOT_FOUND".to_string(),
+                    });
+                }
+                if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        DbError::connection_error(format!("Failed to create database directory: {}", e))
+                    })?;
+                }
+            }
             Connection::open(path)
         }
         .map_err(|e| DbError::connection_error(e))?;
@@ -210,5 +226,47 @@ impl Driver for DuckdbDriver {
     async fn close(&self) -> Result<(), DbError> {
         // DuckDB Connection is closed on drop
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(path: &std::path::Path, create_if_missing: bool) -> ConnectConfig {
+        serde_json::from_value(serde_json::json!({
+            "driver": "duckdb",
+            "path": path.to_str().unwrap(),
+            "create_if_missing": create_if_missing,
+        }))
+        .unwrap()
+    }
+
+    fn temp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("seaquel-duckdb-test-{}", std::process::id()))
+    }
+
+    #[test]
+    fn missing_file_is_not_created() {
+        let path = temp_path().join("missing.duckdb");
+        let err = DuckdbDriver::connect(&config(&path, false)).err().unwrap();
+        assert_eq!(err.code, "FILE_NOT_FOUND");
+        assert!(!path.exists(), "database file must not be created");
+    }
+
+    #[test]
+    fn create_if_missing_creates_file_and_directory() {
+        let dir = temp_path().join("create");
+        let path = dir.join("nested").join("new.duckdb");
+        DuckdbDriver::connect(&config(&path, true)).unwrap();
+        assert!(path.exists(), "database file should be created");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn in_memory_needs_no_file() {
+        let cfg: ConnectConfig =
+            serde_json::from_value(serde_json::json!({ "driver": "duckdb", "path": ":memory:" })).unwrap();
+        assert!(DuckdbDriver::connect(&cfg).is_ok());
     }
 }
