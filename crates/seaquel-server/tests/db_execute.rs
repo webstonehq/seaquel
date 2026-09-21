@@ -49,7 +49,7 @@ async fn execute_create_and_insert_reports_rows_affected() {
     let (status, body) = post_json(
         app.clone(),
         "/api/db/connect",
-        json!({ "driver": "sqlite", "connection_string": conn_str }),
+        json!({ "driver": "sqlite", "connection_string": conn_str, "create_if_missing": true }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "connect failed: {body}");

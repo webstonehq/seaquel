@@ -25,6 +25,8 @@ export interface ConnectionConfig {
   connectionString?: string;
   /** SSL mode */
   sslMode?: string;
+  /** SQLite only: create the database file if it doesn't exist */
+  createIfMissing?: boolean;
 }
 
 /**

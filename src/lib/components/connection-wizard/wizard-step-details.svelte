@@ -48,10 +48,12 @@
 		isEditing: boolean;
 		isTesting: boolean;
 		onTest: () => void;
+		/** Set when the error is a missing SQLite file that can be created. */
+		onCreateDatabase?: () => void;
 		error: string | null;
 	}
 
-	let { formData = $bindable(), selectedDbType, isReconnecting, isEditing, isTesting, onTest, error }: Props =
+	let { formData = $bindable(), selectedDbType, isReconnecting, isEditing, isTesting, onTest, onCreateDatabase, error }: Props =
 		$props();
 
 	const isFileBasedDb = $derived(formData.type === "sqlite" || formData.type === "duckdb");
@@ -559,7 +561,14 @@
 			<div
 				class="flex items-start gap-2 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm"
 			>
-				<span class="flex-1">{error}</span>
+				<div class="flex-1 grid gap-2">
+					<span>{error}</span>
+					{#if onCreateDatabase}
+						<Button variant="outline" size="sm" class="w-fit" onclick={onCreateDatabase}>
+							{m.wizard_create_database()}
+						</Button>
+					{/if}
+				</div>
 				<Button
 					variant="ghost"
 					size="icon"

@@ -148,6 +148,10 @@ pub struct ConnectConfig {
     pub trust_cert: Option<bool>,
     /// File path for DuckDB
     pub path: Option<String>,
+    /// SQLite only: create the database file (and its directory) if it doesn't
+    /// exist. Off by default so a mistyped path fails instead of silently
+    /// opening a new, empty database.
+    pub create_if_missing: Option<bool>,
 }
 
 /// A single statement in a batch/transaction

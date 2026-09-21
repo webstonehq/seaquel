@@ -477,6 +477,7 @@
   "wizard_next": "متابعة",
   "wizard_connect": "اتصال",
   "wizard_test_success": "الاتصال ناجح!",
+  "wizard_create_database": "إنشاء قاعدة البيانات",
   "wizard_connect_success": "تم الاتصال بنجاح",
   "wizard_connect_empty": "متصل، لكن قاعدة البيانات فارغة - لم يتم العثور على جداول",
   "wizard_dialog_title_edit": "تعديل الاتصال",

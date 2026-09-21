@@ -92,6 +92,7 @@ export class TauriSqliteProvider implements SqliteProvider {
       config: {
         driver: "sqlite",
         connection_string: `sqlite:${path}`,
+        create_if_missing: true,
       },
     });
     return new TauriSqliteDatabase(result.connection_id);
