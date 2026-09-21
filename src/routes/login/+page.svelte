@@ -4,7 +4,7 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import * as Card from "$lib/components/ui/card/index.js";
-  import { authClient } from "$lib/auth-client";
+  import { getAuthClient } from "$lib/auth-client";
 
   let email = $state("");
   let password = $state("");
@@ -17,7 +17,7 @@
     error = null;
 
     try {
-      const res = await authClient.signIn.email({ email, password });
+      const res = await getAuthClient().signIn.email({ email, password });
       if (res.error) {
         error = res.error.message ?? "Unable to sign in";
         loading = false;

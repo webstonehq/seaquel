@@ -26,7 +26,7 @@
     import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
     import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
     import { isTauri, isWeb } from "$lib/utils/environment";
-    import { authClient } from "$lib/auth-client";
+    import { getAuthClient } from "$lib/auth-client";
     import { initLogger } from "$lib/utils/logger";
     import { initializeDemo } from "$lib/demo/init";
     import { createDemoDashboard } from "$lib/demo/sample-dashboard";
@@ -65,7 +65,7 @@
         // Desktop (Tauri) and demo builds skip this entirely — they have no
         // /api/auth endpoint to call.
         if (isWeb() && !isAuthPage) {
-            const session = await authClient.getSession();
+            const session = await getAuthClient().getSession();
             if (!session.data?.user) {
                 const here = window.location.pathname + window.location.search;
                 window.location.href = `/login?redirect=${encodeURIComponent(here)}`;

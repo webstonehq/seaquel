@@ -34,7 +34,7 @@
     import { isTauri, isWeb } from "$lib/utils/environment";
     import LogOutIcon from "@lucide/svelte/icons/log-out";
     import UsersIcon from "@lucide/svelte/icons/users";
-    import { authClient } from "$lib/auth-client";
+    import { getAuthClient } from "$lib/auth-client";
     import { page } from "$app/state";
     import { resolve } from "$app/paths";
     import UpdateBadge from "./update-badge.svelte";
@@ -353,7 +353,7 @@
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
                             onclick={async () => {
-                                await authClient.signOut();
+                                await getAuthClient().signOut();
                                 window.location.href = "/login";
                             }}
                         >
