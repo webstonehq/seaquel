@@ -1,4 +1,4 @@
-import type { DatabaseType } from "$lib/types";
+import type { DatabaseType, SSHTunnelConfig } from "$lib/types";
 
 /**
  * TablePlus connection as stored in the Connections.plist file
@@ -11,6 +11,15 @@ export interface TablePlusConnection {
   databasePort: string;
   databaseName: string;
   databaseUser: string;
+  /** File path for SQLite connections (TablePlus keeps DatabaseName as a label) */
+  databasePath: string;
+  /** TablePlus SSL mode as an integer (0 = PREFERRED, 1 = DISABLED, 2 = REQUIRED) */
+  tlsMode: number | null;
+  overSSH: boolean;
+  sshHost: string;
+  sshPort: string;
+  sshUser: string;
+  sshUsePrivateKey: boolean;
 }
 
 /**
@@ -24,6 +33,8 @@ export interface TablePlusImportableConnection {
   port: number;
   databaseName: string;
   username: string;
+  sslMode?: string;
+  sshTunnel?: SSHTunnelConfig;
   isDuplicate: boolean;
   selected: boolean;
 }

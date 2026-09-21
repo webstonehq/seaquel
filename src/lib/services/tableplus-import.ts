@@ -1,5 +1,6 @@
 import { readTablePlusConfig } from "$lib/api/tauri";
 import type { DatabaseType } from "$lib/types";
+import { tablePlusTlsModeToSslMode } from "$lib/utils/connection-string";
 import type { TablePlusConnection, TablePlusImportableConnection } from "$lib/types/tableplus";
 
 /**
@@ -45,22 +46,44 @@ export async function parseTablePlusConnections(): Promise<TablePlusConnection[]
     }
 
     return data
-      .filter((entry): entry is Record<string, string> => {
+      .filter((entry): entry is Record<string, unknown> => {
         return typeof entry === "object" && entry !== null && "ID" in entry;
       })
-      .map((entry) => ({
-        id: String(entry.ID || ""),
-        connectionName: String(entry.ConnectionName || ""),
-        driver: String(entry.Driver || ""),
-        databaseHost: String(entry.DatabaseHost || ""),
-        databasePort: String(entry.DatabasePort || ""),
-        databaseName: String(entry.DatabaseName || ""),
-        databaseUser: String(entry.DatabaseUser || ""),
-      }));
+      .map(toTablePlusConnection);
   } catch (error) {
     console.error("Failed to read TablePlus config:", error);
     return [];
   }
+}
+
+/**
+ * Converts a raw Connections.plist entry. Plist values are typed, so flags come
+ * through as booleans and TLS mode as a number, while ports may be strings.
+ */
+export function toTablePlusConnection(entry: Record<string, unknown>): TablePlusConnection {
+  const str = (key: string) => {
+    const value = entry[key];
+    return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+      ? String(value)
+      : "";
+  };
+  const tlsMode = Number(entry.tLSMode);
+  return {
+    id: str("ID"),
+    connectionName: str("ConnectionName"),
+    driver: str("Driver"),
+    databaseHost: str("DatabaseHost"),
+    databasePort: str("DatabasePort"),
+    databaseName: str("DatabaseName"),
+    databaseUser: str("DatabaseUser"),
+    databasePath: str("DatabasePath"),
+    tlsMode: entry.tLSMode == null || Number.isNaN(tlsMode) ? null : tlsMode,
+    overSSH: entry.isOverSSH === true,
+    sshHost: str("ServerAddress"),
+    sshPort: str("ServerPort"),
+    sshUser: str("ServerUser"),
+    sshUsePrivateKey: entry.isUsePrivateKey === true,
+  };
 }
 
 /**
@@ -76,15 +99,33 @@ export function mapToImportable(
     return null; // Unsupported database type
   }
 
+  const isFileBased = type === "sqlite";
   const host = conn.databaseHost || "localhost";
   const port = parseInt(conn.databasePort || String(DEFAULT_PORTS[type]), 10);
-  const databaseName = conn.databaseName || "";
+  const databaseName = isFileBased ? conn.databasePath || conn.databaseName : conn.databaseName;
   const username = conn.databaseUser || "";
 
   // Generate the connection ID that Seaquel would use
-  const expectedId = type === "sqlite" ? `conn-sqlite-${databaseName}` : `conn-${host}-${port}`;
+  const expectedId = isFileBased ? `conn-sqlite-${databaseName}` : `conn-${host}-${port}`;
 
   const isDuplicate = existingConnectionIds.includes(expectedId);
+
+  // SSL only applies to the network drivers that Seaquel exposes it for
+  const supportsSsl = type === "postgres" || type === "mysql" || type === "mariadb";
+  const sslMode =
+    supportsSsl && conn.tlsMode !== null ? tablePlusTlsModeToSslMode(conn.tlsMode) : undefined;
+
+  const sshTunnel =
+    !isFileBased && conn.overSSH && conn.sshHost
+      ? {
+          enabled: true,
+          host: conn.sshHost,
+          port: parseInt(conn.sshPort, 10) || 22,
+          username: conn.sshUser,
+          // The plist has no usable key path, so the user picks the key file when connecting.
+          authMethod: conn.sshUsePrivateKey ? ("key" as const) : ("password" as const),
+        }
+      : undefined;
 
   return {
     original: conn,
@@ -94,6 +135,8 @@ export function mapToImportable(
     port,
     databaseName,
     username,
+    sslMode,
+    sshTunnel,
     isDuplicate,
     selected: !isDuplicate, // Pre-select non-duplicates
   };

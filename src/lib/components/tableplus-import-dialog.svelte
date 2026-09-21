@@ -46,6 +46,8 @@
 					databaseName: conn.databaseName,
 					username: conn.username,
 					password: "", // User must enter this when connecting
+					sslMode: conn.sslMode,
+					sshTunnel: conn.sshTunnel,
 					projectId: db.state.activeProjectId || DEFAULT_PROJECT_ID,
 					labelIds: [],
 				};
