@@ -40,7 +40,7 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@dagrejs/dagre": "^1.1.8",
+    "@dagrejs/dagre": "^3.1.1",
     "@duckdb/duckdb-wasm": "^1.32.0",
     "@duckdb/node-api": "^1.4.4-r.3",
     "@faker-js/faker": "^10.3.0",
