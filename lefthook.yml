@@ -3,6 +3,7 @@
 pre-commit:
   commands:
     lint:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,svelte}"
       run: npm run lint {staged_files}
       stage_fixed: true
     format:
