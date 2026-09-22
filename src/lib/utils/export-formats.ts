@@ -9,7 +9,7 @@ export const formatConfig: Record<ExportFormat, { extension: string; name: strin
 
 function escapeCSVValue(value: unknown): string {
   if (value === null || value === undefined) return "";
-  // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+  // oxlint-disable-next-line typescript/no-base-to-string
   const str = String(value);
   if (str.includes(",") || str.includes('"') || str.includes("\n")) {
     return `"${str.replace(/"/g, '""')}"`;
@@ -21,14 +21,14 @@ export function escapeSQLValue(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+  // oxlint-disable-next-line typescript/no-base-to-string
   const str = String(value);
   return `'${str.replace(/'/g, "''")}'`;
 }
 
 export function escapeMarkdownValue(value: unknown): string {
   if (value === null || value === undefined) return "";
-  // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+  // oxlint-disable-next-line typescript/no-base-to-string
   return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 

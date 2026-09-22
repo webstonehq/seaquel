@@ -70,7 +70,7 @@ export function buildDataContext(rows: Record<string, unknown>[], columns: strin
   const header = `| ${columns.join(" | ")} |`;
   const separator = `| ${columns.map(() => "---").join(" | ")} |`;
   const dataRows = sample.map(
-    // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+    // oxlint-disable-next-line typescript/no-base-to-string
     (row) => `| ${columns.map((c) => String(row[c] ?? "NULL")).join(" | ")} |`,
   );
   return ["Sample data:", header, separator, ...dataRows].join("\n");

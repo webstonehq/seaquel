@@ -52,7 +52,7 @@ export default async function seed() {
     `);
 
   for (const row of reader.getRows()) {
-    // oxlint-disable-next-line typescript-eslint(restrict-template-expressions)
+    // oxlint-disable-next-line typescript/restrict-template-expressions
     console.log(`  ${row[0]}: ${row[1]}`);
   }
 

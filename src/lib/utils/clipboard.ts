@@ -5,7 +5,7 @@ import { m } from "$lib/paraglide/messages.js";
  * Copy a single cell value to clipboard.
  */
 export async function copyCell(value: unknown): Promise<void> {
-  // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+  // oxlint-disable-next-line typescript/no-base-to-string
   const text = value === null || value === undefined ? "" : String(value);
   await navigator.clipboard.writeText(text);
   toast.success(m.query_cell_copied());
@@ -36,7 +36,7 @@ export async function copyColumn(
   }
   const values = rows
     .map((row) => row[colIdx])
-    // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+    // oxlint-disable-next-line typescript/no-base-to-string
     .map((v) => (v === null || v === undefined ? "" : String(v)))
     .join("\n");
   await navigator.clipboard.writeText(values);

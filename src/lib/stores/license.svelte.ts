@@ -99,7 +99,7 @@ class LicenseStore {
       return true;
     } catch (error: unknown) {
       const err = error as Record<string, unknown>;
-      // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+      // oxlint-disable-next-line typescript/no-base-to-string
       const message = err?.message ? String(err.message) : String(error);
       this.activationError = message;
       return false;

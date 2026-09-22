@@ -92,7 +92,7 @@ export async function handleDashboardToolCall(
         return JSON.stringify({ dashboard_id: result.dashboardId });
       }
       case "add_widget": {
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const dashboardId = String(input.dashboard_id ?? "");
         const rawWidgetType = typeof input.widget_type === "string" ? input.widget_type : "";
         const VALID_WIDGET_TYPES = ["chart", "kpi", "text"] as const;
@@ -105,7 +105,7 @@ export async function handleDashboardToolCall(
           DashboardWidget,
           "id" | "result" | "isLoading" | "error" | "lastRefreshed"
         > = {
-          // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+          // oxlint-disable-next-line typescript/no-base-to-string
           title: String(input.title ?? ""),
           x: Number(input.x ?? 0),
           y: Number(input.y ?? 0),
@@ -130,19 +130,19 @@ export async function handleDashboardToolCall(
         return JSON.stringify({ widget_id: result.widgetId });
       }
       case "get_dashboard": {
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const dashboardId = String(input.dashboard_id ?? "");
         const result = callbacks.onGetDashboard(dashboardId);
         if (!result) return JSON.stringify({ error: "Dashboard not found" });
         return JSON.stringify(result);
       }
       case "update_widget": {
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const dashboardId = String(input.dashboard_id ?? "");
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const widgetId = String(input.widget_id ?? "");
         const updates: Partial<DashboardWidget> = {};
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         if (input.title !== undefined) updates.title = String(input.title);
         if (input.x !== undefined) updates.x = Number(input.x);
         if (input.y !== undefined) updates.y = Number(input.y);
@@ -154,7 +154,7 @@ export async function handleDashboardToolCall(
             updates.widgetType = wt as DashboardWidget["widgetType"];
           }
         }
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         if (input.query !== undefined) updates.query = String(input.query);
         if (input.chart_config !== undefined)
           updates.chartConfig = parseChartConfig(input.chart_config);
@@ -165,9 +165,9 @@ export async function handleDashboardToolCall(
         return JSON.stringify({ success: true });
       }
       case "remove_widget": {
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const dashboardId = String(input.dashboard_id ?? "");
-        // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+        // oxlint-disable-next-line typescript/no-base-to-string
         const widgetId = String(input.widget_id ?? "");
         await callbacks.onRemoveWidget(dashboardId, widgetId);
         return JSON.stringify({ success: true });

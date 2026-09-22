@@ -180,7 +180,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     const out: ExplainPlanNode = {
       id: nextId(),
-      // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+      // oxlint-disable-next-line typescript/no-base-to-string
       nodeType: String(node["Node Type"] ?? "Unknown"),
       relationName: node["Relation Name"] as string | undefined,
       alias: node["Alias"] as string | undefined,

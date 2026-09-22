@@ -70,7 +70,7 @@ export function escapeValueForInline(value: unknown, insideString: boolean = fal
   }
 
   // String - escape single quotes by doubling them
-  // oxlint-disable-next-line typescript-eslint(no-base-to-string)
+  // oxlint-disable-next-line typescript/no-base-to-string
   const str = String(value).replace(/'/g, "''");
   return insideString ? str : `'${str}'`;
 }
