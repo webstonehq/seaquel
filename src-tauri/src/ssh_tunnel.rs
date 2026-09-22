@@ -22,6 +22,10 @@ pub struct TunnelConfig {
     pub key_passphrase: Option<String>,
     pub remote_host: String,
     pub remote_port: u16,
+    /// Set after the user accepted an unknown host key in the trust prompt.
+    /// The key is then written to `~/.ssh/known_hosts` on a successful check.
+    #[serde(default)]
+    pub trust_new_host_key: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +73,35 @@ impl Default for TunnelManager {
     }
 }
 
-struct ClientHandler;
+/// Why a host key was rejected, recorded so `establish_tunnel` can turn the
+/// resulting connection failure into an actionable error for the UI.
+struct HostKeyRejection {
+    code: &'static str,
+    fingerprint: String,
+}
+
+/// Verifies the server's host key against `~/.ssh/known_hosts`.
+///
+/// Unknown hosts are rejected with `UNKNOWN_HOST_KEY` and the fingerprint, so
+/// the frontend can show a trust-on-first-use prompt and retry with
+/// `trust_new_host_key`. A key that no longer matches the recorded one is
+/// rejected with `HOST_KEY_MISMATCH` and is never auto-accepted — that is the
+/// man-in-the-middle case.
+struct ClientHandler {
+    host: String,
+    port: u16,
+    trust_new_host_key: bool,
+    rejection: Arc<std::sync::Mutex<Option<HostKeyRejection>>>,
+}
+
+impl ClientHandler {
+    fn reject(&self, code: &'static str, fingerprint: String) -> Result<bool, russh::Error> {
+        if let Ok(mut slot) = self.rejection.lock() {
+            *slot = Some(HostKeyRejection { code, fingerprint });
+        }
+        Ok(false)
+    }
+}
 
 #[async_trait]
 impl client::Handler for ClientHandler {
@@ -77,11 +109,37 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // Accept all server keys (similar to StrictHostKeyChecking=no)
-        // In production, you might want to implement proper host key verification
-        Ok(true)
+        let fingerprint = server_public_key
+            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        match russh_keys::check_known_hosts(&self.host, self.port, server_public_key) {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                if !self.trust_new_host_key {
+                    warn!(activity = "ssh.tunnel.hostkey", error_code = "UNKNOWN_HOST_KEY"; "SSH host key is not in known_hosts");
+                    return self.reject("UNKNOWN_HOST_KEY", fingerprint);
+                }
+                if let Err(e) =
+                    russh_keys::known_hosts::learn_known_hosts(&self.host, self.port, server_public_key)
+                {
+                    error!(activity = "ssh.tunnel.hostkey", error_code = "HOST_KEY_STORE_ERROR"; "Failed to record SSH host key: {}", e);
+                    return self.reject("HOST_KEY_STORE_ERROR", fingerprint);
+                }
+                info!(activity = "ssh.tunnel.hostkey"; "Recorded new SSH host key in known_hosts");
+                Ok(true)
+            }
+            Err(russh_keys::Error::KeyChanged { line }) => {
+                error!(activity = "ssh.tunnel.hostkey", error_code = "HOST_KEY_MISMATCH", line = line; "SSH host key does not match known_hosts");
+                self.reject("HOST_KEY_MISMATCH", fingerprint)
+            }
+            Err(e) => {
+                error!(activity = "ssh.tunnel.hostkey", error_code = "HOST_KEY_ERROR"; "Failed to read known_hosts: {}", e);
+                self.reject("HOST_KEY_ERROR", fingerprint)
+            }
+        }
     }
 }
 
@@ -112,9 +170,16 @@ async fn establish_tunnel(
 
     // Connect to SSH server
     let addr = format!("{}:{}", config.ssh_host, config.ssh_port);
+    let rejection = Arc::new(std::sync::Mutex::new(None::<HostKeyRejection>));
+    let handler = ClientHandler {
+        host: config.ssh_host.clone(),
+        port: config.ssh_port,
+        trust_new_host_key: config.trust_new_host_key,
+        rejection: Arc::clone(&rejection),
+    };
     let mut session = tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        client::connect(ssh_config, &addr, ClientHandler),
+        client::connect(ssh_config, &addr, handler),
     )
     .await
     .map_err(|_| {
@@ -125,6 +190,31 @@ async fn establish_tunnel(
         }
     })?
     .map_err(|e| {
+        // A rejected host key surfaces here as a generic connection error, so
+        // replace it with the specific reason the handler recorded.
+        if let Some(HostKeyRejection { code, fingerprint }) =
+            rejection.lock().ok().and_then(|mut slot| slot.take())
+        {
+            let message = match code {
+                "UNKNOWN_HOST_KEY" => format!(
+                    "The host key for {}:{} is not in known_hosts.\nFingerprint: {}",
+                    config.ssh_host, config.ssh_port, fingerprint
+                ),
+                "HOST_KEY_MISMATCH" => format!(
+                    "The host key for {}:{} does not match the one recorded in known_hosts. \
+                     This can mean the server was rebuilt — or that the connection is being intercepted.\nFingerprint: {}",
+                    config.ssh_host, config.ssh_port, fingerprint
+                ),
+                "HOST_KEY_STORE_ERROR" => {
+                    "Could not record the host key in ~/.ssh/known_hosts.".to_string()
+                }
+                _ => "Could not read ~/.ssh/known_hosts to verify the host key.".to_string(),
+            };
+            return TunnelError {
+                message,
+                code: code.to_string(),
+            };
+        }
         error!(activity = "ssh.tunnel.create", error_code = "CONNECTION_ERROR"; "SSH tunnel connection failed");
         TunnelError {
             message: format!("Failed to connect to SSH server: {}", e),

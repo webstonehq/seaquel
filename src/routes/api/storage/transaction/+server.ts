@@ -7,6 +7,7 @@
 
 import { error, json } from "@sveltejs/kit";
 import { userStorage } from "$lib/server/storage";
+import { assertAllowedStorageSql } from "$lib/server/storage-guard";
 import type { RequestHandler } from "./$types";
 
 interface TransactionBody {
@@ -19,6 +20,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!Array.isArray(body.statements)) {
     throw error(400, "statements must be an array of {sql, params?}");
   }
+  for (const stmt of body.statements) assertAllowedStorageSql(stmt?.sql);
 
   const db = await userStorage(locals.user.id);
   await db.transaction(body.statements);

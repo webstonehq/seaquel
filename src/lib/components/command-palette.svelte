@@ -2,6 +2,7 @@
 	import * as Command from "$lib/components/ui/command";
 	import { useDatabase } from "$lib/hooks/database.svelte";
 	import { useShortcuts } from "$lib/shortcuts/shortcuts.svelte";
+	import { EXECUTE_ACTIVE_QUERY_EVENT } from "$lib/components/query-editor/events.js";
 	import { goto } from "$app/navigation";
 	import { LESSONS, LESSON_SECTIONS } from "$lib/tutorial/lessons";
 	import {
@@ -86,10 +87,8 @@
 	}
 
 	function executeQuery() {
-		const tab = db.state.activeQueryTab;
-		if (tab) {
-			runAndClose(() => db.queries.execute(tab.id));
-		}
+		// Goes through the query editor so destructive statements and parameters are confirmed first.
+		runAndClose(() => window.dispatchEvent(new CustomEvent(EXECUTE_ACTIVE_QUERY_EVENT)));
 	}
 
 	function saveQuery() {

@@ -143,9 +143,14 @@ USER node
 # including licensing knobs (SEAQUEL_CONTROL_URL, SEAQUEL_LICENSE_SOFT_TTL,
 # SEAQUEL_LICENSE_GRACE_TTL).
 # ---------------------------------------------------------------------------
+# ADDRESS_HEADER: server.js overwrites this header with the socket-derived
+# client IP (see shared/client-ip.js), so adapter-node's getClientAddress()
+# can't be spoofed. Set SEAQUEL_TRUSTED_PROXIES (comma-separated IPs/CIDRs)
+# when running behind a reverse proxy.
 ENV DATA_DIR=/data \
     PORT=8787 \
-    NODE_ENV=production
+    NODE_ENV=production \
+    ADDRESS_HEADER=x-seaquel-client-ip
 
 VOLUME /data
 EXPOSE 8787

@@ -38,6 +38,7 @@
 		createCellEditing,
 		createAIInlinePrompt,
 	} from "$lib/components/query-editor/index.js";
+	import { EXECUTE_ACTIVE_QUERY_EVENT } from "$lib/components/query-editor/events.js";
 
 	import { QueryChart } from "$lib/components/charts/index.js";
 
@@ -96,6 +97,17 @@
 	onMount(() => {
 		shortcuts.registerHandler('saveQuery', saveExport.handleSave);
 		shortcuts.registerHandler('formatSql', saveExport.handleFormat);
+	});
+
+	// Lets the command palette run the active tab through the same destructive-confirm and parameter flow.
+	// Every pane's editor listens; only the one showing the globally active tab executes.
+	function handleExecuteActiveQuery() {
+		if (activeTabId && activeTabId === db.state.activeQueryTabId) exec.handleExecute();
+	}
+
+	$effect(() => {
+		window.addEventListener(EXECUTE_ACTIVE_QUERY_EVENT, handleExecuteActiveQuery);
+		return () => window.removeEventListener(EXECUTE_ACTIVE_QUERY_EVENT, handleExecuteActiveQuery);
 	});
 
 	onDestroy(() => {

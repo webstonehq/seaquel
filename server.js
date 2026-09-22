@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import { handler } from "./build-web/handler.js";
 import { unscopeConnectionId } from "./shared/connection-scope.js";
+import { CLIENT_IP_HEADER, parseTrustedProxies, resolveClientIp } from "./shared/client-ip.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const RUST_BIN = process.env.SEAQUEL_RUST_BIN ?? "./seaquel-server";
@@ -55,7 +56,17 @@ for (const sig of ["SIGTERM", "SIGINT"]) {
 // 2. HTTP server with SvelteKit's handler.
 // ---------------------------------------------------------------------------
 
-const server = createServer(handler);
+// Overwrite CLIENT_IP_HEADER with the socket-derived client IP on every
+// request, so a client can't choose its own rate-limit key. Better Auth
+// (`advanced.ipAddress` in src/lib/server/auth.ts) and adapter-node's
+// getClientAddress() (ADDRESS_HEADER in the Dockerfile) both read it.
+// Behind a reverse proxy, list the proxy IPs/CIDRs in SEAQUEL_TRUSTED_PROXIES.
+const trustedProxies = parseTrustedProxies(process.env.SEAQUEL_TRUSTED_PROXIES);
+
+const server = createServer((req, res) => {
+  req.headers[CLIENT_IP_HEADER] = resolveClientIp(req, trustedProxies);
+  handler(req, res);
+});
 
 // ---------------------------------------------------------------------------
 // 3. WebSocket proxy for /api/db/stream.
@@ -71,25 +82,27 @@ const server = createServer(handler);
 
 const wss = new WebSocketServer({ noServer: true });
 
-// Resolve the session cookie to `{ userId }` via Better Auth. server.js
-// lives outside the SvelteKit bundle, so we can't call auth.api.getSession()
-// directly — instead, do a loopback fetch to the app's own
-// /api/auth/get-session endpoint. Two hops in the same process (tens of
-// microseconds) is an acceptable tax for avoiding a fragile cross-bundle
-// import.
+// Resolve the session cookie to `{ userId }`. server.js lives outside the
+// SvelteKit bundle, so we can't call auth.api.getSession() or the API gate
+// directly — instead, do a loopback fetch to /api/account/stream-access,
+// which `handleApiGate` in hooks.server.ts guards with the same session +
+// license + bound-membership checks as the HTTP data plane. Two hops in the
+// same process (tens of microseconds) is an acceptable tax for avoiding a
+// fragile cross-bundle import.
 //
-// Returns `null` if the session is missing, invalid, or incomplete.
+// Returns `null` if the session is missing or invalid, the license is not
+// usable, the member is unbound or revoked, or the response is incomplete.
 async function resolveSession(req) {
   const cookie = req.headers.cookie ?? "";
   if (!cookie) return null;
 
   try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/auth/get-session`, {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/account/stream-access`, {
       headers: { cookie },
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const userId = data?.user?.id;
+    const userId = data?.userId;
     // Reject partial session objects — `userId` is what the tenant-scope
     // check below depends on. Without it, we'd let a malformed session
     // through and silently cross tenant boundaries.

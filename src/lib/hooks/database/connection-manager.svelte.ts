@@ -7,7 +7,7 @@ import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getAdapter, type DatabaseAdapter } from "$lib/db";
-import { createSshTunnel, closeSshTunnel } from "$lib/services/ssh-tunnel";
+import { createSshTunnelWithHostKeyCheck, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import type { ProviderRegistry } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
 import { isFeatureEnabled } from "$lib/features";
@@ -188,7 +188,7 @@ export class ConnectionManager {
 
     try {
       void log.info(`Establishing SSH tunnel for ${connectionId}`);
-      const tunnelResult = await createSshTunnel({
+      const tunnelResult = await createSshTunnelWithHostKeyCheck({
         sshHost: connection.sshTunnel.host,
         sshPort: connection.sshTunnel.port,
         sshUsername: connection.sshTunnel.username,
@@ -562,7 +562,7 @@ export class ConnectionManager {
       if (!isTauri()) {
         throw new Error("SSH tunnels are only available in the desktop app");
       }
-      const tunnelResult = await createSshTunnel({
+      const tunnelResult = await createSshTunnelWithHostKeyCheck({
         sshHost: connection.sshTunnel.host,
         sshPort: connection.sshTunnel.port,
         sshUsername: connection.sshTunnel.username,

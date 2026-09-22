@@ -5,6 +5,7 @@
 	import { ChevronRightIcon, SendIcon, SparklesIcon, PlusIcon, ChevronDownIcon, Trash2Icon, ListIcon, SquareIcon } from "@lucide/svelte";
 	import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
 	import { marked } from "marked";
+	import DOMPurify from "dompurify";
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { Label } from "$lib/components/ui/label";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
@@ -148,7 +149,8 @@
 	}
 
 	function renderMarkdown(text: string): string {
-		return marked.parse(text, { async: false }) as string;
+		// Model output can echo database content, so it must be sanitized before {@html}.
+		return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
 	}
 
 	type MessageSegment = { type: 'text'; text: string } | { type: 'sql'; code: string };
@@ -314,7 +316,7 @@
 											<div class="mt-1 rounded border bg-background overflow-hidden">
 												<div class="flex items-center justify-between px-2 py-1 border-b">
 													<span class="text-xs text-muted-foreground font-mono">SQL</span>
-													<Button size="sm" variant="ghost" class="h-6 text-xs gap-1 px-2" onclick={() => { const tabId = db.queryTabs.add("SQL from AI", segment.code.trim()); if (tabId) { db.ui.setActiveView("query"); db.queries.execute(tabId); } }}>
+													<Button size="sm" variant="ghost" class="h-6 text-xs gap-1 px-2" onclick={() => { const tabId = db.queryTabs.add("SQL from AI", segment.code.trim()); if (tabId) db.ui.setActiveView("query"); }}>
 														<ExternalLinkIcon class="size-3" aria-hidden="true" />
 														Open in editor
 													</Button>

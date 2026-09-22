@@ -132,6 +132,7 @@ when the default doesn't fit your deployment.
 | `BETTER_AUTH_URL`         | Sitting behind a reverse proxy that rewrites `Host`, or silencing the boot warning below. Sets Better Auth's canonical URL. |
 | `SEAQUEL_AUTH_SECRET`     | Running multiple replicas. All replicas must share a session key; single-container installs don't need to set this. |
 | `SEAQUEL_COOKIE_DOMAIN`   | Sharing sessions across subdomains, e.g. `.example.com`.                                |
+| `SEAQUEL_TRUSTED_PROXIES` | Running behind a reverse proxy or load balancer. Comma-separated proxy IPs/CIDRs (e.g. `10.0.0.0/8`). Without it, sign-in rate limits key on the socket address and `X-Forwarded-For` is ignored, so every client behind the proxy shares one limit. |
 | `SEAQUEL_CONTROL_URL`     | Pointing at a staging control plane, or `http://127.0.0.1:1` to test offline mode. Default `https://seaquel.app`. |
 | `PORT` / `DATA_DIR`       | Overriding `8787` / `/data`.                                                            |
 

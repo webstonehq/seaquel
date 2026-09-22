@@ -36,6 +36,7 @@
     import type { UpdateInfo } from "$lib/api/tauri";
     import DeepLinkCloneDialog from "$lib/components/deep-link-clone-dialog.svelte";
     import DeepLinkProjectPickerDialog from "$lib/components/deep-link-project-picker-dialog.svelte";
+    import SshHostKeyDialog from "$lib/components/ssh-host-key-dialog.svelte";
     import VaultGate from "$lib/components/vault/vault-gate.svelte";
     import { handleDeepLink } from "$lib/services/deep-link";
     import { setupFileDropListener } from "$lib/services/file-drop.svelte.js";
@@ -242,6 +243,7 @@
     <TablePlusImportDialog />
     <DeepLinkCloneDialog />
     <DeepLinkProjectPickerDialog />
+    <SshHostKeyDialog />
     {#if isTauri()}
         <LicenseNudgeCard />
     {/if}

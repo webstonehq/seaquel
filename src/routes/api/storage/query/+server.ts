@@ -8,6 +8,7 @@
 
 import { error, json } from "@sveltejs/kit";
 import { userStorage } from "$lib/server/storage";
+import { assertAllowedStorageSql } from "$lib/server/storage-guard";
 import type { RequestHandler } from "./$types";
 
 interface QueryBody {
@@ -19,6 +20,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!locals.user) throw error(401, "unauthorized");
   const body = (await request.json()) as QueryBody;
   if (!body.sql) throw error(400, "sql is required");
+  assertAllowedStorageSql(body.sql);
 
   const db = await userStorage(locals.user.id);
   const rows = await db.query(body.sql, body.params ?? []);

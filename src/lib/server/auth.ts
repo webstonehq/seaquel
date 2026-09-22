@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { betterAuth } from "better-auth";
 import type Database from "better-sqlite3";
+import { CLIENT_IP_HEADER } from "$shared/client-ip.js";
 import { backfillExistingMembers } from "./license-cache";
 
 const require = createRequire(import.meta.url);
@@ -215,6 +216,11 @@ function build() {
       },
     },
     advanced: {
+      // Key rate limits on the IP that server.js resolves from the socket
+      // (and SEAQUEL_TRUSTED_PROXIES), not on client-supplied X-Forwarded-For.
+      ipAddress: {
+        ipAddressHeaders: [CLIENT_IP_HEADER],
+      },
       crossSubDomainCookies: {
         enabled: Boolean(process.env.SEAQUEL_COOKIE_DOMAIN),
         domain: process.env.SEAQUEL_COOKIE_DOMAIN, // e.g. ".seaquel.app"
