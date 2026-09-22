@@ -90,7 +90,7 @@
     "mode-watcher": "^1.1.0",
     "monaco-editor": "^0.55.1",
     "monaco-emacs": "^0.3.0",
-    "monaco-sql-languages": "^0.15.1",
+    "monaco-sql-languages": "^1.2.1",
     "monaco-vim": "^0.4.4",
     "mssql": "^12.2.1",
     "mysql2": "^3.18.2",
