@@ -1,6 +1,7 @@
 import type { SqliteDatabase } from "./sqlite-types";
 import { isTauri, isWeb } from "$lib/utils/environment";
 import { initializeSchema, CURRENT_STORAGE_VERSION } from "./schema";
+import { appStateRepo } from "./repos/app-state-repo";
 
 let instance: SqliteDatabase | null = null;
 let initPromise: Promise<SqliteDatabase> | null = null;
@@ -43,6 +44,14 @@ export async function getDatabase(): Promise<SqliteDatabase> {
         // Initialize schema (returns true if this is a fresh database)
         const isFreshDb = await initializeSchema(db);
 
+        // The legacy JSON files are never deleted, so the import has to be
+        // recorded as done. Without that marker it re-ran on every launch
+        // whenever `connections` was empty — deleting all connections would
+        // resurrect the old ones and overwrite newer saved queries, projects
+        // and license/theme state with the stale snapshot.
+        const { JSON_MIGRATION_DONE_KEY } = await import("./json-migration");
+        const migrationDone = (await appStateRepo.get(db, JSON_MIGRATION_DONE_KEY)) === "true";
+
         if (isFreshDb) {
           // Fresh database — try migrating from legacy JSON files
           const { migrateJsonToSqlite } = await import("./json-migration");
@@ -52,9 +61,9 @@ export async function getDatabase(): Promise<SqliteDatabase> {
           await db.execute("INSERT INTO schema_version (version) VALUES (?)", [
             CURRENT_STORAGE_VERSION,
           ]);
-        } else {
-          // Existing database — check if connections are empty (failed prior migration)
-          // and re-attempt migration from JSON if legacy files still exist
+        } else if (!migrationDone) {
+          // Existing database from before this marker existed — re-attempt the
+          // import once if the earlier one left no connections behind.
           const rows = await db.query<{ count: number }>(
             "SELECT COUNT(*) as count FROM connections",
           );
@@ -62,6 +71,10 @@ export async function getDatabase(): Promise<SqliteDatabase> {
             const { migrateJsonToSqlite } = await import("./json-migration");
             await migrateJsonToSqlite(db);
           }
+        }
+
+        if (!migrationDone) {
+          await appStateRepo.set(db, JSON_MIGRATION_DONE_KEY, "true");
         }
       }
 

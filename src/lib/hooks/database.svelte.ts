@@ -452,11 +452,14 @@ class UseDatabase {
 
   /**
    * Clean up resources when the database context is destroyed.
+   *
+   * Pending debounced writes are flushed rather than cancelled — dropping them
+   * would lose whatever the user changed in the last debounce window.
    */
   destroy(): void {
     this.sharedRepos.stopBackgroundRefresh();
     this.dashboards.stopAllAutoRefresh();
-    this.persistence.cancelPendingPersistence();
+    void this.persistence.flush();
   }
 }
 

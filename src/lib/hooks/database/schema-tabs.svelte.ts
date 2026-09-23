@@ -194,6 +194,8 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
             [connectionId]: updatedSchemas,
           };
         }
+
+        this.syncOpenTabsForTable(connectionId, updatedTable);
       } catch (error) {
         void log.error(`Metadata load failed for ${connectionId}`);
         handleError(
@@ -209,6 +211,57 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
     });
 
     await Promise.allSettled(promises);
+    this.dropTabsForMissingTables(connectionId, tables);
     void log.debug(`Metadata loaded for ${connectionId}`);
+  }
+
+  /**
+   * Point every open tab for this table at the freshly loaded metadata.
+   *
+   * Tabs restored from a previous session carry only the table and schema
+   * name — the connection isn't live at restore time — so without this they
+   * render as an empty table until the user reopens them.
+   */
+  private syncOpenTabsForTable(connectionId: string, table: SchemaTable): void {
+    const projectId = this.state.connections.find((c) => c.id === connectionId)?.projectId;
+    if (!projectId) return;
+
+    const tabs = this.state.schemaTabsByProject[projectId] ?? [];
+    const matches = (tab: SchemaTab) =>
+      tab.connectionId === connectionId &&
+      tab.table.name === table.name &&
+      tab.table.schema === table.schema &&
+      tab.table.columns.length === 0;
+    if (!tabs.some(matches)) return;
+
+    // Written per project rather than through updateTab(), which always
+    // targets the active project — the connection may belong to another one.
+    this.state.schemaTabsByProject = {
+      ...this.state.schemaTabsByProject,
+      [projectId]: tabs.map((tab) => (matches(tab) ? { ...tab, table } : tab)),
+    };
+  }
+
+  /**
+   * Close restored tabs whose table no longer exists on the connection.
+   * Otherwise they'd sit there permanently empty with nothing to load.
+   */
+  private dropTabsForMissingTables(connectionId: string, tables: SchemaTable[]): void {
+    const projectId = this.state.connections.find((c) => c.id === connectionId)?.projectId;
+    // remove() operates on the active project, so leave other projects' tabs
+    // alone; they are re-checked the next time that project is connected.
+    if (!projectId || projectId !== this.state.activeProjectId) return;
+
+    const known = new Set(tables.map((t) => `${t.schema}.${t.name}`));
+    const stale = (this.state.schemaTabsByProject[projectId] ?? []).filter(
+      (tab) =>
+        tab.connectionId === connectionId &&
+        tab.table.columns.length === 0 &&
+        !known.has(`${tab.table.schema}.${tab.table.name}`),
+    );
+    for (const tab of stale) {
+      void log.info(`Closing schema tab for missing table ${tab.table.schema}.${tab.table.name}`);
+      this.remove(tab.id);
+    }
   }
 }

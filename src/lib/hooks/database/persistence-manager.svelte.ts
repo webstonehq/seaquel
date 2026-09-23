@@ -49,8 +49,10 @@ import { log } from "$lib/utils/logger";
  * Storage: single seaquel.db SQLite database with tables for each domain.
  */
 export class PersistenceManager {
-  private projectTimer: ReturnType<typeof setTimeout> | null = null;
-  private connectionDataTimer: ReturnType<typeof setTimeout> | null = null;
+  // Keyed per project/connection: a single shared timer meant scheduling a save
+  // for one project cancelled another project's pending write, losing it.
+  private projectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private connectionDataTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sharedReposTimer: ReturnType<typeof setTimeout> | null = null;
   private aiChatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly PERSISTENCE_DEBOUNCE_MS = 500;
@@ -62,13 +64,29 @@ export class PersistenceManager {
    * Cancel any pending debounced persistence timer.
    */
   cancelPendingPersistence(): void {
-    if (this.projectTimer) {
-      clearTimeout(this.projectTimer);
-      this.projectTimer = null;
+    for (const timer of this.projectTimers.values()) clearTimeout(timer);
+    this.projectTimers.clear();
+    for (const timer of this.connectionDataTimers.values()) clearTimeout(timer);
+    this.connectionDataTimers.clear();
+  }
+
+  /**
+   * Cancel pending writes for one project (and optionally some of its
+   * connections), leaving other projects' pending writes alone. Used when
+   * deleting a project, where a queued write would recreate its rows.
+   */
+  cancelPendingPersistenceFor(projectId: string, connectionIds: string[] = []): void {
+    const projectTimer = this.projectTimers.get(projectId);
+    if (projectTimer) {
+      clearTimeout(projectTimer);
+      this.projectTimers.delete(projectId);
     }
-    if (this.connectionDataTimer) {
-      clearTimeout(this.connectionDataTimer);
-      this.connectionDataTimer = null;
+    for (const connectionId of connectionIds) {
+      const timer = this.connectionDataTimers.get(connectionId);
+      if (timer) {
+        clearTimeout(timer);
+        this.connectionDataTimers.delete(connectionId);
+      }
     }
   }
 
@@ -78,13 +96,15 @@ export class PersistenceManager {
   scheduleProject(projectId: string | null): void {
     if (!projectId) return;
 
-    if (this.projectTimer) {
-      clearTimeout(this.projectTimer);
-    }
-    this.projectTimer = setTimeout(() => {
-      void this.persistProjectState(projectId);
-      this.projectTimer = null;
-    }, this.PERSISTENCE_DEBOUNCE_MS);
+    const existing = this.projectTimers.get(projectId);
+    if (existing) clearTimeout(existing);
+    this.projectTimers.set(
+      projectId,
+      setTimeout(() => {
+        this.projectTimers.delete(projectId);
+        void this.persistProjectState(projectId);
+      }, this.PERSISTENCE_DEBOUNCE_MS),
+    );
   }
 
   /**
@@ -93,13 +113,15 @@ export class PersistenceManager {
   scheduleConnectionData(connectionId: string | null): void {
     if (!connectionId) return;
 
-    if (this.connectionDataTimer) {
-      clearTimeout(this.connectionDataTimer);
-    }
-    this.connectionDataTimer = setTimeout(() => {
-      void this.persistConnectionData(connectionId);
-      this.connectionDataTimer = null;
-    }, this.PERSISTENCE_DEBOUNCE_MS);
+    const existing = this.connectionDataTimers.get(connectionId);
+    if (existing) clearTimeout(existing);
+    this.connectionDataTimers.set(
+      connectionId,
+      setTimeout(() => {
+        this.connectionDataTimers.delete(connectionId);
+        void this.persistConnectionData(connectionId);
+      }, this.PERSISTENCE_DEBOUNCE_MS),
+    );
   }
 
   /**
@@ -119,14 +141,10 @@ export class PersistenceManager {
    * Immediately flush any pending persistence operations.
    */
   async flush(): Promise<void> {
-    if (this.projectTimer) {
-      clearTimeout(this.projectTimer);
-      this.projectTimer = null;
-    }
-    if (this.connectionDataTimer) {
-      clearTimeout(this.connectionDataTimer);
-      this.connectionDataTimer = null;
-    }
+    for (const timer of this.projectTimers.values()) clearTimeout(timer);
+    this.projectTimers.clear();
+    for (const timer of this.connectionDataTimers.values()) clearTimeout(timer);
+    this.connectionDataTimers.clear();
     if (this.sharedReposTimer) {
       clearTimeout(this.sharedReposTimer);
       this.sharedReposTimer = null;
@@ -306,7 +324,15 @@ export class PersistenceManager {
 
   serializeQueryHistory(connectionId: string): PersistedQueryHistoryItem[] {
     const history = this.state.queryHistoryByConnection[connectionId] ?? [];
-    return history.slice(0, this.MAX_HISTORY_ITEMS).map((h) => ({
+    // Favorites are user-curated, so they survive the cap; only unfavorited
+    // entries past MAX_HISTORY_ITEMS are dropped.
+    const kept = history.slice(0, this.MAX_HISTORY_ITEMS);
+    const keptIds = new Set(kept.map((h) => h.id));
+    const favoritesBeyondCap = history
+      .slice(this.MAX_HISTORY_ITEMS)
+      .filter((h) => h.favorite && !keptIds.has(h.id));
+
+    return [...kept, ...favoritesBeyondCap].map((h) => ({
       id: h.id,
       query: h.query,
       timestamp: h.timestamp.toISOString(),
@@ -789,6 +815,14 @@ export class PersistenceManager {
     }
   }
 
+  /**
+   * Saves a connection row, and the secrets the caller asked to change.
+   *
+   * `options` describes an intent, not the full state: a flag left out means
+   * "leave that secret alone", so metadata-only callers (label changes, AI
+   * model selection) can omit `options` entirely without wiping the user's
+   * keychain entries. Only an explicit `false` deletes a stored secret.
+   */
   async persistConnection(
     connection: DatabaseConnection,
     options?: {
@@ -803,6 +837,13 @@ export class PersistenceManager {
       async () => {
         const db = await getDatabase();
 
+        // Fall back to what the connection already carries so an omitted flag
+        // doesn't clear the stored one (auto-reconnect reads these at launch).
+        const savePassword = options?.savePassword ?? connection.savePassword;
+        const saveSshPassword = options?.saveSshPassword ?? connection.saveSshPassword;
+        const saveSshKeyPassphrase =
+          options?.saveSshKeyPassphrase ?? connection.saveSshKeyPassphrase;
+
         const persistedConnection: PersistedConnection = {
           id: connection.id,
           name: connection.name,
@@ -815,9 +856,9 @@ export class PersistenceManager {
           connectionString: this.stripPasswordFromConnectionString(connection.connectionString),
           lastConnected: connection.lastConnected,
           sshTunnel: connection.sshTunnel,
-          savePassword: options?.savePassword,
-          saveSshPassword: options?.saveSshPassword,
-          saveSshKeyPassphrase: options?.saveSshKeyPassphrase,
+          savePassword,
+          saveSshPassword,
+          saveSshKeyPassphrase,
           projectId: connection.projectId,
           labelIds: connection.labelIds,
           isLocalOnly: connection.isLocalOnly,
@@ -837,19 +878,19 @@ export class PersistenceManager {
             async () => {
               if (options?.savePassword && connection.password) {
                 await keyring.setDbPassword(connection.id, connection.password);
-              } else if (!options?.savePassword) {
+              } else if (options?.savePassword === false) {
                 await keyring.deleteDbPassword(connection.id);
               }
 
               if (options?.saveSshPassword && options.sshPassword) {
                 await keyring.setSshPassword(connection.id, options.sshPassword);
-              } else if (!options?.saveSshPassword) {
+              } else if (options?.saveSshPassword === false) {
                 await keyring.deleteSshPassword(connection.id);
               }
 
               if (options?.saveSshKeyPassphrase && options.sshKeyPassphrase) {
                 await keyring.setSshKeyPassphrase(connection.id, options.sshKeyPassphrase);
-              } else if (!options?.saveSshKeyPassphrase) {
+              } else if (options?.saveSshKeyPassphrase === false) {
                 await keyring.deleteSshKeyPassphrase(connection.id);
               }
             },

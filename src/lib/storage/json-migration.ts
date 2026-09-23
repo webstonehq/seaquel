@@ -31,6 +31,13 @@ import {
  * This module uses the legacy storage provider (read-only) to load all JSON data,
  * then inserts everything into SQLite within repository calls.
  */
+/**
+ * `app_state` key recording that the legacy JSON import has run. The JSON files
+ * stay on disk, so without this marker the import would repeat on every launch
+ * whenever the connections table happened to be empty.
+ */
+export const JSON_MIGRATION_DONE_KEY = "json_migration_done";
+
 export async function migrateJsonToSqlite(db: SqliteDatabase): Promise<boolean> {
   try {
     // Try loading the legacy storage module

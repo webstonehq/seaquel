@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const storage = new Map<string, string | null>();
+let failLoad = false;
 
 vi.mock("$lib/storage", () => ({
   getDatabase: vi.fn(async () => ({})),
   appStateRepo: {
-    get: vi.fn(async (_db: unknown, key: string) => storage.get(key) ?? null),
+    get: vi.fn(async (_db: unknown, key: string) => {
+      if (failLoad) throw new Error("db unavailable");
+      return storage.get(key) ?? null;
+    }),
     set: vi.fn(async (_db: unknown, key: string, value: string | null) => {
       storage.set(key, value);
     }),
@@ -15,9 +19,10 @@ vi.mock("$lib/storage", () => ({
 const license = { status: "personal" };
 vi.mock("./license.svelte.js", () => ({ licenseStore: license }));
 
-async function freshStore(persisted?: object) {
+async function freshStore(persisted?: object, opts?: { failLoad?: boolean }) {
   storage.clear();
   if (persisted) storage.set("license_nudge", JSON.stringify(persisted));
+  failLoad = opts?.failLoad ?? false;
   vi.resetModules();
   const { licenseNudgeStore } = await import("./license-nudge.svelte.js");
   await licenseNudgeStore.initialize();
@@ -35,6 +40,7 @@ const base = {
 describe("licenseNudgeStore", () => {
   beforeEach(() => {
     license.status = "personal";
+    failLoad = false;
   });
 
   it("stays hidden for new users", async () => {
@@ -135,5 +141,26 @@ describe("licenseNudgeStore", () => {
       snoozedUntil: new Date(Date.now() - 1000).toISOString(),
     });
     expect(expired.shouldShow).toBe(true);
+  });
+  it("does not overwrite a saved answer when loading fails", async () => {
+    const saved = JSON.stringify({ ...base, queryCount: 1000, answer: "personal" });
+    storage.set("license_nudge", saved);
+    failLoad = true;
+    vi.resetModules();
+    const { licenseNudgeStore } = await import("./license-nudge.svelte.js");
+    await licenseNudgeStore.initialize();
+
+    licenseNudgeStore.recordQuery();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(storage.get("license_nudge")).toBe(saved);
+  });
+
+  it("does not write anything for licensed users", async () => {
+    license.status = "active";
+    const store = await freshStore({ ...base, queryCount: 5 });
+    storage.delete("license_nudge");
+    store.recordQuery();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(storage.get("license_nudge")).toBeUndefined();
   });
 });

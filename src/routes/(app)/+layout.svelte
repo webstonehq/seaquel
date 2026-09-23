@@ -120,7 +120,9 @@
     });
 
     function handleBeforeUnload() {
-        db.persistence.flush();
+        // Browsers don't await async unload work, so this is best-effort. On
+        // desktop the onCloseRequested handler below does the reliable flush.
+        void db.persistence.flush();
         themeStore.flush();
     }
 
@@ -133,6 +135,35 @@
 
         (async () => {
             const { listen } = await import("@tauri-apps/api/event");
+
+            // Flush pending debounced writes before the window actually closes;
+            // `onbeforeunload` can't await, so work scheduled there is lost.
+            // Standalone windows (e.g. the theme editor) own their own close
+            // handling, so only the main app window registers this.
+            if (!isStandaloneWindow) {
+                const { getCurrentWebviewWindow } = await import(
+                    "@tauri-apps/api/webviewWindow"
+                );
+                const appWindow = getCurrentWebviewWindow();
+                const unlistenClose = await appWindow.onCloseRequested(
+                    async (event) => {
+                        event.preventDefault();
+                        try {
+                            await db.persistence.flush();
+                            themeStore.flush();
+                        } catch (error) {
+                            console.error(
+                                "[seaquel] flush on close failed:",
+                                error,
+                            );
+                        }
+                        await appWindow.destroy();
+                    },
+                );
+                cleanupFns.push(() => {
+                    void unlistenClose();
+                });
+            }
 
             // Listen for app updates
             const unlistenUpdate = await listen<UpdateInfo>(

@@ -368,7 +368,7 @@ export class ProjectManager {
         // Cancel any debounced persistence scheduled by removeConnection
         // (e.g. via setActiveForProject) before the next iteration's await
         // gives the timer a chance to fire against the soon-to-be-deleted project
-        this.persistence.cancelPendingPersistence();
+        this.persistence.cancelPendingPersistenceFor(id, [connection.id]);
       }
     }
 

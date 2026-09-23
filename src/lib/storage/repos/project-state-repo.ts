@@ -56,6 +56,7 @@ export const projectStateRepo = {
         id: t.id,
         tableName: t.table_name ?? "",
         schemaName: t.schema_name ?? "",
+        connectionId: t.connection_id ?? undefined,
       }));
 
     const explainTabs = tabs
@@ -272,9 +273,17 @@ export const projectStateRepo = {
     }
 
     for (const tab of state.schemaTabs) {
+      // connection_id matters: restore drops schema tabs that don't have one.
       statements.push({
-        sql: `INSERT INTO tabs (id, project_id, tab_type, name, table_name, schema_name) VALUES (?, ?, 'schema', ?, ?, ?)`,
-        params: [tab.id, state.projectId, tab.tableName, tab.tableName, tab.schemaName],
+        sql: `INSERT INTO tabs (id, project_id, tab_type, name, table_name, schema_name, connection_id) VALUES (?, ?, 'schema', ?, ?, ?, ?)`,
+        params: [
+          tab.id,
+          state.projectId,
+          tab.tableName,
+          tab.tableName,
+          tab.schemaName,
+          tab.connectionId ?? null,
+        ],
       });
     }
 

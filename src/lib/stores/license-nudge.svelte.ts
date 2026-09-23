@@ -72,16 +72,22 @@ class LicenseNudgeStore {
         this.answer = persisted.answer ?? null;
         this.snoozedUntil = persisted.snoozedUntil ?? null;
       }
-    } catch (error) {
-      console.error("Failed to load license nudge state:", error);
-    } finally {
       this.initialized = true;
+    } catch (error) {
+      // Leave `initialized` false: persisting now would overwrite a saved
+      // answer or snooze with the zeroed in-memory state.
+      console.error("Failed to load license nudge state:", error);
     }
   }
 
-  /** Called whenever a query is executed. No-op until initialized (e.g. web builds). */
+  /**
+   * Called whenever a query is executed. No-op until initialized (e.g. web
+   * builds), once answered, or for licensed users — they never see the nudge,
+   * so counting their queries is a pointless write on every execution.
+   */
   recordQuery(): void {
     if (!this.initialized || this.answer) return;
+    if (licenseStore.status !== "personal") return;
 
     this.queryCount += 1;
     const today = localDay(new Date());
