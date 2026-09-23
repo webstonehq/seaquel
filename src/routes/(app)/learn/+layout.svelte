@@ -12,6 +12,12 @@
 		shortcuts.registerHandler('toggleSidebar', () => {
 			sidebar.toggle();
 		});
+
+		// Lessons embedded on the marketing site get little room, so start with
+		// the sidebar collapsed to its icon rail. The header toggle expands it.
+		if (window.self !== window.top) {
+			sidebar.setOpen(false);
+		}
 	});
 
 	onDestroy(() => {
