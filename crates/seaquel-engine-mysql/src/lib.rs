@@ -1,5 +1,6 @@
 //! MySQL and MariaDB engine for Seaquel. MariaDB connections use the "mysql" driver on the wire.
 
+mod bind;
 mod decode;
 mod driver;
 

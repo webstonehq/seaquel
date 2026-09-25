@@ -1060,6 +1060,8 @@
   "create_table_execute": "Create Table",
   "create_table_update": "Update Table",
   "create_table_copy_sql": "Copy SQL",
+  "create_table_connect_to_preview": "Connect to preview SQL",
+  "create_table_preview_unavailable": "Preview unavailable — {reason}",
   "data_viewer_add_row": "Add Row",
   "data_viewer_add_column": "Add Column",
   "data_viewer_refresh": "Refresh",

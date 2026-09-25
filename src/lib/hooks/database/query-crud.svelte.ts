@@ -4,41 +4,122 @@ import type { ProviderRegistry } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
-import { getAdapter } from "$lib/db/index";
+import { getEngineClient, usesRustEngine, type CastMap, type TableMetadata } from "$lib/engine";
 import { describePendingChange } from "$lib/db/pending-change-description";
-import type { CastLookup } from "$lib/db/crud-helpers";
+import type { SchemaColumn } from "$lib/types";
+import { storeTableMetadata } from "./schema-cache.js";
 
 type CrudResult = { success: boolean; error?: string; queued?: boolean };
+
+/** Without a `castType`, text-like, user-defined and array columns bind without a cast. */
+const UNCAST_TYPES = new Set(["text", "character varying", "user-defined", "array"]);
+
+/**
+ * Types information_schema reports without their length. `CAST(… AS bit)`
+ * is bit(1) and `CAST(… AS character)` is char(1), which truncate the value,
+ * so a key compared that way matches no row. The unbounded types compare
+ * (and assign) at the column's own length. Postgres's spelling; SQLite
+ * gives them the same affinity as before, and MySQL ignores casts.
+ */
+const UNBOUNDED_CAST: Record<string, string> = { bit: "bit varying", character: "bpchar" };
+
+/**
+ * Column name → type for the adapters that wrap bind placeholders in
+ * `CAST($N AS type)` (e.g. Postgres). Columns that need no cast are absent.
+ * The Rust dialects also cast primary-key placeholders with it (update,
+ * set default, delete), so uuid/date/timestamp keys sent as text compare.
+ *
+ * A column with a `castType` (Postgres reports one for every column from its
+ * catalog: enums and arrays by their real type, user types schema-qualified)
+ * casts to it as it is; the builders interpolate it into the SQL, so it must
+ * never come from user input. Without one, the type comes from `type` by the rules above.
+ */
+export function castMapForColumns(columns: readonly SchemaColumn[]): CastMap {
+  return Object.fromEntries(
+    columns.flatMap((c): [string, string][] => {
+      if (c.castType) return [[c.name, c.castType]];
+      const type = c.type.toLowerCase();
+      return UNCAST_TYPES.has(type) ? [] : [[c.name, UNBOUNDED_CAST[type] ?? c.type]];
+    }),
+  );
+}
 
 /**
  * Handles CRUD operations (insert, update, delete) and raw query execution.
  * Extracted from QueryExecutionManager for readability.
  */
 export class QueryCrudManager {
+  /**
+   * Table metadata loaded for cast maps (see `buildCastMap`), per connection,
+   * then by provider connection id, schema and table. Holds the promise, so
+   * concurrent edits share one load; a failed load is dropped so the next
+   * edit retries. Keying by the provider connection id forgets everything on
+   * reconnect and disconnect; `forgetLoadedColumns` does it on schema reloads.
+   */
+  private loadedColumns = new Map<string, Map<string, Promise<TableMetadata>>>();
+
   constructor(
     private state: DatabaseState,
     private providers: ProviderRegistry,
     private pendingChanges: PendingChangesManager,
   ) {}
 
+  /** Drop the metadata loaded for cast maps on a connection, e.g. when its schema reloads. */
+  forgetLoadedColumns(connectionId: string): void {
+    this.loadedColumns.delete(connectionId);
+  }
+
   /**
-   * Build a CastLookup callback for a given table, used by parameterized adapters
-   * (e.g. Postgres) to wrap bind placeholders in CAST($N AS type).
+   * The cast map for a table on the active connection (see `castMapForColumns`).
+   *
+   * When the schema cache doesn't have the table's columns yet (not loaded, or
+   * the table isn't listed), a Rust-engine connection loads them first (once;
+   * see `loadedColumns`) and puts them in the schema cache if its entry still
+   * has none: without casts, typed keys don't compare (`uuid = text`) and a
+   * NULL doesn't assign to jsonb, enum or array columns. `undefined` without an
+   * active connection, or when that load fails. TypeScript engines never load:
+   * their builders cast nothing (SQLite only for type affinity), as before.
    */
-  buildCastLookup(schema: string, tableName: string): CastLookup | undefined {
+  async buildCastMap(schema: string, tableName: string): Promise<CastMap | undefined> {
     const connectionId = this.state.activeConnectionId;
-    if (!connectionId) return undefined;
-    const tables = this.state.schemas[connectionId] ?? [];
-    const table = tables.find((t) => t.name === tableName && t.schema === schema);
-    if (!table) return undefined;
-    return (col: string) => {
-      const colDef = table.columns.find((c) => c.name === col);
-      if (!colDef) return undefined;
-      const colType = colDef.type.toLowerCase();
-      if (["text", "character varying", "character"].includes(colType)) return undefined;
-      if (["user-defined", "array"].includes(colType)) return undefined;
-      return colDef.type;
-    };
+    const connection = this.state.activeConnection;
+    if (!connectionId || !connection) return undefined;
+    const findTable = () =>
+      (this.state.schemas[connectionId] ?? []).find(
+        (t) => t.name === tableName && t.schema === schema,
+      );
+    const table = findTable();
+    if (table && (table.columns.length > 0 || !usesRustEngine(connection))) {
+      return castMapForColumns(table.columns);
+    }
+    if (!usesRustEngine(connection)) return undefined;
+
+    const byConnection =
+      this.loadedColumns.get(connectionId) ?? new Map<string, Promise<TableMetadata>>();
+    this.loadedColumns.set(connectionId, byConnection);
+    const key = JSON.stringify([connection.providerConnectionId ?? null, schema, tableName]);
+    let load = byConnection.get(key);
+    if (!load) {
+      load = getEngineClient(connection, this.state).tableMetadata(schema, tableName);
+      byConnection.set(key, load);
+    }
+
+    try {
+      const { columns, indexes } = await load;
+      // Only fill an entry that still has no columns: a schema refresh may
+      // have stored newer ones while this was loading.
+      const current = findTable();
+      if (current && current.columns.length === 0) {
+        storeTableMetadata(this.state, connectionId, { ...current, columns, indexes });
+      }
+      return castMapForColumns(columns);
+    } catch (error) {
+      if (byConnection.get(key) === load) byConnection.delete(key);
+      void log.debug(
+        `No cast map for ${schema}.${tableName}: loading its columns failed: ${extractErrorMessage(error)}`,
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -63,16 +144,16 @@ export class QueryCrudManager {
 
     try {
       const provider = await this.providers.getForType(connection.type);
-      const adapter = getAdapter(connection.type);
-      const castLookup = this.buildCastLookup(sourceTable.schema, sourceTable.name);
-      const { sql: query, bindValues } = adapter.buildUpdateSql(
+      const client = getEngineClient(connection, this.state);
+      const casts = await this.buildCastMap(sourceTable.schema, sourceTable.name);
+      const { sql: query, bindValues } = await client.buildUpdate(
         sourceTable.schema,
         sourceTable.name,
         column,
         newValue,
         sourceTable.primaryKeys,
         row,
-        castLookup,
+        casts,
       );
 
       if (this.pendingChanges.isEnabled()) {
@@ -144,13 +225,14 @@ export class QueryCrudManager {
 
     try {
       const provider = await this.providers.getForType(connection.type);
-      const adapter = getAdapter(connection.type);
-      const { sql: query, bindValues } = adapter.buildSetDefaultSql(
+      const client = getEngineClient(connection, this.state);
+      const { sql: query, bindValues } = await client.buildSetDefault(
         sourceTable.schema,
         sourceTable.name,
         column,
         sourceTable.primaryKeys,
         row,
+        await this.buildCastMap(sourceTable.schema, sourceTable.name),
       );
 
       if (this.pendingChanges.isEnabled()) {
@@ -220,13 +302,13 @@ export class QueryCrudManager {
     void log.debug(`Row insert on ${connection?.id}`);
     try {
       const provider = await this.providers.getForType(connection.type);
-      const adapter = getAdapter(connection.type);
-      const castLookup = this.buildCastLookup(sourceTable.schema, sourceTable.name);
-      const { sql: query, bindValues } = adapter.buildInsertSql(
+      const client = getEngineClient(connection, this.state);
+      const casts = await this.buildCastMap(sourceTable.schema, sourceTable.name);
+      const { sql: query, bindValues } = await client.buildInsert(
         sourceTable.schema,
         sourceTable.name,
         values,
-        castLookup,
+        casts,
       );
 
       if (this.pendingChanges.isEnabled()) {
@@ -273,12 +355,13 @@ export class QueryCrudManager {
     void log.debug(`Row delete on ${connection?.id}`);
     try {
       const provider = await this.providers.getForType(connection.type);
-      const adapter = getAdapter(connection.type);
-      const { sql: query, bindValues } = adapter.buildDeleteSql(
+      const client = getEngineClient(connection, this.state);
+      const { sql: query, bindValues } = await client.buildDelete(
         sourceTable.schema,
         sourceTable.name,
         sourceTable.primaryKeys,
         row,
+        await this.buildCastMap(sourceTable.schema, sourceTable.name),
       );
 
       if (this.pendingChanges.isEnabled()) {

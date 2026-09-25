@@ -36,13 +36,25 @@ npm run check:watch
 All database logic lives in Rust crates under `crates/`, shared by every interface. See `docs/plans/2026-09-24-rust-core-plugin-architecture-design.md` for where this is heading.
 
 - `seaquel-core` — the only entry point interfaces use: engine registry, open connections, streaming and cancellation. `disconnect` cancels the connection's running streams, which end with a `CONNECTION_CLOSED` error event.
-- `seaquel-engine` — the `Driver`/`Engine` plugin traits. One crate per engine: `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}`.
-- `seaquel-types` — wire types. `npm run types:gen` regenerates `src/lib/types/generated/`; never edit those by hand.
+- `seaquel-engine` — the `Driver`/`Engine` plugin traits, the pure `Dialect` trait, and the generic DDL/CRUD builders (`ddl.rs`, `crud.rs`) that dialects parameterize. `Driver` has default `NOT_SUPPORTED` introspection methods (`list_schemas`, `schema_tables`, `table_metadata`, `statistics`, `explain`). One crate per engine: `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}`.
+- `seaquel-types` — wire types, including the dialect types (`SchemaTable`, `ExplainResult`, `CreateTableDefinition`, …) and `Value`. `npm run types:gen` regenerates `src/lib/types/generated/` from `seaquel-types` and `seaquel-rpc`; never edit those by hand.
+- `seaquel-rpc` — `EngineCall`/`EngineRequest`/`EngineResponse` and `dispatch` onto Core, for dialect and introspection calls on one connection. Served as the `db_engine` Tauri command and `POST /api/db/engine`.
 - `seaquel-runtime` — `MaybeSend`, `BoxStream`, `Executor`, `#[seaquel_runtime::async_trait]`. Core crates must build for wasm32: no `tokio::spawn`, `Instant` or `SystemTime` (enforced by `crates/clippy.toml`).
 - Interfaces: `src-tauri/` (desktop; Tauri commands in `src/db/commands.rs` forward to Core) and `crates/seaquel-server/` (web; axum, loopback-only behind the Node server).
 - `npm run crates:check` (`scripts/check-crate-deps.mjs`) enforces which crates may depend on which.
 - Engine smoke tests: `cargo test -p seaquel-engine-<name> --test smoke`. Server engines need `SEAQUEL_TEST_<ENGINE>` set to ConnectConfig JSON (see each crate's `tests/smoke.rs`) and the containers from `e2e/test-databases/docker-compose.yml`, seeded with `npm run e2e:db:seed` (which creates `seaquel_test`).
 - Desktop plugins still used: `tauri-plugin-store` (legacy JSON import), `tauri-plugin-updater`, `tauri-plugin-keyring`, `tauri-plugin-log` and others in `src-tauri/Cargo.toml`.
+
+### Dialects and engine calls
+
+- **UI code never does dialect work itself.** Introspection, EXPLAIN, statistics, pagination, CRUD and DDL generation all go through `EngineClient` (`src/lib/engine`): `getEngineClient(connection, state)`. Pass the app state so the client reads the live provider connection id on every call (it survives `reconnect()`). Don't cache clients across operations, and don't call `getAdapter(` outside `src/lib/engine/` and `src/lib/db/`.
+- `getEngineClient` returns `RustEngineClient` (the `db_engine` endpoint) for Postgres on desktop and web, and `TsEngineClient` (the old `DatabaseAdapter` in `src/lib/db` plus a provider) for every other engine and for the browser demo.
+- **Postgres lives in Rust**: `crates/seaquel-engine-postgres` (`dialect.rs`, `introspect.rs`, `numeric.rs` for the NUMERIC binary codec, `decode.rs`/`bind.rs` for values). MySQL/MariaDB, SQLite, MSSQL and DuckDB dialects are still TypeScript in `src/lib/db` until phase 2.
+- The parity fixtures in `crates/seaquel-engine-postgres/tests/fixtures` were recorded from the deleted TS adapter and are frozen. Change one only when the Rust behaviour is meant to change, and say why.
+
+### Cell values
+
+Rows and parameters cross the wire in one format (`crates/seaquel-types/src/value.rs`, `src/lib/values.ts`). Values JavaScript holds exactly are plain JSON. Everything else is tagged as `{"$sq": kind, "v": …}` with kind `bigint`, `float` (NaN/±inf), `decimal`, `bytes` (base64) or `json`. The providers decode tags before any UI code sees a row and encode parameters with `encodeParam`, so the UI gets `bigint`, `Uint8Array` and `SqlDecimal` alongside plain values. Use the helpers in `$lib/values` (`cellKey` for comparing cells, `cellText`, `toNumber`, `jsonReplacer` for `JSON.stringify`, `toStorable` for persisted rows) instead of `String()`/`Number()`/bare `JSON.stringify` on cells.
 
 ### State Management
 

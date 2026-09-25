@@ -1,0 +1,621 @@
+{
+  "cases": [
+    {
+      "name": "table sizes",
+      "input": {
+        "kind": "tableSizes",
+        "rows": [
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "events",
+            "row_count": 5000,
+            "total_size": "624 kB",
+            "total_size_bytes": 638976,
+            "data_size": "416 kB",
+            "index_size": "176 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "order_items",
+            "row_count": 1260,
+            "total_size": "224 kB",
+            "total_size_bytes": 229376,
+            "data_size": "72 kB",
+            "index_size": "120 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "orders",
+            "row_count": 500,
+            "total_size": "144 kB",
+            "total_size_bytes": 147456,
+            "data_size": "48 kB",
+            "index_size": "64 kB"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "row_count": 0,
+            "total_size": "56 kB",
+            "total_size_bytes": 57344,
+            "data_size": "0 bytes",
+            "index_size": "48 kB"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customers",
+            "row_count": 50,
+            "total_size": "48 kB",
+            "total_size_bytes": 49152,
+            "data_size": "8192 bytes",
+            "index_size": "32 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "products",
+            "row_count": 28,
+            "total_size": "48 kB",
+            "total_size_bytes": 49152,
+            "data_size": "8192 bytes",
+            "index_size": "32 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "users",
+            "row_count": 15,
+            "total_size": "48 kB",
+            "total_size_bytes": 49152,
+            "data_size": "8192 bytes",
+            "index_size": "32 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "all_types",
+            "row_count": 1,
+            "total_size": "32 kB",
+            "total_size_bytes": 32768,
+            "data_size": "8192 bytes",
+            "index_size": "16 kB"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "categories",
+            "row_count": 5,
+            "total_size": "32 kB",
+            "total_size_bytes": 32768,
+            "data_size": "8192 bytes",
+            "index_size": "16 kB"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customer_counts",
+            "row_count": 4,
+            "total_size": "16 kB",
+            "total_size_bytes": 16384,
+            "data_size": "8192 bytes",
+            "index_size": "0 bytes"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "seaquel_fixtures",
+          "name": "events",
+          "rowCount": 5000,
+          "totalSize": "624 kB",
+          "totalSizeBytes": 638976,
+          "dataSize": "416 kB",
+          "indexSize": "176 kB"
+        },
+        {
+          "schema": "public",
+          "name": "order_items",
+          "rowCount": 1260,
+          "totalSize": "224 kB",
+          "totalSizeBytes": 229376,
+          "dataSize": "72 kB",
+          "indexSize": "120 kB"
+        },
+        {
+          "schema": "public",
+          "name": "orders",
+          "rowCount": 500,
+          "totalSize": "144 kB",
+          "totalSizeBytes": 147456,
+          "dataSize": "48 kB",
+          "indexSize": "64 kB"
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "name": "region_stock",
+          "rowCount": 0,
+          "totalSize": "56 kB",
+          "totalSizeBytes": 57344,
+          "dataSize": "0 bytes",
+          "indexSize": "48 kB"
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "name": "customers",
+          "rowCount": 50,
+          "totalSize": "48 kB",
+          "totalSizeBytes": 49152,
+          "dataSize": "8192 bytes",
+          "indexSize": "32 kB"
+        },
+        {
+          "schema": "public",
+          "name": "products",
+          "rowCount": 28,
+          "totalSize": "48 kB",
+          "totalSizeBytes": 49152,
+          "dataSize": "8192 bytes",
+          "indexSize": "32 kB"
+        },
+        {
+          "schema": "public",
+          "name": "users",
+          "rowCount": 15,
+          "totalSize": "48 kB",
+          "totalSizeBytes": 49152,
+          "dataSize": "8192 bytes",
+          "indexSize": "32 kB"
+        },
+        {
+          "schema": "public",
+          "name": "all_types",
+          "rowCount": 1,
+          "totalSize": "32 kB",
+          "totalSizeBytes": 32768,
+          "dataSize": "8192 bytes",
+          "indexSize": "16 kB"
+        },
+        {
+          "schema": "public",
+          "name": "categories",
+          "rowCount": 5,
+          "totalSize": "32 kB",
+          "totalSizeBytes": 32768,
+          "dataSize": "8192 bytes",
+          "indexSize": "16 kB"
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "name": "customer_counts",
+          "rowCount": 4,
+          "totalSize": "16 kB",
+          "totalSizeBytes": 16384,
+          "dataSize": "8192 bytes",
+          "indexSize": "0 bytes"
+        }
+      ]
+    },
+    {
+      "name": "index usage",
+      "input": {
+        "kind": "indexUsage",
+        "rows": [
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "events",
+            "index_name": "events_pkey",
+            "size": "128 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "order_items",
+            "index_name": "order_items_pkey",
+            "size": "48 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "events",
+            "index_name": "events_kind_idx",
+            "size": "48 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_order",
+            "size": "40 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_product",
+            "size": "32 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "users",
+            "index_name": "users_email_key",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "all_types",
+            "index_name": "all_types_pkey",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "products",
+            "index_name": "idx_products_category",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "orders",
+            "index_name": "idx_orders_user",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "orders",
+            "index_name": "idx_orders_status",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "index_name": "region_stock_attrs_gin_idx",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customers",
+            "index_name": "customers_email_key",
+            "size": "16 kB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "index_name": "region_stock_lower_sku_idx",
+            "size": "8192 bytes",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "index_name": "region_stock_pkey",
+            "size": "8192 bytes",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "index_name": "region_stock_qty_incl_idx",
+            "size": "8192 bytes",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "index_name": "region_stock_user_sku_key",
+            "size": "8192 bytes",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": true
+          },
+          {
+            "schema_name": "public",
+            "table_name": "categories",
+            "index_name": "categories_pkey",
+            "size": "16 kB",
+            "scans": 28,
+            "rows_read": 28,
+            "unused": false
+          },
+          {
+            "schema_name": "public",
+            "table_name": "users",
+            "index_name": "users_pkey",
+            "size": "16 kB",
+            "scans": 524,
+            "rows_read": 524,
+            "unused": false
+          },
+          {
+            "schema_name": "public",
+            "table_name": "orders",
+            "index_name": "orders_pkey",
+            "size": "32 kB",
+            "scans": 1260,
+            "rows_read": 1260,
+            "unused": false
+          },
+          {
+            "schema_name": "public",
+            "table_name": "products",
+            "index_name": "products_pkey",
+            "size": "16 kB",
+            "scans": 1260,
+            "rows_read": 1260,
+            "unused": false
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customers",
+            "index_name": "customers_pkey",
+            "size": "16 kB",
+            "scans": 5000,
+            "rows_read": 5000,
+            "unused": false
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "seaquel_fixtures",
+          "table": "events",
+          "indexName": "events_pkey",
+          "size": "128 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "order_items",
+          "indexName": "order_items_pkey",
+          "size": "48 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "events",
+          "indexName": "events_kind_idx",
+          "size": "48 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "order_items",
+          "indexName": "idx_order_items_order",
+          "size": "40 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "order_items",
+          "indexName": "idx_order_items_product",
+          "size": "32 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "users",
+          "indexName": "users_email_key",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "all_types",
+          "indexName": "all_types_pkey",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "indexName": "idx_products_category",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "indexName": "idx_orders_user",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "indexName": "idx_orders_status",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "region_stock",
+          "indexName": "region_stock_attrs_gin_idx",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "customers",
+          "indexName": "customers_email_key",
+          "size": "16 kB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "region_stock",
+          "indexName": "region_stock_lower_sku_idx",
+          "size": "8192 bytes",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "region_stock",
+          "indexName": "region_stock_pkey",
+          "size": "8192 bytes",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "region_stock",
+          "indexName": "region_stock_qty_incl_idx",
+          "size": "8192 bytes",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "region_stock",
+          "indexName": "region_stock_user_sku_key",
+          "size": "8192 bytes",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": true
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "indexName": "categories_pkey",
+          "size": "16 kB",
+          "scans": 28,
+          "rowsRead": 28,
+          "unused": false
+        },
+        {
+          "schema": "public",
+          "table": "users",
+          "indexName": "users_pkey",
+          "size": "16 kB",
+          "scans": 524,
+          "rowsRead": 524,
+          "unused": false
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "indexName": "orders_pkey",
+          "size": "32 kB",
+          "scans": 1260,
+          "rowsRead": 1260,
+          "unused": false
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "indexName": "products_pkey",
+          "size": "16 kB",
+          "scans": 1260,
+          "rowsRead": 1260,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_fixtures",
+          "table": "customers",
+          "indexName": "customers_pkey",
+          "size": "16 kB",
+          "scans": 5000,
+          "rowsRead": 5000,
+          "unused": false
+        }
+      ]
+    },
+    {
+      "name": "database overview",
+      "input": {
+        "kind": "overview",
+        "rows": [
+          {
+            "database_name": "seaquel_test",
+            "total_size": "9735 kB",
+            "total_size_bytes": 9968663,
+            "table_count": 10,
+            "index_count": 21,
+            "connection_count": 1
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "seaquel_test",
+        "totalSize": "9735 kB",
+        "totalSizeBytes": 9968663,
+        "tableCount": 10,
+        "indexCount": 21,
+        "connectionCount": 1
+      }
+    },
+    {
+      "name": "database overview, no rows (fallbacks)",
+      "input": {
+        "kind": "overview",
+        "rows": []
+      },
+      "output": {
+        "databaseName": "Unknown",
+        "totalSize": "0 bytes",
+        "totalSizeBytes": 0,
+        "tableCount": 0,
+        "indexCount": 0,
+        "connectionCount": 0
+      }
+    }
+  ]
+}

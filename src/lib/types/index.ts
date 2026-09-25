@@ -18,7 +18,14 @@ export { PREDEFINED_LABELS, DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from "./p
 export type { DatabaseType, SSHAuthMethod, SSHTunnelConfig, DatabaseConnection } from "./database";
 
 // Schema types
-export type { ForeignKeyRef, SchemaColumn, SchemaIndex, SchemaTable, SchemaTab } from "./schema";
+export type {
+  ForeignKeyRef,
+  SchemaColumn,
+  SchemaIndex,
+  SchemaTable,
+  SchemaTab,
+  TableKind,
+} from "./schema";
 
 // Query execution types
 export type {
@@ -103,6 +110,7 @@ export type { SettingsTabKind, SettingsTab } from "./settings-tab";
 
 // Create Table types
 export type {
+  ColumnCategory,
   ColumnTypeInfo,
   CreateTableColumn,
   CreateTableIndex,

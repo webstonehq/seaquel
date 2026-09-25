@@ -3,10 +3,10 @@
  * Two strategies: inline (MSSQL/DuckDB) and parameterized (Postgres/MySQL/SQLite).
  */
 
-export interface SqlWithBindings {
-  sql: string;
-  bindValues?: unknown[];
-}
+import type { SqlWithBindings } from "$lib/types/generated/SqlWithBindings";
+import { SqlDecimal, jsonReplacer } from "$lib/values";
+
+export type { SqlWithBindings };
 
 /**
  * A callback that returns the SQL type name for a column, or undefined
@@ -45,8 +45,27 @@ export function formatLiteralValue(v: unknown): string {
     return `'${s.replace(/'/g, "''")}'`;
   }
   if (typeof v === "string") return `'${v.replace(/'/g, "''")}'`;
+  if (v instanceof SqlDecimal) {
+    if (/^-?\d+(\.\d+)?$/.test(v.value)) return v.value;
+    return `'${v.value.replace(/'/g, "''")}'`; // NaN, Infinity, -Infinity
+  }
+  // DuckDB blob literal: one `\xHH` escape per byte.
+  if (v instanceof Uint8Array) return `'${blobEscapes(v)}'::BLOB`;
   // Objects/arrays: serialize as JSON string to avoid [object Object]
-  return `'${JSON.stringify(v).replace(/'/g, "''")}'`;
+  return `'${JSON.stringify(v, jsonReplacer).replace(/'/g, "''")}'`;
+}
+
+function blobEscapes(bytes: Uint8Array): string {
+  let out = "";
+  for (const b of bytes) out += `\\x${b.toString(16).padStart(2, "0").toUpperCase()}`;
+  return out;
+}
+
+/** T-SQL binary literal: `0x0102FF` (unquoted). */
+export function formatMssqlBinary(bytes: Uint8Array): string {
+  let out = "0x";
+  for (const b of bytes) out += b.toString(16).padStart(2, "0").toUpperCase();
+  return out;
 }
 
 // ─── Inline strategy (MSSQL, DuckDB) ────────────────────────────────

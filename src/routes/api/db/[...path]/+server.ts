@@ -10,8 +10,8 @@
  * Scheme: the browser-facing connection_id is `${userId}:${rustId}`. On
  * `/api/db/connect`, we rewrite the Rust response to prepend the prefix. On
  * every other path carrying a connection_id in its body (disconnect, query,
- * execute, transaction), we verify the prefix matches the caller and strip it
- * before forwarding. WebSocket stream has the same guarantee in server.js.
+ * execute, transaction, engine), we verify the prefix matches the caller and
+ * strip it before forwarding. WebSocket stream has the same guarantee in server.js.
  *
  * The WebSocket upgrade for /api/db/stream is NOT handled here — SvelteKit
  * routes can't handle WS upgrades. It's intercepted by server.js before
@@ -25,7 +25,7 @@ import type { RequestHandler } from "./$types";
 const RUST_BASE_URL = process.env.SEAQUEL_RUST_URL ?? "http://127.0.0.1:8788";
 
 // Paths whose request body carries a connection_id we must validate + strip.
-const VALIDATED_PATHS = new Set(["disconnect", "query", "execute", "transaction"]);
+const VALIDATED_PATHS = new Set(["disconnect", "query", "execute", "transaction", "engine"]);
 
 const forward: RequestHandler = async ({ locals, params, request, url }) => {
   if (!locals.user) throw error(401, "unauthorized");

@@ -1,0 +1,712 @@
+{
+  "about": "Hand-written expectations for the intended changes from the TypeScript Postgres dialect (see 'Bug fixes' in docs/plans/2026-09-25-rust-core-phase-1-plan.md). The recorder never writes this file. Fix 1: catalog filters are bound, so these tables load. Fix 2: the DDL quote escapes embedded double quotes. Fix 3: DROP INDEX is schema-qualified with the original definition's schema (where the index lives). Fix 4: index columns come from pg_index/pg_get_indexdef (expressions shown, INCLUDE columns left out), unique from indisunique, type from the access method; indexes are listed by name. Fix 5 (statistics by relid) has no case here; smoke.rs checks it live. Fix 6: CRUD casts primary-key placeholders with the cast map in update, setDefault and delete, so uuid/date/timestamp keys sent as text compare; the TypeScript builders never cast keys, so crud.json is replayed without key casts. Fix 7: the columns query adds castType (format_type, with character and bit lengths dropped), and CRUD casts to it verbatim. 'columns' and 'indexes' cases run against the scratch schema built by scratch.setup.",
+  "scratch": {
+    "schema": "seaquel_fixtures",
+    "setup": [
+      "CREATE SCHEMA seaquel_fixtures",
+      "CREATE TABLE seaquel_fixtures.customers (id integer PRIMARY KEY, name varchar(100) NOT NULL, email text UNIQUE)",
+      "INSERT INTO seaquel_fixtures.customers (id, name, email) SELECT n, 'Customer ' || n, 'c' || n || '@example.com' FROM generate_series(1, 50) AS n",
+      "CREATE TABLE seaquel_fixtures.region_stock (region text NOT NULL, sku varchar(32) NOT NULL, qty integer NOT NULL DEFAULT 0, user_id integer REFERENCES public.users (id), attrs jsonb, PRIMARY KEY (region, sku))",
+      "CREATE INDEX region_stock_lower_sku_idx ON seaquel_fixtures.region_stock (lower(sku))",
+      "CREATE INDEX region_stock_qty_incl_idx ON seaquel_fixtures.region_stock (qty) INCLUDE (user_id)",
+      "CREATE UNIQUE INDEX region_stock_user_sku_key ON seaquel_fixtures.region_stock (user_id, sku)",
+      "CREATE INDEX region_stock_attrs_gin_idx ON seaquel_fixtures.region_stock USING gin (attrs)",
+      "CREATE TABLE seaquel_fixtures.events (id integer PRIMARY KEY, customer_id integer NOT NULL REFERENCES seaquel_fixtures.customers (id), kind text NOT NULL, created_at timestamp NOT NULL, payload jsonb)",
+      "INSERT INTO seaquel_fixtures.events (id, customer_id, kind, created_at, payload) SELECT n, n % 50 + 1, (ARRAY['click', 'view', 'buy', 'share'])[n % 4 + 1], timestamp '2026-01-01 00:00:00' + n * interval '1 minute', jsonb_build_object('n', n) FROM generate_series(1, 5000) AS n",
+      "CREATE INDEX events_kind_idx ON seaquel_fixtures.events (kind)",
+      "CREATE VIEW seaquel_fixtures.customer_names AS SELECT id, name FROM seaquel_fixtures.customers",
+      "CREATE MATERIALIZED VIEW seaquel_fixtures.customer_counts AS SELECT kind, count(*) AS n FROM seaquel_fixtures.events GROUP BY kind",
+      "CREATE TABLE seaquel_fixtures.\"order items\" (id serial PRIMARY KEY, region text NOT NULL, customer_id integer NOT NULL REFERENCES seaquel_fixtures.customers (id), name varchar(200) NOT NULL, sku text NOT NULL, qty integer NOT NULL DEFAULT 1, note text, attrs jsonb)",
+      "CREATE INDEX \"order items_lower_name_idx\" ON seaquel_fixtures.\"order items\" (lower(name))",
+      "CREATE INDEX order_items_sku_incl_idx ON seaquel_fixtures.\"order items\" (sku) INCLUDE (qty, note)",
+      "CREATE UNIQUE INDEX order_items_region_sku_key ON seaquel_fixtures.\"order items\" (region, sku)",
+      "CREATE INDEX order_items_attrs_gin_idx ON seaquel_fixtures.\"order items\" USING gin (attrs)",
+      "CREATE TABLE seaquel_fixtures.\"my-table\" (id integer PRIMARY KEY, value text DEFAULT 'n/a')"
+    ],
+    "teardown": ["DROP SCHEMA IF EXISTS seaquel_fixtures CASCADE"]
+  },
+  "cases": [
+    {
+      "name": "fix 1: columns of a table with a space in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": { "schema": "seaquel_fixtures", "table": "order items" },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "castType": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('seaquel_fixtures.\"order items_id_seq\"'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "region",
+          "type": "text",
+          "castType": "text",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "integer",
+          "castType": "integer",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_fixtures",
+            "referencedTable": "customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "castType": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "sku",
+          "type": "text",
+          "castType": "text",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "qty",
+          "type": "integer",
+          "castType": "integer",
+          "nullable": false,
+          "defaultValue": "1",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "castType": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "attrs",
+          "type": "jsonb",
+          "castType": "jsonb",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": { "schema": "seaquel_fixtures", "table": "my-table" },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "castType": "integer",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "value",
+          "type": "text",
+          "castType": "text",
+          "nullable": true,
+          "defaultValue": "'n/a'::text",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1 + 4: indexes of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "indexes",
+      "input": { "schema": "seaquel_fixtures", "table": "my-table" },
+      "output": [{ "name": "my-table_pkey", "columns": ["id"], "unique": true, "type": "btree" }]
+    },
+    {
+      "name": "fix 4: expression, INCLUDE, unique and gin indexes",
+      "fix": 4,
+      "kind": "indexes",
+      "input": { "schema": "seaquel_fixtures", "table": "order items" },
+      "output": [
+        {
+          "name": "order items_lower_name_idx",
+          "columns": ["lower(name::text)"],
+          "unique": false,
+          "type": "btree"
+        },
+        { "name": "order items_pkey", "columns": ["id"], "unique": true, "type": "btree" },
+        {
+          "name": "order_items_attrs_gin_idx",
+          "columns": ["attrs"],
+          "unique": false,
+          "type": "gin"
+        },
+        {
+          "name": "order_items_region_sku_key",
+          "columns": ["region", "sku"],
+          "unique": true,
+          "type": "btree"
+        },
+        { "name": "order_items_sku_incl_idx", "columns": ["sku"], "unique": false, "type": "btree" }
+      ]
+    },
+    {
+      "name": "fix 4: indexes on a composite-key table",
+      "fix": 4,
+      "kind": "indexes",
+      "input": { "schema": "seaquel_fixtures", "table": "region_stock" },
+      "output": [
+        {
+          "name": "region_stock_attrs_gin_idx",
+          "columns": ["attrs"],
+          "unique": false,
+          "type": "gin"
+        },
+        {
+          "name": "region_stock_lower_sku_idx",
+          "columns": ["lower(sku::text)"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_pkey",
+          "columns": ["region", "sku"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_qty_incl_idx",
+          "columns": ["qty"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_user_sku_key",
+          "columns": ["user_id", "sku"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "fix 2: CREATE TABLE escapes double quotes in identifiers",
+      "fix": 2,
+      "kind": "ddl-create",
+      "input": {
+        "tableName": "we\"ird",
+        "schemaName": "s\"x",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "col\"a",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "ref\"id",
+            "type": "integer",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true
+          }
+        ],
+        "indexes": [
+          { "id": "i1", "name": "idx\"1", "columns": ["col\"a"], "unique": false, "type": "btree" }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "ref\"id",
+            "referencedSchema": "ref\"s",
+            "referencedTable": "ref\"t",
+            "referencedColumn": "ref\"c"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"s\"\"x\".\"we\"\"ird\" (\n  \"col\"\"a\" integer NOT NULL,\n  \"ref\"\"id\" integer,\n  PRIMARY KEY (\"col\"\"a\"),\n  UNIQUE (\"ref\"\"id\"),\n  FOREIGN KEY (\"ref\"\"id\") REFERENCES \"ref\"\"s\".\"ref\"\"t\" (\"ref\"\"c\")\n);\n\nCREATE INDEX \"idx\"\"1\" ON \"s\"\"x\".\"we\"\"ird\" (\"col\"\"a\");"
+    },
+    {
+      "name": "fix 2: ALTER TABLE escapes double quotes in identifiers (not in default literals)",
+      "fix": 2,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "we\"ird",
+          "schemaName": "s\"x",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a\"b",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "we\"ird",
+          "schemaName": "s\"x",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "c\"d",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "e\"f",
+              "type": "text",
+              "nullable": false,
+              "defaultValue": "'q\"'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "e\"f",
+              "referencedSchema": "",
+              "referencedTable": "o\"t",
+              "referencedColumn": "i\"d"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"s\"\"x\".\"we\"\"ird\" RENAME COLUMN \"a\"\"b\" TO \"c\"\"d\";\nALTER TABLE \"s\"\"x\".\"we\"\"ird\" ADD COLUMN \"e\"\"f\" text NOT NULL DEFAULT 'q\"';\nALTER TABLE \"s\"\"x\".\"we\"\"ird\" ADD FOREIGN KEY (\"e\"\"f\") REFERENCES \"o\"\"t\" (\"i\"\"d\");"
+    },
+    {
+      "name": "fix 3: dropped index is schema-qualified",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": ["email"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"crm\".\"customers_email_idx\";"
+    },
+    {
+      "name": "fix 3: renamed index is dropped (qualified) and recreated",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": ["email"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_key",
+              "columns": ["email"],
+              "unique": true,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"crm\".\"customers_email_idx\";\nCREATE UNIQUE INDEX \"customers_email_key\" ON \"crm\".\"customers\" (\"email\");"
+    },
+    {
+      "name": "fix 3: statement order with every branch, including DROP INDEX",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "length": "100",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "precision": "10,2",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": ["email"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "varchar",
+              "length": "150",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "precision": "10,2",
+              "nullable": true,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c6",
+              "name": "tier",
+              "type": "smallint",
+              "nullable": false,
+              "defaultValue": "1",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i2",
+              "name": "customers_tier_idx",
+              "columns": ["tier"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "tier",
+              "referencedSchema": "crm",
+              "referencedTable": "tiers",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"crm\".\"customers\" ADD COLUMN \"tier\" smallint NOT NULL DEFAULT 1;\nALTER TABLE \"crm\".\"customers\" DROP COLUMN \"email\";\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"display_name\" TYPE varchar(150);\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"status\" SET DEFAULT 'new';\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"balance\" DROP NOT NULL;\nDROP INDEX \"crm\".\"customers_email_idx\";\nCREATE INDEX \"customers_tier_idx\" ON \"crm\".\"customers\" (\"tier\");\nALTER TABLE \"crm\".\"customers\" ADD FOREIGN KEY (\"tier\") REFERENCES \"crm\".\"tiers\" (\"id\");"
+    },
+    {
+      "name": "fix 3 + 2: qualified DROP INDEX escapes both parts",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "s\"1",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            { "id": "i1", "name": "ix\"a", "columns": ["a"], "unique": false, "type": "btree" }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "s\"1",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"s\"\"1\".\"ix\"\"a\";"
+    },
+    {
+      "name": "fix 6: update casts a uuid key, and NULL into a timestamp column",
+      "fix": 6,
+      "kind": "crud",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "events",
+        "column": "happened_at",
+        "value": null,
+        "primaryKeys": ["id"],
+        "row": { "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "happened_at": "2024-01-02 3:04:05.5" },
+        "casts": { "id": "uuid", "happened_at": "timestamp without time zone" }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"events\" SET \"happened_at\" = CAST($1 AS timestamp without time zone) WHERE \"id\" = CAST($2 AS uuid)",
+        "bindValues": [null, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"]
+      }
+    },
+    {
+      "name": "fix 6: composite key, only the key with a cast type is cast",
+      "fix": 6,
+      "kind": "crud",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "daily",
+        "column": "note",
+        "value": "x",
+        "primaryKeys": ["day", "region"],
+        "row": { "region": "eu", "day": "2024-01-02", "note": null },
+        "casts": { "day": "date", "region": "" }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"daily\" SET \"note\" = $1 WHERE \"day\" = CAST($2 AS date) AND \"region\" = $3",
+        "bindValues": ["x", "2024-01-02", "eu"]
+      }
+    },
+    {
+      "name": "fix 6: setDefault casts the key",
+      "fix": 6,
+      "kind": "crud",
+      "input": {
+        "fn": "setDefault",
+        "schema": "public",
+        "table": "events",
+        "column": "happened_at",
+        "primaryKeys": ["id"],
+        "row": { "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" },
+        "casts": { "id": "uuid" }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"events\" SET \"happened_at\" = DEFAULT WHERE \"id\" = CAST($1 AS uuid)",
+        "bindValues": ["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"]
+      }
+    },
+    {
+      "name": "fix 6: delete casts every key with a cast type",
+      "fix": 6,
+      "kind": "crud",
+      "input": {
+        "fn": "delete",
+        "schema": "public",
+        "table": "readings",
+        "primaryKeys": ["sensor", "at"],
+        "row": { "sensor": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "at": "2024-01-02 3:04:05.0 +00:00:00" },
+        "casts": { "sensor": "uuid", "at": "timestamp with time zone" }
+      },
+      "output": {
+        "sql": "DELETE FROM \"public\".\"readings\" WHERE \"sensor\" = CAST($1 AS uuid) AND \"at\" = CAST($2 AS timestamp with time zone)",
+        "bindValues": ["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "2024-01-02 3:04:05.0 +00:00:00"]
+      }
+    },
+    {
+      "name": "fix 7: NULL into an enum column casts to its castType verbatim, schema-qualified and quoted",
+      "fix": 7,
+      "kind": "crud",
+      "input": {
+        "fn": "update",
+        "schema": "app",
+        "table": "people",
+        "column": "mood",
+        "value": null,
+        "primaryKeys": ["id"],
+        "row": { "id": 1, "mood": "sad" },
+        "casts": { "id": "integer", "mood": "app.\"Weird Mood\"" }
+      },
+      "output": {
+        "sql": "UPDATE \"app\".\"people\" SET \"mood\" = CAST($1 AS app.\"Weird Mood\") WHERE \"id\" = CAST($2 AS integer)",
+        "bindValues": [null, 1]
+      }
+    }
+  ]
+}

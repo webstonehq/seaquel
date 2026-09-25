@@ -42,7 +42,7 @@
 	const keys = getKeySymbols();
 	import { Link } from "@lucide/svelte";
 	import { handleDeepLink } from "$lib/services/deep-link";
-	import { rowsToObjects } from "$lib/utils/row-access";
+	import { getExportContent } from "$lib/utils/export-formats";
 	import { errorToast } from "$lib/utils/toast";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
@@ -234,37 +234,11 @@
 	function exportResults(format: "csv" | "json") {
 		if (!activeResult) return;
 
-		let content: string;
-		let filename: string;
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-		if (format === "csv") {
-			const headers = activeResult.columns.join(",");
-			const rows = activeResult.rows
-				.map((row: unknown[]) =>
-					row
-						.map((val: unknown) => {
-							if (val === null || val === undefined) return "";
-							const str = String(val);
-							return str.includes(",") || str.includes('"') || str.includes("\n")
-								? `"${str.replace(/"/g, '""')}"`
-								: str;
-						})
-						.join(",")
-				)
-				.join("\n");
-			content = `${headers}\n${rows}`;
-			filename = `query-results-${timestamp}.csv`;
-		} else {
-			// JSON export needs `{col: value}` objects — materialize from
-			// columnar storage on demand (user-initiated, so fine).
-			content = JSON.stringify(
-				rowsToObjects(activeResult.rows, activeResult.columns),
-				null,
-				2,
-			);
-			filename = `query-results-${timestamp}.json`;
-		}
+		// Same content as the results toolbar export (handles bigint, bytes and decimals).
+		const content = getExportContent(format, activeResult.columns, activeResult.rows);
+		const filename = `query-results-${timestamp}.${format}`;
 
 		const blob = new Blob([content], { type: format === "csv" ? "text/csv" : "application/json" });
 		const url = URL.createObjectURL(blob);
@@ -280,11 +254,7 @@
 	function copyResults() {
 		if (!activeResult) return;
 
-		const content = JSON.stringify(
-			rowsToObjects(activeResult.rows, activeResult.columns),
-			null,
-			2,
-		);
+		const content = getExportContent("json", activeResult.columns, activeResult.rows);
 		navigator.clipboard.writeText(content);
 		open = false;
 	}

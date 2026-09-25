@@ -1,32 +1,25 @@
 use duckdb::{params_from_iter, types::Value as DuckValue, types::ValueRef, Connection};
 use std::sync::Mutex;
 
-use seaquel_engine::{BatchStatement, ConnectConfig, DbError, Driver, ExecuteResult, QueryResult};
+use seaquel_engine::{
+    BatchStatement, ConnectConfig, DbError, Driver, ExecuteResult, QueryResult, Value,
+};
 
-/// Convert a JSON parameter into a DuckDB `Value` suitable for parameter
-/// binding. Returns `Err` for nested arrays/objects, which aren't expressible
-/// as a scalar bind — callers should either flatten upstream or use an
-/// inline literal for these.
-fn json_to_duckdb_param(v: &serde_json::Value) -> Result<DuckValue, DbError> {
+/// Convert a parameter into a DuckDB `Value` for binding. `Int` binds as
+/// BIGINT, so integers are exact. `Decimal` binds as its literal text and
+/// `Json` as its JSON text; DuckDB casts both on assignment. Arrays are
+/// rejected: use an inline literal for these.
+fn to_duckdb_param(v: &Value) -> Result<DuckValue, DbError> {
     Ok(match v {
-        serde_json::Value::Null => DuckValue::Null,
-        serde_json::Value::Bool(b) => DuckValue::Boolean(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                DuckValue::BigInt(i)
-            } else if let Some(f) = n.as_f64() {
-                DuckValue::Double(f)
-            } else {
-                return Err(DbError::query_error(
-                    "unsupported numeric parameter (outside i64/f64 range)",
-                ));
-            }
-        }
-        serde_json::Value::String(s) => DuckValue::Text(s.clone()),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            return Err(DbError::query_error(
-                "array/object parameters are not supported; pass a scalar or use an inline literal",
-            ));
+        Value::Null => DuckValue::Null,
+        Value::Bool(b) => DuckValue::Boolean(*b),
+        Value::Int(i) => DuckValue::BigInt(*i),
+        Value::Float(f) => DuckValue::Double(*f),
+        Value::Decimal(s) | Value::Text(s) => DuckValue::Text(s.clone()),
+        Value::Bytes(b) => DuckValue::Blob(b.clone()),
+        Value::Json(j) => DuckValue::Text(j.to_string()),
+        Value::Array(_) => {
+            return Err(DbError::query_error("array parameters are not supported"));
         }
     })
 }
@@ -113,12 +106,12 @@ impl Driver for DuckdbDriver {
     async fn query(
         &self,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<QueryResult, DbError> {
         let sql = sql.to_string();
         let bound: Vec<DuckValue> = params
             .iter()
-            .map(json_to_duckdb_param)
+            .map(to_duckdb_param)
             .collect::<Result<_, _>>()?;
 
         // DuckDB is synchronous — we can't hold a MutexGuard across await,
@@ -149,7 +142,7 @@ impl Driver for DuckdbDriver {
             .collect();
 
         let cap = seaquel_engine::max_query_rows();
-        let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
+        let mut rows: Vec<Vec<Value>> = Vec::new();
         while let Some(row) = result_rows.next().map_err(DbError::query_error)? {
             if rows.len() >= cap {
                 return Err(DbError::result_too_large(cap));
@@ -157,7 +150,7 @@ impl Driver for DuckdbDriver {
             let mut values = Vec::with_capacity(column_count);
             for i in 0..column_count {
                 let value = row.get_ref(i).map_err(DbError::query_error)?;
-                values.push(convert_value_to_json(value));
+                values.push(Value::from_json_cell(convert_value_to_json(value)));
             }
             rows.push(values);
         }
@@ -168,11 +161,11 @@ impl Driver for DuckdbDriver {
     async fn execute(
         &self,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<ExecuteResult, DbError> {
         let bound: Vec<DuckValue> = params
             .iter()
-            .map(json_to_duckdb_param)
+            .map(to_duckdb_param)
             .collect::<Result<_, _>>()?;
 
         let conn = self.connection.lock().map_err(|e| DbError {
@@ -206,7 +199,7 @@ impl Driver for DuckdbDriver {
             let bound: Vec<DuckValue> = stmt
                 .params
                 .iter()
-                .map(json_to_duckdb_param)
+                .map(to_duckdb_param)
                 .collect::<Result<_, _>>()?;
             if let Err(e) = conn.execute(&stmt.sql, params_from_iter(bound.iter())) {
                 // Best-effort rollback; surface the original error regardless

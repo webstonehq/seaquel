@@ -1064,6 +1064,8 @@
   "create_table_execute": "테이블 생성",
   "create_table_update": "테이블 업데이트",
   "create_table_copy_sql": "SQL 복사",
+  "create_table_connect_to_preview": "SQL 미리보기를 보려면 연결하세요",
+  "create_table_preview_unavailable": "미리보기를 사용할 수 없습니다 — {reason}",
   "data_viewer_add_row": "행 추가",
   "data_viewer_add_column": "열 추가",
   "data_viewer_refresh": "새로고침",

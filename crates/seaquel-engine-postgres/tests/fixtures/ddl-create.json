@@ -1,0 +1,595 @@
+{
+  "cases": [
+    {
+      "name": "single serial primary key",
+      "input": {
+        "tableName": "accounts",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "serial",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "name",
+            "type": "text",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"accounts\" (\n  \"id\" serial NOT NULL,\n  \"name\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n);"
+    },
+    {
+      "name": "composite primary key",
+      "input": {
+        "tableName": "region_stock",
+        "schemaName": "inventory",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "region",
+            "type": "text",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "sku",
+            "type": "varchar",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false,
+            "length": "32"
+          },
+          {
+            "id": "c3",
+            "name": "qty",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"inventory\".\"region_stock\" (\n  \"region\" text NOT NULL,\n  \"sku\" varchar(32) NOT NULL,\n  \"qty\" integer NOT NULL DEFAULT 0,\n  PRIMARY KEY (\"region\", \"sku\")\n);"
+    },
+    {
+      "name": "unique columns (unique on a pk column is skipped)",
+      "input": {
+        "tableName": "people",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": true
+          },
+          {
+            "id": "c2",
+            "name": "email",
+            "type": "text",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true
+          },
+          {
+            "id": "c3",
+            "name": "handle",
+            "type": "varchar",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "40"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"people\" (\n  \"id\" bigint NOT NULL,\n  \"email\" text NOT NULL,\n  \"handle\" varchar(40),\n  PRIMARY KEY (\"id\"),\n  UNIQUE (\"email\"),\n  UNIQUE (\"handle\")\n);"
+    },
+    {
+      "name": "foreign key with schema",
+      "input": {
+        "tableName": "orders",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "serial",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "user_id",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "user_id",
+            "referencedSchema": "public",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"public\".\"orders\" (\n  \"id\" serial NOT NULL,\n  \"user_id\" integer NOT NULL,\n  PRIMARY KEY (\"id\"),\n  FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\" (\"id\")\n);"
+    },
+    {
+      "name": "foreign key without schema (quotes the empty schema)",
+      "input": {
+        "tableName": "comments",
+        "schemaName": "blog",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "serial",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "post_id",
+            "type": "integer",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "author_id",
+            "type": "integer",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "post_id",
+            "referencedSchema": "",
+            "referencedTable": "posts",
+            "referencedColumn": "id"
+          },
+          {
+            "id": "f2",
+            "column": "author_id",
+            "referencedSchema": "auth",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"blog\".\"comments\" (\n  \"id\" serial NOT NULL,\n  \"post_id\" integer,\n  \"author_id\" integer,\n  PRIMARY KEY (\"id\"),\n  FOREIGN KEY (\"post_id\") REFERENCES \"\".\"posts\" (\"id\"),\n  FOREIGN KEY (\"author_id\") REFERENCES \"auth\".\"users\" (\"id\")\n);"
+    },
+    {
+      "name": "defaults, including sanitized ones",
+      "input": {
+        "tableName": "defaults_demo",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "created_at",
+            "type": "timestamptz",
+            "nullable": false,
+            "defaultValue": "now()",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "status",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "'pending'",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "padded",
+            "type": "integer",
+            "nullable": true,
+            "defaultValue": "  42  ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "injected",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "'x'; DROP TABLE users",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c5",
+            "name": "commented",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "1 -- sneaky",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c6",
+            "name": "blank",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "   ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c7",
+            "name": "empty",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c8",
+            "name": "flag",
+            "type": "boolean",
+            "nullable": false,
+            "defaultValue": "FALSE",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"defaults_demo\" (\n  \"created_at\" timestamptz NOT NULL DEFAULT now(),\n  \"status\" text DEFAULT 'pending',\n  \"padded\" integer DEFAULT 42,\n  \"injected\" text,\n  \"commented\" text,\n  \"blank\" text,\n  \"empty\" text,\n  \"flag\" boolean NOT NULL DEFAULT FALSE\n);"
+    },
+    {
+      "name": "length and precision (precision wins when both are set)",
+      "input": {
+        "tableName": "sizes",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "code",
+            "type": "char",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "3"
+          },
+          {
+            "id": "c2",
+            "name": "title",
+            "type": "varchar",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "255"
+          },
+          {
+            "id": "c3",
+            "name": "amount",
+            "type": "numeric",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "10,2"
+          },
+          {
+            "id": "c4",
+            "name": "both",
+            "type": "numeric",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "8,4",
+            "length": "99"
+          },
+          {
+            "id": "c5",
+            "name": "empty_len",
+            "type": "varchar",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": ""
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"sizes\" (\n  \"code\" char(3) NOT NULL,\n  \"title\" varchar(255),\n  \"amount\" numeric(10,2) NOT NULL,\n  \"both\" numeric(8,4),\n  \"empty_len\" varchar\n);"
+    },
+    {
+      "name": "indexes, unique and multi-column",
+      "input": {
+        "tableName": "events",
+        "schemaName": "analytics",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "bigserial",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "kind",
+            "type": "text",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "created_at",
+            "type": "timestamp",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "external_id",
+            "type": "uuid",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "events_kind_created_idx",
+            "columns": [
+              "kind",
+              "created_at"
+            ],
+            "unique": false,
+            "type": "btree"
+          },
+          {
+            "id": "i2",
+            "name": "events_external_id_key",
+            "columns": [
+              "external_id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"analytics\".\"events\" (\n  \"id\" bigserial NOT NULL,\n  \"kind\" text NOT NULL,\n  \"created_at\" timestamp NOT NULL,\n  \"external_id\" uuid,\n  PRIMARY KEY (\"id\")\n);\n\nCREATE INDEX \"events_kind_created_idx\" ON \"analytics\".\"events\" (\"kind\", \"created_at\");\n\nCREATE UNIQUE INDEX \"events_external_id_key\" ON \"analytics\".\"events\" (\"external_id\");"
+    },
+    {
+      "name": "no primary key, all nullable",
+      "input": {
+        "tableName": "log_lines",
+        "schemaName": "public",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "line",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "logged_at",
+            "type": "timestamp",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"log_lines\" (\n  \"line\" text,\n  \"logged_at\" timestamp\n);"
+    },
+    {
+      "name": "unicode and mixed-case identifiers",
+      "input": {
+        "tableName": "Größe Tabelle",
+        "schemaName": "Übung",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "ID",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "名前",
+            "type": "text",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "名前_idx",
+            "columns": [
+              "名前"
+            ],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"Übung\".\"Größe Tabelle\" (\n  \"ID\" integer NOT NULL,\n  \"名前\" text,\n  PRIMARY KEY (\"ID\")\n);\n\nCREATE INDEX \"名前_idx\" ON \"Übung\".\"Größe Tabelle\" (\"名前\");"
+    },
+    {
+      "name": "everything together",
+      "input": {
+        "tableName": "line_items",
+        "schemaName": "sales",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "order_id",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "line_no",
+            "type": "smallint",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "product_id",
+            "type": "integer",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "sku",
+            "type": "varchar",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "64"
+          },
+          {
+            "id": "c5",
+            "name": "unit_price",
+            "type": "numeric",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "12,2"
+          },
+          {
+            "id": "c6",
+            "name": "meta",
+            "type": "jsonb",
+            "nullable": true,
+            "defaultValue": "'{}'::jsonb",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "line_items_product_idx",
+            "columns": [
+              "product_id"
+            ],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "order_id",
+            "referencedSchema": "sales",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          },
+          {
+            "id": "f2",
+            "column": "product_id",
+            "referencedSchema": "catalog",
+            "referencedTable": "products",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"sales\".\"line_items\" (\n  \"order_id\" integer NOT NULL,\n  \"line_no\" smallint NOT NULL,\n  \"product_id\" integer NOT NULL,\n  \"sku\" varchar(64),\n  \"unit_price\" numeric(12,2) NOT NULL DEFAULT 0,\n  \"meta\" jsonb DEFAULT '{}'::jsonb,\n  PRIMARY KEY (\"order_id\", \"line_no\"),\n  UNIQUE (\"sku\"),\n  FOREIGN KEY (\"order_id\") REFERENCES \"sales\".\"orders\" (\"id\"),\n  FOREIGN KEY (\"product_id\") REFERENCES \"catalog\".\"products\" (\"id\")\n);\n\nCREATE INDEX \"line_items_product_idx\" ON \"sales\".\"line_items\" (\"product_id\");"
+    },
+    {
+      "name": "no columns (degenerate)",
+      "input": {
+        "tableName": "empty_table",
+        "schemaName": "public",
+        "columns": [],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"public\".\"empty_table\" (\n\n);"
+    }
+  ]
+}

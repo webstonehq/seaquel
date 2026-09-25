@@ -1064,6 +1064,8 @@
   "create_table_execute": "Crear tabla",
   "create_table_update": "Actualizar tabla",
   "create_table_copy_sql": "Copiar SQL",
+  "create_table_connect_to_preview": "Conéctate para previsualizar el SQL",
+  "create_table_preview_unavailable": "Vista previa no disponible — {reason}",
   "data_viewer_add_row": "Agregar fila",
   "data_viewer_add_column": "Agregar columna",
   "data_viewer_refresh": "Actualizar",

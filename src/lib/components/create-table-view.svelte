@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { getAdapter } from "$lib/db";
+	import { getEngineClient, usesRustEngine } from "$lib/engine";
+	import { log } from "$lib/utils/logger";
+	import { latestDebounced } from "$lib/utils/latest-debounced";
 	import { m } from "$lib/paraglide/messages.js";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
@@ -34,12 +36,47 @@
 	const db = useDatabase();
 	const tab = $derived(db.state.createTableTabs.find((t) => t.id === tabId) ?? null);
 
-	// Get adapter and column types
+	// The tab's connection. Effects key on these primitives rather than the
+	// connection object, which reconnect() replaces with a copy.
 	const connection = $derived(
 		tab ? db.state.connections.find((c) => c.id === tab.connectionId) : null,
 	);
-	const adapter = $derived(connection ? getAdapter(connection.type) : null);
-	const columnTypes = $derived(adapter?.getColumnTypes?.() ?? []);
+	const connectionId = $derived(connection?.id);
+	const connectionType = $derived(connection?.type);
+	const connectionName = $derived(connection?.name ?? "");
+	const providerConnectionId = $derived(connection?.providerConnectionId);
+	// Rust-engine dialects (Postgres) need a live connection even for pure SQL generation;
+	// the TypeScript adapters work offline.
+	const needsConnection = $derived(
+		!!connectionType && usesRustEngine({ type: connectionType }) && !providerConnectionId,
+	);
+
+	/** A client for the tab's connection; it reads the live provider id on every call. */
+	function engineClient() {
+		if (!connectionId || !connectionType) throw new Error("No connection");
+		return getEngineClient(
+			{ id: connectionId, type: connectionType, name: connectionName, providerConnectionId },
+			db.state,
+		);
+	}
+
+	// Column types, loaded once per connection (after it connects, for Rust-engine dialects)
+	let columnTypes = $state<ColumnTypeInfo[]>([]);
+	$effect(() => {
+		if (!connectionId || needsConnection) return;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const types = await engineClient().columnTypes();
+				if (!cancelled) columnTypes = types;
+			} catch {
+				if (!cancelled) columnTypes = [];
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	// Group column types by category
 	const typesByCategory = $derived(
@@ -52,21 +89,24 @@
 	// Available schemas
 	let availableSchemas = $state<string[]>([]);
 	$effect(() => {
-		if (!adapter?.getSchemasQuery || !connection?.providerConnectionId) return;
-		const query = adapter.getSchemasQuery();
-		if (!query) return;
+		if (!connectionId || !providerConnectionId) return;
+		let cancelled = false;
 
 		void (async () => {
 			try {
-				const rows = await db.queries.executeRaw(query) as { schema_name: string }[];
-				availableSchemas = rows.map((r) => r.schema_name);
+				const schemas = await engineClient().listSchemas();
+				if (cancelled) return;
+				availableSchemas = schemas;
 				if (availableSchemas.length === 1 && !tab?.tableDefinition.schemaName) {
 					updateDefinition((def) => ({ ...def, schemaName: availableSchemas[0] }));
 				}
 			} catch {
-				availableSchemas = [];
+				if (!cancelled) availableSchemas = [];
 			}
 		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	// ── Two-way SQL ↔ Form sync ──────────────────────────────────────
@@ -78,23 +118,43 @@
 	let lastEditSource = $state<"form" | "sql">("form");
 	let parseError = $state(false);
 
-	// Form → SQL: regenerate when the definition changes (and the last edit was from the form)
+	// Form → SQL: regenerate when the definition changes (and the last edit was from the form).
+	// Debounced; a stale reply never overwrites a newer preview. On error, keep the current
+	// sqlText and show why next to the pane until the next successful preview.
+	let previewError = $state<string | null>(null);
+	const ddlPreview = latestDebounced<string>(
+		150,
+		(sql) => {
+			sqlText = sql;
+			parseError = false;
+			previewError = null;
+		},
+		(error) => {
+			const reason = error instanceof Error ? error.message : String(error);
+			void log.debug(`Create-table SQL preview failed: ${reason}`);
+			previewError = reason;
+		},
+	);
 	$effect(() => {
-		// Read the definition so this effect re-runs on every form change
-		const def = tab?.tableDefinition;
+		// Snapshot the definition so this effect re-runs on every form change
+		const def = tab?.tableDefinition ? $state.snapshot(tab.tableDefinition) : undefined;
 		if (!def) return;
 		if (lastEditSource !== "form") return;
+		const original =
+			tab?.isEditMode && tab.originalDefinition ? $state.snapshot(tab.originalDefinition) : undefined;
+		if (needsConnection) return; // the pane shows "Connect to preview SQL"
 
+		// Made here (not in the timer) so a connection change also regenerates
+		let client: ReturnType<typeof engineClient>;
 		try {
-			if (tab?.isEditMode && tab?.originalDefinition && adapter?.generateAlterTableSql) {
-				sqlText = adapter.generateAlterTableSql(tab.originalDefinition, def);
-			} else if (adapter?.generateCreateTableSql) {
-				sqlText = adapter.generateCreateTableSql(def);
-			}
-			parseError = false;
+			client = engineClient();
 		} catch {
-			// keep current sqlText
+			return; // keep current sqlText
 		}
+		ddlPreview.schedule(() =>
+			original ? client.alterTable(original, def) : client.createTable(def),
+		);
+		return () => ddlPreview.cancel();
 	});
 
 	// SQL → Form: parse when the user edits the textarea
@@ -670,11 +730,22 @@
 						</Button>
 					</div>
 				</div>
+				{#if needsConnection}
+					<p class="px-4 py-1.5 border-b text-xs text-muted-foreground">
+						{m.create_table_connect_to_preview()}
+					</p>
+				{:else if previewError}
+					<p class="px-4 py-1.5 border-b text-xs text-muted-foreground truncate" title={previewError}>
+						{m.create_table_preview_unavailable({ reason: previewError })}
+					</p>
+				{/if}
 				<div class="flex-1 overflow-auto">
 					<textarea
 						value={sqlText}
 						oninput={(e) => handleSqlInput((e.target as HTMLTextAreaElement).value)}
-						placeholder="-- Write or edit CREATE TABLE SQL here"
+						placeholder={needsConnection
+							? m.create_table_connect_to_preview()
+							: "-- Write or edit CREATE TABLE SQL here"}
 						spellcheck={false}
 						class="w-full h-full resize-none border-0 bg-transparent p-4 text-xs font-mono focus:outline-none focus:ring-0"
 					></textarea>

@@ -20,8 +20,9 @@ describe("checkCrateDeps", () => {
         kind: "dev",
       }),
       pkg("seaquel-core", "seaquel-engine", "seaquel-types", "seaquel-engine-sqlite"),
-      pkg("seaquel-server", "seaquel-core", "seaquel-types"),
-      pkg("seaquel", "seaquel-core", "seaquel-types"),
+      pkg("seaquel-rpc", "seaquel-core", "seaquel-engine", "seaquel-types"),
+      pkg("seaquel-server", "seaquel-core", "seaquel-types", "seaquel-rpc"),
+      pkg("seaquel", "seaquel-core", "seaquel-types", "seaquel-rpc"),
     ];
     expect(checkCrateDeps(packages)).toEqual([]);
   });
@@ -49,6 +50,17 @@ describe("checkCrateDeps", () => {
       pkg("seaquel-engine-postgres"),
     ]);
     expect(errors[0]).toMatch(/interfaces reach everything through seaquel-core/);
+  });
+
+  it("rejects interface glue naming an engine", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-rpc", "seaquel-core", "seaquel-engine-postgres"),
+      pkg("seaquel-core"),
+      pkg("seaquel-engine-postgres"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-rpc -> seaquel-engine-postgres: interface glue may only depend on seaquel-core, seaquel-engine, seaquel-runtime and seaquel-types",
+    ]);
   });
 
   it("rejects the testkit naming an engine", () => {

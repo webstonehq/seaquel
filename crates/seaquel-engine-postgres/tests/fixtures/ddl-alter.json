@@ -1,0 +1,3140 @@
+{
+  "cases": [
+    {
+      "name": "no changes",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "rename column",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email_address",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" RENAME COLUMN \"email\" TO \"email_address\";"
+    },
+    {
+      "name": "add columns (not null, default, sanitized default)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            },
+            {
+              "id": "c6",
+              "name": "phone",
+              "type": "varchar",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c7",
+              "name": "created_at",
+              "type": "timestamptz",
+              "nullable": false,
+              "defaultValue": "now()",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c8",
+              "name": "bad_default",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'x'; DROP TABLE crm.customers",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ADD COLUMN \"phone\" varchar(20);\nALTER TABLE \"crm\".\"customers\" ADD COLUMN \"created_at\" timestamptz NOT NULL DEFAULT now();\nALTER TABLE \"crm\".\"customers\" ADD COLUMN \"bad_default\" text;"
+    },
+    {
+      "name": "drop column",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" DROP COLUMN \"email\";"
+    },
+    {
+      "name": "change length",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "200"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"name\" TYPE varchar(200);"
+    },
+    {
+      "name": "change precision",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "14,4"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"balance\" TYPE numeric(14,4);"
+    },
+    {
+      "name": "change type",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "citext",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"email\" TYPE citext;"
+    },
+    {
+      "name": "set not null",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"email\" SET NOT NULL;"
+    },
+    {
+      "name": "drop not null",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"name\" DROP NOT NULL;"
+    },
+    {
+      "name": "type change and set not null together",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "320"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"email\" TYPE varchar(320);\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"email\" SET NOT NULL;"
+    },
+    {
+      "name": "set default",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'unknown@example.com'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"email\" SET DEFAULT 'unknown@example.com';"
+    },
+    {
+      "name": "change default",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'inactive'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"status\" SET DEFAULT 'inactive';"
+    },
+    {
+      "name": "drop default (emptied)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"status\" DROP DEFAULT;"
+    },
+    {
+      "name": "unsafe new default becomes DROP DEFAULT",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'x' -- comment",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"status\" DROP DEFAULT;"
+    },
+    {
+      "name": "rename plus type change uses the new name",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "full_name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "250"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" RENAME COLUMN \"name\" TO \"full_name\";\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"full_name\" TYPE varchar(250);"
+    },
+    {
+      "name": "add indexes (unique, multi-column, unnamed skipped)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            },
+            {
+              "id": "i2",
+              "name": "customers_name_status_idx",
+              "columns": [
+                "name",
+                "status"
+              ],
+              "unique": false,
+              "type": "btree"
+            },
+            {
+              "id": "i3",
+              "name": "customers_email_key",
+              "columns": [
+                "email"
+              ],
+              "unique": true,
+              "type": "btree"
+            },
+            {
+              "id": "i4",
+              "name": "",
+              "columns": [
+                "status"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "CREATE INDEX \"customers_name_status_idx\" ON \"crm\".\"customers\" (\"name\", \"status\");\nCREATE UNIQUE INDEX \"customers_email_key\" ON \"crm\".\"customers\" (\"email\");"
+    },
+    {
+      "name": "add foreign keys with and without schema",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            },
+            {
+              "id": "c6",
+              "name": "region_id",
+              "type": "integer",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c7",
+              "name": "manager_id",
+              "type": "integer",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            },
+            {
+              "id": "f2",
+              "column": "region_id",
+              "referencedSchema": "geo",
+              "referencedTable": "regions",
+              "referencedColumn": "id"
+            },
+            {
+              "id": "f3",
+              "column": "manager_id",
+              "referencedSchema": "",
+              "referencedTable": "customers",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" ADD COLUMN \"region_id\" integer;\nALTER TABLE \"crm\".\"customers\" ADD COLUMN \"manager_id\" integer;\nALTER TABLE \"crm\".\"customers\" ADD FOREIGN KEY (\"region_id\") REFERENCES \"geo\".\"regions\" (\"id\");\nALTER TABLE \"crm\".\"customers\" ADD FOREIGN KEY (\"manager_id\") REFERENCES \"customers\" (\"id\");"
+    },
+    {
+      "name": "removed and unchanged foreign keys emit nothing",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f9",
+              "column": "id",
+              "referencedSchema": "other_schema",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "schema and table come from the new definition",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "clients",
+          "schemaName": "crm_v2",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm_v2\".\"clients\" ALTER COLUMN \"email\" SET NOT NULL;"
+    },
+    {
+      "name": "statement order: every branch but DROP INDEX",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "crm",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "integer",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "varchar",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "150"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "text",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "numeric",
+              "nullable": true,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            },
+            {
+              "id": "c6",
+              "name": "tier",
+              "type": "smallint",
+              "nullable": false,
+              "defaultValue": "1",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_email_idx",
+              "columns": [
+                "email"
+              ],
+              "unique": false,
+              "type": "btree"
+            },
+            {
+              "id": "i2",
+              "name": "customers_tier_idx",
+              "columns": [
+                "tier"
+              ],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            },
+            {
+              "id": "f2",
+              "column": "tier",
+              "referencedSchema": "crm",
+              "referencedTable": "tiers",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"crm\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"crm\".\"customers\" ADD COLUMN \"tier\" smallint NOT NULL DEFAULT 1;\nALTER TABLE \"crm\".\"customers\" DROP COLUMN \"email\";\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"display_name\" TYPE varchar(150);\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"status\" SET DEFAULT 'new';\nALTER TABLE \"crm\".\"customers\" ALTER COLUMN \"balance\" DROP NOT NULL;\nCREATE INDEX \"customers_tier_idx\" ON \"crm\".\"customers\" (\"tier\");\nALTER TABLE \"crm\".\"customers\" ADD FOREIGN KEY (\"tier\") REFERENCES \"crm\".\"tiers\" (\"id\");"
+    }
+  ]
+}

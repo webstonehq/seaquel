@@ -4,8 +4,7 @@ import type { ExplainTab, ExplainResult, ParameterValue } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
-import { getAdapter } from "$lib/db";
-import type { ProviderRegistry } from "$lib/providers";
+import { getEngineClient } from "$lib/engine";
 import { resolveQuery } from "./resolve-query.js";
 
 /**
@@ -40,7 +39,6 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
     tabOrdering: TabOrderingManager,
     schedulePersistence: (projectId: string | null) => void,
     setActiveView: (view: ActiveViewType) => void,
-    private providers: ProviderRegistry,
   ) {
     super(state, tabOrdering, schedulePersistence, setActiveView);
   }
@@ -78,45 +76,9 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
     analyze: boolean,
     bindValues?: unknown[],
   ): Promise<ExplainResult> {
-    const adapter = getAdapter(this.state.activeConnection!.type);
-    const dbType = this.state.activeConnection!.type;
-    const explainQuery = adapter.getExplainQuery(queryToExplain, analyze);
-    const providerConnectionId = this.state.activeConnection!.providerConnectionId;
-    if (!providerConnectionId) throw new Error("No connection established");
-    const provider = await this.providers.getForType(this.state.activeConnection?.type ?? "");
-
-    let actualRowCount: number | undefined;
-    let executionTime: number | undefined;
-
-    if (dbType === "sqlite" && analyze) {
-      const startTime = performance.now();
-      const queryResult = await provider.select(providerConnectionId, queryToExplain, bindValues);
-      executionTime = performance.now() - startTime;
-      actualRowCount = queryResult.length;
-    }
-
-    const useBindValues = dbType !== "mssql" && dbType !== "duckdb";
-    const queryResult = await provider.select(
-      providerConnectionId,
-      explainQuery,
-      useBindValues ? bindValues : undefined,
-    );
-    const explainResult = adapter.parseExplainResult(queryResult, analyze);
-
-    // SQLite has no native ANALYZE: populate the root with measured execution stats.
-    // Only the root gets actuals — there is no per-operator breakdown — and we
-    // deliberately leave planRows undefined so the UI doesn't invent an "estimate"
-    // that equals the actual count.
-    if (dbType === "sqlite" && analyze) {
-      if (actualRowCount !== undefined) {
-        explainResult.plan.actualRows = actualRowCount;
-      }
-      if (executionTime !== undefined) {
-        explainResult.plan.actualTotalTime = executionTime;
-        explainResult.executionTime = executionTime;
-      }
-    }
-    return explainResult;
+    // SQLite timing and the MSSQL/DuckDB bind skipping live in TsEngineClient.explain.
+    const client = getEngineClient(this.state.activeConnection!, this.state);
+    return client.explain(queryToExplain, bindValues, analyze);
   }
 
   /**

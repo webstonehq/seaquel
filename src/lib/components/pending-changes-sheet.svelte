@@ -13,6 +13,7 @@
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
+	import { cellText } from "$lib/values";
 
 	const db = useDatabase();
 
@@ -78,7 +79,7 @@
 			const val = bindValues[i];
 			if (val === null || val === undefined) return "NULL";
 			if (typeof val === "string") return `'${val}'`;
-			return String(val);
+			return cellText(val);
 		});
 	}
 

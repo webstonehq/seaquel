@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
-use seaquel_engine::{ConnectConfig, DbError, Driver, ExecuteResult, QueryResult};
+use seaquel_engine::{ConnectConfig, DbError, Driver, ExecuteResult, QueryResult, Value};
 
 /// rustls reports certificate verification failures as I/O errors rather
 /// than `Error::Tls`, so match on the message for those.
@@ -25,38 +25,24 @@ async fn run_query(
     query.query(client).await?.into_first_result().await
 }
 
-/// Bind a JSON parameter onto a tiberius `Query`. Scalars (null, bool, int,
-/// float, string) are translated directly. Nested arrays/objects are
-/// rejected — callers should flatten upstream or use an inline literal.
+/// Bind a parameter onto a tiberius `Query`. `Int` binds as BIGINT, so
+/// integers are exact. SQL Server has no JSON type and tiberius no decimal
+/// from text, so `Json` binds as its JSON text and `Decimal` as its literal
+/// text; SQL Server converts both on assignment. Arrays are rejected.
 ///
 /// For SQL NULL we bind `None::<&str>`; tiberius treats it as a nullable
 /// varchar parameter, which SQL Server accepts for any nullable column.
-fn bind_mssql_param(query: &mut Query<'_>, v: &serde_json::Value) -> Result<(), DbError> {
+fn bind_mssql_param(query: &mut Query<'_>, v: &Value) -> Result<(), DbError> {
     match v {
-        serde_json::Value::Null => {
-            query.bind(None::<&str>);
-        }
-        serde_json::Value::Bool(b) => {
-            query.bind(*b);
-        }
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                query.bind(i);
-            } else if let Some(f) = n.as_f64() {
-                query.bind(f);
-            } else {
-                return Err(DbError::query_error(
-                    "unsupported numeric parameter (outside i64/f64 range)",
-                ));
-            }
-        }
-        serde_json::Value::String(s) => {
-            query.bind(s.clone());
-        }
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            return Err(DbError::query_error(
-                "array/object parameters are not supported",
-            ));
+        Value::Null => query.bind(None::<&str>),
+        Value::Bool(b) => query.bind(*b),
+        Value::Int(i) => query.bind(*i),
+        Value::Float(f) => query.bind(*f),
+        Value::Decimal(s) | Value::Text(s) => query.bind(s.clone()),
+        Value::Bytes(b) => query.bind(b.clone()),
+        Value::Json(j) => query.bind(j.to_string()),
+        Value::Array(_) => {
+            return Err(DbError::query_error("array parameters are not supported"));
         }
     }
     Ok(())
@@ -149,8 +135,13 @@ impl MssqlDriver {
     }
 }
 
+/// Convert a tiberius Row to a vector of values (positional).
+fn row_to_values(row: &Row) -> Vec<Value> {
+    row_to_json(row).into_iter().map(Value::from_json_cell).collect()
+}
+
 /// Convert a tiberius Row to a vector of JSON values (positional)
-fn row_to_values(row: &Row) -> Vec<serde_json::Value> {
+fn row_to_json(row: &Row) -> Vec<serde_json::Value> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use tiberius::numeric::Numeric;
     use tiberius::time::chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -213,7 +204,7 @@ impl Driver for MssqlDriver {
     async fn query(
         &self,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<QueryResult, DbError> {
         let mut query = Query::new(sql.to_string());
         for p in &params {
@@ -262,7 +253,7 @@ impl Driver for MssqlDriver {
             vec![]
         };
 
-        let result_rows: Vec<Vec<serde_json::Value>> =
+        let result_rows: Vec<Vec<Value>> =
             rows.iter().map(row_to_values).collect();
 
         Ok(QueryResult {
@@ -274,7 +265,7 @@ impl Driver for MssqlDriver {
     async fn execute(
         &self,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<ExecuteResult, DbError> {
         let mut query = Query::new(sql.to_string());
         for p in &params {

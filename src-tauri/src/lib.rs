@@ -488,6 +488,7 @@ pub fn run() {
             db::commands::db_execute,
             db::commands::db_transaction,
             db::commands::db_disconnect,
+            db::commands::db_engine,
             db::commands::db_test,
             git::git_clone_repo,
             git::git_init_repo,

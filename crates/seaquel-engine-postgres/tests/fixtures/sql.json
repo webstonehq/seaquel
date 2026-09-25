@@ -1,0 +1,84 @@
+{
+  "cases": [
+    {
+      "name": "getSchemaQuery",
+      "input": {
+        "query": "getSchemaQuery"
+      },
+      "output": "SELECT table_schema AS schema_name, table_name, table_type\n\t\tFROM information_schema.tables\n\t\tWHERE table_type IN ('BASE TABLE', 'VIEW')\n\t\t\tAND table_schema NOT IN ('pg_catalog', 'information_schema')\n\t\tUNION ALL\n\t\tSELECT schemaname AS schema_name, matviewname AS table_name, 'MATERIALIZED VIEW' AS table_type\n\t\tFROM pg_matviews\n\t\tWHERE schemaname NOT IN ('pg_catalog', 'information_schema')\n\t\tORDER BY schema_name, table_name"
+    },
+    {
+      "name": "getColumnsQuery public.users",
+      "input": {
+        "query": "getColumnsQuery",
+        "schema": "public",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tcolumn_name,\n\t\t\tdata_type,\n\t\t\tis_nullable,\n\t\t\tcolumn_default,\n\t\t\t(SELECT EXISTS (\n\t\t\t\tSELECT 1 FROM information_schema.key_column_usage kcu\n\t\t\t\tJOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name\n\t\t\t\t\tAND kcu.table_schema = tc.table_schema\n\t\t\t\t\tAND kcu.table_name = tc.table_name\n\t\t\t\tWHERE kcu.column_name = c.column_name\n\t\t\t\t\tAND kcu.table_schema = c.table_schema\n\t\t\t\t\tAND kcu.table_name = c.table_name\n\t\t\t\t\tAND tc.constraint_type = 'PRIMARY KEY'\n\t\t\t)) as is_primary_key,\n\t\t\t(SELECT EXISTS (\n\t\t\t\tSELECT 1 FROM information_schema.key_column_usage kcu\n\t\t\t\tJOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name\n\t\t\t\t\tAND kcu.table_schema = tc.table_schema\n\t\t\t\t\tAND kcu.table_name = tc.table_name\n\t\t\t\tWHERE kcu.column_name = c.column_name\n\t\t\t\t\tAND kcu.table_schema = c.table_schema\n\t\t\t\t\tAND kcu.table_name = c.table_name\n\t\t\t\t\tAND tc.constraint_type = 'FOREIGN KEY'\n\t\t\t)) as is_foreign_key,\n\t\t\t(SELECT ccu.table_schema || '.' || ccu.table_name || '.' || ccu.column_name\n\t\t\t\tFROM information_schema.key_column_usage kcu\n\t\t\t\tJOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name\n\t\t\t\t\tAND kcu.table_schema = tc.table_schema\n\t\t\t\t\tAND kcu.table_name = tc.table_name\n\t\t\t\tJOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name\n\t\t\t\t\tAND tc.table_schema = rc.constraint_schema\n\t\t\t\tJOIN information_schema.constraint_column_usage ccu ON rc.unique_constraint_name = ccu.constraint_name\n\t\t\t\t\tAND rc.unique_constraint_schema = ccu.constraint_schema\n\t\t\t\tWHERE kcu.column_name = c.column_name\n\t\t\t\t\tAND kcu.table_schema = c.table_schema\n\t\t\t\t\tAND kcu.table_name = c.table_name\n\t\t\t\t\tAND tc.constraint_type = 'FOREIGN KEY'\n\t\t\t\tLIMIT 1\n\t\t\t) as foreign_key_ref\n\t\tFROM information_schema.columns c\n\t\tWHERE table_name = 'users' AND table_schema = 'public'\n\t\tORDER BY ordinal_position"
+    },
+    {
+      "name": "getIndexesQuery public.users",
+      "input": {
+        "query": "getIndexesQuery",
+        "schema": "public",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tindexname,\n\t\t\tindexdef,\n\t\t\tschemaname,\n\t\t\ttablename\n\t\tFROM pg_indexes\n\t\tWHERE tablename = 'users' AND schemaname = 'public'"
+    },
+    {
+      "name": "getTableSizesQuery",
+      "input": {
+        "query": "getTableSizesQuery"
+      },
+      "output": "SELECT\n\t\t\tschemaname AS schema_name,\n\t\t\trelname AS table_name,\n\t\t\tCOALESCE(n_live_tup, 0) AS row_count,\n\t\t\tpg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) AS total_size,\n\t\t\tpg_total_relation_size(schemaname || '.' || relname) AS total_size_bytes,\n\t\t\tpg_size_pretty(pg_relation_size(schemaname || '.' || relname)) AS data_size,\n\t\t\tpg_size_pretty(pg_indexes_size(schemaname || '.' || relname)) AS index_size\n\t\tFROM pg_stat_user_tables\n\t\tORDER BY pg_total_relation_size(schemaname || '.' || relname) DESC"
+    },
+    {
+      "name": "getIndexUsageQuery",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tschemaname AS schema_name,\n\t\t\trelname AS table_name,\n\t\t\tindexrelname AS index_name,\n\t\t\tpg_size_pretty(pg_relation_size(indexrelid)) AS size,\n\t\t\tidx_scan AS scans,\n\t\t\tidx_tup_read AS rows_read,\n\t\t\tidx_scan = 0 AS unused\n\t\tFROM pg_stat_user_indexes\n\t\tORDER BY idx_scan ASC, pg_relation_size(indexrelid) DESC"
+    },
+    {
+      "name": "getDatabaseOverviewQuery",
+      "input": {
+        "query": "getDatabaseOverviewQuery"
+      },
+      "output": "SELECT\n\t\t\tcurrent_database() AS database_name,\n\t\t\tpg_size_pretty(pg_database_size(current_database())) AS total_size,\n\t\t\tpg_database_size(current_database()) AS total_size_bytes,\n\t\t\t(SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema')) AS table_count,\n\t\t\t(SELECT count(*) FROM pg_indexes WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) AS index_count,\n\t\t\t(SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()) AS connection_count"
+    },
+    {
+      "name": "getSchemasQuery",
+      "input": {
+        "query": "getSchemasQuery"
+      },
+      "output": "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') ORDER BY schema_name;"
+    },
+    {
+      "name": "getExplainQuery plain",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": false
+      },
+      "output": "EXPLAIN (FORMAT JSON) SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery analyze strips one trailing semicolon",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users;",
+        "analyze": true
+      },
+      "output": "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery keeps inner semicolons and trailing whitespace",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT ';' AS s; ",
+        "analyze": false
+      },
+      "output": "EXPLAIN (FORMAT JSON) SELECT ';' AS s; "
+    }
+  ]
+}

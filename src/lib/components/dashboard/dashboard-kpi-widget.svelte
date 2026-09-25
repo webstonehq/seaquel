@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DashboardWidget } from '$lib/types';
 	import { Loader2Icon, AlertCircleIcon } from '@lucide/svelte';
+	import { cellText, toNumber } from '$lib/values';
 
 	interface Props {
 		widget: DashboardWidget;
@@ -15,8 +16,8 @@
 		const raw = row[widget.kpiConfig.valueColumn];
 		if (raw == null) return 'N/A';
 
-		const num = typeof raw === 'number' ? raw : Number(raw);
-		if (isNaN(num)) return String(raw);
+		const num = typeof raw === 'number' ? raw : toNumber(raw);
+		if (isNaN(num)) return cellText(raw);
 
 		const format = widget.kpiConfig.format ?? 'number';
 
@@ -36,8 +37,8 @@
 	const trend = $derived.by(() => {
 		if (!widget.result || widget.result.length < 2 || !widget.kpiConfig) return null;
 		const col = widget.kpiConfig.valueColumn;
-		const current = Number(widget.result[0][col]);
-		const previous = Number(widget.result[1][col]);
+		const current = toNumber(widget.result[0][col]);
+		const previous = toNumber(widget.result[1][col]);
 		if (isNaN(current) || isNaN(previous) || previous === 0) return null;
 		const delta = ((current - previous) / Math.abs(previous)) * 100;
 		return { delta, direction: delta >= 0 ? 'up' as const : 'down' as const };

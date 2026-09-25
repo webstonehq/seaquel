@@ -2,6 +2,7 @@ import type { SqliteDatabase } from "../sqlite-types";
 import { safeJsonParse } from "../create-repo";
 import type { PersistedProjectState } from "$lib/types";
 import type { SavedWorkflow } from "$lib/types/workflow";
+import { fromStorable, toStorable } from "$lib/values";
 
 export const projectStateRepo = {
   async load(db: SqliteDatabase, projectId: string): Promise<PersistedProjectState | null> {
@@ -132,7 +133,15 @@ export const projectStateRepo = {
       [projectId],
     );
     const savedWorkflows: SavedWorkflow[] = workflowRows
-      .map((r) => safeJsonParse<SavedWorkflow | null>(r.data, null))
+      // Result and chart nodes keep their rows, which can hold bigint, bytes
+      // and decimals; `toStorable` tagged those on save.
+      .map((r) => {
+        try {
+          return fromStorable(safeJsonParse<unknown>(r.data, null)) as SavedWorkflow | null;
+        } catch {
+          return null;
+        }
+      })
       .filter((w): w is SavedWorkflow => w !== null);
 
     // Read active_dashboard_tab_id if the column exists
@@ -360,7 +369,7 @@ export const projectStateRepo = {
         params: [
           (workflow as { id?: string }).id ?? `workflow-${crypto.randomUUID()}`,
           state.projectId,
-          JSON.stringify(workflow),
+          JSON.stringify(toStorable(workflow)),
         ],
       });
     }

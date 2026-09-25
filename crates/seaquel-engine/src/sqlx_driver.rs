@@ -2,14 +2,22 @@
 
 /// Generates the `Driver` impl shared by the sqlx-based engines (Postgres,
 /// MySQL, SQLite). They differ only in the sqlx database type, the arguments
-/// type, the decode function, and how `last_insert_id` is read from the
-/// execute result.
+/// type, the decode function, the bind function, and how `last_insert_id` is
+/// read from the execute result.
+///
+/// - `decode_fn`: `fn(<$db as Database>::ValueRef<'_>) -> Result<Value, DbError>`.
+/// - `bind_fn`: `fn<'q>(Query<'q, $db, $args>, &'q Value) -> Result<Query<'q, $db, $args>, DbError>`.
+///   Binds one parameter. Each engine owns its binder, so type choices (how a
+///   `Decimal` or an `Array` binds) never become per-database branches here.
+/// - `introspection` (optional): extra `Driver` methods pasted into the impl,
+///   for engines whose introspection has moved to Rust (`list_schemas`, …).
+///   Without it the trait's `NOT_SUPPORTED` defaults apply.
 ///
 /// Native only. Expand it in a module that defines `$driver_name` with a
-/// `pool: sqlx::Pool<$db>` field. The calling crate must depend on `sqlx` and
-/// `serde_json`: those paths in the expansion resolve in the caller. Everything
-/// else goes through `$crate`, so callers don't need async-trait, async-stream
-/// or futures.
+/// `pool: sqlx::Pool<$db>` field. The calling crate must depend on `sqlx`:
+/// those paths in the expansion resolve in the caller. Everything else goes
+/// through `$crate`, so callers don't need async-trait, async-stream or
+/// futures.
 #[macro_export]
 macro_rules! impl_sqlx_driver {
     (
@@ -17,31 +25,26 @@ macro_rules! impl_sqlx_driver {
         $db:ty,
         $args:ty,
         decode_fn = $decode_fn:path,
+        bind_fn = $bind_fn:path,
         last_insert_id = $last_insert_id:expr
+        $(, introspection = { $($introspection:tt)* })?
+        $(,)?
     ) => {
+        /// Binds `values` onto `query`, which every `Driver` method builds
+        /// through here. The statement is not persistent: sqlx caches
+        /// prepared statements per connection by SQL text alone and reuses
+        /// the first prepare's parameter types, so the same SQL sent later
+        /// with a `Float` or `Text` where an `Int` was would be sent as the
+        /// wrong type (a FLOAT8 1.5 read as INT8 is 4609434218613702656).
         fn bind_params<'q>(
-            mut query: sqlx::query::Query<'q, $db, $args>,
-            values: &'q [serde_json::Value],
-        ) -> sqlx::query::Query<'q, $db, $args> {
-            use serde_json::Value as JsonValue;
+            query: sqlx::query::Query<'q, $db, $args>,
+            values: &'q [$crate::Value],
+        ) -> Result<sqlx::query::Query<'q, $db, $args>, $crate::DbError> {
+            let mut query = query.persistent(false);
             for value in values {
-                if value.is_null() {
-                    query = query.bind(None::<JsonValue>);
-                } else if let Some(b) = value.as_bool() {
-                    // Bind JS booleans as native `bool`. sqlx encodes this as
-                    // BOOLEAN for Postgres and as TINYINT 0/1 for MySQL/SQLite.
-                    // Without this branch the fallback serializes to JSON text
-                    // ("true"/"false") and MySQL rejects it for tinyint columns.
-                    query = query.bind(b);
-                } else if value.is_string() {
-                    query = query.bind(value.as_str().unwrap().to_owned());
-                } else if let Some(number) = value.as_number() {
-                    query = query.bind(number.as_f64().unwrap_or_default());
-                } else {
-                    query = query.bind(value.clone());
-                }
+                query = $bind_fn(query, value)?;
             }
-            query
+            Ok(query)
         }
 
         #[$crate::__private::async_trait::async_trait]
@@ -49,13 +52,13 @@ macro_rules! impl_sqlx_driver {
             async fn query(
                 &self,
                 sql: &str,
-                params: Vec<serde_json::Value>,
+                params: Vec<$crate::Value>,
             ) -> Result<$crate::QueryResult, $crate::DbError> {
                 use sqlx::{Column, Row};
                 use $crate::__private::futures::StreamExt;
 
                 let query = sqlx::query(sql);
-                let query = bind_params(query, &params);
+                let query = bind_params(query, &params)?;
 
                 // Stream rows (rather than fetch_all) so we can bail out as
                 // soon as the per-query cap is hit. Without this, a `SELECT *
@@ -65,7 +68,7 @@ macro_rules! impl_sqlx_driver {
                 let mut stream = query.fetch(&self.pool);
 
                 let mut columns: Vec<String> = Vec::new();
-                let mut result_rows: Vec<Vec<serde_json::Value>> = Vec::new();
+                let mut result_rows: Vec<Vec<$crate::Value>> = Vec::new();
 
                 while let Some(row_result) = stream.next().await {
                     let row = row_result.map_err($crate::DbError::query_error)?;
@@ -93,7 +96,7 @@ macro_rules! impl_sqlx_driver {
             fn query_stream<'a>(
                 &'a self,
                 sql: String,
-                params: Vec<serde_json::Value>,
+                params: Vec<$crate::Value>,
                 cancel: $crate::CancellationToken,
             ) -> $crate::BoxStream<'a, Result<$crate::StreamBatch, $crate::DbError>> {
                 Box::pin($crate::__private::async_stream::try_stream! {
@@ -103,7 +106,7 @@ macro_rules! impl_sqlx_driver {
                     const BATCH_SIZE: usize = 5000;
 
                     let sqlx_query = sqlx::query(&sql);
-                    let sqlx_query = bind_params(sqlx_query, &params);
+                    let sqlx_query = bind_params(sqlx_query, &params)?;
 
                     // `take_until` ends the row stream as soon as `cancel`
                     // fires, even in the middle of a batch. Dropping the fetch
@@ -112,7 +115,7 @@ macro_rules! impl_sqlx_driver {
                         .fetch(&self.pool)
                         .take_until(cancel.cancelled()));
 
-                    let mut buffer: Vec<Vec<serde_json::Value>> = Vec::with_capacity(BATCH_SIZE);
+                    let mut buffer: Vec<Vec<$crate::Value>> = Vec::with_capacity(BATCH_SIZE);
                     let mut captured_columns: Option<Vec<String>> = None;
                     let mut first_batch = true;
 
@@ -161,12 +164,12 @@ macro_rules! impl_sqlx_driver {
             async fn execute(
                 &self,
                 sql: &str,
-                params: Vec<serde_json::Value>,
+                params: Vec<$crate::Value>,
             ) -> Result<$crate::ExecuteResult, $crate::DbError> {
                 use sqlx::Executor;
 
                 let query = sqlx::query(sql);
-                let query = bind_params(query, &params);
+                let query = bind_params(query, &params)?;
 
                 let result = self
                     .pool
@@ -196,7 +199,7 @@ macro_rules! impl_sqlx_driver {
 
                 for stmt in &statements {
                     let query = sqlx::query(&stmt.sql);
-                    let query = bind_params(query, &stmt.params);
+                    let query = bind_params(query, &stmt.params)?;
                     tx.execute(query)
                         .await
                         .map_err($crate::DbError::execute_error)?;
@@ -213,6 +216,8 @@ macro_rules! impl_sqlx_driver {
                 self.pool.close().await;
                 Ok(())
             }
+
+            $($($introspection)*)?
         }
     };
 }

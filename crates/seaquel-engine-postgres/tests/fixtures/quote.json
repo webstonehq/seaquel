@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "id": "users"
+      },
+      "output": "\"users\""
+    },
+    {
+      "name": "mixed case",
+      "input": {
+        "id": "UserAccounts"
+      },
+      "output": "\"UserAccounts\""
+    },
+    {
+      "name": "embedded double quote",
+      "input": {
+        "id": "say \"hi\""
+      },
+      "output": "\"say \"\"hi\"\"\""
+    },
+    {
+      "name": "only double quotes",
+      "input": {
+        "id": "\"\""
+      },
+      "output": "\"\"\"\"\"\""
+    },
+    {
+      "name": "space and hyphen",
+      "input": {
+        "id": "order items-2"
+      },
+      "output": "\"order items-2\""
+    },
+    {
+      "name": "unicode",
+      "input": {
+        "id": "größe_日本"
+      },
+      "output": "\"größe_日本\""
+    },
+    {
+      "name": "dot is not split",
+      "input": {
+        "id": "public.users"
+      },
+      "output": "\"public.users\""
+    },
+    {
+      "name": "empty",
+      "input": {
+        "id": ""
+      },
+      "output": "\"\""
+    }
+  ]
+}

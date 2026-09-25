@@ -2,7 +2,7 @@
 
 use futures::StreamExt;
 use seaquel_core::{Core, StreamEvent};
-use seaquel_engine::{BatchStatement, ConnectConfig};
+use seaquel_engine::{BatchStatement, ConnectConfig, Value};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -73,7 +73,7 @@ async fn connect_query_disconnect() {
 
     let r = core.query(&id, "SELECT 1 AS one", vec![]).await.unwrap();
     assert_eq!(r.columns, vec!["one"]);
-    assert_eq!(r.rows, vec![vec![json!(1)]]);
+    assert_eq!(r.rows, vec![vec![Value::Int(1)]]);
 
     core.disconnect(&id).await.unwrap();
     assert_eq!(core.connection_count(), 0);
@@ -111,7 +111,7 @@ async fn transaction_is_all_or_nothing() {
 
     let insert = |v: i64| BatchStatement {
         sql: "INSERT INTO t (id) VALUES (?)".into(),
-        params: vec![json!(v)],
+        params: vec![Value::from(v)],
     };
     assert!(core
         .transaction(&id, vec![insert(1), insert(1)])
@@ -122,7 +122,7 @@ async fn transaction_is_all_or_nothing() {
         .query(&id, "SELECT COUNT(*) AS c FROM t", vec![])
         .await
         .unwrap();
-    assert_eq!(r.rows, vec![vec![json!(0)]]);
+    assert_eq!(r.rows, vec![vec![Value::Int(0)]]);
 }
 
 #[tokio::test]

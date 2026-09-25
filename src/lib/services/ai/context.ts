@@ -64,15 +64,20 @@ export function buildSchemaContext(tables: SchemaTable[]): string {
   return lines.join("\n");
 }
 
+/** A sample cell for the prompt. Bytes are summarised; the model can't use them. */
+function sampleText(v: unknown): string {
+  if (v === null || v === undefined) return "NULL";
+  if (v instanceof Uint8Array) return `<${v.byteLength} bytes>`;
+  // oxlint-disable-next-line typescript/no-base-to-string
+  return String(v);
+}
+
 export function buildDataContext(rows: Record<string, unknown>[], columns: string[]): string {
   if (rows.length === 0 || columns.length === 0) return "";
   const sample = rows.slice(0, 5);
   const header = `| ${columns.join(" | ")} |`;
   const separator = `| ${columns.map(() => "---").join(" | ")} |`;
-  const dataRows = sample.map(
-    // oxlint-disable-next-line typescript/no-base-to-string
-    (row) => `| ${columns.map((c) => String(row[c] ?? "NULL")).join(" | ")} |`,
-  );
+  const dataRows = sample.map((row) => `| ${columns.map((c) => sampleText(row[c])).join(" | ")} |`);
   return ["Sample data:", header, separator, ...dataRows].join("\n");
 }
 

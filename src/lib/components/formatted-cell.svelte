@@ -1,13 +1,15 @@
 <script lang="ts">
 	import type { CellType } from "$lib/utils/cell-type";
 	import {
-		formatNumber,
+		formatCellNumber,
+		formatBinaryPreview,
 		formatDate,
 		formatDateTime,
 		formatTime,
 		formatByteSize,
 		truncateText,
 	} from "$lib/utils/cell-type";
+	import { cellText, jsonReplacer } from "$lib/values";
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { Badge } from "$lib/components/ui/badge";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
@@ -34,7 +36,7 @@
 		}}
 	/>
 {:else if columnType === 'integer' || columnType === 'float'}
-	<span class="font-mono tabular-nums">{formatNumber(Number(value))}</span>
+	<span class="font-mono tabular-nums">{formatCellNumber(value)}</span>
 {:else if columnType === 'date'}
 	<Tooltip.Root>
 		<Tooltip.Trigger class="cursor-default">{formatDate(String(value))}</Tooltip.Trigger>
@@ -67,11 +69,11 @@
 {:else if columnType === 'json'}
 	<Popover.Root>
 		<Popover.Trigger class="cursor-pointer hover:underline text-left">
-			{truncateText(typeof value === 'object' ? JSON.stringify(value) : String(value))}
+			{truncateText(typeof value === 'object' ? JSON.stringify(value, jsonReplacer) : String(value))}
 		</Popover.Trigger>
 		<Popover.Portal>
 			<Popover.Content class="w-96 max-h-64 overflow-auto p-3">
-				<pre class="text-xs font-mono whitespace-pre-wrap break-all">{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</pre>
+				<pre class="text-xs font-mono whitespace-pre-wrap break-all">{typeof value === 'object' ? JSON.stringify(value, jsonReplacer, 2) : String(value)}</pre>
 			</Popover.Content>
 		</Popover.Portal>
 	</Popover.Root>
@@ -79,7 +81,7 @@
 	{#if Array.isArray(value)}
 		<div class="flex items-center gap-1 overflow-hidden">
 			{#each value.slice(0, 3) as item, i (i)}
-				<Badge variant="secondary">{String(item)}</Badge>
+				<Badge variant="secondary">{cellText(item)}</Badge>
 			{/each}
 			{#if value.length > 3}
 				<Badge variant="outline">+{value.length - 3}</Badge>
@@ -89,7 +91,14 @@
 		{String(value)}
 	{/if}
 {:else if columnType === 'binary'}
-	<Badge variant="secondary">{formatByteSize(String(value))}</Badge>
+	{#if value instanceof Uint8Array}
+		<span class="flex items-center gap-1 overflow-hidden">
+			<span class="font-mono text-xs truncate">{formatBinaryPreview(value)}</span>
+			<Badge variant="secondary">{formatByteSize(value)}</Badge>
+		</span>
+	{:else}
+		<Badge variant="secondary">{formatByteSize(String(value))}</Badge>
+	{/if}
 {:else if columnType === 'long_text'}
 	<Popover.Root>
 		<Popover.Trigger class="cursor-pointer hover:underline text-left truncate">
@@ -102,12 +111,12 @@
 		</Popover.Portal>
 	</Popover.Root>
 {:else}
-	{@const str = String(value)}
+	{@const str = cellText(value)}
 	{@const trailingSpaces = str.length - str.trimEnd().length}
 	{#if trailingSpaces > 0}
 		{str.trimEnd()}{#each { length: trailingSpaces } as _, i (i)}<span title="Trailing space" class="trailing-space">&nbsp;</span>{/each}
 	{:else}
-		{value === '' ? '\u00A0' : value}
+		{str === '' ? '\u00A0' : str}
 	{/if}
 {/if}
 

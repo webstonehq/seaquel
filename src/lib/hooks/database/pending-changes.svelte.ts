@@ -7,6 +7,7 @@ import { describePendingChange } from "$lib/db/pending-change-description";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte.js";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
+import { cellKey } from "$lib/values";
 
 export interface ExecuteAllResult {
   executed: number;
@@ -76,7 +77,7 @@ export class PendingChangesManager {
       if (!t || t.schema !== schema || t.table !== table || t.column !== column) return false;
       if (!t.primaryKeyValues) return false;
       return Object.keys(primaryKeyValues).every(
-        (pk) => String(t.primaryKeyValues![pk]) === String(primaryKeyValues[pk]),
+        (pk) => cellKey(t.primaryKeyValues![pk]) === cellKey(primaryKeyValues[pk]),
       );
     });
   }

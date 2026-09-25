@@ -1,81 +1,19 @@
 /**
  * Types for the Create Table feature.
+ *
+ * The wire types are generated from `crates/seaquel-types` (see `./generated`);
+ * edit them there and run `npm run types:gen`.
  * @module types/create-table
  */
 
-/**
- * Describes a column type available for a specific database engine.
- */
-export interface ColumnTypeInfo {
-  /** Type name as used in DDL, e.g. "VARCHAR", "INTEGER" */
-  name: string;
-  /** Grouping category for the UI picker */
-  category:
-    | "String"
-    | "Numeric"
-    | "Date/Time"
-    | "Boolean"
-    | "JSON"
-    | "Binary"
-    | "UUID"
-    | "Network"
-    | "Other";
-  /** Whether the type accepts a length parameter, e.g. VARCHAR(255) */
-  hasLength?: boolean;
-  /** Whether the type accepts precision/scale, e.g. DECIMAL(10,2) */
-  hasPrecision?: boolean;
-}
+import type { CreateTableDefinition } from "./generated/CreateTableDefinition";
 
-/**
- * A single column definition in the Create Table form.
- */
-export interface CreateTableColumn {
-  /** Stable ID for keying in lists */
-  id: string;
-  name: string;
-  type: string;
-  /** Length parameter, e.g. 255 for VARCHAR(255) */
-  length?: string;
-  /** Precision parameter, e.g. "10,2" for DECIMAL(10,2) */
-  precision?: string;
-  nullable: boolean;
-  defaultValue: string;
-  isPrimaryKey: boolean;
-  isUnique: boolean;
-}
-
-/**
- * An index definition in the Create Table form.
- */
-export interface CreateTableIndex {
-  id: string;
-  name: string;
-  columns: string[];
-  unique: boolean;
-  type: string;
-}
-
-/**
- * A foreign key constraint in the Create Table form.
- */
-export interface CreateTableForeignKey {
-  id: string;
-  column: string;
-  referencedSchema: string;
-  referencedTable: string;
-  referencedColumn: string;
-}
-
-/**
- * Complete table definition being built in the Create Table form.
- */
-export interface CreateTableDefinition {
-  tableName: string;
-  schemaName: string;
-  columns: CreateTableColumn[];
-  indexes: CreateTableIndex[];
-  foreignKeys: CreateTableForeignKey[];
-}
+export type { ColumnCategory } from "./generated/ColumnCategory";
+export type { ColumnTypeInfo } from "./generated/ColumnTypeInfo";
+export type { CreateTableColumn } from "./generated/CreateTableColumn";
+export type { CreateTableIndex } from "./generated/CreateTableIndex";
+export type { CreateTableForeignKey } from "./generated/CreateTableForeignKey";
+export type { CreateTableDefinition } from "./generated/CreateTableDefinition";
 
 /**
  * Tab state for the Create Table editor.

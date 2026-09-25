@@ -69,7 +69,8 @@ seaquel_engine::impl_sqlx_driver!(
     SqliteDriver,
     Sqlite,
     sqlx::sqlite::SqliteArguments<'q>,
-    decode_fn = crate::decode::to_json,
+    decode_fn = crate::decode::to_value,
+    bind_fn = crate::bind::bind_value,
     last_insert_id = |r: &sqlx::sqlite::SqliteQueryResult| Some(r.last_insert_rowid())
 );
 

@@ -3,6 +3,8 @@
 	import type { WorkflowChartNodeData } from "$lib/types/workflow";
 	import type { ChartType } from "$lib/types";
 	import { useWorkflowNode } from "./use-workflow-node.svelte.js";
+	import { chartXValue } from "$lib/components/charts/chart-utils";
+	import { toNumber } from "$lib/values";
 	import {
 		BarChart, LineChart, PieChart, ScatterChart,
 		LinearGradient, Area, Bars, Spline
@@ -43,12 +45,12 @@
 			const item: Record<string, unknown> = { _index: index };
 
 			// Add x-axis value
-			item.x = xIdx !== -1 ? (row[xIdx] ?? `Row ${index + 1}`) : `Row ${index + 1}`;
+			item.x = xIdx !== -1 ? chartXValue(row[xIdx] ?? `Row ${index + 1}`) : `Row ${index + 1}`;
 
 			// Add y-axis values
 			data.chartConfig.yAxis.forEach((col, i) => {
 				const val = yIdx[i] === -1 ? undefined : row[yIdx[i]];
-				item[col] = typeof val === "number" ? val : Number(val) || 0;
+				item[col] = typeof val === "number" ? val : toNumber(val) || 0;
 			});
 
 			return item;
@@ -74,7 +76,7 @@
 				? 0
 				: typeof yValRaw === "number"
 					? yValRaw
-					: Number(yValRaw) || 0;
+					: toNumber(yValRaw) || 0;
 			return {
 				name,
 				value,

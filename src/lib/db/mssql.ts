@@ -10,6 +10,7 @@ import {
   buildInlineInsert,
   buildInlineDelete,
   formatLiteralValue,
+  formatMssqlBinary,
 } from "./crud-helpers";
 import type {
   SchemaTable,
@@ -377,6 +378,7 @@ export class MssqlAdapter implements DatabaseAdapter {
   // Everything else defers to the shared literal formatter.
   private static readonly formatValue: ValueFormatter = (v) => {
     if (typeof v === "boolean") return v ? "1" : "0";
+    if (v instanceof Uint8Array) return formatMssqlBinary(v);
     return formatLiteralValue(v);
   };
 

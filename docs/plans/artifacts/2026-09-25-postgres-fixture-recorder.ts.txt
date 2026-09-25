@@ -1,0 +1,1158 @@
+/**
+ * Parity fixtures for the TypeScript Postgres dialect (Rust Core Phase 1, Task 3).
+ *
+ * Record mode (`npm run fixtures:postgres`, i.e. RECORD_FIXTURES=1) runs the
+ * adapter against the seeded Docker Postgres and writes one JSON file per
+ * group to `crates/seaquel-engine-postgres/tests/fixtures/`. Each file is
+ * `{ "cases": [ { "name", "input", "output" } ] }`.
+ *
+ * Check mode (the default) needs no database: it replays every stored
+ * `input` through the TypeScript code and compares with the stored `output`.
+ * Parser groups replay the stored rows, so volatile values (EXPLAIN ANALYZE
+ * timings, statistics sizes) are only compared against themselves.
+ *
+ * `bugfixes.json` is written by hand and never by this script. Check mode
+ * validates its shape and that TypeScript still shows the old behaviour;
+ * record mode additionally proves its catalog expectations (fixes 1 and 4)
+ * against the scratch schema.
+ */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import pg from "pg";
+// Load the adapter registry first: postgres.ts and db/index.ts import each
+// other, and index.ts instantiates PostgresAdapter at module load.
+import "$lib/db";
+import { PostgresAdapter } from "$lib/db/postgres";
+import type {
+  CreateTableColumn,
+  CreateTableDefinition,
+  CreateTableForeignKey,
+  CreateTableIndex,
+} from "$lib/types";
+import type { CastLookup } from "$lib/db/crud-helpers";
+
+const RECORD = process.env.RECORD_FIXTURES === "1";
+const FIXTURE_DIR = fileURLToPath(
+  new URL("../../crates/seaquel-engine-postgres/tests/fixtures/", import.meta.url),
+);
+// The database name is a project convention (see e2e/test-databases); only
+// the server location varies per developer.
+const DATABASE_URL = `postgres://${process.env.PGUSER ?? "postgres"}@${process.env.PGHOST ?? "127.0.0.1"}:${process.env.PGPORT ?? "5432"}/seaquel_test`;
+const SCRATCH = "seaquel_fixtures";
+
+const adapter = new PostgresAdapter();
+
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+interface FixtureCase {
+  name: string;
+  input: Json;
+  output: Json;
+}
+interface FixtureFile {
+  cases: FixtureCase[];
+}
+
+/** What the fixture file holds: JSON drops `undefined` properties. */
+function toJson(value: unknown): Json {
+  return JSON.parse(JSON.stringify(value)) as Json;
+}
+
+function fixturePath(file: string): string {
+  return `${FIXTURE_DIR}${file}`;
+}
+
+function readFixture(file: string): FixtureFile {
+  return JSON.parse(readFileSync(fixturePath(file), "utf-8")) as FixtureFile;
+}
+
+function writeFixture(file: string, cases: FixtureCase[]): void {
+  mkdirSync(FIXTURE_DIR, { recursive: true });
+  writeFileSync(fixturePath(file), JSON.stringify({ cases }, null, 2) + "\n");
+}
+
+// ─── Replay: fixture input → TypeScript output ──────────────────────
+
+type Obj = Record<string, unknown>;
+
+function castLookupFrom(casts: unknown): CastLookup | undefined {
+  if (!casts) return undefined;
+  const map = casts as Record<string, string>;
+  return (column) => (Object.hasOwn(map, column) ? map[column] : undefined);
+}
+
+function replayCrud(input: Obj): unknown {
+  const schema = input.schema as string;
+  const table = input.table as string;
+  const primaryKeys = input.primaryKeys as string[];
+  const row = input.row as Obj;
+  switch (input.fn) {
+    case "update":
+      return adapter.buildUpdateSql(
+        schema,
+        table,
+        input.column as string,
+        input.value,
+        primaryKeys,
+        row,
+        castLookupFrom(input.casts),
+      );
+    case "setDefault":
+      return adapter.buildSetDefaultSql(schema, table, input.column as string, primaryKeys, row);
+    case "insert":
+      return adapter.buildInsertSql(
+        schema,
+        table,
+        input.values as Obj,
+        castLookupFrom(input.casts),
+      );
+    case "delete":
+      return adapter.buildDeleteSql(schema, table, primaryKeys, row);
+    default:
+      throw new Error(`unknown crud fn ${String(input.fn)}`);
+  }
+}
+
+function replaySql(input: Obj): string {
+  switch (input.query) {
+    case "getSchemaQuery":
+      return adapter.getSchemaQuery();
+    case "getColumnsQuery":
+      return adapter.getColumnsQuery(input.table as string, input.schema as string);
+    case "getIndexesQuery":
+      return adapter.getIndexesQuery(input.table as string, input.schema as string);
+    case "getTableSizesQuery":
+      return adapter.getTableSizesQuery();
+    case "getIndexUsageQuery":
+      return adapter.getIndexUsageQuery();
+    case "getDatabaseOverviewQuery":
+      return adapter.getDatabaseOverviewQuery();
+    case "getSchemasQuery":
+      return adapter.getSchemasQuery();
+    case "getExplainQuery":
+      return adapter.getExplainQuery(input.sql as string, input.analyze as boolean);
+    default:
+      throw new Error(`unknown query ${String(input.query)}`);
+  }
+}
+
+function replayStats(input: Obj): unknown {
+  const rows = input.rows as unknown[];
+  switch (input.kind) {
+    case "tableSizes":
+      return adapter.parseTableSizesResult(rows);
+    case "indexUsage":
+      return adapter.parseIndexUsageResult(rows);
+    case "overview":
+      return adapter.parseDatabaseOverviewResult(rows);
+    default:
+      throw new Error(`unknown stats kind ${String(input.kind)}`);
+  }
+}
+
+const replay: Record<string, (input: Obj) => unknown> = {
+  "crud.json": replayCrud,
+  "quote.json": (i) => adapter.quoteIdentifier(i.id as string),
+  "paginate.json": (i) =>
+    adapter.paginateQuery(i.sql as string, i.limit as number, i.offset as number),
+  "ddl-create.json": (i) => adapter.generateCreateTableSql(i as unknown as CreateTableDefinition),
+  "ddl-alter.json": (i) =>
+    adapter.generateAlterTableSql(i.from as CreateTableDefinition, i.to as CreateTableDefinition),
+  "column-types.json": () => adapter.getColumnTypes(),
+  "parse-schema.json": (i) => adapter.parseSchemaResult(i.rows as unknown[]),
+  "parse-columns.json": (i) => adapter.parseColumnsResult(i.rows as unknown[]),
+  "parse-indexes.json": (i) => adapter.parseIndexesResult(i.rows as unknown[]),
+  "parse-stats.json": replayStats,
+  "parse-explain.json": (i) =>
+    adapter.parseExplainResult(i.rows as unknown[], i.analyze as boolean),
+  "sql.json": replaySql,
+};
+
+// ─── Pure inputs ────────────────────────────────────────────────────
+
+type NamedInput = { name: string; input: Json };
+
+const crudInputs: NamedInput[] = [
+  {
+    name: "update, single pk, string value, no cast lookup",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "users",
+      column: "name",
+      value: "Ada",
+      primaryKeys: ["id"],
+      row: { id: 1, name: "Grace", email: "g@example.com" },
+    },
+  },
+  {
+    name: "update, cast lookup hits the column",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "products",
+      column: "price",
+      value: "12.50",
+      primaryKeys: ["id"],
+      row: { id: 7, price: "10.00" },
+      casts: { price: "numeric", id: "integer" },
+    },
+  },
+  {
+    name: "update, cast lookup misses the column",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "products",
+      column: "name",
+      value: "Widget",
+      primaryKeys: ["id"],
+      row: { id: 7, name: "Gadget" },
+      casts: { price: "numeric" },
+    },
+  },
+  {
+    name: "update, cast lookup is an empty map",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "products",
+      column: "stock_quantity",
+      value: 3,
+      primaryKeys: ["id"],
+      row: { id: 7, stock_quantity: 1 },
+      casts: {},
+    },
+  },
+  {
+    name: "update, composite pk",
+    input: {
+      fn: "update",
+      schema: "inventory",
+      table: "region_stock",
+      column: "qty",
+      value: 40,
+      primaryKeys: ["region", "sku"],
+      row: { region: "eu", sku: "A-1", qty: 12 },
+    },
+  },
+  {
+    name: "update, composite pk with cast lookup",
+    input: {
+      fn: "update",
+      schema: "inventory",
+      table: "region_stock",
+      column: "restocked_at",
+      value: "2026-01-02T03:04:05Z",
+      primaryKeys: ["region", "sku"],
+      row: { sku: "A-1", region: "eu", restocked_at: null },
+      casts: { restocked_at: "timestamp with time zone", region: "text" },
+    },
+  },
+  {
+    name: "update, null value",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "orders",
+      column: "shipping_address",
+      value: null,
+      primaryKeys: ["id"],
+      row: { id: 3, shipping_address: "1 Main St" },
+    },
+  },
+  {
+    name: "update, boolean value",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "flags",
+      column: "enabled",
+      value: false,
+      primaryKeys: ["id"],
+      row: { id: 9, enabled: true },
+      casts: { enabled: "boolean" },
+    },
+  },
+  {
+    name: "update, fractional and negative numbers",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "readings",
+      column: "delta",
+      value: -0.25,
+      primaryKeys: ["id"],
+      row: { id: -4, delta: 1.5 },
+    },
+  },
+  {
+    name: "update, object value (json)",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "all_types",
+      column: "col_jsonb",
+      value: { key: "value", nested: { list: [1, 2, 3] }, ok: true },
+      primaryKeys: ["id"],
+      row: { id: 1, col_jsonb: { key: "old" } },
+      casts: { col_jsonb: "jsonb" },
+    },
+  },
+  {
+    name: "update, identifiers containing double quotes",
+    input: {
+      fn: "update",
+      schema: 'my"schema',
+      table: 'the "table"',
+      column: 'col"umn',
+      value: "x",
+      primaryKeys: ['p"k', "id"],
+      row: { 'p"k': "a", id: 2 },
+      casts: { 'col"umn': "text" },
+    },
+  },
+  {
+    name: "update, no primary keys (degenerate WHERE)",
+    input: {
+      fn: "update",
+      schema: "public",
+      table: "t",
+      column: "c",
+      value: 1,
+      primaryKeys: [],
+      row: { c: 0 },
+    },
+  },
+  {
+    name: "setDefault, single pk",
+    input: {
+      fn: "setDefault",
+      schema: "public",
+      table: "users",
+      column: "role",
+      primaryKeys: ["id"],
+      row: { id: 5, role: "admin" },
+    },
+  },
+  {
+    name: "setDefault, composite pk",
+    input: {
+      fn: "setDefault",
+      schema: "inventory",
+      table: "region_stock",
+      column: "qty",
+      primaryKeys: ["region", "sku"],
+      row: { region: "us", sku: "B-2", qty: 0 },
+    },
+  },
+  {
+    name: "setDefault, identifiers containing double quotes",
+    input: {
+      fn: "setDefault",
+      schema: 'a"b',
+      table: 'c""d',
+      column: '"e"',
+      primaryKeys: ['"id"'],
+      row: { '"id"': 1 },
+    },
+  },
+  {
+    name: "insert, no cast lookup, mixed values",
+    input: {
+      fn: "insert",
+      schema: "public",
+      table: "all_types",
+      values: {
+        col_text: "hello",
+        col_integer: 42,
+        col_double: 2.5,
+        col_boolean: true,
+        col_varchar: null,
+        col_json: { a: [1, "two", null] },
+      },
+    },
+  },
+  {
+    name: "insert, cast lookup for some columns",
+    input: {
+      fn: "insert",
+      schema: "public",
+      table: "products",
+      values: { name: "Lamp", price: "19.99", category_id: 2, created_at: "2026-01-01 00:00:00" },
+      casts: {
+        price: "numeric",
+        category_id: "integer",
+        created_at: "timestamp without time zone",
+      },
+    },
+  },
+  {
+    name: "insert, single column",
+    input: {
+      fn: "insert",
+      schema: "public",
+      table: "categories",
+      values: { name: "Books" },
+      casts: { name: "character varying" },
+    },
+  },
+  {
+    name: "insert, identifiers containing double quotes",
+    input: {
+      fn: "insert",
+      schema: 'we"ird',
+      table: 'ta"ble',
+      values: { 'a"b': 1, plain: "x" },
+      casts: { 'a"b': "integer" },
+    },
+  },
+  {
+    name: "insert, no values (degenerate)",
+    input: { fn: "insert", schema: "public", table: "t", values: {} },
+  },
+  {
+    name: "delete, single pk",
+    input: {
+      fn: "delete",
+      schema: "public",
+      table: "orders",
+      primaryKeys: ["id"],
+      row: { id: 11, total: "5.00", status: "pending" },
+    },
+  },
+  {
+    name: "delete, composite pk",
+    input: {
+      fn: "delete",
+      schema: "inventory",
+      table: "region_stock",
+      primaryKeys: ["region", "sku"],
+      row: { region: "eu", sku: "A-1", qty: 12 },
+    },
+  },
+  {
+    name: "delete, string and boolean pk values",
+    input: {
+      fn: "delete",
+      schema: "public",
+      table: "toggles",
+      primaryKeys: ["name", "enabled"],
+      row: { name: "it's", enabled: false },
+    },
+  },
+  {
+    name: "delete, identifiers containing double quotes",
+    input: {
+      fn: "delete",
+      schema: 's"',
+      table: '"t',
+      primaryKeys: ['k"1', 'k"2'],
+      row: { 'k"1': 1, 'k"2': "two" },
+    },
+  },
+];
+
+const quoteInputs: NamedInput[] = [
+  { name: "plain", input: { id: "users" } },
+  { name: "mixed case", input: { id: "UserAccounts" } },
+  { name: "embedded double quote", input: { id: 'say "hi"' } },
+  { name: "only double quotes", input: { id: '""' } },
+  { name: "space and hyphen", input: { id: "order items-2" } },
+  { name: "unicode", input: { id: "größe_日本" } },
+  { name: "dot is not split", input: { id: "public.users" } },
+  { name: "empty", input: { id: "" } },
+];
+
+const paginateInputs: NamedInput[] = [
+  { name: "first page", input: { sql: "SELECT * FROM users", limit: 100, offset: 0 } },
+  {
+    name: "later page",
+    input: { sql: "SELECT id FROM orders ORDER BY id", limit: 50, offset: 150 },
+  },
+  { name: "zero limit", input: { sql: "SELECT 1", limit: 0, offset: 0 } },
+  {
+    name: "multiline query with trailing semicolon (appended as-is)",
+    input: { sql: "SELECT *\nFROM users;", limit: 10, offset: 20 },
+  },
+];
+
+function col(
+  id: string,
+  name: string,
+  type: string,
+  extra: Partial<CreateTableColumn> = {},
+): CreateTableColumn {
+  return {
+    id,
+    name,
+    type,
+    nullable: true,
+    defaultValue: "",
+    isPrimaryKey: false,
+    isUnique: false,
+    ...extra,
+  };
+}
+
+function idx(id: string, name: string, columns: string[], unique = false): CreateTableIndex {
+  return { id, name, columns, unique, type: "btree" };
+}
+
+function fk(
+  id: string,
+  column: string,
+  referencedSchema: string,
+  referencedTable: string,
+  referencedColumn: string,
+): CreateTableForeignKey {
+  return { id, column, referencedSchema, referencedTable, referencedColumn };
+}
+
+function def(
+  tableName: string,
+  columns: CreateTableColumn[],
+  extra: Partial<CreateTableDefinition> = {},
+): CreateTableDefinition {
+  return { tableName, schemaName: "public", columns, indexes: [], foreignKeys: [], ...extra };
+}
+
+const asJson = (d: CreateTableDefinition): Json => toJson(d);
+
+const ddlCreateInputs: NamedInput[] = [
+  {
+    name: "single serial primary key",
+    input: asJson(
+      def("accounts", [
+        col("c1", "id", "serial", { nullable: false, isPrimaryKey: true }),
+        col("c2", "name", "text", { nullable: false }),
+      ]),
+    ),
+  },
+  {
+    name: "composite primary key",
+    input: asJson(
+      def(
+        "region_stock",
+        [
+          col("c1", "region", "text", { nullable: false, isPrimaryKey: true }),
+          col("c2", "sku", "varchar", { nullable: false, isPrimaryKey: true, length: "32" }),
+          col("c3", "qty", "integer", { nullable: false, defaultValue: "0" }),
+        ],
+        { schemaName: "inventory" },
+      ),
+    ),
+  },
+  {
+    name: "unique columns (unique on a pk column is skipped)",
+    input: asJson(
+      def("people", [
+        col("c1", "id", "bigint", { nullable: false, isPrimaryKey: true, isUnique: true }),
+        col("c2", "email", "text", { nullable: false, isUnique: true }),
+        col("c3", "handle", "varchar", { length: "40", isUnique: true }),
+      ]),
+    ),
+  },
+  {
+    name: "foreign key with schema",
+    input: asJson(
+      def(
+        "orders",
+        [
+          col("c1", "id", "serial", { nullable: false, isPrimaryKey: true }),
+          col("c2", "user_id", "integer", { nullable: false }),
+        ],
+        { foreignKeys: [fk("f1", "user_id", "public", "users", "id")] },
+      ),
+    ),
+  },
+  {
+    name: "foreign key without schema (quotes the empty schema)",
+    input: asJson(
+      def(
+        "comments",
+        [
+          col("c1", "id", "serial", { nullable: false, isPrimaryKey: true }),
+          col("c2", "post_id", "integer"),
+          col("c3", "author_id", "integer"),
+        ],
+        {
+          schemaName: "blog",
+          foreignKeys: [
+            fk("f1", "post_id", "", "posts", "id"),
+            fk("f2", "author_id", "auth", "users", "id"),
+          ],
+        },
+      ),
+    ),
+  },
+  {
+    name: "defaults, including sanitized ones",
+    input: asJson(
+      def("defaults_demo", [
+        col("c1", "created_at", "timestamptz", { nullable: false, defaultValue: "now()" }),
+        col("c2", "status", "text", { defaultValue: "'pending'" }),
+        col("c3", "padded", "integer", { defaultValue: "  42  " }),
+        col("c4", "injected", "text", { defaultValue: "'x'; DROP TABLE users" }),
+        col("c5", "commented", "text", { defaultValue: "1 -- sneaky" }),
+        col("c6", "blank", "text", { defaultValue: "   " }),
+        col("c7", "empty", "text", { defaultValue: "" }),
+        col("c8", "flag", "boolean", { nullable: false, defaultValue: "FALSE" }),
+      ]),
+    ),
+  },
+  {
+    name: "length and precision (precision wins when both are set)",
+    input: asJson(
+      def("sizes", [
+        col("c1", "code", "char", { length: "3", nullable: false }),
+        col("c2", "title", "varchar", { length: "255" }),
+        col("c3", "amount", "numeric", { precision: "10,2", nullable: false }),
+        col("c4", "both", "numeric", { precision: "8,4", length: "99" }),
+        col("c5", "empty_len", "varchar", { length: "" }),
+      ]),
+    ),
+  },
+  {
+    name: "indexes, unique and multi-column",
+    input: asJson(
+      def(
+        "events",
+        [
+          col("c1", "id", "bigserial", { nullable: false, isPrimaryKey: true }),
+          col("c2", "kind", "text", { nullable: false }),
+          col("c3", "created_at", "timestamp", { nullable: false }),
+          col("c4", "external_id", "uuid"),
+        ],
+        {
+          schemaName: "analytics",
+          indexes: [
+            idx("i1", "events_kind_created_idx", ["kind", "created_at"]),
+            idx("i2", "events_external_id_key", ["external_id"], true),
+          ],
+        },
+      ),
+    ),
+  },
+  {
+    name: "no primary key, all nullable",
+    input: asJson(
+      def("log_lines", [col("c1", "line", "text"), col("c2", "logged_at", "timestamp")]),
+    ),
+  },
+  {
+    name: "unicode and mixed-case identifiers",
+    input: asJson(
+      def(
+        "Größe Tabelle",
+        [
+          col("c1", "ID", "integer", { nullable: false, isPrimaryKey: true }),
+          col("c2", "名前", "text"),
+        ],
+        { schemaName: "Übung", indexes: [idx("i1", "名前_idx", ["名前"])] },
+      ),
+    ),
+  },
+  {
+    name: "everything together",
+    input: asJson(
+      def(
+        "line_items",
+        [
+          col("c1", "order_id", "integer", { nullable: false, isPrimaryKey: true }),
+          col("c2", "line_no", "smallint", { nullable: false, isPrimaryKey: true }),
+          col("c3", "product_id", "integer", { nullable: false }),
+          col("c4", "sku", "varchar", { length: "64", isUnique: true }),
+          col("c5", "unit_price", "numeric", {
+            precision: "12,2",
+            nullable: false,
+            defaultValue: "0",
+          }),
+          col("c6", "meta", "jsonb", { defaultValue: "'{}'::jsonb" }),
+        ],
+        {
+          schemaName: "sales",
+          indexes: [idx("i1", "line_items_product_idx", ["product_id"])],
+          foreignKeys: [
+            fk("f1", "order_id", "sales", "orders", "id"),
+            fk("f2", "product_id", "catalog", "products", "id"),
+          ],
+        },
+      ),
+    ),
+  },
+  {
+    name: "no columns (degenerate)",
+    input: asJson(def("empty_table", [])),
+  },
+];
+
+/** Base table for ALTER cases. */
+function baseDef(): CreateTableDefinition {
+  return def(
+    "customers",
+    [
+      col("c1", "id", "integer", { nullable: false, isPrimaryKey: true }),
+      col("c2", "name", "varchar", { length: "100", nullable: false }),
+      col("c3", "email", "text"),
+      col("c4", "status", "text", { defaultValue: "'active'" }),
+      col("c5", "balance", "numeric", { precision: "10,2", nullable: false, defaultValue: "0" }),
+    ],
+    {
+      schemaName: "crm",
+      indexes: [idx("i1", "customers_email_idx", ["email"])],
+      foreignKeys: [fk("f1", "id", "auth", "users", "id")],
+    },
+  );
+}
+
+function alterCase(name: string, change: (d: CreateTableDefinition) => void): NamedInput {
+  const from = baseDef();
+  const to = baseDef();
+  change(to);
+  return { name, input: { from: asJson(from), to: asJson(to) } };
+}
+
+function column(d: CreateTableDefinition, id: string): CreateTableColumn {
+  const c = d.columns.find((x) => x.id === id);
+  if (!c) throw new Error(`no column ${id}`);
+  return c;
+}
+
+const ddlAlterInputs: NamedInput[] = [
+  alterCase("no changes", () => {}),
+  alterCase("rename column", (d) => {
+    column(d, "c3").name = "email_address";
+  }),
+  alterCase("add columns (not null, default, sanitized default)", (d) => {
+    d.columns.push(
+      col("c6", "phone", "varchar", { length: "20" }),
+      col("c7", "created_at", "timestamptz", { nullable: false, defaultValue: "now()" }),
+      col("c8", "bad_default", "text", { defaultValue: "'x'; DROP TABLE crm.customers" }),
+    );
+  }),
+  alterCase("drop column", (d) => {
+    d.columns = d.columns.filter((c) => c.id !== "c3");
+  }),
+  alterCase("change length", (d) => {
+    column(d, "c2").length = "200";
+  }),
+  alterCase("change precision", (d) => {
+    column(d, "c5").precision = "14,4";
+  }),
+  alterCase("change type", (d) => {
+    column(d, "c3").type = "citext";
+  }),
+  alterCase("set not null", (d) => {
+    column(d, "c3").nullable = false;
+  }),
+  alterCase("drop not null", (d) => {
+    column(d, "c2").nullable = true;
+  }),
+  alterCase("type change and set not null together", (d) => {
+    Object.assign(column(d, "c3"), { type: "varchar", length: "320", nullable: false });
+  }),
+  alterCase("set default", (d) => {
+    column(d, "c3").defaultValue = "'unknown@example.com'";
+  }),
+  alterCase("change default", (d) => {
+    column(d, "c4").defaultValue = "'inactive'";
+  }),
+  alterCase("drop default (emptied)", (d) => {
+    column(d, "c4").defaultValue = "";
+  }),
+  alterCase("unsafe new default becomes DROP DEFAULT", (d) => {
+    column(d, "c4").defaultValue = "'x' -- comment";
+  }),
+  alterCase("rename plus type change uses the new name", (d) => {
+    Object.assign(column(d, "c2"), { name: "full_name", length: "250" });
+  }),
+  alterCase("add indexes (unique, multi-column, unnamed skipped)", (d) => {
+    d.indexes.push(
+      idx("i2", "customers_name_status_idx", ["name", "status"]),
+      idx("i3", "customers_email_key", ["email"], true),
+      idx("i4", "", ["status"]),
+    );
+  }),
+  alterCase("add foreign keys with and without schema", (d) => {
+    d.columns.push(col("c6", "region_id", "integer"), col("c7", "manager_id", "integer"));
+    d.foreignKeys.push(
+      fk("f2", "region_id", "geo", "regions", "id"),
+      fk("f3", "manager_id", "", "customers", "id"),
+    );
+  }),
+  alterCase("removed and unchanged foreign keys emit nothing", (d) => {
+    d.foreignKeys = [fk("f9", "id", "other_schema", "users", "id")];
+  }),
+  alterCase("schema and table come from the new definition", (d) => {
+    d.schemaName = "crm_v2";
+    d.tableName = "clients";
+    column(d, "c3").nullable = false;
+  }),
+  alterCase("statement order: every branch but DROP INDEX", (d) => {
+    column(d, "c2").name = "display_name";
+    column(d, "c2").length = "150";
+    column(d, "c4").defaultValue = "'new'";
+    column(d, "c5").nullable = true;
+    d.columns = d.columns.filter((c) => c.id !== "c3");
+    d.columns.push(col("c6", "tier", "smallint", { nullable: false, defaultValue: "1" }));
+    d.indexes.push(idx("i2", "customers_tier_idx", ["tier"]));
+    d.foreignKeys.push(fk("f2", "tier", "crm", "tiers", "id"));
+  }),
+];
+
+const pureInputs: Record<string, NamedInput[]> = {
+  "crud.json": crudInputs,
+  "quote.json": quoteInputs,
+  "paginate.json": paginateInputs,
+  "ddl-create.json": ddlCreateInputs,
+  "ddl-alter.json": ddlAlterInputs,
+  "column-types.json": [{ name: "getColumnTypes", input: {} }],
+};
+
+const EXPLAIN_TARGETS: { name: string; sql: string }[] = [
+  {
+    name: "join",
+    sql: `SELECT c.name, e.kind FROM ${SCRATCH}.events e JOIN ${SCRATCH}.customers c ON c.id = e.customer_id WHERE e.kind = 'click'`,
+  },
+  {
+    name: "sort (trailing semicolon stripped)",
+    sql: `SELECT id, kind FROM ${SCRATCH}.events ORDER BY created_at DESC, id;`,
+  },
+  { name: "index scan", sql: `SELECT * FROM ${SCRATCH}.events WHERE id = 42` },
+  {
+    name: "seeded tables: join, aggregate and sort",
+    sql: "SELECT u.name, sum(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.name ORDER BY spent DESC",
+  },
+];
+
+const sqlInputs: NamedInput[] = [
+  { name: "getSchemaQuery", input: { query: "getSchemaQuery" } },
+  {
+    name: "getColumnsQuery public.users",
+    input: { query: "getColumnsQuery", schema: "public", table: "users" },
+  },
+  {
+    name: "getIndexesQuery public.users",
+    input: { query: "getIndexesQuery", schema: "public", table: "users" },
+  },
+  { name: "getTableSizesQuery", input: { query: "getTableSizesQuery" } },
+  { name: "getIndexUsageQuery", input: { query: "getIndexUsageQuery" } },
+  { name: "getDatabaseOverviewQuery", input: { query: "getDatabaseOverviewQuery" } },
+  { name: "getSchemasQuery", input: { query: "getSchemasQuery" } },
+  {
+    name: "getExplainQuery plain",
+    input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: false },
+  },
+  {
+    name: "getExplainQuery analyze strips one trailing semicolon",
+    input: { query: "getExplainQuery", sql: "SELECT * FROM users;", analyze: true },
+  },
+  {
+    name: "getExplainQuery keeps inner semicolons and trailing whitespace",
+    input: { query: "getExplainQuery", sql: "SELECT ';' AS s; ", analyze: false },
+  },
+];
+
+// ─── Real Postgres (record mode only) ────────────────────────────────
+
+/**
+ * The scratch schema: tables TypeScript can introspect (valid identifiers)
+ * plus `order items` / `my-table` for bug fixes 1 and 4. The same DDL lives
+ * in bugfixes.json (`scratch.setup`) so Rust tests can rebuild it.
+ */
+function scratchSetup(): string[] {
+  return (readFixture("bugfixes.json") as unknown as { scratch: { setup: string[] } }).scratch
+    .setup;
+}
+function scratchTeardown(): string[] {
+  return (readFixture("bugfixes.json") as unknown as { scratch: { teardown: string[] } }).scratch
+    .teardown;
+}
+
+let client: pg.Client | undefined;
+
+async function rows(sql: string, params: unknown[] = []): Promise<Obj[]> {
+  if (!client) throw new Error("no database client (record mode only)");
+  const res = await client.query(sql, params);
+  return res.rows as Obj[];
+}
+
+/**
+ * Mimic what Seaquel's Rust driver produced before Task 2: int8 and numeric
+ * as JSON numbers. `pg` already returns bool as boolean, json/jsonb parsed,
+ * int2/int4 as numbers and name/text/domain-over-text as strings.
+ */
+function configureTypeParsers(): void {
+  pg.types.setTypeParser(20, (v: string) => Number(v)); // int8
+  pg.types.setTypeParser(1700, (v: string) => Number(v)); // numeric
+}
+
+const COLUMN_TARGETS: [string, string][] = [
+  ["public", "users"],
+  ["public", "orders"],
+  ["public", "products"],
+  ["public", "order_items"],
+  ["public", "categories"],
+  ["public", "all_types"],
+  [SCRATCH, "customers"],
+  [SCRATCH, "region_stock"],
+  [SCRATCH, "customer_names"],
+  [SCRATCH, "customer_counts"],
+];
+
+const INDEX_TARGETS: [string, string][] = [
+  ["public", "users"],
+  ["public", "orders"],
+  ["public", "order_items"],
+  ["public", "all_types"],
+  [SCRATCH, "customers"],
+  [SCRATCH, "region_stock"],
+  [SCRATCH, "events"],
+  [SCRATCH, "customer_names"],
+];
+
+const byIndexName = (a: Obj, b: Obj) =>
+  String(a.indexname) < String(b.indexname)
+    ? -1
+    : String(a.indexname) > String(b.indexname)
+      ? 1
+      : 0;
+
+async function recordDbInputs(file: string): Promise<NamedInput[]> {
+  switch (file) {
+    case "parse-schema.json": {
+      // Only the seeded and scratch schemas: other tests may leave schemas behind.
+      const all = await rows(adapter.getSchemaQuery());
+      const kept = all.filter((r) => r.schema_name === "public" || r.schema_name === SCRATCH);
+      return [{ name: "public and scratch schemas", input: { rows: toJson(kept) } }];
+    }
+    case "parse-columns.json": {
+      const out: NamedInput[] = [];
+      for (const [schema, table] of COLUMN_TARGETS) {
+        const r = await rows(adapter.getColumnsQuery(table, schema));
+        out.push({ name: `${schema}.${table}`, input: { schema, table, rows: toJson(r) } });
+      }
+      return out;
+    }
+    case "parse-indexes.json": {
+      const out: NamedInput[] = [];
+      for (const [schema, table] of INDEX_TARGETS) {
+        // pg_indexes has no ORDER BY; sort by name so re-recording is stable.
+        const r = (await rows(adapter.getIndexesQuery(table, schema))).sort(byIndexName);
+        out.push({ name: `${schema}.${table}`, input: { schema, table, rows: toJson(r) } });
+      }
+      return out;
+    }
+    case "parse-stats.json":
+      // The TS statistics queries splice `schemaname || '.' || relname` into
+      // regclass casts, so any table whose name needs quoting makes them fail
+      // ("invalid name syntax"). Drop the bug-fix tables first; the bugfixes
+      // checks have already run by now.
+      await rows(`DROP TABLE ${SCRATCH}."order items", ${SCRATCH}."my-table"`);
+      // Publish this session's pending insert counts (PG 15+) so n_live_tup
+      // for the scratch tables doesn't depend on flush timing.
+      await rows("SELECT pg_stat_force_next_flush()");
+      await rows("SELECT pg_sleep(0.05)");
+      return [
+        {
+          name: "table sizes",
+          input: { kind: "tableSizes", rows: toJson(await rows(adapter.getTableSizesQuery())) },
+        },
+        {
+          name: "index usage",
+          input: { kind: "indexUsage", rows: toJson(await rows(adapter.getIndexUsageQuery())) },
+        },
+        {
+          name: "database overview",
+          input: { kind: "overview", rows: toJson(await rows(adapter.getDatabaseOverviewQuery())) },
+        },
+        { name: "database overview, no rows (fallbacks)", input: { kind: "overview", rows: [] } },
+      ];
+    case "parse-explain.json": {
+      const out: NamedInput[] = [];
+      for (const analyze of [false, true]) {
+        for (const target of EXPLAIN_TARGETS) {
+          const r = await rows(adapter.getExplainQuery(target.sql, analyze));
+          out.push({
+            name: `${analyze ? "EXPLAIN ANALYZE" : "EXPLAIN"}: ${target.name}`,
+            input: { sql: target.sql, analyze, rows: toJson(r) },
+          });
+        }
+      }
+      return out;
+    }
+    default:
+      throw new Error(`no recorder for ${file}`);
+  }
+}
+
+// ─── The tests ──────────────────────────────────────────────────────
+
+const PURE_FILES = Object.keys(pureInputs);
+const DB_FILES = [
+  "parse-schema.json",
+  "parse-columns.json",
+  "parse-indexes.json",
+  "parse-stats.json",
+  "parse-explain.json",
+];
+
+async function inputsFor(file: string): Promise<NamedInput[]> {
+  if (file === "sql.json") return sqlInputs;
+  if (file in pureInputs) return pureInputs[file];
+  return recordDbInputs(file);
+}
+
+function checkCases(file: string, cases: FixtureCase[]): void {
+  const run = replay[file];
+  expect(cases.length, `${file} has cases`).toBeGreaterThan(0);
+  const names = new Set<string>();
+  for (const c of cases) {
+    expect(names.has(c.name), `${file}: duplicate case name "${c.name}"`).toBe(false);
+    names.add(c.name);
+    expect(toJson(run(c.input as Obj)), `${file}: ${c.name}`).toStrictEqual(c.output);
+  }
+}
+
+describe("Postgres dialect parity fixtures", () => {
+  if (RECORD) {
+    beforeAll(async () => {
+      configureTypeParsers();
+      client = new pg.Client({ connectionString: DATABASE_URL });
+      await client.connect();
+      for (const stmt of scratchTeardown()) await client.query(stmt);
+      for (const stmt of scratchSetup()) await client.query(stmt);
+      // Flush the insert counts before ANALYZE, or they are added on top of
+      // ANALYZE's live-tuple count later (n_live_tup would read 10000).
+      await client.query("SELECT pg_stat_force_next_flush()");
+      await client.query("SELECT pg_sleep(0.05)");
+      // Deterministic plans: fresh statistics and no parallel workers.
+      await client.query(
+        `ANALYZE ${SCRATCH}.customers, ${SCRATCH}.events, public.users, public.orders`,
+      );
+      await client.query("SET max_parallel_workers_per_gather = 0");
+    });
+
+    afterAll(async () => {
+      if (!client) return;
+      try {
+        for (const stmt of scratchTeardown()) await client.query(stmt);
+      } finally {
+        await client.end();
+        client = undefined;
+      }
+    });
+  }
+
+  describe("bugfixes.json (hand-written)", () => {
+    interface BugfixCase {
+      name: string;
+      fix: 1 | 2 | 3 | 4;
+      kind: "columns" | "indexes" | "ddl-create" | "ddl-alter";
+      input: Obj;
+      output: Json;
+    }
+    const bugfixes = () =>
+      readFixture("bugfixes.json") as unknown as { scratch: Obj; cases: BugfixCase[] };
+
+    it("covers all four fixes", () => {
+      const fixes = new Set(bugfixes().cases.map((c) => c.fix));
+      expect([...fixes].sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("fixes 2 and 3 differ from what TypeScript generates today", () => {
+      for (const c of bugfixes().cases) {
+        if (c.kind !== "ddl-create" && c.kind !== "ddl-alter") continue;
+        const ts = replay[`${c.kind}.json`](c.input);
+        expect(ts, `${c.name}: TypeScript output should still show the bug`).not.toEqual(c.output);
+      }
+    });
+
+    it("fix 1: TypeScript still rejects the identifiers", () => {
+      for (const c of bugfixes().cases) {
+        if (c.kind !== "columns" && c.kind !== "indexes") continue;
+        const { schema, table } = c.input as { schema: string; table: string };
+        if (/^[\p{L}\p{N}_$]+$/u.test(table) && /^[\p{L}\p{N}_$]+$/u.test(schema)) continue;
+        expect(() => adapter.getColumnsQuery(table, schema), c.name).toThrow(
+          /Invalid SQL identifier/,
+        );
+      }
+    });
+
+    if (RECORD) {
+      it("fixes 1 and 4 match the real catalog", async () => {
+        for (const c of bugfixes().cases) {
+          const { schema, table } = c.input as { schema: string; table: string };
+          if (c.kind === "columns") {
+            // The TS columns query with the catalog filters bound, as fix 1 does.
+            const sql = adapter
+              .getColumnsQuery("__table__", "__schema__")
+              .replace("'__table__'", "$1")
+              .replace("'__schema__'", "$2");
+            const got = adapter.parseColumnsResult(await rows(sql, [table, schema]));
+            expect(toJson(got), c.name).toStrictEqual(c.output);
+          } else if (c.kind === "indexes") {
+            expect(toJson(await catalogIndexes(schema, table)), c.name).toStrictEqual(c.output);
+          }
+        }
+      });
+    }
+  });
+
+  for (const file of [...PURE_FILES, ...DB_FILES, "sql.json"]) {
+    it(file, async () => {
+      let cases: FixtureCase[];
+      if (RECORD) {
+        const inputs = await inputsFor(file);
+        cases = inputs.map(({ name, input }) => ({
+          name,
+          input,
+          output: toJson(replay[file](input as Obj)),
+        }));
+        writeFixture(file, cases);
+      } else {
+        cases = readFixture(file).cases;
+      }
+      checkCases(file, cases);
+    });
+  }
+
+  it("has at least 60 cases in total", () => {
+    const total = [...PURE_FILES, ...DB_FILES, "sql.json"].reduce(
+      (n, file) => n + readFixture(file).cases.length,
+      0,
+    );
+    expect(total).toBeGreaterThanOrEqual(60);
+  });
+});
+
+/** Reference implementation of fix 4, used only to validate bugfixes.json. */
+async function catalogIndexes(schema: string, table: string): Promise<Json[]> {
+  const idxRows = await rows(
+    `SELECT ic.relname AS name, x.indexrelid::int8 AS oid, x.indnkeyatts AS nkeys,
+            x.indisunique AS "unique", am.amname AS type
+       FROM pg_index x
+       JOIN pg_class ic ON ic.oid = x.indexrelid
+       JOIN pg_class t ON t.oid = x.indrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       JOIN pg_am am ON am.oid = ic.relam
+      WHERE n.nspname = $1 AND t.relname = $2
+      ORDER BY ic.relname`,
+    [schema, table],
+  );
+  const out: Json[] = [];
+  for (const r of idxRows) {
+    const cols = await rows(
+      "SELECT pg_get_indexdef($1::oid, k, true) AS col FROM generate_series(1, $2::int) AS k ORDER BY k",
+      [r.oid, r.nkeys],
+    );
+    out.push({
+      name: r.name as string,
+      columns: cols.map((c) => c.col as string),
+      unique: r.unique as boolean,
+      type: r.type as string,
+    });
+  }
+  return out;
+}

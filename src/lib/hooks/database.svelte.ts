@@ -1,6 +1,6 @@
 import { setContext, getContext } from "svelte";
 import type { SchemaTable, ActiveViewType } from "$lib/types";
-import type { DatabaseAdapter } from "$lib/db";
+import type { EngineClient } from "$lib/engine";
 import { log } from "$lib/utils/logger";
 import { DatabaseState } from "./database/state.svelte.js";
 import { PersistenceManager } from "./database/persistence-manager.svelte.js";
@@ -157,23 +157,17 @@ class UseDatabase {
       this.dashboardTabs,
     );
 
-    // Shared provider registry (used by connections, query execution, schema tabs, explain tabs)
+    // Shared provider registry (connections, query execution and CRUD, pending changes, data and create-table tabs)
     const providers = new ProviderRegistry();
 
     // Tab managers
     this.queryTabs = new QueryTabManager(this.state, this.tabs, scheduleProjectPersistence);
-    this.schemaTabs = new SchemaTabManager(
-      this.state,
-      this.tabs,
-      scheduleProjectPersistence,
-      providers,
-    );
+    this.schemaTabs = new SchemaTabManager(this.state, this.tabs, scheduleProjectPersistence);
     this.explainTabs = new ExplainTabManager(
       this.state,
       this.tabs,
       scheduleProjectPersistence,
       setActiveView,
-      providers,
     );
     this.erdTabs = new ErdTabManager(
       this.state,
@@ -186,11 +180,6 @@ class UseDatabase {
       this.tabs,
       scheduleProjectPersistence,
       setActiveView,
-      async (query: string) => {
-        // Execute query on the active connection and return raw results
-        const result = await this.queries.executeRaw(query);
-        return result;
-      },
     );
     this.extensionsDuckdbTabs = new ExtensionsDuckdbTabManager(
       this.state,
@@ -304,18 +293,10 @@ class UseDatabase {
       this._stateRestoration,
       this.tabs,
       providers,
-      (
-        connectionId: string,
-        schemas: SchemaTable[],
-        adapter: DatabaseAdapter,
-        providerConnectionId?: string,
-      ) => {
-        return this.schemaTabs.loadTableMetadataInBackground(
-          connectionId,
-          schemas,
-          adapter,
-          providerConnectionId,
-        );
+      (connectionId: string, schemas: SchemaTable[], client: EngineClient) => {
+        // Every schema (re)load passes here: columns loaded for cast maps may be stale.
+        this.queries.crud.forgetLoadedColumns(connectionId);
+        return this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, client);
       },
       () => {
         this.queryTabs.add();

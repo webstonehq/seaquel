@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SqliteDatabase, SqliteProvider } from "./sqlite-types";
+import { decodeRows, encodeParams } from "$lib/values";
 
 interface DbQueryResult {
   columns: string[];
@@ -27,7 +28,7 @@ class TauriSqliteDatabase implements SqliteDatabase {
     return invoke<DbExecuteResult>("db_execute", {
       connectionId: this.connectionId,
       sql,
-      values: params ?? [],
+      values: encodeParams(params),
     });
   }
 
@@ -54,10 +55,12 @@ class TauriSqliteDatabase implements SqliteDatabase {
     const result = await invoke<DbQueryResult>("db_query", {
       connectionId: this.connectionId,
       sql,
-      values: params ?? [],
+      values: encodeParams(params),
     });
+    // App storage never produces tagged values today, but decode anyway so a
+    // BIGINT or BLOB column can't leak a raw tag into the app.
     // Convert columnar → row objects for backward compatibility
-    return result.rows.map((row) => {
+    return decodeRows(result.rows).map((row) => {
       const obj: Record<string, unknown> = {};
       result.columns.forEach((col, i) => {
         obj[col] = row[i];
@@ -70,7 +73,7 @@ class TauriSqliteDatabase implements SqliteDatabase {
     return this.enqueueWrite(async () => {
       await invoke("db_transaction", {
         connectionId: this.connectionId,
-        statements: statements.map((s) => ({ sql: s.sql, params: s.params ?? [] })),
+        statements: statements.map((s) => ({ sql: s.sql, params: encodeParams(s.params) })),
       });
     });
   }

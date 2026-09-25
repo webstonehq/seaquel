@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 seaquel-core = { path = "../seaquel-core" }
 seaquel-types = { path = "../seaquel-types" }
+seaquel-rpc = { path = "../seaquel-rpc" }
 
 axum = { workspace = true }
 tower = { workspace = true }
@@ -33,6 +34,11 @@ rust-embed = "8"
 mime_guess = "2"
 
 [dev-dependencies]
+# For the /api/db/engine tests: a "postgres" engine with the real dialect and
+# no database behind it.
+seaquel-engine = { path = "../seaquel-engine" }
+seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
+seaquel-runtime = { path = "../seaquel-runtime" }
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
 uuid = { workspace = true }

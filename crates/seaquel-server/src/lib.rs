@@ -43,6 +43,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/db/disconnect",
             post(routes::db::disconnect::disconnect),
         )
+        .route("/api/db/engine", post(routes::db::engine::engine))
         .route("/api/db/query", post(routes::db::query::query))
         .route("/api/db/execute", post(routes::db::execute::execute))
         .route("/api/db/stream", get(routes::db::stream::stream))

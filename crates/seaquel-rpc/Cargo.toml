@@ -1,0 +1,23 @@
+[package]
+name = "seaquel-rpc"
+version = "0.1.0"
+edition = "2021"
+description = "The engine RPC: EngineRequest/EngineResponse and a dispatcher onto Core, shared by the Tauri command and the server route. Build with --features ts to regenerate the TypeScript bindings."
+
+[features]
+# Generates src/lib/types/generated/Engine*.ts when running `cargo test --features ts`.
+# Run it through `npm run types:gen`.
+ts = ["dep:ts-rs", "seaquel-types/ts"]
+
+[dependencies]
+seaquel-core = { path = "../seaquel-core", default-features = false }
+seaquel-engine = { path = "../seaquel-engine" }
+seaquel-types = { path = "../seaquel-types" }
+serde = { workspace = true }
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
+seaquel-runtime = { path = "../seaquel-runtime" }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt"] }

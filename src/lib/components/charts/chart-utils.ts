@@ -1,16 +1,27 @@
 import type { ChartType, ChartConfig } from "$lib/types";
+import { SqlDecimal, toNumber } from "$lib/values";
 
 /**
  * Check if a value is numeric (number or numeric string).
  */
 function isNumeric(value: unknown): boolean {
   if (typeof value === "number") return !isNaN(value);
+  if (typeof value === "bigint") return true;
+  if (value instanceof SqlDecimal) return !isNaN(toNumber(value));
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (trimmed === "") return false;
     return !isNaN(Number(trimmed));
   }
   return false;
+}
+
+/**
+ * X-axis value for layerchart. d3 scales coerce with `+x`, which throws on a
+ * bigint, so exact numbers become plain numbers; everything else is kept.
+ */
+export function chartXValue(value: unknown): unknown {
+  return typeof value === "bigint" || value instanceof SqlDecimal ? toNumber(value) : value;
 }
 
 /**
@@ -51,7 +62,7 @@ function isSequentialColumn(columns: string[], rows: unknown[][], columnName: st
 
   // Check if values are sequential numbers
   if (isNumericColumn(columns, rows, columnName)) {
-    const nums = values.map((v) => Number(v));
+    const nums = values.map(toNumber);
     let increasing = true;
     let decreasing = true;
     for (let i = 1; i < nums.length; i++) {
@@ -177,7 +188,7 @@ export function transformDataForChart(
     // Get values for each Y axis column
     yIdx.forEach((idx, colIndex) => {
       const value = idx === -1 ? undefined : row[idx];
-      const numValue = typeof value === "number" ? value : Number(value) || 0;
+      const numValue = typeof value === "number" ? value : toNumber(value) || 0;
       datasets[colIndex].data.push(numValue);
     });
   });

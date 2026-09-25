@@ -5,6 +5,7 @@
 	import { CopyIcon, CircleOffIcon, RotateCcwIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, XIcon, KeyRoundIcon, ArrowUpRightIcon } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
 	import { detectColumnTypes, getFormattedCellText } from "$lib/utils/cell-type";
+	import { cellText } from "$lib/values";
 	import type { ForeignKeyRef, SchemaTable } from "$lib/types";
 
 	interface Props {
@@ -334,7 +335,7 @@
 								oncontextmenu={() => onCellRightClick(cellValue, column, row, rowIndex)}
 							>
 								{#if isCellPendingEdit}
-									<span class="w-full -mx-1 truncate text-xs line-through text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded px-1 leading-tight">{cellValue === null ? 'NULL' : cellValue === undefined ? '' : String(cellValue)}</span>
+									<span class="w-full -mx-1 truncate text-xs line-through text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded px-1 leading-tight">{cellValue === null ? 'NULL' : cellText(cellValue)}</span>
 									<EditableCell
 										value={pendingNewValue}
 										{isEditable}
@@ -355,7 +356,7 @@
 								{#if showFkIcon}
 									<button
 										class="hidden group-hover/fk:flex items-center justify-center shrink-0 size-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-										onclick={(e) => { e.stopPropagation(); onForeignKeyClick(fkInfo.ref, fkInfo.table, String(cellValue)); }}
+										onclick={(e) => { e.stopPropagation(); onForeignKeyClick(fkInfo.ref, fkInfo.table, cellText(cellValue)); }}
 										title="{fkInfo.ref.referencedSchema}.{fkInfo.ref.referencedTable}.{fkInfo.ref.referencedColumn}"
 									>
 										<ArrowUpRightIcon class="size-3" />
@@ -393,7 +394,7 @@
 					{/if}
 					{#each columns as column}
 						<div class={["flex items-center overflow-hidden", compact ? "px-2 py-1" : "px-4 py-2"]}>
-							<span class="truncate text-muted-foreground">{insertRow.values[column] != null ? String(insertRow.values[column]) : ""}</span>
+							<span class="truncate text-muted-foreground">{cellText(insertRow.values[column])}</span>
 						</div>
 					{/each}
 				</div>

@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 seaquel-core = { path = "../crates/seaquel-core" }
 seaquel-types = { path = "../crates/seaquel-types" }
+seaquel-rpc = { path = "../crates/seaquel-rpc" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

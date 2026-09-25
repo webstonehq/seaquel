@@ -8,10 +8,7 @@ import { sendAIMessage as sendAIMessageService } from "$lib/services/ai";
 import { resolveMentions } from "$lib/services/ai-mentions";
 import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 
-function stripWidgetRuntimeState(w: DashboardWidget) {
-  const { result: _r, isLoading: _l, error: _e, lastRefreshed: _lr, ...rest } = w;
-  return rest;
-}
+import { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
 /**
  * Manages UI state: AI panel, view switching.

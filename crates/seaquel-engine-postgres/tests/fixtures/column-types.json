@@ -1,0 +1,137 @@
+{
+  "cases": [
+    {
+      "name": "getColumnTypes",
+      "input": {},
+      "output": [
+        {
+          "name": "text",
+          "category": "String"
+        },
+        {
+          "name": "varchar",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "char",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "integer",
+          "category": "Numeric"
+        },
+        {
+          "name": "bigint",
+          "category": "Numeric"
+        },
+        {
+          "name": "smallint",
+          "category": "Numeric"
+        },
+        {
+          "name": "serial",
+          "category": "Numeric"
+        },
+        {
+          "name": "bigserial",
+          "category": "Numeric"
+        },
+        {
+          "name": "numeric",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "real",
+          "category": "Numeric"
+        },
+        {
+          "name": "double precision",
+          "category": "Numeric"
+        },
+        {
+          "name": "money",
+          "category": "Numeric"
+        },
+        {
+          "name": "date",
+          "category": "Date/Time"
+        },
+        {
+          "name": "time",
+          "category": "Date/Time"
+        },
+        {
+          "name": "timestamp",
+          "category": "Date/Time"
+        },
+        {
+          "name": "timestamptz",
+          "category": "Date/Time"
+        },
+        {
+          "name": "interval",
+          "category": "Date/Time"
+        },
+        {
+          "name": "boolean",
+          "category": "Boolean"
+        },
+        {
+          "name": "json",
+          "category": "JSON"
+        },
+        {
+          "name": "jsonb",
+          "category": "JSON"
+        },
+        {
+          "name": "bytea",
+          "category": "Binary"
+        },
+        {
+          "name": "uuid",
+          "category": "UUID"
+        },
+        {
+          "name": "inet",
+          "category": "Network"
+        },
+        {
+          "name": "cidr",
+          "category": "Network"
+        },
+        {
+          "name": "macaddr",
+          "category": "Network"
+        },
+        {
+          "name": "point",
+          "category": "Other"
+        },
+        {
+          "name": "line",
+          "category": "Other"
+        },
+        {
+          "name": "polygon",
+          "category": "Other"
+        },
+        {
+          "name": "xml",
+          "category": "Other"
+        },
+        {
+          "name": "tsvector",
+          "category": "Other"
+        },
+        {
+          "name": "tsquery",
+          "category": "Other"
+        }
+      ]
+    }
+  ]
+}

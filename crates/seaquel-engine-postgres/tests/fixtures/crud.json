@@ -1,0 +1,622 @@
+{
+  "cases": [
+    {
+      "name": "update, single pk, string value, no cast lookup",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "users",
+        "column": "name",
+        "value": "Ada",
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 1,
+          "name": "Grace",
+          "email": "g@example.com"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"users\" SET \"name\" = $1 WHERE \"id\" = $2",
+        "bindValues": [
+          "Ada",
+          1
+        ]
+      }
+    },
+    {
+      "name": "update, cast lookup hits the column",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "products",
+        "column": "price",
+        "value": "12.50",
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 7,
+          "price": "10.00"
+        },
+        "casts": {
+          "price": "numeric",
+          "id": "integer"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"products\" SET \"price\" = CAST($1 AS numeric) WHERE \"id\" = $2",
+        "bindValues": [
+          "12.50",
+          7
+        ]
+      }
+    },
+    {
+      "name": "update, cast lookup misses the column",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "products",
+        "column": "name",
+        "value": "Widget",
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 7,
+          "name": "Gadget"
+        },
+        "casts": {
+          "price": "numeric"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"products\" SET \"name\" = $1 WHERE \"id\" = $2",
+        "bindValues": [
+          "Widget",
+          7
+        ]
+      }
+    },
+    {
+      "name": "update, cast lookup is an empty map",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "products",
+        "column": "stock_quantity",
+        "value": 3,
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 7,
+          "stock_quantity": 1
+        },
+        "casts": {}
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"products\" SET \"stock_quantity\" = $1 WHERE \"id\" = $2",
+        "bindValues": [
+          3,
+          7
+        ]
+      }
+    },
+    {
+      "name": "update, composite pk",
+      "input": {
+        "fn": "update",
+        "schema": "inventory",
+        "table": "region_stock",
+        "column": "qty",
+        "value": 40,
+        "primaryKeys": [
+          "region",
+          "sku"
+        ],
+        "row": {
+          "region": "eu",
+          "sku": "A-1",
+          "qty": 12
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"inventory\".\"region_stock\" SET \"qty\" = $1 WHERE \"region\" = $2 AND \"sku\" = $3",
+        "bindValues": [
+          40,
+          "eu",
+          "A-1"
+        ]
+      }
+    },
+    {
+      "name": "update, composite pk with cast lookup",
+      "input": {
+        "fn": "update",
+        "schema": "inventory",
+        "table": "region_stock",
+        "column": "restocked_at",
+        "value": "2026-01-02T03:04:05Z",
+        "primaryKeys": [
+          "region",
+          "sku"
+        ],
+        "row": {
+          "sku": "A-1",
+          "region": "eu",
+          "restocked_at": null
+        },
+        "casts": {
+          "restocked_at": "timestamp with time zone",
+          "region": "text"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"inventory\".\"region_stock\" SET \"restocked_at\" = CAST($1 AS timestamp with time zone) WHERE \"region\" = $2 AND \"sku\" = $3",
+        "bindValues": [
+          "2026-01-02T03:04:05Z",
+          "eu",
+          "A-1"
+        ]
+      }
+    },
+    {
+      "name": "update, null value",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "orders",
+        "column": "shipping_address",
+        "value": null,
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 3,
+          "shipping_address": "1 Main St"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"orders\" SET \"shipping_address\" = $1 WHERE \"id\" = $2",
+        "bindValues": [
+          null,
+          3
+        ]
+      }
+    },
+    {
+      "name": "update, boolean value",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "flags",
+        "column": "enabled",
+        "value": false,
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 9,
+          "enabled": true
+        },
+        "casts": {
+          "enabled": "boolean"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"flags\" SET \"enabled\" = CAST($1 AS boolean) WHERE \"id\" = $2",
+        "bindValues": [
+          false,
+          9
+        ]
+      }
+    },
+    {
+      "name": "update, fractional and negative numbers",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "readings",
+        "column": "delta",
+        "value": -0.25,
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": -4,
+          "delta": 1.5
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"readings\" SET \"delta\" = $1 WHERE \"id\" = $2",
+        "bindValues": [
+          -0.25,
+          -4
+        ]
+      }
+    },
+    {
+      "name": "update, object value (json)",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "all_types",
+        "column": "col_jsonb",
+        "value": {
+          "key": "value",
+          "nested": {
+            "list": [
+              1,
+              2,
+              3
+            ]
+          },
+          "ok": true
+        },
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 1,
+          "col_jsonb": {
+            "key": "old"
+          }
+        },
+        "casts": {
+          "col_jsonb": "jsonb"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"all_types\" SET \"col_jsonb\" = CAST($1 AS jsonb) WHERE \"id\" = $2",
+        "bindValues": [
+          {
+            "key": "value",
+            "nested": {
+              "list": [
+                1,
+                2,
+                3
+              ]
+            },
+            "ok": true
+          },
+          1
+        ]
+      }
+    },
+    {
+      "name": "update, identifiers containing double quotes",
+      "input": {
+        "fn": "update",
+        "schema": "my\"schema",
+        "table": "the \"table\"",
+        "column": "col\"umn",
+        "value": "x",
+        "primaryKeys": [
+          "p\"k",
+          "id"
+        ],
+        "row": {
+          "p\"k": "a",
+          "id": 2
+        },
+        "casts": {
+          "col\"umn": "text"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"my\"\"schema\".\"the \"\"table\"\"\" SET \"col\"\"umn\" = CAST($1 AS text) WHERE \"p\"\"k\" = $2 AND \"id\" = $3",
+        "bindValues": [
+          "x",
+          "a",
+          2
+        ]
+      }
+    },
+    {
+      "name": "update, no primary keys (degenerate WHERE)",
+      "input": {
+        "fn": "update",
+        "schema": "public",
+        "table": "t",
+        "column": "c",
+        "value": 1,
+        "primaryKeys": [],
+        "row": {
+          "c": 0
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"t\" SET \"c\" = $1 WHERE ",
+        "bindValues": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "setDefault, single pk",
+      "input": {
+        "fn": "setDefault",
+        "schema": "public",
+        "table": "users",
+        "column": "role",
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 5,
+          "role": "admin"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"public\".\"users\" SET \"role\" = DEFAULT WHERE \"id\" = $1",
+        "bindValues": [
+          5
+        ]
+      }
+    },
+    {
+      "name": "setDefault, composite pk",
+      "input": {
+        "fn": "setDefault",
+        "schema": "inventory",
+        "table": "region_stock",
+        "column": "qty",
+        "primaryKeys": [
+          "region",
+          "sku"
+        ],
+        "row": {
+          "region": "us",
+          "sku": "B-2",
+          "qty": 0
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"inventory\".\"region_stock\" SET \"qty\" = DEFAULT WHERE \"region\" = $1 AND \"sku\" = $2",
+        "bindValues": [
+          "us",
+          "B-2"
+        ]
+      }
+    },
+    {
+      "name": "setDefault, identifiers containing double quotes",
+      "input": {
+        "fn": "setDefault",
+        "schema": "a\"b",
+        "table": "c\"\"d",
+        "column": "\"e\"",
+        "primaryKeys": [
+          "\"id\""
+        ],
+        "row": {
+          "\"id\"": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"a\"\"b\".\"c\"\"\"\"d\" SET \"\"\"e\"\"\" = DEFAULT WHERE \"\"\"id\"\"\" = $1",
+        "bindValues": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "insert, no cast lookup, mixed values",
+      "input": {
+        "fn": "insert",
+        "schema": "public",
+        "table": "all_types",
+        "values": {
+          "col_text": "hello",
+          "col_integer": 42,
+          "col_double": 2.5,
+          "col_boolean": true,
+          "col_varchar": null,
+          "col_json": {
+            "a": [
+              1,
+              "two",
+              null
+            ]
+          }
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"public\".\"all_types\" (\"col_text\", \"col_integer\", \"col_double\", \"col_boolean\", \"col_varchar\", \"col_json\") VALUES ($1, $2, $3, $4, $5, $6)",
+        "bindValues": [
+          "hello",
+          42,
+          2.5,
+          true,
+          null,
+          {
+            "a": [
+              1,
+              "two",
+              null
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "insert, cast lookup for some columns",
+      "input": {
+        "fn": "insert",
+        "schema": "public",
+        "table": "products",
+        "values": {
+          "name": "Lamp",
+          "price": "19.99",
+          "category_id": 2,
+          "created_at": "2026-01-01 00:00:00"
+        },
+        "casts": {
+          "price": "numeric",
+          "category_id": "integer",
+          "created_at": "timestamp without time zone"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"public\".\"products\" (\"name\", \"price\", \"category_id\", \"created_at\") VALUES ($1, CAST($2 AS numeric), CAST($3 AS integer), CAST($4 AS timestamp without time zone))",
+        "bindValues": [
+          "Lamp",
+          "19.99",
+          2,
+          "2026-01-01 00:00:00"
+        ]
+      }
+    },
+    {
+      "name": "insert, single column",
+      "input": {
+        "fn": "insert",
+        "schema": "public",
+        "table": "categories",
+        "values": {
+          "name": "Books"
+        },
+        "casts": {
+          "name": "character varying"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"public\".\"categories\" (\"name\") VALUES (CAST($1 AS character varying))",
+        "bindValues": [
+          "Books"
+        ]
+      }
+    },
+    {
+      "name": "insert, identifiers containing double quotes",
+      "input": {
+        "fn": "insert",
+        "schema": "we\"ird",
+        "table": "ta\"ble",
+        "values": {
+          "a\"b": 1,
+          "plain": "x"
+        },
+        "casts": {
+          "a\"b": "integer"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"we\"\"ird\".\"ta\"\"ble\" (\"a\"\"b\", \"plain\") VALUES (CAST($1 AS integer), $2)",
+        "bindValues": [
+          1,
+          "x"
+        ]
+      }
+    },
+    {
+      "name": "insert, no values (degenerate)",
+      "input": {
+        "fn": "insert",
+        "schema": "public",
+        "table": "t",
+        "values": {}
+      },
+      "output": {
+        "sql": "INSERT INTO \"public\".\"t\" () VALUES ()",
+        "bindValues": []
+      }
+    },
+    {
+      "name": "delete, single pk",
+      "input": {
+        "fn": "delete",
+        "schema": "public",
+        "table": "orders",
+        "primaryKeys": [
+          "id"
+        ],
+        "row": {
+          "id": 11,
+          "total": "5.00",
+          "status": "pending"
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"public\".\"orders\" WHERE \"id\" = $1",
+        "bindValues": [
+          11
+        ]
+      }
+    },
+    {
+      "name": "delete, composite pk",
+      "input": {
+        "fn": "delete",
+        "schema": "inventory",
+        "table": "region_stock",
+        "primaryKeys": [
+          "region",
+          "sku"
+        ],
+        "row": {
+          "region": "eu",
+          "sku": "A-1",
+          "qty": 12
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"inventory\".\"region_stock\" WHERE \"region\" = $1 AND \"sku\" = $2",
+        "bindValues": [
+          "eu",
+          "A-1"
+        ]
+      }
+    },
+    {
+      "name": "delete, string and boolean pk values",
+      "input": {
+        "fn": "delete",
+        "schema": "public",
+        "table": "toggles",
+        "primaryKeys": [
+          "name",
+          "enabled"
+        ],
+        "row": {
+          "name": "it's",
+          "enabled": false
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"public\".\"toggles\" WHERE \"name\" = $1 AND \"enabled\" = $2",
+        "bindValues": [
+          "it's",
+          false
+        ]
+      }
+    },
+    {
+      "name": "delete, identifiers containing double quotes",
+      "input": {
+        "fn": "delete",
+        "schema": "s\"",
+        "table": "\"t",
+        "primaryKeys": [
+          "k\"1",
+          "k\"2"
+        ],
+        "row": {
+          "k\"1": 1,
+          "k\"2": "two"
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"s\"\"\".\"\"\"t\" WHERE \"k\"\"1\" = $1 AND \"k\"\"2\" = $2",
+        "bindValues": [
+          1,
+          "two"
+        ]
+      }
+    }
+  ]
+}

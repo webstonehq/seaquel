@@ -19,6 +19,7 @@
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { tick } from "svelte";
+	import { cellKey } from "$lib/values";
 
 	let { tabId }: { tabId: string } = $props();
 
@@ -113,7 +114,7 @@
 			if ((change.origin === "inline-edit" || change.origin === "set-default") && change.target?.primaryKeyValues && change.target.column) {
 				const rowIdx = tab.results.rows.findIndex((row) =>
 					primaryKeyColumns.every(
-						(pk, i) => pkIdx[i] !== -1 && String(row[pkIdx[i]]) === String(change.target!.primaryKeyValues![pk]),
+						(pk, i) => pkIdx[i] !== -1 && cellKey(row[pkIdx[i]]) === cellKey(change.target!.primaryKeyValues![pk]),
 					),
 				);
 				if (rowIdx >= 0) {
@@ -132,7 +133,7 @@
 			if (change.origin === "delete-row" && change.target?.primaryKeyValues) {
 				const rowIdx = tab.results.rows.findIndex((row) =>
 					primaryKeyColumns.every(
-						(pk, i) => pkIdx[i] !== -1 && String(row[pkIdx[i]]) === String(change.target!.primaryKeyValues![pk]),
+						(pk, i) => pkIdx[i] !== -1 && cellKey(row[pkIdx[i]]) === cellKey(change.target!.primaryKeyValues![pk]),
 					),
 				);
 				if (rowIdx >= 0) {

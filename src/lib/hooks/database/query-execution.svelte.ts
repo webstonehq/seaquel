@@ -15,7 +15,7 @@ import { log } from "$lib/utils/logger";
 import { resolveQuery } from "./resolve-query.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import type { PendingChangeOrigin } from "$lib/types";
-import { getAdapter } from "$lib/db";
+import { getEngineClient } from "$lib/engine";
 import { QueryCrudManager } from "./query-crud.svelte.js";
 import { dedupeColumnNames, rowToObject } from "$lib/utils/row-access";
 
@@ -363,7 +363,7 @@ export class QueryExecutionManager {
       throw new Error("No connection established");
     }
     const provider = cachedProvider ?? (await this.providers.getForType(connection.type));
-    const adapter = getAdapter(connection.type);
+    const client = getEngineClient(connection, this.state);
 
     // Handle utility/DDL statements (SET, PRAGMA, CREATE, ALTER, DROP, etc.)
     // These are not SELECT and not write queries — execute them without pagination.
@@ -447,7 +447,7 @@ export class QueryExecutionManager {
       const offset = (page - 1) * pageSize;
       const probeLimit = pageSize + 1;
 
-      paginatedQuery = adapter.paginateQuery(baseQuery, probeLimit, offset);
+      paginatedQuery = await client.paginate(baseQuery, probeLimit, offset);
 
       dbResult = await provider.select<Record<string, unknown>>(
         providerConnectionId,

@@ -9,13 +9,18 @@
 
 use serde::{Deserialize, Serialize};
 
+mod dialect;
+mod value;
+pub use dialect::*;
+pub use value::{Value, MAX_SAFE_INTEGER};
+
 /// Columnar result format for all drivers
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct QueryResult {
     pub columns: Vec<String>,
     #[cfg_attr(feature = "ts", ts(type = "unknown[][]"))]
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<Value>>,
 }
 
 /// A batch of rows emitted by a streaming query.
@@ -27,7 +32,7 @@ pub struct QueryResult {
 pub struct StreamBatch {
     pub columns: Option<Vec<String>>,
     #[cfg_attr(feature = "ts", ts(type = "unknown[][]"))]
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<Value>>,
     pub is_final: bool,
 }
 
@@ -168,7 +173,19 @@ pub struct BatchStatement {
     pub sql: String,
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
-    pub params: Vec<serde_json::Value>,
+    pub params: Vec<Value>,
+}
+
+/// Generated SQL plus the values for its placeholders. `bind_values` is absent
+/// for dialects that inline literals (MSSQL, DuckDB).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields))]
+pub struct SqlWithBindings {
+    pub sql: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
+    pub bind_values: Option<Vec<Value>>,
 }
 
 /// Events delivered to a client for one streaming query, over a Tauri channel

@@ -1,12 +1,12 @@
 import { toast } from "svelte-sonner";
 import { m } from "$lib/paraglide/messages.js";
+import { cellText, jsonReplacer } from "$lib/values";
 
 /**
  * Copy a single cell value to clipboard.
  */
 export async function copyCell(value: unknown): Promise<void> {
-  // oxlint-disable-next-line typescript/no-base-to-string
-  const text = value === null || value === undefined ? "" : String(value);
+  const text = cellText(value);
   await navigator.clipboard.writeText(text);
   toast.success(m.query_cell_copied());
 }
@@ -15,7 +15,7 @@ export async function copyCell(value: unknown): Promise<void> {
  * Copy an entire row as formatted JSON to clipboard.
  */
 export async function copyRowAsJSON(row: Record<string, unknown>): Promise<void> {
-  await navigator.clipboard.writeText(JSON.stringify(row, null, 2));
+  await navigator.clipboard.writeText(JSON.stringify(row, jsonReplacer, 2));
   toast.success(m.query_row_copied());
 }
 
@@ -36,8 +36,7 @@ export async function copyColumn(
   }
   const values = rows
     .map((row) => row[colIdx])
-    // oxlint-disable-next-line typescript/no-base-to-string
-    .map((v) => (v === null || v === undefined ? "" : String(v)))
+    .map(cellText)
     .join("\n");
   await navigator.clipboard.writeText(values);
   toast.success(m.query_column_copied());

@@ -5,6 +5,7 @@ import { splitSqlStatements } from "$lib/db/sql-parser.js";
 import { schemaToQueryBuilder } from "$lib/utils/schema-adapter";
 import { sampleQueries } from "$lib/config/sample-queries.js";
 import type { QueryEditorContext } from "./types.js";
+import { cellKey } from "$lib/values";
 
 export interface DiffModeState {
   original: string;
@@ -97,7 +98,7 @@ export function createViewState(ctx: QueryEditorContext, onCloseDiff?: () => voi
           st.primaryKeys.every(
             (pk, i) =>
               pkIdx[i] !== -1 &&
-              String(row[pkIdx[i]]) === String(change.target!.primaryKeyValues![pk]),
+              cellKey(row[pkIdx[i]]) === cellKey(change.target!.primaryKeyValues![pk]),
           ),
         );
         if (rowIdx >= 0) {
@@ -122,7 +123,7 @@ export function createViewState(ctx: QueryEditorContext, onCloseDiff?: () => voi
           st.primaryKeys.every(
             (pk, i) =>
               pkIdx[i] !== -1 &&
-              String(row[pkIdx[i]]) === String(change.target!.primaryKeyValues![pk]),
+              cellKey(row[pkIdx[i]]) === cellKey(change.target!.primaryKeyValues![pk]),
           ),
         );
         if (rowIdx >= 0) {

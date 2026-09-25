@@ -13,12 +13,18 @@ use std::sync::Arc;
 
 pub use seaquel_runtime::{BoxStream, MaybeSend, MaybeSync};
 pub use seaquel_types::{
-    BatchStatement, ConnectConfig, ConnectResult, DbError, DriverType, ExecuteResult,
-    QueryResult, StreamBatch,
+    BatchStatement, ConnectConfig, ConnectResult, DatabaseStatistics, DbError, DriverType,
+    ExecuteResult, ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
+    SqlWithBindings, StreamBatch, Value,
 };
 pub use tokio_util::sync::CancellationToken;
 
+pub mod crud;
+pub mod ddl;
+mod dialect;
 mod sqlx_driver;
+
+pub use dialect::{CastMap, Dialect, RowValues};
 
 #[doc(hidden)]
 pub mod __private {
@@ -43,20 +49,20 @@ pub fn max_query_rows() -> usize {
     })
 }
 
+/// The error an engine returns for an operation it hasn't implemented yet.
+pub fn not_supported(what: &str) -> DbError {
+    DbError {
+        message: format!("{what} is not supported by this engine yet"),
+        code: "NOT_SUPPORTED".to_string(),
+    }
+}
+
 /// An open connection (or pool) to one database.
 #[seaquel_runtime::async_trait]
 pub trait Driver: MaybeSend + MaybeSync {
-    async fn query(
-        &self,
-        sql: &str,
-        params: Vec<serde_json::Value>,
-    ) -> Result<QueryResult, DbError>;
+    async fn query(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError>;
 
-    async fn execute(
-        &self,
-        sql: &str,
-        params: Vec<serde_json::Value>,
-    ) -> Result<ExecuteResult, DbError>;
+    async fn execute(&self, sql: &str, params: Vec<Value>) -> Result<ExecuteResult, DbError>;
 
     /// Execute multiple statements in a single transaction on one connection.
     ///
@@ -82,7 +88,7 @@ pub trait Driver: MaybeSend + MaybeSync {
     fn query_stream<'a>(
         &'a self,
         sql: String,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
         cancel: CancellationToken,
     ) -> BoxStream<'a, Result<StreamBatch, DbError>> {
         let _ = cancel;
@@ -97,6 +103,40 @@ pub trait Driver: MaybeSend + MaybeSync {
     }
 
     async fn close(&self) -> Result<(), DbError>;
+
+    // ── Introspection ──
+    //
+    // Engines whose dialect still lives in TypeScript leave these alone; the
+    // frontend's TypeScript client handles them.
+
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
+        Err(not_supported("Listing schemas"))
+    }
+
+    async fn schema_tables(&self) -> Result<Vec<SchemaTable>, DbError> {
+        Err(not_supported("Loading the schema"))
+    }
+
+    async fn table_metadata(
+        &self,
+        _schema: &str,
+        _table: &str,
+    ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
+        Err(not_supported("Loading table metadata"))
+    }
+
+    async fn statistics(&self) -> Result<DatabaseStatistics, DbError> {
+        Err(not_supported("Database statistics"))
+    }
+
+    async fn explain(
+        &self,
+        _sql: &str,
+        _params: Vec<Value>,
+        _analyze: bool,
+    ) -> Result<ExplainResult, DbError> {
+        Err(not_supported("EXPLAIN"))
+    }
 }
 
 /// A database engine plugin: knows how to open [`Driver`]s for one `driver`
@@ -107,6 +147,11 @@ pub trait Engine: MaybeSend + MaybeSync {
     fn id(&self) -> &'static str;
 
     async fn open(&self, config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError>;
+
+    /// The engine's SQL dialect, when it has moved to Rust.
+    fn dialect(&self) -> Option<&dyn Dialect> {
+        None
+    }
 }
 
 /// The engines compiled into this build, keyed by id.
@@ -165,22 +210,14 @@ mod tests {
 
     #[seaquel_runtime::async_trait]
     impl Driver for FakeDriver {
-        async fn query(
-            &self,
-            _sql: &str,
-            _params: Vec<serde_json::Value>,
-        ) -> Result<QueryResult, DbError> {
+        async fn query(&self, _sql: &str, _params: Vec<Value>) -> Result<QueryResult, DbError> {
             Ok(QueryResult {
                 columns: vec!["a".into()],
-                rows: vec![vec![json!(1)]],
+                rows: vec![vec![Value::Int(1)]],
             })
         }
 
-        async fn execute(
-            &self,
-            _sql: &str,
-            _params: Vec<serde_json::Value>,
-        ) -> Result<ExecuteResult, DbError> {
+        async fn execute(&self, _sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
             Ok(ExecuteResult {
                 rows_affected: 0,
                 last_insert_id: None,
@@ -243,6 +280,162 @@ mod tests {
     }
 
     #[test]
+    fn introspection_defaults_are_not_supported() {
+        let d = FakeDriver;
+        let codes = [
+            block_on(d.list_schemas()).err().unwrap(),
+            block_on(d.schema_tables()).err().unwrap(),
+            block_on(d.table_metadata("public", "t")).err().unwrap(),
+            block_on(d.statistics()).err().unwrap(),
+            block_on(d.explain("SELECT 1", vec![], false))
+                .err()
+                .unwrap(),
+        ];
+        for err in codes {
+            assert_eq!(err.code, "NOT_SUPPORTED");
+            assert!(
+                err.message.ends_with("is not supported by this engine yet"),
+                "{}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn engines_have_no_dialect_by_default() {
+        assert!(FakeEngine("sqlite").dialect().is_none());
+    }
+
+    /// A dialect built from the generic builders, used as a trait object.
+    struct TinyDialect;
+
+    impl Dialect for TinyDialect {
+        fn quote_ident(&self, id: &str) -> String {
+            format!("\"{}\"", id.replace('"', "\"\""))
+        }
+        fn paginate(&self, sql: &str, limit: u64, offset: u64) -> String {
+            format!("{sql} LIMIT {limit} OFFSET {offset}")
+        }
+        fn build_update(
+            &self,
+            schema: &str,
+            table: &str,
+            column: &str,
+            value: Value,
+            pks: &[String],
+            row: &RowValues,
+            casts: Option<&CastMap>,
+        ) -> SqlWithBindings {
+            let qi = |s: &str| self.quote_ident(s);
+            crud::build_param_update(
+                schema,
+                table,
+                column,
+                value,
+                pks,
+                row,
+                &qi,
+                casts,
+                &crud::dollar_placeholder,
+            )
+        }
+        fn build_set_default(
+            &self,
+            schema: &str,
+            table: &str,
+            column: &str,
+            pks: &[String],
+            row: &RowValues,
+            casts: Option<&CastMap>,
+        ) -> SqlWithBindings {
+            let qi = |s: &str| self.quote_ident(s);
+            crud::build_param_set_default(
+                schema,
+                table,
+                column,
+                pks,
+                row,
+                &qi,
+                casts,
+                &crud::dollar_placeholder,
+            )
+        }
+        fn build_insert(
+            &self,
+            schema: &str,
+            table: &str,
+            values: &[(String, Value)],
+            casts: Option<&CastMap>,
+        ) -> SqlWithBindings {
+            let qi = |s: &str| self.quote_ident(s);
+            crud::build_param_insert(schema, table, values, &qi, casts, &crud::dollar_placeholder)
+        }
+        fn build_delete(
+            &self,
+            schema: &str,
+            table: &str,
+            pks: &[String],
+            row: &RowValues,
+            casts: Option<&CastMap>,
+        ) -> SqlWithBindings {
+            let qi = |s: &str| self.quote_ident(s);
+            crud::build_param_delete(schema, table, pks, row, &qi, casts, &crud::dollar_placeholder)
+        }
+        fn create_table(&self, def: &seaquel_types::CreateTableDefinition) -> String {
+            ddl::generate_create_table_ddl(def, &|s| self.quote_ident(s))
+        }
+        fn alter_table(
+            &self,
+            from: &seaquel_types::CreateTableDefinition,
+            to: &seaquel_types::CreateTableDefinition,
+        ) -> String {
+            let opts = ddl::AlterTableOptions {
+                qualify_drop_index: true,
+                ..Default::default()
+            };
+            ddl::generate_alter_table_sql(from, to, &|s| self.quote_ident(s), opts)
+        }
+        fn column_types(&self) -> Vec<seaquel_types::ColumnTypeInfo> {
+            vec![]
+        }
+        fn explain_sql(&self, sql: &str, analyze: bool) -> String {
+            format!("EXPLAIN {}{sql}", if analyze { "ANALYZE " } else { "" })
+        }
+    }
+
+    struct EngineWithDialect;
+
+    #[seaquel_runtime::async_trait]
+    impl Engine for EngineWithDialect {
+        fn id(&self) -> &'static str {
+            "postgres"
+        }
+        async fn open(&self, _config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError> {
+            Ok(Arc::new(FakeDriver))
+        }
+        fn dialect(&self) -> Option<&dyn Dialect> {
+            Some(&TinyDialect)
+        }
+    }
+
+    #[test]
+    fn a_dialect_is_usable_through_the_engine() {
+        let engine: Arc<dyn Engine> = Arc::new(EngineWithDialect);
+        let d = engine.dialect().unwrap();
+        let row: RowValues = vec![("id".into(), Value::Int(9))];
+        let out = d.build_delete("public", "we\"ird", &["id".to_string()], &row, None);
+        assert_eq!(
+            out.sql,
+            "DELETE FROM \"public\".\"we\"\"ird\" WHERE \"id\" = $1"
+        );
+        assert_eq!(out.bind_values, Some(vec![Value::Int(9)]));
+        assert_eq!(
+            d.paginate("SELECT 1", 10, 20),
+            "SELECT 1 LIMIT 10 OFFSET 20"
+        );
+    }
+
+    #[test]
     fn default_query_stream_emits_one_final_batch() {
         let driver = FakeDriver;
         let batches: Vec<_> = block_on(
@@ -253,7 +446,7 @@ mod tests {
         assert_eq!(batches.len(), 1);
         let batch = batches.into_iter().next().unwrap().unwrap();
         assert_eq!(batch.columns, Some(vec!["a".to_string()]));
-        assert_eq!(batch.rows, vec![vec![json!(1)]]);
+        assert_eq!(batch.rows, vec![vec![Value::Int(1)]]);
         assert!(batch.is_final);
     }
 }

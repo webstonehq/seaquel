@@ -41,7 +41,7 @@ jobs:
 
       - name: Generated TypeScript types are up to date
         run: |
-          cargo test -p seaquel-types --features ts --lib export_bindings --quiet
+          npm run types:gen
           if [ -n "$(git status --porcelain -- src/lib/types/generated)" ]; then
             git status --porcelain -- src/lib/types/generated
             echo "::error::src/lib/types/generated is stale. Run 'npm run types:gen' and commit the result."

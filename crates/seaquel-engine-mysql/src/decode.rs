@@ -132,3 +132,9 @@ pub fn to_json(v: MySqlValueRef) -> Result<JsonValue, DbError> {
 
     Ok(res)
 }
+
+/// Decode a cell through the JSON decoder above. `from_json_cell` never
+/// interprets `$sq`, so a JSON cell that happens to contain one stays `Json`.
+pub fn to_value(v: MySqlValueRef) -> Result<seaquel_engine::Value, DbError> {
+    to_json(v).map(seaquel_engine::Value::from_json_cell)
+}

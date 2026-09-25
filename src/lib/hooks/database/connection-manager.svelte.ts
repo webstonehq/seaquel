@@ -6,7 +6,7 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
-import { getAdapter, type DatabaseAdapter } from "$lib/db";
+import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine";
 import { createSshTunnelWithHostKeyCheck, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import type { ProviderRegistry } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
@@ -55,8 +55,7 @@ export class ConnectionManager {
     private onSchemaLoaded: (
       connectionId: string,
       schemas: SchemaTable[],
-      adapter: DatabaseAdapter,
-      providerConnectionId?: string,
+      client: EngineClient,
     ) => Promise<void>,
     private onCreateInitialTab: () => void,
     private onActiveConnectionChanged: () => void = () => {},
@@ -279,15 +278,11 @@ export class ConnectionManager {
       this.stateRestoration.initializeConnectionMaps(newConnection.id);
 
       // Load schema - wrap in try-catch to handle failures gracefully
-      const adapter = getAdapter(newConnection.type);
+      let client: EngineClient;
       let schemasWithTables: SchemaTable[];
       try {
-        const schemaProvider = await this.providers.getForType(newConnection.type);
-        const schemasWithTablesDbResult = await schemaProvider.select(
-          providerConnectionId,
-          adapter.getSchemaQuery(),
-        );
-        schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+        client = getEngineClient(newConnection, this.state);
+        schemasWithTables = await client.schemaTables();
       } catch (error) {
         // Cleanup: remove the connection we just added
         this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
@@ -307,12 +302,7 @@ export class ConnectionManager {
       };
 
       // Load column metadata asynchronously in the background
-      void this.onSchemaLoaded(
-        newConnection.id,
-        schemasWithTables,
-        adapter,
-        newConnection.providerConnectionId,
-      );
+      void this.onSchemaLoaded(newConnection.id, schemasWithTables, client);
 
       void log.info(`Schema loaded for ${newConnection.id}: ${schemasWithTables.length} tables`);
 
@@ -445,15 +435,11 @@ export class ConnectionManager {
       this.stateRestoration.ensureConnectionMapsExist(connectionId);
 
       // Fetch schemas - wrap in try-catch to handle failures gracefully
-      const adapter = getAdapter(existingConnection.type);
+      let client: EngineClient;
       let schemasWithTables: SchemaTable[];
       try {
-        const schemaProvider = await this.providers.getForType(existingConnection.type);
-        const schemasWithTablesDbResult = await schemaProvider.select(
-          providerConnectionId,
-          adapter.getSchemaQuery(),
-        );
-        schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+        client = getEngineClient(updatedConnection, this.state);
+        schemasWithTables = await client.schemaTables();
       } catch (error) {
         // Revert: set providerConnectionId back to undefined on the connection
         this.state.connections = this.state.connections.map((c) =>
@@ -471,7 +457,7 @@ export class ConnectionManager {
       };
 
       // Load column metadata asynchronously in the background
-      void this.onSchemaLoaded(connectionId, schemasWithTables, adapter, providerConnectionId);
+      void this.onSchemaLoaded(connectionId, schemasWithTables, client);
 
       // Set this as the active connection (only after schema loading succeeds)
       this.setActiveForProject(connectionId, existingConnection.projectId);
@@ -723,13 +709,14 @@ export class ConnectionManager {
     this.appendToOrder(projectId, connectionId);
 
     // Load schema
-    const adapter = getAdapter("duckdb");
-    const provider = await this.providers.getOrCreateDuckDB();
-    const schemasWithTablesDbResult = await provider.select(
-      providerConnectionId,
-      adapter.getSchemaQuery(),
-    );
-    const schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    const client = new TsEngineClient({
+      type: "duckdb",
+      connectionName: newConnection.name,
+      getConnectionId: () =>
+        this.state.connections.find((c) => c.id === connectionId)?.providerConnectionId,
+      getProvider: () => this.providers.getOrCreateDuckDB(),
+    });
+    const schemasWithTables = await client.schemaTables();
 
     // Set active connection
     this.setActiveForProject(connectionId, projectId);
@@ -741,7 +728,7 @@ export class ConnectionManager {
     };
 
     // Load column metadata asynchronously
-    void this.onSchemaLoaded(connectionId, schemasWithTables, adapter, providerConnectionId);
+    void this.onSchemaLoaded(connectionId, schemasWithTables, client);
 
     // Create initial query tab
     this.onCreateInitialTab();
@@ -889,14 +876,8 @@ export class ConnectionManager {
       throw new Error("Connection is not active");
     }
 
-    const adapter = getAdapter(connection.type);
-    const provider = await this.providers.getForType(connection.type);
-    const schemasWithTablesDbResult = await provider.select(
-      connection.providerConnectionId,
-      adapter.getSchemaQuery(),
-    );
-
-    const schemasWithTables = adapter.parseSchemaResult(schemasWithTablesDbResult as unknown[]);
+    const client = getEngineClient(connection, this.state);
+    const schemasWithTables = await client.schemaTables();
 
     // Preserve existing column/index metadata for tables that already exist
     // so that derived values like hasPrimaryKey don't briefly become false
@@ -917,12 +898,7 @@ export class ConnectionManager {
     };
 
     // Reload column metadata and wait for it to complete
-    await this.onSchemaLoaded(
-      connectionId,
-      mergedSchemas,
-      adapter,
-      connection.providerConnectionId,
-    );
+    await this.onSchemaLoaded(connectionId, mergedSchemas, client);
   }
 
   /**

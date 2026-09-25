@@ -1,3 +1,5 @@
+import { SqlDecimal, cellText, jsonReplacer, toHex } from "$lib/values";
+
 export type CellType =
   | "null"
   | "boolean"
@@ -24,6 +26,9 @@ export function detectCellType(value: unknown): CellType {
   if (value === null || value === undefined) return "null";
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return Number.isInteger(value) ? "integer" : "float";
+  if (typeof value === "bigint") return "integer";
+  if (value instanceof SqlDecimal) return "float";
+  if (value instanceof Uint8Array) return "binary";
   if (Array.isArray(value)) return "array";
   if (typeof value === "object") return "json";
   if (typeof value === "string") {
@@ -137,8 +142,19 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   second: "2-digit",
 });
 
-export function formatNumber(n: number): string {
+export function formatNumber(n: number | bigint): string {
   return numberFormatter.format(n);
+}
+
+/**
+ * Display text for an integer/float cell. bigint is formatted exactly (Intl
+ * accepts it), a `SqlDecimal` shows its exact text, anything else goes
+ * through `Number()` as before.
+ */
+export function formatCellNumber(value: unknown): string {
+  if (typeof value === "bigint") return formatNumber(value);
+  if (value instanceof SqlDecimal) return value.value;
+  return formatNumber(Number(value));
 }
 
 export function formatDate(s: string): string {
@@ -171,12 +187,21 @@ export function formatTime(s: string): string {
   return timeFormatter.format(d);
 }
 
-export function formatByteSize(s: string): string {
-  // Estimate decoded size from base64 length
-  const bytes = Math.ceil((s.length * 3) / 4);
+export function formatByteSize(value: Uint8Array | string): string {
+  // Bytes decoded by the providers know their size; MSSQL still sends base64
+  // strings, whose decoded size is estimated from the length.
+  const bytes = value instanceof Uint8Array ? value.byteLength : Math.ceil((value.length * 3) / 4);
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const BINARY_PREVIEW_BYTES = 16;
+
+/** Hex of the first 16 bytes, with "…" when there are more. */
+export function formatBinaryPreview(bytes: Uint8Array): string {
+  if (bytes.byteLength <= BINARY_PREVIEW_BYTES) return toHex(bytes);
+  return `${toHex(bytes.subarray(0, BINARY_PREVIEW_BYTES))}…`;
 }
 
 /**
@@ -276,7 +301,8 @@ export function truncateText(s: string, max: number = 50): string {
 }
 
 function stringify(value: unknown): string {
-  if (typeof value === "object" && value !== null) return JSON.stringify(value);
+  if (value instanceof Uint8Array || value instanceof SqlDecimal) return cellText(value);
+  if (typeof value === "object" && value !== null) return JSON.stringify(value, jsonReplacer);
   return String(value as string | number | bigint | boolean | symbol);
 }
 
@@ -287,16 +313,22 @@ function stringify(value: unknown): string {
 export function getFormattedCellText(value: unknown, columnType: CellType): string {
   if (value === null || value === undefined) return "NULL";
   if (columnType === "boolean") return "false"; // checkbox, fixed width
-  if (columnType === "integer" || columnType === "float") return formatNumber(Number(value));
+  if (columnType === "integer" || columnType === "float") return formatCellNumber(value);
   if (columnType === "date") return formatDate(stringify(value));
   if (columnType === "datetime") return formatDateTime(stringify(value));
   if (columnType === "time") return formatTime(stringify(value));
   if (columnType === "uuid") return stringify(value);
-  if (columnType === "json")
-    return truncateText(typeof value === "object" ? JSON.stringify(value) : stringify(value));
+  if (columnType === "json") return truncateText(stringify(value));
   if (columnType === "array" && Array.isArray(value))
-    return value.slice(0, 3).join("  ") + (value.length > 3 ? `  +${value.length - 3}` : "");
-  if (columnType === "binary") return formatByteSize(stringify(value));
+    return (
+      value.slice(0, 3).map(cellText).join("  ") +
+      (value.length > 3 ? `  +${value.length - 3}` : "")
+    );
+  if (columnType === "binary") {
+    if (value instanceof Uint8Array)
+      return `${formatBinaryPreview(value)} ${formatByteSize(value)}`;
+    return formatByteSize(stringify(value));
+  }
   if (columnType === "long_text") return truncateText(stringify(value), 80);
   return stringify(value);
 }

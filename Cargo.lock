@@ -5837,6 +5837,7 @@ dependencies = [
  "russh",
  "russh-keys",
  "seaquel-core",
+ "seaquel-rpc",
  "seaquel-types",
  "serde",
  "serde_json",
@@ -5938,10 +5939,13 @@ dependencies = [
 name = "seaquel-engine-postgres"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "rust_decimal",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-types",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
@@ -5968,6 +5972,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "seaquel-engine",
+ "seaquel-types",
  "serde_json",
  "uuid",
 ]
@@ -5978,6 +5983,21 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+]
+
+[[package]]
+name = "seaquel-rpc"
+version = "0.1.0"
+dependencies = [
+ "seaquel-core",
+ "seaquel-engine",
+ "seaquel-engine-sqlite",
+ "seaquel-runtime",
+ "seaquel-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ts-rs",
 ]
 
 [[package]]
@@ -6004,6 +6024,10 @@ dependencies = [
  "mime_guess",
  "rust-embed",
  "seaquel-core",
+ "seaquel-engine",
+ "seaquel-engine-postgres",
+ "seaquel-rpc",
+ "seaquel-runtime",
  "seaquel-types",
  "serde",
  "serde_json",
@@ -6018,6 +6042,7 @@ dependencies = [
 name = "seaquel-types"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "ts-rs",

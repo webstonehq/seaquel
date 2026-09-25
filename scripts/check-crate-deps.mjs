@@ -23,6 +23,13 @@ const CORE = new Set(["seaquel-core"]);
 /** Thin shells over Core. `seaquel` is the Tauri app in src-tauri/. */
 const INTERFACES = new Set(["seaquel", "seaquel-server"]);
 
+/**
+ * Code shared by the interfaces (the wire types and dispatcher behind the
+ * Tauri command and the server route). Like an interface it goes through
+ * Core; unlike one it may also use the `Dialect` trait from seaquel-engine.
+ */
+const INTERFACE_GLUE = new Set(["seaquel-rpc"]);
+
 /** Engine-agnostic test support. */
 const TESTKIT = new Set(["seaquel-engine-testkit"]);
 
@@ -45,12 +52,20 @@ const INTERFACE_MAY_USE = new Set([
   "seaquel-rpc",
 ]);
 
+const INTERFACE_GLUE_MAY_USE = new Set([
+  "seaquel-core",
+  "seaquel-engine",
+  "seaquel-runtime",
+  "seaquel-types",
+]);
+
 const isEngine = (name) => name.startsWith("seaquel-engine-") && !TESTKIT.has(name);
 
 function classify(name) {
   if (PURE.has(name)) return "pure";
   if (CORE.has(name)) return "core";
   if (INTERFACES.has(name)) return "interface";
+  if (INTERFACE_GLUE.has(name)) return "interface-glue";
   if (TESTKIT.has(name)) return "testkit";
   if (isEngine(name)) return "engine";
   if (DOMAIN_AND_INFRA.has(name)) return "domain";
@@ -93,6 +108,12 @@ export function checkCrateDeps(packages) {
         break;
       case "interface":
         forbid((d) => INTERFACE_MAY_USE.has(d), "interfaces reach everything through seaquel-core");
+        break;
+      case "interface-glue":
+        forbid(
+          (d) => INTERFACE_GLUE_MAY_USE.has(d),
+          "interface glue may only depend on seaquel-core, seaquel-engine, seaquel-runtime and seaquel-types",
+        );
         break;
       case "core":
         break;

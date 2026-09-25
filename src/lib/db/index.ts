@@ -10,7 +10,6 @@ import type {
 } from "$lib/types";
 import { MssqlAdapter } from "./mssql";
 import { MysqlAdapter } from "./mysql";
-import { PostgresAdapter } from "./postgres";
 import { SqliteAdapter } from "./sqlite";
 import { DuckDBAdapter } from "./duckdb";
 
@@ -158,7 +157,6 @@ const adapters: Partial<Record<DatabaseType, DatabaseAdapter>> = {
   mssql: new MssqlAdapter(),
   mysql: mysqlAdapter,
   mariadb: mysqlAdapter,
-  postgres: new PostgresAdapter(),
   sqlite: new SqliteAdapter(),
   duckdb: new DuckDBAdapter(),
 };

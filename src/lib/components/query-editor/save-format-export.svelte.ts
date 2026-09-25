@@ -57,7 +57,13 @@ export function createSaveFormatExport(ctx: QueryEditorContext) {
   function getContent(format: ExportFormat): string {
     const activeResult = ctx.getActiveResult();
     if (!activeResult) return format === "json" ? "[]" : "";
-    return getExportContent(format, activeResult.columns, activeResult.rows);
+    return getExportContent(
+      format,
+      activeResult.columns,
+      activeResult.rows,
+      undefined,
+      db.state.activeConnection?.type,
+    );
   }
 
   async function handleExport(format: ExportFormat) {

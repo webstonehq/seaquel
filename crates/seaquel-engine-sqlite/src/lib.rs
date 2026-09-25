@@ -1,5 +1,6 @@
 //! SQLite engine for Seaquel.
 
+mod bind;
 mod decode;
 mod driver;
 

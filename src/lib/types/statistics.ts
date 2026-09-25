@@ -1,77 +1,17 @@
 /**
  * Database statistics and dashboard types.
+ *
+ * The wire types are generated from `crates/seaquel-types` (see `./generated`);
+ * edit them there and run `npm run types:gen`.
  * @module types/statistics
  */
 
-/**
- * Information about a table's size and storage.
- */
-export interface TableSizeInfo {
-  /** Schema name */
-  schema: string;
-  /** Table name */
-  name: string;
-  /** Number of rows in the table */
-  rowCount: number;
-  /** Human-readable total size (e.g., "1.2 GB") */
-  totalSize: string;
-  /** Total size in bytes for sorting */
-  totalSizeBytes: number;
-  /** Human-readable data size */
-  dataSize?: string;
-  /** Human-readable index size */
-  indexSize?: string;
-}
+import type { DatabaseStatistics } from "./generated/DatabaseStatistics";
 
-/**
- * Information about index usage and performance.
- */
-export interface IndexUsageInfo {
-  /** Schema name */
-  schema: string;
-  /** Table the index belongs to */
-  table: string;
-  /** Index name */
-  indexName: string;
-  /** Human-readable index size */
-  size: string;
-  /** Number of index scans performed */
-  scans: number;
-  /** Number of rows read via this index */
-  rowsRead?: number;
-  /** Whether the index has never been used */
-  unused: boolean;
-}
-
-/**
- * Overview statistics for the entire database.
- */
-export interface DatabaseOverview {
-  /** Database name */
-  databaseName: string;
-  /** Human-readable total database size */
-  totalSize: string;
-  /** Total size in bytes */
-  totalSizeBytes?: number;
-  /** Number of tables */
-  tableCount: number;
-  /** Number of indexes */
-  indexCount: number;
-  /** Number of active connections (if available) */
-  connectionCount?: number;
-}
-
-/**
- * Complete statistics data for a database.
- */
-export interface DatabaseStatistics {
-  /** Overview metrics */
-  overview: DatabaseOverview;
-  /** Size information for each table */
-  tableSizes: TableSizeInfo[];
-  /** Usage information for each index */
-  indexUsage: IndexUsageInfo[];
-}
+export type { TableSizeInfo } from "./generated/TableSizeInfo";
+export type { IndexUsageInfo } from "./generated/IndexUsageInfo";
+export type { DatabaseOverview } from "./generated/DatabaseOverview";
+export type { DatabaseStatistics } from "./generated/DatabaseStatistics";
 
 /**
  * Represents an open statistics dashboard tab.

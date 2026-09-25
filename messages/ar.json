@@ -1068,6 +1068,8 @@
   "create_table_execute": "إنشاء جدول",
   "create_table_update": "تحديث الجدول",
   "create_table_copy_sql": "نسخ SQL",
+  "create_table_connect_to_preview": "اتصل لمعاينة SQL",
+  "create_table_preview_unavailable": "المعاينة غير متاحة — {reason}",
   "data_viewer_add_row": "إضافة صف",
   "data_viewer_add_column": "إضافة عمود",
   "data_viewer_refresh": "تحديث",

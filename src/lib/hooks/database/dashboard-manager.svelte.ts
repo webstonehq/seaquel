@@ -7,22 +7,14 @@ import type {
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import { getDatabase, dashboardsRepo } from "$lib/storage";
-import type { PersistedDashboard } from "$lib/storage/repository";
 import { log } from "$lib/utils/logger";
 import {
   createDashboardVersionEntry,
   resolveDashboardVersions,
 } from "$lib/utils/dashboard-versions";
+import { toPersistedDashboard } from "./dashboard-serialize.js";
 
-/**
- * Strip runtime-only state from a dashboard widget before persistence or serialization.
- */
-export function stripWidgetRuntimeState(
-  widget: DashboardWidget,
-): Omit<DashboardWidget, "result" | "isLoading" | "error" | "lastRefreshed"> {
-  const { result: _r, isLoading: _l, error: _e, lastRefreshed: _lr, ...rest } = widget;
-  return rest;
-}
+export { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
 /**
  * Manages dashboard CRUD operations, widget execution, and auto-refresh.
@@ -537,24 +529,7 @@ export class DashboardManager {
   private async persistDashboard(dashboard: Dashboard): Promise<void> {
     try {
       const db = await getDatabase();
-      // Strip runtime state from widgets before persisting
-      const widgetsForStorage = dashboard.widgets.map(stripWidgetRuntimeState);
-
-      const persisted: PersistedDashboard = {
-        id: dashboard.id,
-        projectId: dashboard.projectId,
-        name: dashboard.name,
-        viewport: JSON.stringify(dashboard.viewport),
-        widgets: JSON.stringify(widgetsForStorage),
-        dateFilter: dashboard.dateFilter ? JSON.stringify(dashboard.dateFilter) : null,
-        starred: dashboard.starred,
-        shared: dashboard.shared,
-        description: dashboard.description,
-        createdAt: dashboard.createdAt.toISOString(),
-        updatedAt: dashboard.updatedAt.toISOString(),
-      };
-
-      await dashboardsRepo.save(db, persisted);
+      await dashboardsRepo.save(db, toPersistedDashboard(dashboard));
     } catch (error) {
       void log.error("Failed to persist dashboard:", error);
     }

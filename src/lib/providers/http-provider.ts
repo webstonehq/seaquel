@@ -20,6 +20,7 @@ import {
   toRustConfig,
 } from "./wire";
 import { dedupeColumnNames } from "$lib/utils/row-access";
+import { decodeRows, encodeParams } from "$lib/values";
 
 export interface HttpProviderOptions {
   /**
@@ -39,11 +40,7 @@ export class HttpProvider implements DatabaseProvider {
   private readonly baseUrl: string;
 
   constructor(options: HttpProviderOptions = {}) {
-    const envUrl =
-      typeof import.meta !== "undefined" && import.meta.env
-        ? (import.meta.env.VITE_SEAQUEL_API_URL as string | undefined)
-        : undefined;
-    const baseUrl = options.baseUrl ?? envUrl ?? "";
+    const baseUrl = options.baseUrl ?? envApiBaseUrl() ?? "";
     // Empty string is allowed — same-origin mode. A non-empty value must be
     // http(s) so `wsUrl()` can derive the corresponding ws(s) scheme by
     // swapping the prefix. Anything else (e.g. `ftp://`, `localhost:8787`
@@ -78,13 +75,13 @@ export class HttpProvider implements DatabaseProvider {
     const result = await this.postJson<DbQueryResult>("/api/db/query", {
       connection_id: connectionId,
       sql,
-      values: params ?? [],
+      values: encodeParams(params),
     });
     // Columnar → row objects for frontend compatibility. Dedupe column names
     // first so `SELECT a.id, b.id FROM a JOIN b` preserves both values
     // (`{ id: ..., id_2: ... }`) rather than the second silently overwriting.
     const columns = dedupeColumnNames(result.columns);
-    return result.rows.map((row) => {
+    return decodeRows(result.rows).map((row) => {
       const obj: Record<string, unknown> = {};
       for (let i = 0; i < columns.length; i++) {
         obj[columns[i]] = row[i];
@@ -146,7 +143,7 @@ export class HttpProvider implements DatabaseProvider {
       // win at 1M+ row scale.
       const keepGoing = await onBatch({
         columns: event.columns,
-        rows: event.rows,
+        rows: decodeRows(event.rows),
         isFinal: event.is_final,
       });
 
@@ -167,7 +164,7 @@ export class HttpProvider implements DatabaseProvider {
           query_id: crypto.randomUUID(),
           connection_id: connectionId,
           sql,
-          values: params ?? [],
+          values: encodeParams(params),
         }),
       );
     };
@@ -245,7 +242,7 @@ export class HttpProvider implements DatabaseProvider {
     const result = await this.postJson<DbExecuteResult>("/api/db/execute", {
       connection_id: connectionId,
       sql,
-      values: params ?? [],
+      values: encodeParams(params),
     });
     return {
       rowsAffected: result.rows_affected,
@@ -259,42 +256,8 @@ export class HttpProvider implements DatabaseProvider {
 
   // -------- internals --------
 
-  private async postJson<T>(path: string, body: unknown): Promise<T> {
-    let response: Response;
-    try {
-      response = await fetch(this.baseUrl + path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      // Network-level failure (DNS, offline, CORS preflight). Surface as
-      // a CONNECTION_ERROR so the UI shows the same error class as a
-      // driver-level connect failure.
-      throw formatError({
-        code: "NETWORK_ERROR",
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-
-    if (!response.ok) {
-      // Server returns JSON `{message, code}` for DbError. On non-JSON
-      // failures (unlikely but possible — 5xx from a proxy, etc.) fall
-      // back to a generic HTTP error.
-      let errorBody: unknown;
-      try {
-        errorBody = await response.json();
-      } catch {
-        throw new Error(`HTTP_${response.status}: ${response.statusText}`);
-      }
-      throw formatError(errorBody);
-    }
-
-    // 200 OK — some endpoints return empty body (disconnect, test,
-    // transaction). Handle that without tripping JSON.parse.
-    const text = await response.text();
-    if (text.length === 0) return undefined as unknown as T;
-    return JSON.parse(text) as T;
+  private postJson<T>(path: string, body: unknown): Promise<T> {
+    return postJson<T>(this.baseUrl + path, body);
   }
 
   private wsUrl(path: string): string {
@@ -309,4 +272,55 @@ export class HttpProvider implements DatabaseProvider {
     }
     return `ws://localhost${path}`;
   }
+}
+
+/** `VITE_SEAQUEL_API_URL`, when the build sets one. */
+export function envApiBaseUrl(): string | undefined {
+  return typeof import.meta !== "undefined" && import.meta.env
+    ? (import.meta.env.VITE_SEAQUEL_API_URL as string | undefined)
+    : undefined;
+}
+
+/**
+ * POST a JSON body and parse the JSON reply. A non-2xx reply with a `DbError`
+ * body becomes an `Error` shaped `"CODE: message"` (via `formatError`); a
+ * network failure becomes `NETWORK_ERROR`. Shared by `HttpProvider` and the
+ * Rust `EngineClient`.
+ */
+export async function postJson<T>(url: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    // Network-level failure (DNS, offline, CORS preflight). Surface as
+    // a CONNECTION_ERROR so the UI shows the same error class as a
+    // driver-level connect failure.
+    throw formatError({
+      code: "NETWORK_ERROR",
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  if (!response.ok) {
+    // Server returns JSON `{message, code}` for DbError. On non-JSON
+    // failures (unlikely but possible — 5xx from a proxy, etc.) fall
+    // back to a generic HTTP error.
+    let errorBody: unknown;
+    try {
+      errorBody = await response.json();
+    } catch {
+      throw new Error(`HTTP_${response.status}: ${response.statusText}`);
+    }
+    throw formatError(errorBody);
+  }
+
+  // 200 OK — some endpoints return empty body (disconnect, test,
+  // transaction). Handle that without tripping JSON.parse.
+  const text = await response.text();
+  if (text.length === 0) return undefined as unknown as T;
+  return JSON.parse(text) as T;
 }

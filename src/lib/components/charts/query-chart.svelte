@@ -4,7 +4,8 @@
 		LinearGradient, Area, Bars, Spline
 	} from 'layerchart';
 	import type { ChartConfig } from '$lib/types';
-	import { createDefaultChartConfig } from './chart-utils';
+	import { chartXValue, createDefaultChartConfig } from './chart-utils';
+	import { toNumber } from '$lib/values';
 
 	type Props = {
 		columns: string[];
@@ -28,12 +29,12 @@
 			const item: Record<string, unknown> = { _index: index };
 
 			// Add x-axis value
-			item.x = xIdx !== -1 ? (row[xIdx] ?? `Row ${index + 1}`) : `Row ${index + 1}`;
+			item.x = xIdx !== -1 ? chartXValue(row[xIdx] ?? `Row ${index + 1}`) : `Row ${index + 1}`;
 
 			// Add y-axis values
 			chartConfig.yAxis.forEach((col, i) => {
 				const val = yIdx[i] === -1 ? undefined : row[yIdx[i]];
-				item[col] = typeof val === 'number' ? val : Number(val) || 0;
+				item[col] = typeof val === 'number' ? val : toNumber(val) || 0;
 			});
 
 			return item;
@@ -59,7 +60,7 @@
 				? 0
 				: typeof yValRaw === 'number'
 					? yValRaw
-					: Number(yValRaw) || 0;
+					: toNumber(yValRaw) || 0;
 			return { name, value };
 		})
 	);
@@ -165,7 +166,7 @@
 	{:else if chartConfig.type === 'scatter'}
 		<ScatterChart
 			data={chartData}
-			x={(d) => Number(d.x) || 0}
+			x={(d) => toNumber(d.x) || 0}
 			y={(d) => d[chartConfig.yAxis[0] ?? 'x'] as number}
 			axis
 			grid

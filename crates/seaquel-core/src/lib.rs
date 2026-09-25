@@ -14,10 +14,11 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use futures::StreamExt;
 use log::{debug, info};
 use seaquel_engine::{
-    BatchStatement, BoxStream, CancellationToken, ConnectConfig, ConnectResult, DbError, Driver,
-    Engine, EngineRegistry, ExecuteResult, QueryResult,
+    not_supported, BatchStatement, BoxStream, CancellationToken, ConnectConfig, ConnectResult,
+    DatabaseStatistics, DbError, Dialect, Driver, Engine, EngineRegistry, ExecuteResult,
+    ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
 };
-pub use seaquel_types::StreamEvent;
+pub use seaquel_types::{StreamEvent, Value};
 
 type StreamTokens = Mutex<HashMap<String, StreamEntry>>;
 
@@ -33,13 +34,21 @@ struct StreamEntry {
     closed: Arc<AtomicBool>,
 }
 
+/// An open connection: its driver, and the engine that opened it (for the
+/// engine's dialect).
+#[derive(Clone)]
+struct Connection {
+    engine: Arc<dyn Engine>,
+    driver: Arc<dyn Driver>,
+}
+
 pub struct Core {
     engines: EngineRegistry,
     /// `Arc` (not `Box`) so a handle can be cloned out of the map and the lock
     /// released before awaiting the driver. A long-running stream must never
     /// hold this lock, or it would block every other caller — disconnect,
     /// new queries, other connections — until it finished.
-    connections: RwLock<HashMap<String, Arc<dyn Driver>>>,
+    connections: RwLock<HashMap<String, Connection>>,
     /// Cancellation tokens of running streams, keyed by the client's query id.
     streams: StreamTokens,
     next_stream: AtomicU64,
@@ -119,12 +128,16 @@ impl Core {
         let driver_name = config.driver.as_str();
         info!(activity = "db.connect", driver = driver_name; "Connecting");
 
-        let driver = self.engines.open(config).await?;
+        let engine = self
+            .engines
+            .get(driver_name)
+            .ok_or_else(|| DbError::engine_not_available(driver_name))?;
+        let driver = engine.open(config).await?;
         let connection_id = format!("{}-{}", driver_name, uuid::Uuid::new_v4());
         self.connections
             .write()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(connection_id.clone(), driver);
+            .insert(connection_id.clone(), Connection { engine, driver });
 
         info!(activity = "db.connect", driver = driver_name, connection_id = connection_id.as_str(); "Connected");
         Ok(ConnectResult { connection_id })
@@ -151,12 +164,12 @@ impl Core {
     /// still stops when dropped).
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), DbError> {
         info!(activity = "db.disconnect", connection_id = connection_id; "Disconnecting");
-        let driver = self
+        let connection = self
             .connections
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(connection_id);
-        if let Some(driver) = driver {
+        if let Some(Connection { driver, .. }) = connection {
             self.cancel_streams_of(connection_id);
             // Waits for in-flight queries to return their pooled connections.
             // Cancelled streams return theirs as soon as they are polled.
@@ -172,7 +185,9 @@ impl Core {
             .len()
     }
 
-    fn driver(&self, connection_id: &str) -> Result<Arc<dyn Driver>, DbError> {
+    /// A clone of the connection's handles, so the lock is released before
+    /// anything is awaited.
+    fn connection(&self, connection_id: &str) -> Result<Connection, DbError> {
         self.connections
             .read()
             .unwrap_or_else(PoisonError::into_inner)
@@ -181,11 +196,38 @@ impl Core {
             .ok_or_else(|| DbError::connection_not_found(connection_id))
     }
 
+    fn driver(&self, connection_id: &str) -> Result<Arc<dyn Driver>, DbError> {
+        Ok(self.connection(connection_id)?.driver)
+    }
+
+    /// The engine that opened a connection.
+    pub fn engine(&self, connection_id: &str) -> Result<Arc<dyn Engine>, DbError> {
+        Ok(self.connection(connection_id)?.engine)
+    }
+
+    /// Run `f` with the connection's SQL dialect. `NOT_SUPPORTED` when the
+    /// engine's dialect still lives in TypeScript.
+    ///
+    /// A closure rather than a returned `&dyn Dialect`: the dialect borrows
+    /// from the engine, which is only reachable through a cloned `Arc` once
+    /// the connections lock is released. Dialects are pure, so `f` is sync.
+    pub fn with_dialect<R>(
+        &self,
+        connection_id: &str,
+        f: impl FnOnce(&dyn Dialect) -> R,
+    ) -> Result<R, DbError> {
+        let engine = self.engine(connection_id)?;
+        let dialect = engine
+            .dialect()
+            .ok_or_else(|| not_supported("The Rust SQL dialect"))?;
+        Ok(f(dialect))
+    }
+
     pub async fn query(
         &self,
         connection_id: &str,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<QueryResult, DbError> {
         let keyword = sql_keyword(sql);
         debug!(activity = "db.query", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Query");
@@ -196,7 +238,7 @@ impl Core {
         &self,
         connection_id: &str,
         sql: &str,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> Result<ExecuteResult, DbError> {
         let keyword = sql_keyword(sql);
         debug!(activity = "db.execute", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Execute");
@@ -210,6 +252,49 @@ impl Core {
     ) -> Result<(), DbError> {
         debug!(activity = "db.transaction", connection_id = connection_id, statements = statements.len(); "Executing transaction");
         self.driver(connection_id)?.transaction(statements).await
+    }
+
+    // ── Introspection ──
+
+    pub async fn list_schemas(&self, connection_id: &str) -> Result<Vec<String>, DbError> {
+        debug!(activity = "db.list_schemas", connection_id = connection_id; "List schemas");
+        self.driver(connection_id)?.list_schemas().await
+    }
+
+    pub async fn schema_tables(&self, connection_id: &str) -> Result<Vec<SchemaTable>, DbError> {
+        debug!(activity = "db.schema_tables", connection_id = connection_id; "Schema tables");
+        self.driver(connection_id)?.schema_tables().await
+    }
+
+    pub async fn table_metadata(
+        &self,
+        connection_id: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
+        debug!(activity = "db.table_metadata", connection_id = connection_id, schema = schema, table = table; "Table metadata");
+        self.driver(connection_id)?
+            .table_metadata(schema, table)
+            .await
+    }
+
+    pub async fn statistics(&self, connection_id: &str) -> Result<DatabaseStatistics, DbError> {
+        debug!(activity = "db.statistics", connection_id = connection_id; "Statistics");
+        self.driver(connection_id)?.statistics().await
+    }
+
+    pub async fn explain(
+        &self,
+        connection_id: &str,
+        sql: &str,
+        params: Vec<Value>,
+        analyze: bool,
+    ) -> Result<ExplainResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.explain", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), analyze = analyze; "Explain");
+        self.driver(connection_id)?
+            .explain(sql, params, analyze)
+            .await
     }
 
     /// Run a query and deliver its results as client events: zero or more
@@ -226,7 +311,7 @@ impl Core {
         query_id: String,
         connection_id: String,
         sql: String,
-        params: Vec<serde_json::Value>,
+        params: Vec<Value>,
     ) -> BoxStream<'_, StreamEvent> {
         let keyword = sql_keyword(&sql);
         debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Query stream");

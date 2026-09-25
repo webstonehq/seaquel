@@ -14,6 +14,7 @@ import {
   toRustConfig,
 } from "./wire";
 import { dedupeColumnNames } from "$lib/utils/row-access";
+import { decodeRows, encodeParams } from "$lib/values";
 
 export class UnifiedTauriProvider implements DatabaseProvider {
   readonly id = "unified-tauri";
@@ -50,14 +51,14 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       const result = await invoke<DbQueryResult>("db_query", {
         connectionId,
         sql,
-        values: params ?? [],
+        values: encodeParams(params),
       });
       // Convert columnar → row objects for frontend compatibility. Dedupe
       // column names first so `SELECT a.id, b.id FROM a JOIN b` preserves
       // both values (`{ id: ..., id_2: ... }`) instead of the second one
       // silently overwriting the first via `obj[col] = row[i]`.
       const columns = dedupeColumnNames(result.columns);
-      return result.rows.map((row) => {
+      return decodeRows(result.rows).map((row) => {
         const obj: Record<string, unknown> = {};
         for (let i = 0; i < columns.length; i++) {
           obj[columns[i]] = row[i];
@@ -123,7 +124,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       // with IPC for a select-all-rows query).
       const keepGoing = await onBatch({
         columns: event.columns,
-        rows: event.rows,
+        rows: decodeRows(event.rows),
         isFinal: event.is_final,
       });
 
@@ -186,7 +187,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       queryId,
       connectionId,
       sql,
-      values: params ?? [],
+      values: encodeParams(params),
       onEvent: channel,
     }).catch((error) => {
       finish({
@@ -219,7 +220,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       const result = await invoke<DbExecuteResult>("db_execute", {
         connectionId,
         sql,
-        values: params ?? [],
+        values: encodeParams(params),
       });
       return {
         rowsAffected: result.rows_affected,

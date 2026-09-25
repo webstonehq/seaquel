@@ -21,6 +21,7 @@ import type {
 } from "$lib/types";
 import { serializeRepo } from "$lib/types";
 import type { SavedWorkflow } from "$lib/types/workflow";
+import { toPersistedDashboard } from "./dashboard-serialize.js";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
 import type { ConnectionOverride } from "$lib/types";
@@ -460,20 +461,9 @@ export class PersistenceManager {
       const db = await getDatabase();
       const dashboards = this.state.dashboardsByProject[projectId] ?? [];
       for (const d of dashboards) {
-        const persisted: import("$lib/storage/repository").PersistedDashboard = {
-          id: d.id,
-          projectId: d.projectId,
-          name: d.name,
-          viewport: JSON.stringify(d.viewport),
-          widgets: JSON.stringify(d.widgets),
-          dateFilter: d.dateFilter ? JSON.stringify(d.dateFilter) : null,
-          starred: d.starred,
-          shared: d.shared,
-          description: d.description,
-          createdAt: d.createdAt.toISOString(),
-          updatedAt: d.updatedAt.toISOString(),
-        };
-        await dashboardsRepo.save(db, persisted);
+        // Through the shared helper so widget results (runtime rows, possibly
+        // bigint) are stripped exactly as on every other save path.
+        await dashboardsRepo.save(db, toPersistedDashboard(d));
       }
     } catch (error) {
       void log.error(`Failed to persist dashboards for project ${projectId}:`, error);

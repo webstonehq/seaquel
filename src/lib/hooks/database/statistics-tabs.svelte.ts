@@ -1,26 +1,22 @@
 import type { ActiveViewType } from "$lib/types/persisted";
-import type { StatisticsTab, DatabaseStatistics } from "$lib/types";
+import type { StatisticsTab } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
-import { getAdapter } from "$lib/db/index.js";
+import { getEngineClient } from "$lib/engine";
 
 /**
  * Manages Statistics dashboard tabs.
  * Tabs are organized per-project.
  */
 export class StatisticsTabManager extends BaseTabManager<StatisticsTab> {
-  private executeQuery: (query: string) => Promise<Record<string, unknown>[]>;
-
   constructor(
     state: DatabaseState,
     tabOrdering: TabOrderingManager,
     schedulePersistence: (projectId: string | null) => void,
     setActiveView: (view: ActiveViewType) => void,
-    executeQuery: (query: string) => Promise<Record<string, unknown>[]>,
   ) {
     super(state, tabOrdering, schedulePersistence, setActiveView);
-    this.executeQuery = executeQuery;
   }
 
   protected get accessors(): TabStateAccessors<StatisticsTab> {
@@ -98,49 +94,9 @@ export class StatisticsTabManager extends BaseTabManager<StatisticsTab> {
     this.updateTab(tabId, (t) => ({ ...t, isLoading: true, error: undefined }));
 
     try {
-      const adapter = getAdapter(connection.type);
-
-      // Execute all statistics queries in parallel
-      const [tableSizesRows, indexUsageRows, overviewRows] = await Promise.all([
-        adapter.getTableSizesQuery?.()
-          ? this.executeQuery(adapter.getTableSizesQuery!())
-          : Promise.resolve([]),
-        adapter.getIndexUsageQuery?.()
-          ? this.executeQuery(adapter.getIndexUsageQuery!())
-          : Promise.resolve([]),
-        adapter.getDatabaseOverviewQuery?.()
-          ? this.executeQuery(adapter.getDatabaseOverviewQuery!())
-          : Promise.resolve([]),
-      ]);
-
-      let tableSizes = adapter.parseTableSizesResult?.(tableSizesRows) ?? [];
-
-      // For databases that need per-table row count queries (like SQLite),
-      // fetch row counts separately
-      if (adapter.getTableRowCountQuery && tableSizes.length > 0) {
-        const rowCountPromises = tableSizes.map(async (table) => {
-          try {
-            const query = adapter.getTableRowCountQuery!(table.name, table.schema);
-            const result = await this.executeQuery(query);
-            const rowCount = Number((result[0] as { row_count?: number })?.row_count) || 0;
-            return { ...table, rowCount };
-          } catch {
-            return table; // Keep original if query fails
-          }
-        });
-        tableSizes = await Promise.all(rowCountPromises);
-      }
-
-      const statistics: DatabaseStatistics = {
-        overview: adapter.parseDatabaseOverviewResult?.(overviewRows) ?? {
-          databaseName: connection.name,
-          totalSize: "N/A",
-          tableCount: 0,
-          indexCount: 0,
-        },
-        tableSizes,
-        indexUsage: adapter.parseIndexUsageResult?.(indexUsageRows) ?? [],
-      };
+      // The tab's own connection, not the active one.
+      const client = getEngineClient(connection, this.state);
+      const statistics = await client.statistics();
 
       this.updateTab(tabId, (t) => ({
         ...t,

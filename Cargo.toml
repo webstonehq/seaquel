@@ -11,6 +11,7 @@ members = [
     "crates/seaquel-engine-mssql",
     "crates/seaquel-engine-duckdb",
     "crates/seaquel-core",
+    "crates/seaquel-rpc",
     "crates/seaquel-server",
     "src-tauri",
 ]

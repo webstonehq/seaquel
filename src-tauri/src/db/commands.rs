@@ -1,7 +1,8 @@
 use futures::StreamExt;
 use seaquel_core::{Core, StreamEvent};
+use seaquel_rpc::{EngineCall, EngineResponse};
 use seaquel_types::{
-    BatchStatement, ConnectConfig, ConnectResult, DbError, ExecuteResult, QueryResult,
+    BatchStatement, ConnectConfig, ConnectResult, DbError, ExecuteResult, QueryResult, Value,
 };
 use tauri::{command, ipc::Channel, State};
 
@@ -17,7 +18,7 @@ pub async fn db_connect(
 pub async fn db_query(
     connection_id: String,
     sql: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<Value>,
     core: State<'_, Core>,
 ) -> Result<QueryResult, DbError> {
     core.query(&connection_id, &sql, values).await
@@ -32,7 +33,7 @@ pub async fn db_query_stream(
     query_id: String,
     connection_id: String,
     sql: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<Value>,
     on_event: Channel<StreamEvent>,
     core: State<'_, Core>,
 ) -> Result<(), DbError> {
@@ -57,7 +58,7 @@ pub async fn db_cancel_stream(query_id: String, core: State<'_, Core>) -> Result
 pub async fn db_execute(
     connection_id: String,
     sql: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<Value>,
     core: State<'_, Core>,
 ) -> Result<ExecuteResult, DbError> {
     core.execute(&connection_id, &sql, values).await
@@ -70,6 +71,13 @@ pub async fn db_transaction(
     core: State<'_, Core>,
 ) -> Result<(), DbError> {
     core.transaction(&connection_id, statements).await
+}
+
+/// Introspection, EXPLAIN and SQL generation through the connection's Rust
+/// dialect. `NOT_SUPPORTED` means the engine's dialect is still in TypeScript.
+#[command]
+pub async fn db_engine(call: EngineCall, core: State<'_, Core>) -> Result<EngineResponse, DbError> {
+    seaquel_rpc::dispatch(&core, call).await
 }
 
 #[command]

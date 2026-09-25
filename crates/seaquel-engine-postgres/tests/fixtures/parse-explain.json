@@ -1,0 +1,1007 @@
+{
+  "cases": [
+    {
+      "name": "EXPLAIN: join",
+      "input": {
+        "sql": "SELECT c.name, e.kind FROM seaquel_fixtures.events e JOIN seaquel_fixtures.customers c ON c.id = e.customer_id WHERE e.kind = 'click'",
+        "analyze": false,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Hash Join",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 20.09,
+                  "Total Cost": 91.28,
+                  "Plan Rows": 1250,
+                  "Plan Width": 16,
+                  "Inner Unique": true,
+                  "Hash Cond": "(e.customer_id = c.id)",
+                  "Plans": [
+                    {
+                      "Node Type": "Bitmap Heap Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "events",
+                      "Alias": "e",
+                      "Startup Cost": 17.97,
+                      "Total Cost": 85.59,
+                      "Plan Rows": 1250,
+                      "Plan Width": 9,
+                      "Recheck Cond": "(kind = 'click'::text)",
+                      "Plans": [
+                        {
+                          "Node Type": "Bitmap Index Scan",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Index Name": "events_kind_idx",
+                          "Startup Cost": 0,
+                          "Total Cost": 17.66,
+                          "Plan Rows": 1250,
+                          "Plan Width": 0,
+                          "Index Cond": "(kind = 'click'::text)"
+                        }
+                      ]
+                    },
+                    {
+                      "Node Type": "Hash",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 1.5,
+                      "Total Cost": 1.5,
+                      "Plan Rows": 50,
+                      "Plan Width": 15,
+                      "Plans": [
+                        {
+                          "Node Type": "Seq Scan",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Relation Name": "customers",
+                          "Alias": "c",
+                          "Startup Cost": 0,
+                          "Total Cost": 1.5,
+                          "Plan Rows": 50,
+                          "Plan Width": 15
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Hash Join",
+          "startupCost": 20.09,
+          "totalCost": 91.28,
+          "planRows": 1250,
+          "planWidth": 16,
+          "joinType": "Inner",
+          "hashCond": "(e.customer_id = c.id)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Bitmap Heap Scan",
+              "relationName": "events",
+              "alias": "e",
+              "startupCost": 17.97,
+              "totalCost": 85.59,
+              "planRows": 1250,
+              "planWidth": 9,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "Bitmap Index Scan",
+                  "startupCost": 0,
+                  "totalCost": 17.66,
+                  "planRows": 1250,
+                  "planWidth": 0,
+                  "indexName": "events_kind_idx",
+                  "indexCond": "(kind = 'click'::text)",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Hash",
+              "startupCost": 1.5,
+              "totalCost": 1.5,
+              "planRows": 50,
+              "planWidth": 15,
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "relationName": "customers",
+                  "alias": "c",
+                  "startupCost": 0,
+                  "totalCost": 1.5,
+                  "planRows": 50,
+                  "planWidth": 15,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: sort (trailing semicolon stripped)",
+      "input": {
+        "sql": "SELECT id, kind FROM seaquel_fixtures.events ORDER BY created_at DESC, id;",
+        "analyze": false,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Sort",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 409.19,
+                  "Total Cost": 421.69,
+                  "Plan Rows": 5000,
+                  "Plan Width": 17,
+                  "Sort Key": [
+                    "created_at DESC",
+                    "id"
+                  ],
+                  "Plans": [
+                    {
+                      "Node Type": "Seq Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "events",
+                      "Alias": "events",
+                      "Startup Cost": 0,
+                      "Total Cost": 102,
+                      "Plan Rows": 5000,
+                      "Plan Width": 17
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Sort",
+          "startupCost": 409.19,
+          "totalCost": 421.69,
+          "planRows": 5000,
+          "planWidth": 17,
+          "sortKey": [
+            "created_at DESC",
+            "id"
+          ],
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "events",
+              "alias": "events",
+              "startupCost": 0,
+              "totalCost": 102,
+              "planRows": 5000,
+              "planWidth": 17,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: index scan",
+      "input": {
+        "sql": "SELECT * FROM seaquel_fixtures.events WHERE id = 42",
+        "analyze": false,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Index Scan",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Scan Direction": "Forward",
+                  "Index Name": "events_pkey",
+                  "Relation Name": "events",
+                  "Alias": "events",
+                  "Startup Cost": 0.28,
+                  "Total Cost": 8.3,
+                  "Plan Rows": 1,
+                  "Plan Width": 46,
+                  "Index Cond": "(id = 42)"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "relationName": "events",
+          "alias": "events",
+          "startupCost": 0.28,
+          "totalCost": 8.3,
+          "planRows": 1,
+          "planWidth": 46,
+          "indexName": "events_pkey",
+          "indexCond": "(id = 42)",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: seeded tables: join, aggregate and sort",
+      "input": {
+        "sql": "SELECT u.name, sum(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.name ORDER BY spent DESC",
+        "analyze": false,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Sort",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 17,
+                  "Total Cost": 17.04,
+                  "Plan Rows": 15,
+                  "Plan Width": 44,
+                  "Sort Key": [
+                    "(sum(o.total)) DESC"
+                  ],
+                  "Plans": [
+                    {
+                      "Node Type": "Aggregate",
+                      "Strategy": "Hashed",
+                      "Partial Mode": "Simple",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 16.52,
+                      "Total Cost": 16.7,
+                      "Plan Rows": 15,
+                      "Plan Width": 44,
+                      "Group Key": [
+                        "u.name"
+                      ],
+                      "Planned Partitions": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Hash Join",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Join Type": "Inner",
+                          "Startup Cost": 1.34,
+                          "Total Cost": 14.02,
+                          "Plan Rows": 500,
+                          "Plan Width": 19,
+                          "Inner Unique": true,
+                          "Hash Cond": "(o.user_id = u.id)",
+                          "Plans": [
+                            {
+                              "Node Type": "Seq Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Relation Name": "orders",
+                              "Alias": "o",
+                              "Startup Cost": 0,
+                              "Total Cost": 11,
+                              "Plan Rows": 500,
+                              "Plan Width": 11
+                            },
+                            {
+                              "Node Type": "Hash",
+                              "Parent Relationship": "Inner",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 1.15,
+                              "Total Cost": 1.15,
+                              "Plan Rows": 15,
+                              "Plan Width": 16,
+                              "Plans": [
+                                {
+                                  "Node Type": "Seq Scan",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "users",
+                                  "Alias": "u",
+                                  "Startup Cost": 0,
+                                  "Total Cost": 1.15,
+                                  "Plan Rows": 15,
+                                  "Plan Width": 16
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "Sort",
+          "startupCost": 17,
+          "totalCost": 17.04,
+          "planRows": 15,
+          "planWidth": 44,
+          "sortKey": [
+            "(sum(o.total)) DESC"
+          ],
+          "children": [
+            {
+              "id": "node-4",
+              "nodeType": "Aggregate",
+              "startupCost": 16.52,
+              "totalCost": 16.7,
+              "planRows": 15,
+              "planWidth": 44,
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Hash Join",
+                  "startupCost": 1.34,
+                  "totalCost": 14.02,
+                  "planRows": 500,
+                  "planWidth": 19,
+                  "joinType": "Inner",
+                  "hashCond": "(o.user_id = u.id)",
+                  "children": [
+                    {
+                      "id": "node-0",
+                      "nodeType": "Seq Scan",
+                      "relationName": "orders",
+                      "alias": "o",
+                      "startupCost": 0,
+                      "totalCost": 11,
+                      "planRows": 500,
+                      "planWidth": 11,
+                      "children": []
+                    },
+                    {
+                      "id": "node-2",
+                      "nodeType": "Hash",
+                      "startupCost": 1.15,
+                      "totalCost": 1.15,
+                      "planRows": 15,
+                      "planWidth": 16,
+                      "children": [
+                        {
+                          "id": "node-1",
+                          "nodeType": "Seq Scan",
+                          "relationName": "users",
+                          "alias": "u",
+                          "startupCost": 0,
+                          "totalCost": 1.15,
+                          "planRows": 15,
+                          "planWidth": 16,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: join",
+      "input": {
+        "sql": "SELECT c.name, e.kind FROM seaquel_fixtures.events e JOIN seaquel_fixtures.customers c ON c.id = e.customer_id WHERE e.kind = 'click'",
+        "analyze": true,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Hash Join",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 20.09,
+                  "Total Cost": 91.28,
+                  "Plan Rows": 1250,
+                  "Plan Width": 16,
+                  "Actual Startup Time": 0.06,
+                  "Actual Total Time": 0.263,
+                  "Actual Rows": 1250,
+                  "Actual Loops": 1,
+                  "Inner Unique": true,
+                  "Hash Cond": "(e.customer_id = c.id)",
+                  "Plans": [
+                    {
+                      "Node Type": "Bitmap Heap Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "events",
+                      "Alias": "e",
+                      "Startup Cost": 17.97,
+                      "Total Cost": 85.59,
+                      "Plan Rows": 1250,
+                      "Plan Width": 9,
+                      "Actual Startup Time": 0.043,
+                      "Actual Total Time": 0.124,
+                      "Actual Rows": 1250,
+                      "Actual Loops": 1,
+                      "Recheck Cond": "(kind = 'click'::text)",
+                      "Rows Removed by Index Recheck": 0,
+                      "Exact Heap Blocks": 52,
+                      "Lossy Heap Blocks": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Bitmap Index Scan",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Index Name": "events_kind_idx",
+                          "Startup Cost": 0,
+                          "Total Cost": 17.66,
+                          "Plan Rows": 1250,
+                          "Plan Width": 0,
+                          "Actual Startup Time": 0.034,
+                          "Actual Total Time": 0.034,
+                          "Actual Rows": 1250,
+                          "Actual Loops": 1,
+                          "Index Cond": "(kind = 'click'::text)"
+                        }
+                      ]
+                    },
+                    {
+                      "Node Type": "Hash",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 1.5,
+                      "Total Cost": 1.5,
+                      "Plan Rows": 50,
+                      "Plan Width": 15,
+                      "Actual Startup Time": 0.015,
+                      "Actual Total Time": 0.015,
+                      "Actual Rows": 50,
+                      "Actual Loops": 1,
+                      "Hash Buckets": 1024,
+                      "Original Hash Buckets": 1024,
+                      "Hash Batches": 1,
+                      "Original Hash Batches": 1,
+                      "Peak Memory Usage": 11,
+                      "Plans": [
+                        {
+                          "Node Type": "Seq Scan",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Relation Name": "customers",
+                          "Alias": "c",
+                          "Startup Cost": 0,
+                          "Total Cost": 1.5,
+                          "Plan Rows": 50,
+                          "Plan Width": 15,
+                          "Actual Startup Time": 0.007,
+                          "Actual Total Time": 0.01,
+                          "Actual Rows": 50,
+                          "Actual Loops": 1
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "Planning Time": 0.044,
+                "Triggers": [],
+                "Execution Time": 0.3
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Hash Join",
+          "startupCost": 20.09,
+          "totalCost": 91.28,
+          "planRows": 1250,
+          "planWidth": 16,
+          "joinType": "Inner",
+          "hashCond": "(e.customer_id = c.id)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Bitmap Heap Scan",
+              "relationName": "events",
+              "alias": "e",
+              "startupCost": 17.97,
+              "totalCost": 85.59,
+              "planRows": 1250,
+              "planWidth": 9,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "Bitmap Index Scan",
+                  "startupCost": 0,
+                  "totalCost": 17.66,
+                  "planRows": 1250,
+                  "planWidth": 0,
+                  "indexName": "events_kind_idx",
+                  "indexCond": "(kind = 'click'::text)",
+                  "children": [],
+                  "actualStartupTime": 0.034,
+                  "actualTotalTime": 0.034,
+                  "actualRows": 1250,
+                  "actualLoops": 1
+                }
+              ],
+              "actualStartupTime": 0.043,
+              "actualTotalTime": 0.124,
+              "actualRows": 1250,
+              "actualLoops": 1
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Hash",
+              "startupCost": 1.5,
+              "totalCost": 1.5,
+              "planRows": 50,
+              "planWidth": 15,
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "relationName": "customers",
+                  "alias": "c",
+                  "startupCost": 0,
+                  "totalCost": 1.5,
+                  "planRows": 50,
+                  "planWidth": 15,
+                  "children": [],
+                  "actualStartupTime": 0.007,
+                  "actualTotalTime": 0.01,
+                  "actualRows": 50,
+                  "actualLoops": 1
+                }
+              ],
+              "actualStartupTime": 0.015,
+              "actualTotalTime": 0.015,
+              "actualRows": 50,
+              "actualLoops": 1
+            }
+          ],
+          "actualStartupTime": 0.06,
+          "actualTotalTime": 0.263,
+          "actualRows": 1250,
+          "actualLoops": 1
+        },
+        "planningTime": 0.044,
+        "executionTime": 0.3,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: sort (trailing semicolon stripped)",
+      "input": {
+        "sql": "SELECT id, kind FROM seaquel_fixtures.events ORDER BY created_at DESC, id;",
+        "analyze": true,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Sort",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 409.19,
+                  "Total Cost": 421.69,
+                  "Plan Rows": 5000,
+                  "Plan Width": 17,
+                  "Actual Startup Time": 0.894,
+                  "Actual Total Time": 1.035,
+                  "Actual Rows": 5000,
+                  "Actual Loops": 1,
+                  "Sort Key": [
+                    "created_at DESC",
+                    "id"
+                  ],
+                  "Sort Method": "quicksort",
+                  "Sort Space Used": 417,
+                  "Sort Space Type": "Memory",
+                  "Plans": [
+                    {
+                      "Node Type": "Seq Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "events",
+                      "Alias": "events",
+                      "Startup Cost": 0,
+                      "Total Cost": 102,
+                      "Plan Rows": 5000,
+                      "Plan Width": 17,
+                      "Actual Startup Time": 0.003,
+                      "Actual Total Time": 0.294,
+                      "Actual Rows": 5000,
+                      "Actual Loops": 1
+                    }
+                  ]
+                },
+                "Planning Time": 0.017,
+                "Triggers": [],
+                "Execution Time": 1.186
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Sort",
+          "startupCost": 409.19,
+          "totalCost": 421.69,
+          "planRows": 5000,
+          "planWidth": 17,
+          "sortKey": [
+            "created_at DESC",
+            "id"
+          ],
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "events",
+              "alias": "events",
+              "startupCost": 0,
+              "totalCost": 102,
+              "planRows": 5000,
+              "planWidth": 17,
+              "children": [],
+              "actualStartupTime": 0.003,
+              "actualTotalTime": 0.294,
+              "actualRows": 5000,
+              "actualLoops": 1
+            }
+          ],
+          "actualStartupTime": 0.894,
+          "actualTotalTime": 1.035,
+          "actualRows": 5000,
+          "actualLoops": 1
+        },
+        "planningTime": 0.017,
+        "executionTime": 1.186,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: index scan",
+      "input": {
+        "sql": "SELECT * FROM seaquel_fixtures.events WHERE id = 42",
+        "analyze": true,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Index Scan",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Scan Direction": "Forward",
+                  "Index Name": "events_pkey",
+                  "Relation Name": "events",
+                  "Alias": "events",
+                  "Startup Cost": 0.28,
+                  "Total Cost": 8.3,
+                  "Plan Rows": 1,
+                  "Plan Width": 46,
+                  "Actual Startup Time": 0.005,
+                  "Actual Total Time": 0.005,
+                  "Actual Rows": 1,
+                  "Actual Loops": 1,
+                  "Index Cond": "(id = 42)",
+                  "Rows Removed by Index Recheck": 0
+                },
+                "Planning Time": 0.015,
+                "Triggers": [],
+                "Execution Time": 0.009
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "relationName": "events",
+          "alias": "events",
+          "startupCost": 0.28,
+          "totalCost": 8.3,
+          "planRows": 1,
+          "planWidth": 46,
+          "indexName": "events_pkey",
+          "indexCond": "(id = 42)",
+          "children": [],
+          "actualStartupTime": 0.005,
+          "actualTotalTime": 0.005,
+          "actualRows": 1,
+          "actualLoops": 1
+        },
+        "planningTime": 0.015,
+        "executionTime": 0.009,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: seeded tables: join, aggregate and sort",
+      "input": {
+        "sql": "SELECT u.name, sum(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.name ORDER BY spent DESC",
+        "analyze": true,
+        "rows": [
+          {
+            "QUERY PLAN": [
+              {
+                "Plan": {
+                  "Node Type": "Sort",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 17,
+                  "Total Cost": 17.04,
+                  "Plan Rows": 15,
+                  "Plan Width": 44,
+                  "Actual Startup Time": 0.164,
+                  "Actual Total Time": 0.165,
+                  "Actual Rows": 15,
+                  "Actual Loops": 1,
+                  "Sort Key": [
+                    "(sum(o.total)) DESC"
+                  ],
+                  "Sort Method": "quicksort",
+                  "Sort Space Used": 25,
+                  "Sort Space Type": "Memory",
+                  "Plans": [
+                    {
+                      "Node Type": "Aggregate",
+                      "Strategy": "Hashed",
+                      "Partial Mode": "Simple",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Startup Cost": 16.52,
+                      "Total Cost": 16.7,
+                      "Plan Rows": 15,
+                      "Plan Width": 44,
+                      "Actual Startup Time": 0.157,
+                      "Actual Total Time": 0.159,
+                      "Actual Rows": 15,
+                      "Actual Loops": 1,
+                      "Group Key": [
+                        "u.name"
+                      ],
+                      "Planned Partitions": 0,
+                      "HashAgg Batches": 1,
+                      "Peak Memory Usage": 24,
+                      "Disk Usage": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Hash Join",
+                          "Parent Relationship": "Outer",
+                          "Parallel Aware": false,
+                          "Async Capable": false,
+                          "Join Type": "Inner",
+                          "Startup Cost": 1.34,
+                          "Total Cost": 14.02,
+                          "Plan Rows": 500,
+                          "Plan Width": 19,
+                          "Actual Startup Time": 0.01,
+                          "Actual Total Time": 0.087,
+                          "Actual Rows": 500,
+                          "Actual Loops": 1,
+                          "Inner Unique": true,
+                          "Hash Cond": "(o.user_id = u.id)",
+                          "Plans": [
+                            {
+                              "Node Type": "Seq Scan",
+                              "Parent Relationship": "Outer",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Relation Name": "orders",
+                              "Alias": "o",
+                              "Startup Cost": 0,
+                              "Total Cost": 11,
+                              "Plan Rows": 500,
+                              "Plan Width": 11,
+                              "Actual Startup Time": 0.003,
+                              "Actual Total Time": 0.029,
+                              "Actual Rows": 500,
+                              "Actual Loops": 1
+                            },
+                            {
+                              "Node Type": "Hash",
+                              "Parent Relationship": "Inner",
+                              "Parallel Aware": false,
+                              "Async Capable": false,
+                              "Startup Cost": 1.15,
+                              "Total Cost": 1.15,
+                              "Plan Rows": 15,
+                              "Plan Width": 16,
+                              "Actual Startup Time": 0.005,
+                              "Actual Total Time": 0.005,
+                              "Actual Rows": 15,
+                              "Actual Loops": 1,
+                              "Hash Buckets": 1024,
+                              "Original Hash Buckets": 1024,
+                              "Hash Batches": 1,
+                              "Original Hash Batches": 1,
+                              "Peak Memory Usage": 9,
+                              "Plans": [
+                                {
+                                  "Node Type": "Seq Scan",
+                                  "Parent Relationship": "Outer",
+                                  "Parallel Aware": false,
+                                  "Async Capable": false,
+                                  "Relation Name": "users",
+                                  "Alias": "u",
+                                  "Startup Cost": 0,
+                                  "Total Cost": 1.15,
+                                  "Plan Rows": 15,
+                                  "Plan Width": 16,
+                                  "Actual Startup Time": 0.001,
+                                  "Actual Total Time": 0.003,
+                                  "Actual Rows": 15,
+                                  "Actual Loops": 1
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "Planning Time": 0.054,
+                "Triggers": [],
+                "Execution Time": 0.176
+              }
+            ]
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "Sort",
+          "startupCost": 17,
+          "totalCost": 17.04,
+          "planRows": 15,
+          "planWidth": 44,
+          "sortKey": [
+            "(sum(o.total)) DESC"
+          ],
+          "children": [
+            {
+              "id": "node-4",
+              "nodeType": "Aggregate",
+              "startupCost": 16.52,
+              "totalCost": 16.7,
+              "planRows": 15,
+              "planWidth": 44,
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Hash Join",
+                  "startupCost": 1.34,
+                  "totalCost": 14.02,
+                  "planRows": 500,
+                  "planWidth": 19,
+                  "joinType": "Inner",
+                  "hashCond": "(o.user_id = u.id)",
+                  "children": [
+                    {
+                      "id": "node-0",
+                      "nodeType": "Seq Scan",
+                      "relationName": "orders",
+                      "alias": "o",
+                      "startupCost": 0,
+                      "totalCost": 11,
+                      "planRows": 500,
+                      "planWidth": 11,
+                      "children": [],
+                      "actualStartupTime": 0.003,
+                      "actualTotalTime": 0.029,
+                      "actualRows": 500,
+                      "actualLoops": 1
+                    },
+                    {
+                      "id": "node-2",
+                      "nodeType": "Hash",
+                      "startupCost": 1.15,
+                      "totalCost": 1.15,
+                      "planRows": 15,
+                      "planWidth": 16,
+                      "children": [
+                        {
+                          "id": "node-1",
+                          "nodeType": "Seq Scan",
+                          "relationName": "users",
+                          "alias": "u",
+                          "startupCost": 0,
+                          "totalCost": 1.15,
+                          "planRows": 15,
+                          "planWidth": 16,
+                          "children": [],
+                          "actualStartupTime": 0.001,
+                          "actualTotalTime": 0.003,
+                          "actualRows": 15,
+                          "actualLoops": 1
+                        }
+                      ],
+                      "actualStartupTime": 0.005,
+                      "actualTotalTime": 0.005,
+                      "actualRows": 15,
+                      "actualLoops": 1
+                    }
+                  ],
+                  "actualStartupTime": 0.01,
+                  "actualTotalTime": 0.087,
+                  "actualRows": 500,
+                  "actualLoops": 1
+                }
+              ],
+              "actualStartupTime": 0.157,
+              "actualTotalTime": 0.159,
+              "actualRows": 15,
+              "actualLoops": 1
+            }
+          ],
+          "actualStartupTime": 0.164,
+          "actualTotalTime": 0.165,
+          "actualRows": 15,
+          "actualLoops": 1
+        },
+        "planningTime": 0.054,
+        "executionTime": 0.176,
+        "isAnalyze": true
+      }
+    }
+  ]
+}

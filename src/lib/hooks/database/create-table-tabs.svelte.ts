@@ -7,11 +7,15 @@ import type {
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
-import { getAdapter } from "$lib/db";
+import { getEngineClient } from "$lib/engine";
 import type { ProviderRegistry } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * Manages create table tabs: add, remove, set active.
@@ -167,24 +171,6 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
   }
 
   /**
-   * Generate the CREATE TABLE SQL from the current definition.
-   */
-  generateSql(tabId: string): string | null {
-    const tab = this.getProjectTabs().find((t) => t.id === tabId);
-    if (!tab) return null;
-
-    const connection = this.state.connections.find((c) => c.id === tab.connectionId);
-    if (!connection) return null;
-
-    const adapter = getAdapter(connection.type);
-    if (!adapter.generateCreateTableSql) return null;
-
-    const sql = adapter.generateCreateTableSql(tab.tableDefinition);
-    this.updateTab(tabId, (t) => ({ ...t, generatedSql: sql }));
-    return sql;
-  }
-
-  /**
    * Execute the CREATE TABLE DDL and refresh the schema.
    */
   async executeCreate(tabId: string): Promise<boolean> {
@@ -199,18 +185,20 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
       return false;
     }
 
-    const adapter = getAdapter(connection.type);
-
     let sql: string;
-    if (tab.isEditMode && tab.originalDefinition && adapter.generateAlterTableSql) {
-      sql = adapter.generateAlterTableSql(tab.originalDefinition, tab.tableDefinition);
-      if (sql === "-- No changes detected") {
-        toast.info("No changes to apply");
-        return false;
-      }
-    } else {
-      if (!adapter.generateCreateTableSql) return false;
-      sql = adapter.generateCreateTableSql(tab.tableDefinition);
+    try {
+      const client = getEngineClient(connection, this.state);
+      sql =
+        tab.isEditMode && tab.originalDefinition
+          ? await client.alterTable(tab.originalDefinition, tab.tableDefinition)
+          : await client.createTable(tab.tableDefinition);
+    } catch (error) {
+      errorToast(`Failed to generate SQL: ${errorText(error)}`);
+      return false;
+    }
+    if (sql === "-- No changes detected") {
+      toast.info("No changes to apply");
+      return false;
     }
 
     if (!sql) return false;
@@ -251,9 +239,7 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
       await this.refreshSchemaFn(connection.id);
       return true;
     } catch (error) {
-      errorToast(
-        `Failed to ${tab.isEditMode ? "update" : "create"} table: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      errorToast(`Failed to ${tab.isEditMode ? "update" : "create"} table: ${errorText(error)}`);
       return false;
     }
   }

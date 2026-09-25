@@ -1,0 +1,1434 @@
+{
+  "cases": [
+    {
+      "name": "public.users",
+      "input": {
+        "schema": "public",
+        "table": "users",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('users_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "email",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "role",
+            "data_type": "character varying",
+            "is_nullable": "YES",
+            "column_default": "'customer'::character varying",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "timestamp without time zone",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('users_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "role",
+          "type": "character varying",
+          "nullable": true,
+          "defaultValue": "'customer'::character varying",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "public.orders",
+      "input": {
+        "schema": "public",
+        "table": "orders",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('orders_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "user_id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": true,
+            "foreign_key_ref": "public.users.id"
+          },
+          {
+            "column_name": "total",
+            "data_type": "numeric",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "status",
+            "data_type": "character varying",
+            "is_nullable": "YES",
+            "column_default": "'pending'::character varying",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "shipping_address",
+            "data_type": "character varying",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "timestamp without time zone",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('orders_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "user_id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "total",
+          "type": "numeric",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true,
+          "defaultValue": "'pending'::character varying",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "shipping_address",
+          "type": "character varying",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "public.products",
+      "input": {
+        "schema": "public",
+        "table": "products",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('products_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "price",
+            "data_type": "numeric",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "category_id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": true,
+            "foreign_key_ref": "public.categories.id"
+          },
+          {
+            "column_name": "stock_quantity",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": "0",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "description",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "timestamp without time zone",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('products_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "price",
+          "type": "numeric",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "category_id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "categories",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "stock_quantity",
+          "type": "integer",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "public.order_items",
+      "input": {
+        "schema": "public",
+        "table": "order_items",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('order_items_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "order_id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": true,
+            "foreign_key_ref": "public.orders.id"
+          },
+          {
+            "column_name": "product_id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": true,
+            "foreign_key_ref": "public.products.id"
+          },
+          {
+            "column_name": "quantity",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "unit_price",
+            "data_type": "numeric",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('order_items_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "order_id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "product_id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "products",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "quantity",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "unit_price",
+          "type": "numeric",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "public.categories",
+      "input": {
+        "schema": "public",
+        "table": "categories",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('categories_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "description",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "timestamp without time zone",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('categories_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "public.all_types",
+      "input": {
+        "schema": "public",
+        "table": "all_types",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('all_types_id_seq'::regclass)",
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_smallint",
+            "data_type": "smallint",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_integer",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_bigint",
+            "data_type": "bigint",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_decimal",
+            "data_type": "numeric",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_numeric",
+            "data_type": "numeric",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_real",
+            "data_type": "real",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_double",
+            "data_type": "double precision",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_smallserial",
+            "data_type": "smallint",
+            "is_nullable": "NO",
+            "column_default": "nextval('all_types_col_smallserial_seq'::regclass)",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_serial",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "nextval('all_types_col_serial_seq'::regclass)",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_bigserial",
+            "data_type": "bigint",
+            "is_nullable": "NO",
+            "column_default": "nextval('all_types_col_bigserial_seq'::regclass)",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_boolean",
+            "data_type": "boolean",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_char",
+            "data_type": "character",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_varchar",
+            "data_type": "character varying",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_text",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_bytea",
+            "data_type": "bytea",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_date",
+            "data_type": "date",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_time",
+            "data_type": "time without time zone",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_time_tz",
+            "data_type": "time with time zone",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_timestamp",
+            "data_type": "timestamp without time zone",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_timestamp_tz",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_interval",
+            "data_type": "interval",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_uuid",
+            "data_type": "uuid",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_json",
+            "data_type": "json",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_jsonb",
+            "data_type": "jsonb",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_xml",
+            "data_type": "xml",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_inet",
+            "data_type": "inet",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_cidr",
+            "data_type": "cidr",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_macaddr",
+            "data_type": "macaddr",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_bit",
+            "data_type": "bit",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_bit_varying",
+            "data_type": "bit varying",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_point",
+            "data_type": "point",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_line",
+            "data_type": "line",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_lseg",
+            "data_type": "lseg",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_box",
+            "data_type": "box",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_path",
+            "data_type": "path",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_polygon",
+            "data_type": "polygon",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_circle",
+            "data_type": "circle",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_money",
+            "data_type": "money",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_int_array",
+            "data_type": "ARRAY",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_text_array",
+            "data_type": "ARRAY",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_tsquery",
+            "data_type": "tsquery",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "col_tsvector",
+            "data_type": "tsvector",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('all_types_id_seq'::regclass)",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_smallint",
+          "type": "smallint",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_integer",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bigint",
+          "type": "bigint",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_decimal",
+          "type": "numeric",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_numeric",
+          "type": "numeric",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_real",
+          "type": "real",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_double",
+          "type": "double precision",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_smallserial",
+          "type": "smallint",
+          "nullable": false,
+          "defaultValue": "nextval('all_types_col_smallserial_seq'::regclass)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_serial",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "nextval('all_types_col_serial_seq'::regclass)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bigserial",
+          "type": "bigint",
+          "nullable": false,
+          "defaultValue": "nextval('all_types_col_bigserial_seq'::regclass)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_boolean",
+          "type": "boolean",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_char",
+          "type": "character",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_varchar",
+          "type": "character varying",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_text",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bytea",
+          "type": "bytea",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_date",
+          "type": "date",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_time",
+          "type": "time without time zone",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_time_tz",
+          "type": "time with time zone",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_timestamp",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_timestamp_tz",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_interval",
+          "type": "interval",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_uuid",
+          "type": "uuid",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_json",
+          "type": "json",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_jsonb",
+          "type": "jsonb",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_xml",
+          "type": "xml",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_inet",
+          "type": "inet",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_cidr",
+          "type": "cidr",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_macaddr",
+          "type": "macaddr",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bit",
+          "type": "bit",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bit_varying",
+          "type": "bit varying",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_point",
+          "type": "point",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_line",
+          "type": "line",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_lseg",
+          "type": "lseg",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_box",
+          "type": "box",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_path",
+          "type": "path",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_polygon",
+          "type": "polygon",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_circle",
+          "type": "circle",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_money",
+          "type": "money",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_int_array",
+          "type": "ARRAY",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_text_array",
+          "type": "ARRAY",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_tsquery",
+          "type": "tsquery",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_tsvector",
+          "type": "tsvector",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.customers",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "customers",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "email",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.region_stock",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "region_stock",
+        "rows": [
+          {
+            "column_name": "region",
+            "data_type": "text",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "sku",
+            "data_type": "character varying",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "qty",
+            "data_type": "integer",
+            "is_nullable": "NO",
+            "column_default": "0",
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "user_id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": true,
+            "foreign_key_ref": "public.users.id"
+          },
+          {
+            "column_name": "attrs",
+            "data_type": "jsonb",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "region",
+          "type": "text",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "sku",
+          "type": "character varying",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "qty",
+          "type": "integer",
+          "nullable": false,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "user_id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "public",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "attrs",
+          "type": "jsonb",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.customer_names",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "customer_names",
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "integer",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "character varying",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false,
+            "is_foreign_key": false,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.customer_counts",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "customer_counts",
+        "rows": []
+      },
+      "output": []
+    }
+  ]
+}

@@ -22,7 +22,7 @@ use axum::{
 use futures::StreamExt;
 use log::warn;
 use seaquel_core::StreamEvent;
-use seaquel_types::DbError;
+use seaquel_types::{DbError, Value};
 use serde::Deserialize;
 
 use crate::AppState;
@@ -33,7 +33,7 @@ struct StreamRequest {
     connection_id: String,
     sql: String,
     #[serde(default)]
-    values: Vec<serde_json::Value>,
+    values: Vec<Value>,
 }
 
 pub async fn stream(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {

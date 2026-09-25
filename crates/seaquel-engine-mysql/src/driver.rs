@@ -25,6 +25,7 @@ seaquel_engine::impl_sqlx_driver!(
     MysqlDriver,
     MySql,
     sqlx::mysql::MySqlArguments,
-    decode_fn = crate::decode::to_json,
+    decode_fn = crate::decode::to_value,
+    bind_fn = crate::bind::bind_value,
     last_insert_id = |r: &sqlx::mysql::MySqlQueryResult| Some(r.last_insert_id() as i64)
 );

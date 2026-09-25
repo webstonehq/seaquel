@@ -1064,6 +1064,8 @@
   "create_table_execute": "Tabelle erstellen",
   "create_table_update": "Tabelle aktualisieren",
   "create_table_copy_sql": "SQL kopieren",
+  "create_table_connect_to_preview": "Verbinden, um SQL-Vorschau anzuzeigen",
+  "create_table_preview_unavailable": "Vorschau nicht verfügbar — {reason}",
   "data_viewer_add_row": "Zeile hinzufügen",
   "data_viewer_add_column": "Spalte hinzufügen",
   "data_viewer_refresh": "Aktualisieren",

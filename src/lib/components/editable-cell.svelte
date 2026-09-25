@@ -4,6 +4,7 @@
 	import FormattedCell from "$lib/components/formatted-cell.svelte";
 	import type { CellType } from "$lib/utils/cell-type";
 	import { inputTypeForCellType } from "$lib/utils/cell-type";
+	import { SqlDecimal, cellText, jsonReplacer, toHex } from "$lib/values";
 
 	interface Props {
 		value: unknown;
@@ -48,7 +49,11 @@
 
 	function formatValue(val: unknown): string {
 		if (val === null || val === undefined) return '';
-		if (typeof val === 'object') return JSON.stringify(val);
+		if (val instanceof Uint8Array) return toHex(val);
+		if (val instanceof SqlDecimal) return val.value;
+		// Compact on purpose: a single-line <input> would drop the newlines of
+		// pretty-printed JSON and turn every edit into a change.
+		if (typeof val === 'object') return JSON.stringify(val, jsonReplacer);
 		return String(val);
 	}
 
@@ -135,7 +140,7 @@
 		onkeydown={(e) => e.key === 'Enter' && startEditing()}
 	>
 		{#if pendingDisplay}
-			{value === null ? 'NULL' : value === undefined ? 'DEFAULT' : String(value)}
+			{value === null ? 'NULL' : value === undefined ? 'DEFAULT' : cellText(value)}
 		{:else}
 			<FormattedCell {value} {columnType} {isEditable} {onSave} />
 		{/if}

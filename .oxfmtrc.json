@@ -1,4 +1,8 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["src-tauri", "src/lib/types/generated"]
+  "ignorePatterns": [
+    "src-tauri",
+    "src/lib/types/generated",
+    "crates/seaquel-engine-postgres/tests/fixtures"
+  ]
 }

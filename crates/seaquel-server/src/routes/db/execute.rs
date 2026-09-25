@@ -1,5 +1,5 @@
 use axum::{extract::State, Json};
-use seaquel_types::ExecuteResult;
+use seaquel_types::{ExecuteResult, Value};
 use serde::Deserialize;
 
 use crate::{error::ApiError, AppState};
@@ -9,7 +9,7 @@ pub struct ExecuteRequest {
     pub connection_id: String,
     pub sql: String,
     #[serde(default)]
-    pub values: Vec<serde_json::Value>,
+    pub values: Vec<Value>,
 }
 
 pub async fn execute(

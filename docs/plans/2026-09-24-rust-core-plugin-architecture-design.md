@@ -3,6 +3,8 @@
 **Date:** 2026-09-24
 **Status:** Draft
 Phase 0: implemented (see 2026-09-24-rust-core-phase-0-plan.md).
+Phase 1: implemented (see 2026-09-25-rust-core-phase-1-plan.md). Its measured
+cost and the phase 2 estimate are in "Phase 1 cost" below.
 
 ## Problem
 
@@ -103,7 +105,7 @@ web) and loads `seaquel-wasm` for pure hot-path functions.
 |---|---|---|---|
 | `seaquel-types` | pure | Serde DTOs (`SchemaTable`, `QueryResult`, `Value`, `SavedQuery`, …) plus TS codegen (specta or ts-rs) | `src/lib/types/*`, `src/lib/types.ts` |
 | `seaquel-sql` | pure | Statement splitter, `{{param}}` extraction/substitution, comment stripping, read-only validator, sqlparser-rs AST helpers (column sources, visual AST, query builder parse/generate), tutorial lesson checks | `db/sql-parser.ts`, `db/query-params.ts`, `db/query-utils.ts`, `db/column-sources.ts`, `db/sql-ast-parser.ts`, `tutorial/sql-parser.ts`, `tutorial/criteria.ts`, `hooks/query-builder-*.ts`, `services/ai/context.ts` (`validateReadOnlyQuery`) |
-| `seaquel-engine` | pure + async traits | `Engine`, `Dialect`, `Connection` traits, `Capabilities`, `EngineRegistry`, `DbError` | `crates/seaquel-db/src/lib.rs`, `db/index.ts` |
+| `seaquel-engine` | pure + async traits | `Engine`, `Driver`, `Dialect` traits, generic DDL/CRUD builders, `EngineRegistry`, `DbError` | `crates/seaquel-db/src/lib.rs`, `db/index.ts` |
 | `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}` | plugin | Driver, value decoding, dialect, introspection, EXPLAIN parsing. The `mysql` crate also registers `mariadb` | `crates/seaquel-db/src/*`, `db/{postgres,mysql,sqlite,mssql,duckdb}.ts`, `db/alter-table.ts`, `db/crud-helpers.ts`, `db/parse-create-table.ts` |
 | `seaquel-engine-testkit` | dev | Conformance suite every engine must pass | new |
 | `seaquel-storage` | infra | App metadata SQLite: schema, migrations, repos, data dir resolution. Native (sqlx) and browser backends | `storage/*`, `src/lib/server/storage.ts`, `storage-guard.ts` |
@@ -116,7 +118,7 @@ web) and loads `seaquel-wasm` for pure hot-path functions.
 | `seaquel-core` | orchestrator | `Core`, `Workspace`, execution services, event bus | `hooks/database.svelte.ts` and managers (logic only) |
 | `seaquel-rpc` | interface glue | Request/response/event enums and a dispatcher onto `Workspace` | new; replaces `providers/*` and `/api/storage/*` |
 | `seaquel-wasm` | interface glue | wasm-bindgen exports of pure crates for the GUI | new |
-| `seaquel-engine-duckdb-wasm` | plugin (browser only) | `Connection` implemented over `@duckdb/duckdb-wasm` via wasm-bindgen. Reuses the DuckDB `Dialect` | `providers/duckdb-provider.ts` |
+| `seaquel-engine-duckdb-wasm` | plugin (browser only) | `Driver` implemented over `@duckdb/duckdb-wasm` via wasm-bindgen. Reuses the DuckDB `Dialect` | `providers/duckdb-provider.ts` |
 | `seaquel-browser` | interface glue | Core built for `wasm32-unknown-unknown` with browser plugins, exporting the RPC dispatcher | new |
 | `src-tauri`, `seaquel-server`, `seaquel-cli`, `seaquel-tui`, `seaquel-mcp` | interfaces | Transport, presentation, platform integration | existing plus new |
 
@@ -172,49 +174,60 @@ The TS `DatabaseAdapter` returns SQL strings and parses rows the caller
 fetched. The Rust engine does its own I/O and returns typed results. Callers
 ask for tables, not for the query that lists tables.
 
+The traits as shipped in phases 0 and 1 (`crates/seaquel-engine`). The first
+draft called the connection trait `Connection` and gave `Engine` an
+`aliases()` list and a `Capabilities` struct; neither exists. MariaDB is its own
+engine id served by the mysql crate, and missing features are `NOT_SUPPORTED`
+errors from default methods.
+
 ```rust
-pub trait Engine: Send + Sync {
-    fn id(&self) -> &'static str;               // "postgres"
-    fn aliases(&self) -> &'static [&'static str]; // ["mariadb"] for mysql
-    fn capabilities(&self) -> Capabilities;      // replaces the TS optional methods
-    fn dialect(&self) -> &dyn Dialect;
-    async fn open(&self, cfg: &ConnectConfig) -> Result<Box<dyn Connection>, DbError>;
+#[seaquel_runtime::async_trait]
+pub trait Engine: MaybeSend + MaybeSync {
+    fn id(&self) -> &'static str;                // "postgres"
+    async fn open(&self, config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError>;
+    fn dialect(&self) -> Option<&dyn Dialect> { None } // Some once the dialect is in Rust
 }
 
 /// Pure. No I/O, compiles to WASM.
-pub trait Dialect: Send + Sync {
+pub trait Dialect: MaybeSend + MaybeSync {
     fn quote_ident(&self, id: &str) -> String;
     fn paginate(&self, sql: &str, limit: u64, offset: u64) -> String;
-    fn build_insert(&self, t: &TableRef, values: &Row, casts: &CastLookup) -> SqlWithBindings;
-    fn build_update(&self, /* … */) -> SqlWithBindings;
+    fn build_update(&self, schema: &str, table: &str, column: &str, value: Value,
+                    pks: &[String], row: &RowValues, casts: Option<&CastMap>) -> SqlWithBindings;
+    fn build_set_default(&self, /* … */) -> SqlWithBindings;
+    fn build_insert(&self, schema: &str, table: &str, values: &[(String, Value)],
+                    casts: Option<&CastMap>) -> SqlWithBindings;
     fn build_delete(&self, /* … */) -> SqlWithBindings;
-    fn create_table(&self, def: &TableDefinition) -> Result<String, DbError>;
-    fn alter_table(&self, from: &TableDefinition, to: &TableDefinition) -> Result<Vec<String>, DbError>;
-    fn parse_create_table(&self, ddl: &str) -> Result<TableDefinition, DbError>;
-    fn column_types(&self) -> &'static [ColumnTypeInfo];
-    fn sql_dialect(&self) -> Box<dyn sqlparser::dialect::Dialect>;
+    fn create_table(&self, def: &CreateTableDefinition) -> String;
+    fn alter_table(&self, from: &CreateTableDefinition, to: &CreateTableDefinition) -> String;
+    fn column_types(&self) -> Vec<ColumnTypeInfo>;
     fn explain_sql(&self, sql: &str, analyze: bool) -> String;
-    fn parse_explain(&self, result: &QueryResult, analyze: bool) -> Result<ExplainResult, DbError>;
+    // Phase 2 adds parse_create_table and sql_dialect with seaquel-sql.
 }
 
-#[async_trait]
-pub trait Connection: Send + Sync {
-    async fn query(&self, sql: &str, params: &[Value]) -> Result<QueryResult, DbError>;
-    async fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult, DbError>;
-    async fn transaction(&self, stmts: Vec<Statement>) -> Result<(), DbError>;
+#[seaquel_runtime::async_trait]
+pub trait Driver: MaybeSend + MaybeSync {
+    async fn query(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError>;
+    async fn execute(&self, sql: &str, params: Vec<Value>) -> Result<ExecuteResult, DbError>;
+    async fn transaction(&self, stmts: Vec<BatchStatement>) -> Result<(), DbError>; // default: TRANSACTION_NOT_SUPPORTED
     fn query_stream(&self, sql: String, params: Vec<Value>, cancel: CancellationToken)
         -> BoxStream<'_, Result<StreamBatch, DbError>>;
+    async fn close(&self) -> Result<(), DbError>;
 
-    // Introspection: the engine picks the SQL.
-    async fn schemas(&self) -> Result<Vec<String>, DbError>;
-    async fn tables(&self) -> Result<Vec<SchemaTable>, DbError>;
-    async fn columns(&self, t: &TableRef) -> Result<Vec<SchemaColumn>, DbError>;
-    async fn indexes(&self, t: &TableRef) -> Result<Vec<SchemaIndex>, DbError>;
-    async fn statistics(&self) -> Result<DatabaseStatistics, DbError>; // gated by Capabilities
-
-    async fn close(&self);
+    // Introspection: the engine picks the SQL. Defaults return NOT_SUPPORTED.
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError>;
+    async fn schema_tables(&self) -> Result<Vec<SchemaTable>, DbError>;
+    async fn table_metadata(&self, schema: &str, table: &str)
+        -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError>;
+    async fn statistics(&self) -> Result<DatabaseStatistics, DbError>;
+    async fn explain(&self, sql: &str, params: Vec<Value>, analyze: bool) -> Result<ExplainResult, DbError>;
 }
 ```
+
+EXPLAIN parsing sits on the driver, next to the query it runs, not on the
+dialect. The generic builders in `seaquel-engine` (`ddl.rs`, `crud.rs`) are
+ports of `alter-table.ts` and the parameterized half of `crud-helpers.ts`; a
+dialect passes them its quote function, placeholder style and options.
 
 Things this fixes along the way, which are cheaper to do now than after five
 engines implement the trait:
@@ -222,9 +235,17 @@ engines implement the trait:
 - **Typed values.** Cells are plain `serde_json::Value` today. Bigints lose
   precision in the browser, bytea arrives as a number array (base64 for MSSQL),
   and DuckDB lists/structs become Debug strings. `seaquel_types::Value` is an
-  enum (`Null`, `Bool`, `Int`, `BigInt`, `Float`, `Decimal`, `Text`, `Bytes`,
-  `Json`, `Date`, `Time`, `Timestamp`, `Uuid`, `Array`, `Other { type_name, text }`)
-  with one wire encoding. The CLI needs types to format output anyway.
+  enum with one wire encoding. The CLI needs types to format output anyway.
+  Phase 1 shipped a smaller enum than first sketched: `Null`, `Bool`, `Int`
+  (i64), `Float`, `Decimal` (exact text), `Text`, `Bytes`, `Json`, `Array`.
+  Dates, times, UUIDs and other types stay `Text` as before. On the wire, values
+  JavaScript holds exactly are plain JSON, and the rest are tagged
+  `{"$sq": kind, "v": …}` (`bigint`, `float` for NaN/±inf, `decimal`, `bytes`
+  as base64, `json`). The TS providers decode tags into `bigint`, `Uint8Array`
+  and `SqlDecimal` before the UI sees a row. The full table is in the phase 1
+  plan under "Value wire format"; the code is `seaquel-types/src/value.rs` and
+  `src/lib/values.ts`. All five engines produce `Value` now. Postgres decodes
+  natively; the others still wrap their JSON decoders in `Value::from_json_cell`.
 - **Parameter binding.** `impl_sqlx_driver!` binds every number as `f64`, so
   large integer keys get corrupted in `WHERE pk = $1`. Typed `Value` fixes that.
 - **Cancellation.** Replace the `AtomicBool` map on `ConnectionManager` with a
@@ -323,6 +344,19 @@ localStorage) and client-side write queues. After the move:
   lifetime and never persists them.
 
 ## The RPC surface for GUIs
+
+**Status after phase 1.** `seaquel-rpc` exists, earlier than planned and
+narrower. It is connection-scoped rather than workspace-scoped: an `EngineCall
+{ connection_id, request: EngineRequest }` covers the dialect and
+introspection calls (list schemas, tables, table metadata, statistics,
+EXPLAIN, column types, paginate, the four CRUD builders, create and alter
+table) and returns an `EngineResponse`. `dispatch` runs it against `Core`.
+Desktop exposes it as the `db_engine` Tauri command and web as
+`POST /api/db/engine`, whose top-level `connection_id` lets the Node proxy scope
+it like the other `/api/db/*` routes. Queries, streaming and storage still use
+the phase 0 commands. In TS, `EngineClient` (`src/lib/engine`) has a Rust
+implementation over this endpoint and a TS one over the old adapters, picked
+per engine. The workspace-level `Request` below is still the target.
 
 The CLI, TUI and MCP server link `seaquel-core` directly. The Svelte GUI can't,
 so `seaquel-rpc` defines the calls once:
@@ -526,7 +560,9 @@ gets a test suite that doesn't need the layers above it.
 - **Parity fixtures during migration.** The TS adapters are pure, so a vitest
   script can record their outputs for a corpus of inputs as JSON. The Rust
   dialect tests assert the same output. This is how we port 5k lines without
-  guessing. Delete the fixtures once the TS side is gone.
+  guessing. Phase 1 kept the Postgres fixtures after deleting the TS adapter,
+  as frozen regression tests (no `insta`; plain JSON files read with
+  `include_str!`).
 - **Engine conformance** (`seaquel-engine-testkit`): a function per behaviour
   (introspection shape, round-trip of every column type in the fixture schema,
   streaming and cancel, transactions, CRUD against a real row, EXPLAIN on a
@@ -566,7 +602,8 @@ that's fine.
   checked by parity fixtures and the conformance suite.
 - Add introspection and dialect RPC calls.
 - In TS, `getAdapter("postgres")` becomes a shim over those calls, so the
-  components don't change.
+  components don't change. (As built: the call sites moved to an async
+  `EngineClient` instead, and `getAdapter("postgres")` now throws.)
 - Introduce the typed `Value` for Postgres.
 - Measure the effort and adjust the plan before continuing.
 
@@ -616,6 +653,163 @@ that's fine.
 - Unpin the demo. `npm run demo:update` in the website repo builds it the same
   way as before, with the WASM bundle included.
 - This can start any time after phase 5, in parallel with phases 6 and 7.
+
+## Phase 1 cost
+
+Source: `2026-09-25-phase-1-effort.md`, plus line counts measured against a
+copy of the tree taken before phase 1 started. Times are implementer wall-clock
+as logged, including review fixes where the log says so. They don't include
+writing the plan, the research before it, the review passes themselves, or the
+owner's checkpoint reviews. Read them as relative sizes, not calendar time.
+
+### Time per part
+
+| Part | Tasks | Time |
+|---|---|---|
+| A. Contracts (dialect types, `Value`) | 1–2 | ~40 min |
+| B. Parity fixtures | 3 | ~30 min |
+| C. Rust dialect, introspection, native values | 4–7 | ~2.5 h (Task 7 alone ~70 min, half of it review fixes) |
+| D. Core and `seaquel-rpc` | 8–9 | ~45 min |
+| E. Frontend (`EngineClient`, value-aware UI, call sites, delete adapter) | 10–13 | ~2.5 h |
+| F. CI, docs | 14–16 | not logged |
+| **Total logged** | | **~7 h** |
+
+The work that made values exact (Tasks 2, 7 and 11) took about 2.6 h, over a
+third of the total, and produced the worst bug of the phase.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~3,140 | ~400 (net ~+2,750) |
+| Rust, tests (test files, testkit, inline `#[cfg(test)]`) | ~4,150 | ~30 |
+| TypeScript/Svelte, production | ~1,470 | ~1,250 (net ~+220) |
+| TypeScript, tests | ~1,930 | — |
+| Generated TS types | ~440 | — |
+
+The fixture recorder (~1,160 lines of TS) was written in Task 3 and deleted in
+Task 13, so it's in neither column.
+
+Where the production Rust went:
+
+- **Postgres-specific, ~1,060:** `dialect.rs` ~160, `introspect.rs` ~440,
+  `numeric.rs` ~270, `bind.rs` ~170, driver and lib ~70. `decode.rs` shrank by
+  ~50 in the rewrite.
+- **Generic and reusable, ~640:** `seaquel-engine` `ddl.rs` ~360, `crud.rs`
+  ~170, `dialect.rs` 65, trait defaults ~45.
+- **Types, ~660:** `seaquel-types` dialect types ~380, `Value` ~260.
+- **RPC and interfaces, ~245:** `seaquel-rpc` 210, server route and error
+  mapping, Tauri command.
+- **Core ~85, other engines' value plumbing ~60** (MySQL and SQLite binders;
+  MSSQL and DuckDB binders got shorter).
+
+On the TS side, `postgres.ts` (473) went, the four dialect type files lost
+~265 lines to generated re-exports, and the call sites lost roughly 350 lines
+of adapter and provider plumbing. New code: `src/lib/engine` ~620, `values.ts`
+~240, and small helpers (`latest-debounced.ts`, `dashboard-serialize.ts`).
+
+So 473 lines of TS dialect became about 600 lines of Rust dialect and
+introspection. The rest of the Rust is either one-time (types, `Value`,
+builders, RPC, Core) or had no TS counterpart (the NUMERIC codec, the binder).
+
+### Parity fixtures
+
+110 recorded cases plus 11 hand-written bug-fix cases. 108 of them ran as
+parity checks against the port: 78 dialect cases and 30 introspection cases.
+**None caught a real difference.** Both ports passed on their first green run.
+The dialect and parsers were mechanical to port.
+
+Recording the fixtures against real Postgres was still worth its 30 minutes:
+it found bug fix 5 (statistics fail on any table name that needs quoting).
+Every other bug of the phase came from live tests or code review, not from
+fixtures (see the phase 1 plan's execution notes).
+
+### What was harder than expected
+
+- **Values across every engine.** A typed `Value` meant touching all five
+  drivers and binders, both providers, 15 UI files and persisted workflows and
+  dashboards. It was planned as Postgres work and turned out to be
+  cross-cutting.
+- **Bugs that reviews found, not tests:**
+  - sqlx's per-connection statement cache reuses the first prepare's parameter
+    types, so once `Int` and `Float` bound differently, a float could be
+    written as the bits of an INT8 (Postgres) or read back as 0 (MySQL). Fixed
+    with `persistent(false)` in `impl_sqlx_driver!`.
+  - One bigint cell aborted the whole project save, because saved workflows and
+    dashboards were stringified without a replacer.
+  - Engine clients captured a connection id that `reconnect()` replaces.
+  - Index columns were first returned quoted, which the DDL generator would
+    have quoted again.
+- **Old decoder bugs surfaced by the round-trip test:** a 30-digit NUMERIC
+  panicked, NaN became null, one NULL element nulled a whole array,
+  DATE[]/JSON[]/BYTEA[] came back as binary garbage, and every UUID cell was
+  NULL.
+- **sqlx gaps.** `PgNumeric` is private and neither decimal crate keeps
+  NaN/Infinity and display scale, so NUMERIC got a hand-written binary codec.
+- **UI sites.** DDL preview became async (debounce, stale replies, snapshotting
+  the definition to keep deep tracking), and Postgres now needs a live
+  connection to preview.
+
+### What phase 2 reuses
+
+- `ddl.rs` and `crud.rs`, including the option branches Postgres doesn't use
+  (`useModifyColumn`, `supportsDropColumn: false`, `?` placeholders), already
+  unit-tested.
+- The `Dialect` trait, the `Driver` introspection defaults, and the
+  `introspection = { … }` hook in `impl_sqlx_driver!`.
+- `EngineClient`, `RustEngineClient`, `TsEngineClient` and the
+  `getEngineClient` switch. Moving an engine to Rust on the frontend means
+  adding it to `RUST_ENGINES`; no call site changes.
+- `seaquel-rpc` and both endpoints, unchanged per engine.
+- The `Value` format, the provider decoding and every UI site. These already
+  work for all engines.
+- The fixture recorder pattern. The recorder itself was deleted before any
+  commit, so phase 2 rewrites it, ideally once and parameterized by adapter.
+- The testkit: `run_smoke`'s Int/Float/Text alternation and array checks run
+  for every engine. `run_introspection` is Postgres-specific SQL and needs a
+  per-engine scratch schema.
+
+### Phase 2 estimate (engine ports only)
+
+In phase 1 the Postgres-specific tasks (3, 5, 6, 7 and 13) took ~2.8 h for a
+473-line adapter. The shared work (A, D, most of E) doesn't repeat. Per engine,
+expect fixtures, dialect, introspection, native values, flipping the switch
+and deleting the adapter, plus about as much again in review fixes as Task 7
+needed.
+
+| Engine | TS adapter | Specific work | Estimate |
+|---|---|---|---|
+| MySQL/MariaDB | `mysql.ts` 721 | Largest adapter. Record fixtures against both servers. Native decoding for unsigned BIGINT, DECIMAL, BIT, BLOB, JSON. `useModifyColumn` path. sqlx, so the macro and binder already exist | 4–6 h |
+| SQLite | `sqlite.ts` 604 | PRAGMA-based introspection; the per-table row-count loop in `TsEngineClient.statistics` and the EXPLAIN timing move into Rust. sqlx | 3–4 h |
+| MSSQL | `mssql.ts` 448 | Port the inline CRUD builders (`buildInline*`, `formatLiteralValue`, `formatMssqlBinary`) that phase 1 left in TS. Native tiberius decoding (bytes arrive as base64 today). Not the sqlx macro, so introspection goes on the driver directly. Transactions are still unsupported | 4–5 h |
+| DuckDB | `duckdb.ts` 525 | The driver blocks the async runtime; the blocking-work hook carried over from phase 0 is still missing. Lists and structs are Debug strings today and should become `Array`/`Json`. Reuses MSSQL's inline builders. Deleting `duckdb.ts` removes the demo's dialect, which triggers the demo pin | 5–7 h |
+
+About **16–22 h** of implementer time for the four engines, plus a manual GUI
+pass per engine (30–60 min of a person's time each). Phase 1's own manual
+checks are still outstanding and should be done first, since phase 2 builds on
+the same UI paths.
+
+Not in this estimate: the rest of phase 2 (`seaquel-sql` on sqlparser-rs,
+`parse_create_table`, `seaquel-wasm`, the editor, query builder and tutorial
+switch). Phase 1 measured nothing about those, and matching node-sql-parser's
+AST shape is the bigger risk. Plan them separately.
+
+### Engine order
+
+Keep the order from the migration plan: MySQL/MariaDB, SQLite, MSSQL, DuckDB.
+
+- MySQL is closest to what phase 1 built: sqlx, parameterized builders,
+  `information_schema`, and its binder and statement-cache fix already landed.
+  It's also the largest adapter, so it's the best test of the per-engine
+  estimate.
+- SQLite is the same shape and smaller.
+- MSSQL before DuckDB, because MSSQL brings the inline builders DuckDB also
+  needs.
+- DuckDB last: it needs the blocking hook, and its port ends TS dialect support
+  for the demo.
+
+Before the first engine, rewrite the fixture recorder once, parameterized by
+adapter, so each engine only adds inputs.
 
 ## Risks
 

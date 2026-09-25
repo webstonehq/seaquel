@@ -1,0 +1,169 @@
+{
+  "cases": [
+    {
+      "name": "public and scratch schemas",
+      "input": {
+        "rows": [
+          {
+            "schema_name": "public",
+            "table_name": "all_types",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "categories",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "order_items",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "orders",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "products",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "public",
+            "table_name": "users",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customer_counts",
+            "table_type": "MATERIALIZED VIEW"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customer_names",
+            "table_type": "VIEW"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "customers",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "events",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "my-table",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "order items",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_fixtures",
+            "table_name": "region_stock",
+            "table_type": "BASE TABLE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "all_types",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "categories",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "order_items",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "products",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "public",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "customer_counts",
+          "schema": "seaquel_fixtures",
+          "type": "materialized-view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "customer_names",
+          "schema": "seaquel_fixtures",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "customers",
+          "schema": "seaquel_fixtures",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "events",
+          "schema": "seaquel_fixtures",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "my-table",
+          "schema": "seaquel_fixtures",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "order items",
+          "schema": "seaquel_fixtures",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "region_stock",
+          "schema": "seaquel_fixtures",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    }
+  ]
+}

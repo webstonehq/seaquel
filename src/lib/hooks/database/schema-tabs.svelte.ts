@@ -2,10 +2,10 @@ import type { SchemaTable, SchemaTab } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
-import { getAdapter, type DatabaseAdapter } from "$lib/db";
-import type { ProviderRegistry, DatabaseProvider } from "$lib/providers";
+import { getEngineClient, type EngineClient } from "$lib/engine";
 import { handleError, createError } from "$lib/errors";
 import { log } from "$lib/utils/logger";
+import { storeTableMetadata } from "./schema-cache.js";
 
 /**
  * Manages schema tabs: add, remove, set active.
@@ -17,7 +17,6 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
     state: DatabaseState,
     tabOrdering: TabOrderingManager,
     schedulePersistence: (projectId: string | null) => void,
-    private providers: ProviderRegistry,
   ) {
     super(state, tabOrdering, schedulePersistence);
   }
@@ -35,35 +34,9 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
    * Fetch columns, indexes, and foreign keys for a single table.
    * Returns an updated SchemaTable with metadata populated.
    */
-  private async fetchTableMetadata(
-    provider: DatabaseProvider,
-    providerConnectionId: string,
-    adapter: DatabaseAdapter,
-    table: SchemaTable,
-  ): Promise<SchemaTable> {
-    const columnsResult = await provider.select(
-      providerConnectionId,
-      adapter.getColumnsQuery(table.name, table.schema),
-    );
-
-    const indexesResult = await provider.select(
-      providerConnectionId,
-      adapter.getIndexesQuery(table.name, table.schema),
-    );
-
-    let foreignKeysResult: unknown[] | undefined;
-    if (adapter.getForeignKeysQuery) {
-      foreignKeysResult = await provider.select(
-        providerConnectionId,
-        adapter.getForeignKeysQuery(table.name, table.schema),
-      );
-    }
-
-    return {
-      ...table,
-      columns: adapter.parseColumnsResult(columnsResult || [], foreignKeysResult),
-      indexes: adapter.parseIndexesResult(indexesResult || []),
-    };
+  private async fetchTableMetadata(client: EngineClient, table: SchemaTable): Promise<SchemaTable> {
+    const { columns, indexes } = await client.tableMetadata(table.schema, table.name);
+    return { ...table, columns, indexes };
   }
 
   /**
@@ -128,27 +101,10 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
     if (!connection?.providerConnectionId) return;
 
     try {
-      const adapter = getAdapter(connection.type);
-      const provider = await this.providers.getForType(connection.type);
-      const updatedTable = await this.fetchTableMetadata(
-        provider,
-        connection.providerConnectionId,
-        adapter,
-        table,
-      );
+      const client = getEngineClient(connection, this.state);
+      const updatedTable = await this.fetchTableMetadata(client, table);
 
-      // Update schema cache
-      const connectionSchemas = [...(this.state.schemas[connectionId] ?? [])];
-      const tableIndex = connectionSchemas.findIndex(
-        (t) => t.name === table.name && t.schema === table.schema,
-      );
-      if (tableIndex >= 0) {
-        connectionSchemas[tableIndex] = updatedTable;
-      }
-      this.state.schemas = {
-        ...this.state.schemas,
-        [connectionId]: connectionSchemas,
-      };
+      storeTableMetadata(this.state, connectionId, updatedTable);
 
       // Update the open tab
       this.updateTab(tabId, (t) => ({ ...t, table: updatedTable }));
@@ -164,25 +120,16 @@ export class SchemaTabManager extends BaseTabManager<SchemaTab> {
   async loadTableMetadataInBackground(
     connectionId: string,
     tables: SchemaTable[],
-    adapter: DatabaseAdapter,
-    providerConnectionId?: string,
+    client: EngineClient,
   ): Promise<void> {
-    if (!providerConnectionId) return;
-
-    // Get provider once for all tables
-    const connectionType = this.state.connections.find((c) => c.id === connectionId)?.type;
-    const provider = await this.providers.getForType(connectionType ?? "");
+    // Nothing to load while disconnected (e.g. the connection dropped since the schema loaded).
+    if (!this.state.connections.find((c) => c.id === connectionId)?.providerConnectionId) return;
 
     void log.debug(`Loading metadata for ${tables.length} tables on ${connectionId}`);
     // Process tables in parallel but update state as each completes
     const promises = tables.map(async (table, index) => {
       try {
-        const updatedTable = await this.fetchTableMetadata(
-          provider,
-          providerConnectionId,
-          adapter,
-          table,
-        );
+        const updatedTable = await this.fetchTableMetadata(client, table);
 
         // Update the schema state with the new table metadata
         const currentSchemas = this.state.schemas[connectionId];

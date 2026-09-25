@@ -1,0 +1,344 @@
+{
+  "cases": [
+    {
+      "name": "public.users",
+      "input": {
+        "schema": "public",
+        "table": "users",
+        "rows": [
+          {
+            "indexname": "users_email_key",
+            "indexdef": "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)",
+            "schemaname": "public",
+            "tablename": "users"
+          },
+          {
+            "indexname": "users_pkey",
+            "indexdef": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+            "schemaname": "public",
+            "tablename": "users"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "users_email_key",
+          "columns": [
+            "email"
+          ],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "users_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "public.orders",
+      "input": {
+        "schema": "public",
+        "table": "orders",
+        "rows": [
+          {
+            "indexname": "idx_orders_status",
+            "indexdef": "CREATE INDEX idx_orders_status ON public.orders USING btree (status)",
+            "schemaname": "public",
+            "tablename": "orders"
+          },
+          {
+            "indexname": "idx_orders_user",
+            "indexdef": "CREATE INDEX idx_orders_user ON public.orders USING btree (user_id)",
+            "schemaname": "public",
+            "tablename": "orders"
+          },
+          {
+            "indexname": "orders_pkey",
+            "indexdef": "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)",
+            "schemaname": "public",
+            "tablename": "orders"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "idx_orders_status",
+          "columns": [
+            "status"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "idx_orders_user",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "orders_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "public.order_items",
+      "input": {
+        "schema": "public",
+        "table": "order_items",
+        "rows": [
+          {
+            "indexname": "idx_order_items_order",
+            "indexdef": "CREATE INDEX idx_order_items_order ON public.order_items USING btree (order_id)",
+            "schemaname": "public",
+            "tablename": "order_items"
+          },
+          {
+            "indexname": "idx_order_items_product",
+            "indexdef": "CREATE INDEX idx_order_items_product ON public.order_items USING btree (product_id)",
+            "schemaname": "public",
+            "tablename": "order_items"
+          },
+          {
+            "indexname": "order_items_pkey",
+            "indexdef": "CREATE UNIQUE INDEX order_items_pkey ON public.order_items USING btree (id)",
+            "schemaname": "public",
+            "tablename": "order_items"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "idx_order_items_order",
+          "columns": [
+            "order_id"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "idx_order_items_product",
+          "columns": [
+            "product_id"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "order_items_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "public.all_types",
+      "input": {
+        "schema": "public",
+        "table": "all_types",
+        "rows": [
+          {
+            "indexname": "all_types_pkey",
+            "indexdef": "CREATE UNIQUE INDEX all_types_pkey ON public.all_types USING btree (id)",
+            "schemaname": "public",
+            "tablename": "all_types"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "all_types_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.customers",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "customers",
+        "rows": [
+          {
+            "indexname": "customers_email_key",
+            "indexdef": "CREATE UNIQUE INDEX customers_email_key ON seaquel_fixtures.customers USING btree (email)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "customers"
+          },
+          {
+            "indexname": "customers_pkey",
+            "indexdef": "CREATE UNIQUE INDEX customers_pkey ON seaquel_fixtures.customers USING btree (id)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "customers"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customers_email_key",
+          "columns": [
+            "email"
+          ],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "customers_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.region_stock",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "region_stock",
+        "rows": [
+          {
+            "indexname": "region_stock_attrs_gin_idx",
+            "indexdef": "CREATE INDEX region_stock_attrs_gin_idx ON seaquel_fixtures.region_stock USING gin (attrs)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "region_stock"
+          },
+          {
+            "indexname": "region_stock_lower_sku_idx",
+            "indexdef": "CREATE INDEX region_stock_lower_sku_idx ON seaquel_fixtures.region_stock USING btree (lower((sku)::text))",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "region_stock"
+          },
+          {
+            "indexname": "region_stock_pkey",
+            "indexdef": "CREATE UNIQUE INDEX region_stock_pkey ON seaquel_fixtures.region_stock USING btree (region, sku)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "region_stock"
+          },
+          {
+            "indexname": "region_stock_qty_incl_idx",
+            "indexdef": "CREATE INDEX region_stock_qty_incl_idx ON seaquel_fixtures.region_stock USING btree (qty) INCLUDE (user_id)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "region_stock"
+          },
+          {
+            "indexname": "region_stock_user_sku_key",
+            "indexdef": "CREATE UNIQUE INDEX region_stock_user_sku_key ON seaquel_fixtures.region_stock USING btree (user_id, sku)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "region_stock"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "region_stock_attrs_gin_idx",
+          "columns": [
+            "attrs"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_lower_sku_idx",
+          "columns": [
+            "lower((sku"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_pkey",
+          "columns": [
+            "region",
+            "sku"
+          ],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_qty_incl_idx",
+          "columns": [
+            "qty"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "region_stock_user_sku_key",
+          "columns": [
+            "user_id",
+            "sku"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.events",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "events",
+        "rows": [
+          {
+            "indexname": "events_kind_idx",
+            "indexdef": "CREATE INDEX events_kind_idx ON seaquel_fixtures.events USING btree (kind)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "events"
+          },
+          {
+            "indexname": "events_pkey",
+            "indexdef": "CREATE UNIQUE INDEX events_pkey ON seaquel_fixtures.events USING btree (id)",
+            "schemaname": "seaquel_fixtures",
+            "tablename": "events"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "events_kind_idx",
+          "columns": [
+            "kind"
+          ],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "events_pkey",
+          "columns": [
+            "id"
+          ],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_fixtures.customer_names",
+      "input": {
+        "schema": "seaquel_fixtures",
+        "table": "customer_names",
+        "rows": []
+      },
+      "output": []
+    }
+  ]
+}
