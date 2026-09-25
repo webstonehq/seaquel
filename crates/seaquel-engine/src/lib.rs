@@ -14,14 +14,15 @@ use std::sync::Arc;
 pub use seaquel_runtime::{BoxStream, MaybeSend, MaybeSync};
 pub use seaquel_types::{
     BatchStatement, ConnectConfig, ConnectResult, DatabaseStatistics, DbError, DriverType,
-    ExecuteResult, ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
-    SqlWithBindings, StreamBatch, Value,
+    ExecuteResult, ExpectRows, ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
+    SqlWithBindings, StreamBatch, Value, MAX_SAFE_INTEGER,
 };
 pub use tokio_util::sync::CancellationToken;
 
 pub mod crud;
 pub mod ddl;
 mod dialect;
+pub mod introspect;
 mod sqlx_driver;
 
 pub use dialect::{CastMap, Dialect, RowValues};
@@ -31,6 +32,13 @@ pub mod __private {
     pub use async_stream;
     pub use async_trait;
     pub use futures;
+    pub use log;
+
+    /// `impl_sqlx_driver!`: name the column a cell failed to decode in.
+    pub fn in_column(mut e: crate::DbError, column: &str) -> crate::DbError {
+        e.message = format!("{} (column \"{column}\")", e.message);
+        e
+    }
 }
 
 /// Cap for non-streaming `query()` results. Streaming `query_stream` is
@@ -71,6 +79,10 @@ pub trait Driver: MaybeSend + MaybeSync {
     /// own pooled connection — that was the old behaviour and it let a
     /// mid-batch failure leave earlier writes committed. Loudly failing here
     /// surfaces the gap instead of producing half-written data.
+    ///
+    /// Before COMMIT, every statement's affected rows must pass
+    /// [`BatchStatement::check_affected`]; on a shortfall the driver rolls
+    /// back and returns that `NO_ROWS_AFFECTED` error.
     async fn transaction(&self, _statements: Vec<BatchStatement>) -> Result<(), DbError> {
         Err(DbError {
             message: "transactions are not supported by this driver".to_string(),
@@ -205,6 +217,16 @@ mod tests {
     use futures::executor::block_on;
     use futures::StreamExt;
     use serde_json::json;
+
+    #[test]
+    fn decode_errors_name_the_column() {
+        let e = __private::in_column(DbError::query_error("can't decode a TIME value"), "t");
+        assert_eq!(e.code, "QUERY_ERROR");
+        assert_eq!(
+            e.message,
+            "Query failed: can't decode a TIME value (column \"t\")"
+        );
+    }
 
     struct FakeDriver;
 
@@ -379,7 +401,15 @@ mod tests {
             casts: Option<&CastMap>,
         ) -> SqlWithBindings {
             let qi = |s: &str| self.quote_ident(s);
-            crud::build_param_delete(schema, table, pks, row, &qi, casts, &crud::dollar_placeholder)
+            crud::build_param_delete(
+                schema,
+                table,
+                pks,
+                row,
+                &qi,
+                casts,
+                &crud::dollar_placeholder,
+            )
         }
         fn create_table(&self, def: &seaquel_types::CreateTableDefinition) -> String {
             ddl::generate_create_table_ddl(def, &|s| self.quote_ident(s))

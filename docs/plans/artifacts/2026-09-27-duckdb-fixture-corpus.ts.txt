@@ -1,0 +1,742 @@
+/**
+ * DuckDB corpus (Rust Core Phase 2, Task 17), recorded into
+ * `crates/seaquel-engine-duckdb/tests/fixtures/`:
+ *
+ *   npm run fixtures:record -- duckdb
+ *
+ * No server: the recorder copies `e2e/test-databases/duckdb/seaquel_test.duckdb`
+ * (seeded by `npm run e2e:db:seed`) and its WAL into a fresh temp directory,
+ * records against the copy through the native Rust driver, and `cleanup`
+ * deletes it. The original file is never opened. The copy keeps the file
+ * name, so its catalog (the file name up to its first dot) is `seaquel_test`,
+ * which the plans' `Table` names and the scratch setup's `USE seaquel_test`
+ * rely on.
+ *
+ * The scratch objects are the `scratch` block of `bugfixes.json`, so the Rust
+ * tests build the same ones: a `fx_sales` schema, a table of every DuckDB type
+ * (`main.fx_types`), tables whose names the adapter's `validateIdentifier`
+ * rejects, an attached in-memory catalog `fx_aux` whose tables share names
+ * with `seaquel_test`'s, and schema and catalog names with dots and quotes
+ * (`"fx.a.b"`, `"fx_aux.main"`, `"fx.we""ird"`). The adapter's catalog
+ * queries ignore the catalog, so:
+ * - `main.users` and `fx_sales.regions` are recorded with the other catalog's
+ *   columns mixed in (fix 6 replaces them);
+ * - `main.categories` isn't recorded: its primary-key subquery matches both
+ *   catalogs' constraints and DuckDB fails the whole query (fix 6, live);
+ * - the table sizes list `fx_aux`'s tables under `main`/`fx_sales` again, so
+ *   the per-table row counts (which would repeat case names and count the
+ *   wrong table) are recorded once per name through `parse.extra`.
+ *
+ * Every parse input is text, booleans or BIGINT counts, so none of it depends
+ * on the value decoding Task 16 changes (see the README).
+ *
+ * EXPLAIN ANALYZE plans carry timings, memory and CPU figures that change on
+ * every run. They are recorded through `parse.extra` and normalized (see
+ * `normalizeAnalyzed`) so re-recording is byte-identical.
+ *
+ * No CRUD group: the Rust dialect binds parameters (`?`, decision 4 of the
+ * phase 2 plan) instead of the adapter's inline literals, and is checked with
+ * live tests.
+ */
+import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import {
+  alterCase,
+  col,
+  column,
+  crateFixtureDir,
+  def,
+  fk,
+  idx,
+  toJson,
+  type EngineCorpus,
+  type ExplainTarget,
+  type Json,
+  type NamedInput,
+  type RecordContext,
+} from "../corpus";
+
+const SOURCE = fileURLToPath(
+  new URL("../../../e2e/test-databases/duckdb/seaquel_test.duckdb", import.meta.url),
+);
+const DIR = `${tmpdir()}/seaquel-fixtures-duckdb-${process.pid}`;
+/** The catalog is the file name up to its first dot: `seaquel_test`. */
+const DB = `${DIR}/seaquel_test.duckdb`;
+
+let copied = false;
+
+/** Copies the seeded database (and its WAL) once per recording. */
+function copyDatabase(): void {
+  if (copied) return;
+  if (!existsSync(SOURCE)) {
+    throw new Error(`${SOURCE} is missing; seed it with npm run e2e:db:seed`);
+  }
+  rmSync(DIR, { recursive: true, force: true });
+  mkdirSync(DIR, { recursive: true });
+  copyFileSync(SOURCE, DB);
+  if (existsSync(`${SOURCE}.wal`)) copyFileSync(`${SOURCE}.wal`, `${DB}.wal`);
+  copied = true;
+}
+
+// ─── Pure inputs ─────────────────────────────────────────────────────
+
+const customers = () =>
+  def(
+    "main",
+    "customers",
+    [
+      col("c1", "id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+      col("c2", "name", "VARCHAR", { nullable: false }),
+      col("c3", "email", "VARCHAR", { length: "255", isUnique: true }),
+      col("c4", "status", "VARCHAR", { defaultValue: "'active'" }),
+      col("c5", "balance", "DECIMAL", { precision: "10,2", nullable: false, defaultValue: "0" }),
+    ],
+    {
+      indexes: [idx("i1", "customers_name_idx", ["name"])],
+      foreignKeys: [fk("f1", "status", "main", "statuses", "code")],
+    },
+  );
+
+/** `customers` in a schema other than `main`. */
+const salesCustomers = () => ({ ...customers(), schemaName: "sales" });
+
+/** Names with `"`, which the adapter's DDL quote didn't escape (fix 1). */
+const quoted = () =>
+  def(
+    "main",
+    'say "hi"',
+    [
+      col("c1", 'id"', "INTEGER", { nullable: false, isPrimaryKey: true }),
+      col("c2", 'a"b', "VARCHAR", { isUnique: true }),
+      col("c3", "note", "VARCHAR", { defaultValue: `'say "x"'` }),
+    ],
+    {
+      indexes: [idx("i1", 'idx"1', ['a"b'])],
+      foreignKeys: [fk("f1", 'a"b', "main", 'other"t', 'c"d')],
+    },
+  );
+
+const pure: EngineCorpus["pure"] = {
+  quote: [
+    { name: "plain", input: { id: "users" } },
+    { name: "embedded double quote", input: { id: 'say "hi"' } },
+    { name: "two double quotes", input: { id: '""' } },
+    { name: "space", input: { id: "order items" } },
+    { name: "dot", input: { id: "a.b" } },
+    { name: "single quote", input: { id: "it's" } },
+    { name: "non-ASCII", input: { id: "café" } },
+    { name: "empty", input: { id: "" } },
+  ],
+  paginate: [
+    { name: "first page", input: { sql: "SELECT * FROM users", limit: 100, offset: 0 } },
+    { name: "later page", input: { sql: "SELECT * FROM users", limit: 50, offset: 150 } },
+    {
+      name: "keeps an ORDER BY",
+      input: { sql: "SELECT id FROM users ORDER BY name", limit: 10, offset: 20 },
+    },
+    {
+      name: "keeps a trailing semicolon and whitespace",
+      input: { sql: "SELECT 1;\n", limit: 10, offset: 5 },
+    },
+    {
+      name: "large numbers",
+      input: { sql: "SELECT id FROM t ORDER BY id", limit: 1000000, offset: 9007199254740991 },
+    },
+  ],
+  ddlCreate: [
+    { name: "everything together", input: toJson(customers()) },
+    {
+      name: "DuckDB types and defaults",
+      input: toJson(
+        def("main", "events", [
+          col("c1", "id", "UUID", {
+            nullable: false,
+            isPrimaryKey: true,
+            defaultValue: "gen_random_uuid()",
+          }),
+          col("c2", "at", "TIMESTAMP WITH TIME ZONE", {
+            nullable: false,
+            defaultValue: "current_timestamp",
+          }),
+          col("c3", "day", "DATE", { defaultValue: "DATE '2024-01-01'" }),
+          col("c4", "took", "INTERVAL", { defaultValue: "INTERVAL 1 DAY" }),
+          col("c5", "big", "HUGEINT"),
+          col("c6", "amount", "DECIMAL", { precision: "38,10" }),
+          col("c7", "tags", "VARCHAR[]", { defaultValue: "[]" }),
+          col("c8", "payload", "JSON"),
+          col("c9", "raw", "BLOB"),
+          col("c10", "flags", "BIT"),
+          col("c11", "ok", "BOOLEAN", { nullable: false, defaultValue: "true" }),
+        ]),
+      ),
+    },
+    {
+      name: "composite primary key, unique and several indexes",
+      input: toJson(
+        def(
+          "sales",
+          "order_lines",
+          [
+            col("c1", "order_id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c2", "line_no", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c3", "sku", "VARCHAR", { length: "64", isUnique: true }),
+            col("c4", "qty", "INTEGER", { nullable: false, defaultValue: "1" }),
+          ],
+          {
+            indexes: [
+              idx("i1", "order_lines_sku_qty_idx", ["sku", "qty"]),
+              idx("i2", "order_lines_qty_key", ["qty"], true),
+            ],
+            foreignKeys: [fk("f1", "order_id", "sales", "orders", "id")],
+          },
+        ),
+      ),
+    },
+    // Fix 11 replaces this: DuckDB can't parse `REFERENCES "".t`.
+    {
+      name: "a foreign key without a referenced schema",
+      input: toJson(
+        def("main", "notes", [col("c1", "user_id", "INTEGER")], {
+          foreignKeys: [fk("f1", "user_id", "", "users", "id")],
+        }),
+      ),
+    },
+    {
+      name: "defaults: padding and rejected values",
+      input: toJson(
+        def("main", "defaults_demo", [
+          col("c1", "padded", "INTEGER", { defaultValue: "  42  " }),
+          col("c2", "injected", "VARCHAR", { defaultValue: "'x'; DROP TABLE users" }),
+          col("c3", "commented", "INTEGER", { defaultValue: "1 -- sneaky" }),
+          col("c4", "blank", "VARCHAR", { defaultValue: "   " }),
+          col("c5", "expr", "DOUBLE", { defaultValue: "(random() / 2)" }),
+          col("c6", "seq", "BIGINT", { defaultValue: "nextval('defaults_demo_seq')" }),
+        ]),
+      ),
+    },
+    {
+      name: "precision wins over length",
+      input: toJson(
+        def("main", "prices", [
+          col("c1", "amount", "DECIMAL", { precision: "12,4", length: "8" }),
+          col("c2", "code", "VARCHAR", { length: "3" }),
+        ]),
+      ),
+    },
+    {
+      name: "names with spaces, dots and non-ASCII",
+      input: toJson(
+        def(
+          "my schema",
+          "order items",
+          [
+            col("c1", "line.id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c2", "naïve", "VARCHAR", { length: "10", isUnique: true }),
+          ],
+          {
+            indexes: [idx("i1", "order items naïve idx", ["naïve"])],
+            foreignKeys: [fk("f1", "line.id", "my schema", "lines", "id")],
+          },
+        ),
+      ),
+    },
+    // Fix 1 replaces this one (the DDL quote didn't escape `"`).
+    { name: "names with double quotes (unescaped by the adapter)", input: toJson(quoted()) },
+    { name: "no columns", input: toJson(def("main", "empty", [])) },
+  ],
+  ddlAlter: [
+    alterCase("no changes", customers, () => {}),
+    alterCase("rename a column", customers, (d) => {
+      column(d, "c2").name = "full_name";
+    }),
+    alterCase("add columns", customers, (d) => {
+      d.columns.push(
+        col("c6", "tier", "INTEGER", { defaultValue: "1" }),
+        col("c7", "notes", "VARCHAR"),
+      );
+    }),
+    // Fix 9 replaces this: DuckDB rejects NOT NULL in ADD COLUMN.
+    alterCase("add a NOT NULL column", customers, (d) => {
+      d.columns.push(col("c6", "tier", "INTEGER", { nullable: false, defaultValue: "1" }));
+    }),
+    alterCase("drop a column", customers, (d) => {
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+    }),
+    // Fix 8 replaces these: `DROP INDEX name` looks in `main` only.
+    alterCase("drop an index", customers, (d) => {
+      d.indexes = [];
+    }),
+    alterCase("drop an index in another schema", salesCustomers, (d) => {
+      d.indexes = [];
+    }),
+    alterCase("add an index", customers, (d) => {
+      d.indexes.push(idx("i2", "customers_status_email_idx", ["status", "email"], true));
+    }),
+    alterCase("a dropped foreign key emits nothing", customers, (d) => {
+      d.foreignKeys = [];
+    }),
+    alterCase("an unnamed index is skipped", customers, (d) => {
+      d.indexes.push(idx("i2", "", ["status"]));
+    }),
+    alterCase("change a type", customers, (d) => {
+      column(d, "c3").length = "320";
+    }),
+    alterCase("make a column NOT NULL", customers, (d) => {
+      column(d, "c3").nullable = false;
+    }),
+    alterCase("make a column nullable", customers, (d) => {
+      column(d, "c5").nullable = true;
+    }),
+    alterCase("change a default", customers, (d) => {
+      column(d, "c4").defaultValue = "'new'";
+    }),
+    alterCase("remove a default", customers, (d) => {
+      column(d, "c5").defaultValue = "";
+    }),
+    alterCase("rename and change a type", customers, (d) => {
+      Object.assign(column(d, "c2"), { name: "display_name", type: "VARCHAR", length: "150" });
+    }),
+    // Fix 4 replaces these: DuckDB has no ALTER TABLE … ADD FOREIGN KEY.
+    alterCase("add foreign keys (invalid in DuckDB)", customers, (d) => {
+      d.foreignKeys.push(
+        fk("f2", "email", "", "emails", "address"),
+        fk("f3", "name", "main", "names", "value"),
+      );
+    }),
+    alterCase("statement order: every branch (the foreign key is invalid)", customers, (d) => {
+      column(d, "c2").name = "display_name";
+      column(d, "c2").type = "TEXT";
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+      column(d, "c4").defaultValue = "'open'";
+      column(d, "c5").nullable = true;
+      d.columns.push(col("c6", "tier", "INTEGER", { defaultValue: "1" }));
+      d.indexes = [idx("i2", "customers_tier_idx", ["tier"])];
+      d.foreignKeys.push(fk("f2", "tier", "main", "tiers", "id"));
+    }),
+    // Fix 1 replaces this.
+    alterCase("names with double quotes (unescaped by the adapter)", quoted, (d) => {
+      column(d, "c2").name = 'c"d';
+      column(d, "c3").defaultValue = "'it''s'";
+      d.columns.push(col("c4", 'new"col', "INTEGER"));
+      d.indexes = [idx("i2", 'idx"2', ['c"d'])];
+    }),
+  ],
+  ddlAddColumn: [
+    {
+      name: "with a default",
+      input: {
+        schema: "main",
+        table: "customers",
+        column: toJson(col("c9", "code", "VARCHAR", { length: "8", defaultValue: " 'x' " })),
+      },
+    },
+    // Fix 9 replaces this: DuckDB rejects NOT NULL in ADD COLUMN.
+    {
+      name: "NOT NULL with a default",
+      input: {
+        schema: "main",
+        table: "customers",
+        column: toJson(col("c9", "code", "VARCHAR", { nullable: false, defaultValue: "'x'" })),
+      },
+    },
+    {
+      name: "nullable, precision",
+      input: {
+        schema: "main",
+        table: "customers",
+        column: toJson(col("c9", "rate", "DECIMAL", { precision: "5,2" })),
+      },
+    },
+    {
+      name: "names with spaces and non-ASCII",
+      input: {
+        schema: "my schema",
+        table: "order items",
+        column: toJson(col("c9", "gift note naïve", "VARCHAR")),
+      },
+    },
+    // Fix 1 replaces this.
+    {
+      name: "names with double quotes (unescaped by the adapter)",
+      input: {
+        schema: 'sch"x',
+        table: 'odd"table',
+        column: toJson(col("c9", 'a"b', "INTEGER", { defaultValue: "0" })),
+      },
+    },
+  ],
+  columnTypes: true,
+  sql: [
+    { name: "getSchemaQuery", input: { query: "getSchemaQuery" } },
+    { name: "getSchemasQuery", input: { query: "getSchemasQuery" } },
+    {
+      name: "getColumnsQuery",
+      input: { query: "getColumnsQuery", schema: "main", table: "users" },
+    },
+    {
+      name: "getIndexesQuery",
+      input: { query: "getIndexesQuery", schema: "main", table: "users" },
+    },
+    {
+      name: "getForeignKeysQuery",
+      input: { query: "getForeignKeysQuery", schema: "main", table: "orders" },
+    },
+    { name: "getTableSizesQuery", input: { query: "getTableSizesQuery" } },
+    {
+      name: "getTableRowCountQuery",
+      input: { query: "getTableRowCountQuery", schema: "main", table: "users" },
+    },
+    { name: "getIndexUsageQuery", input: { query: "getIndexUsageQuery" } },
+    { name: "getDatabaseOverviewQuery", input: { query: "getDatabaseOverviewQuery" } },
+    {
+      name: "getExplainQuery",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: false },
+    },
+    {
+      name: "getExplainQuery, analyze",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: true },
+    },
+    {
+      name: "getExplainQuery strips one trailing semicolon",
+      input: { query: "getExplainQuery", sql: "SELECT 1;;", analyze: false },
+    },
+    {
+      name: "getExplainQuery keeps a semicolon before whitespace",
+      input: { query: "getExplainQuery", sql: "SELECT 1;\n", analyze: true },
+    },
+  ],
+};
+
+// ─── EXPLAIN ─────────────────────────────────────────────────────────
+
+/** `analyze: true` targets are also recorded analyzed, through `parse.extra`. */
+const EXPLAIN_TARGETS: (ExplainTarget & { analyzed?: boolean })[] = [
+  { name: "scan with a filter", sql: "SELECT * FROM orders WHERE total > 100", analyzed: true },
+  {
+    name: "equality on an indexed column",
+    sql: "SELECT * FROM orders WHERE status = 'shipped'",
+  },
+  {
+    name: "two filters on one scan",
+    sql: "SELECT id FROM orders WHERE status = 'shipped' AND total > 50",
+    analyzed: true,
+  },
+  { name: "primary key lookup", sql: "SELECT * FROM users WHERE id = 3" },
+  {
+    name: "two-column filter",
+    sql: "SELECT * FROM fx_sales.orders WHERE order_no = 5 AND region_code = 'ap'",
+  },
+  {
+    name: "hash join",
+    sql: "SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id",
+    analyzed: true,
+  },
+  {
+    name: "join, group by, top n",
+    sql: "SELECT u.name, count(*) FROM users u JOIN orders o ON o.user_id = u.id WHERE o.status = 'shipped' GROUP BY u.name ORDER BY 2 DESC LIMIT 5",
+    analyzed: true,
+  },
+  {
+    name: "left join",
+    sql: "SELECT u.name, o.id FROM users u LEFT JOIN orders o ON o.user_id = u.id",
+  },
+  {
+    name: "IN subquery (semi join)",
+    sql: "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 500)",
+  },
+  {
+    name: "NOT EXISTS (anti join)",
+    sql: "SELECT * FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)",
+  },
+  {
+    name: "inequality join",
+    sql: "SELECT o.id, u.id FROM orders o JOIN users u ON o.total > u.id * 10",
+    analyzed: true,
+  },
+  { name: "cross product", sql: "SELECT * FROM users, categories" },
+  { name: "union", sql: "SELECT name FROM users UNION SELECT name FROM categories" },
+  { name: "union all", sql: "SELECT name FROM users UNION ALL SELECT name FROM categories" },
+  { name: "distinct", sql: "SELECT DISTINCT status FROM orders" },
+  {
+    name: "window function",
+    sql: "SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY total) FROM orders",
+    analyzed: true,
+  },
+  {
+    name: "materialized CTE",
+    sql: "WITH t AS MATERIALIZED (SELECT user_id, sum(total) AS s FROM orders GROUP BY user_id) SELECT * FROM t a JOIN t b ON a.user_id = b.user_id",
+  },
+  {
+    name: "recursive CTE",
+    sql: "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+    analyzed: true,
+  },
+  {
+    name: "filter over a table function",
+    sql: "SELECT * FROM range(1000) t(x) WHERE x % 7 = 0",
+    analyzed: true,
+  },
+  { name: "catalog table function", sql: "SELECT table_name FROM duckdb_tables()" },
+  { name: "no tables", sql: "SELECT 1", analyzed: true },
+  { name: "ungrouped aggregate", sql: "SELECT count(*), max(total) FROM orders" },
+  { name: "order by", sql: "SELECT * FROM users ORDER BY name" },
+  { name: "limit and offset", sql: "SELECT * FROM users LIMIT 5 OFFSET 2" },
+  { name: "trailing semicolon", sql: "SELECT * FROM users;" },
+  {
+    name: "non-main schema, names with spaces and quotes",
+    sql: `SELECT "line no" FROM fx_sales."fx order lines" WHERE "it's" LIKE 'Line 1%'`,
+    analyzed: true,
+  },
+  { name: "view", sql: "SELECT * FROM fx_sales.fx_region_totals" },
+  {
+    name: "attached catalog",
+    sql: "SELECT * FROM fx_aux.main.users WHERE nickname = 'ada'",
+    analyzed: true,
+  },
+  {
+    name: "types table",
+    sql: "SELECT c_list, c_struct FROM fx_types WHERE c_date > DATE '1900-01-01'",
+  },
+  { name: "unnest a list", sql: "SELECT unnest(c_list) FROM fx_types" },
+  // Not analyzed: EXPLAIN ANALYZE runs the statement.
+  { name: "update", sql: "UPDATE orders SET status = 'x' WHERE id = 1" },
+  { name: "delete", sql: "DELETE FROM orders WHERE id = 1" },
+  { name: "insert values", sql: "INSERT INTO fx_temp VALUES (1)" },
+  { name: "insert select", sql: "INSERT INTO fx_temp SELECT id FROM users" },
+];
+
+/** Keys of an analyzed plan whose numbers change between runs. */
+const VOLATILE = /timing|latency|cpu_time|thread_time|memory|bytes|temp_dir/;
+/**
+ * `operator_timing`, in document order. Includes a 0 so the parser's
+ * zero-timing path is covered.
+ */
+const TIMINGS = [0.0005, 0.00025, 0, 0.001, 0.0002, 0.00015, 0.00075];
+/** The root's `latency` (seconds): an execution time of 12.5 ms. */
+const LATENCY = 0.0125;
+
+type JsonObject = { [key: string]: Json };
+
+/**
+ * An analyzed plan with its run-dependent numbers replaced, so re-recording
+ * is byte-identical: `operator_timing` takes `TIMINGS` in document order,
+ * `latency` is `LATENCY`, and the other timing, CPU, memory and byte counters
+ * are 0. Row counts and cardinalities are kept. DuckDB writes the keys of a
+ * node in no fixed order, so they are sorted; the parser doesn't care.
+ */
+function normalizeAnalyzed(text: string): string {
+  let next = 0;
+  const walk = (value: Json, key?: string): Json => {
+    if (Array.isArray(value)) return value.map((v) => walk(v));
+    if (value !== null && typeof value === "object") {
+      const out: JsonObject = {};
+      for (const k of Object.keys(value).sort()) out[k] = walk(value[k], k);
+      return out;
+    }
+    if (typeof value !== "number" || key === undefined) return value;
+    if (key === "operator_timing") return TIMINGS[next++ % TIMINGS.length];
+    if (key === "latency") return LATENCY;
+    return VOLATILE.test(key) ? 0 : value;
+  };
+  return JSON.stringify(walk(JSON.parse(text) as Json), null, 4);
+}
+
+async function analyzedPlans(ctx: RecordContext): Promise<NamedInput[]> {
+  const out: NamedInput[] = [];
+  for (const target of EXPLAIN_TARGETS.filter((t) => t.analyzed)) {
+    const { columns, rows } = await ctx.session.select(
+      ctx.adapter.getExplainQuery(target.sql, true),
+    );
+    const normalized = rows.map((row) => ({
+      ...row,
+      explain_value:
+        typeof row.explain_value === "string"
+          ? normalizeAnalyzed(row.explain_value)
+          : row.explain_value,
+    }));
+    out.push({
+      name: `EXPLAIN ANALYZE: ${target.name}`,
+      input: { sql: target.sql, analyze: true, columns, rows: normalized },
+    });
+  }
+  return out;
+}
+
+/** A plan built by hand: the `explain_value` text `EXPLAIN (FORMAT JSON)` would return. */
+function synthetic(name: string, plan: Json | string, analyze = false): NamedInput {
+  return {
+    name: `synthetic: ${name}`,
+    input: {
+      sql: "(synthetic)",
+      analyze,
+      columns: ["explain_key", "explain_value"],
+      rows: [
+        {
+          explain_key: analyze ? "analyzed_plan" : "physical_plan",
+          explain_value: typeof plan === "string" ? plan : JSON.stringify(plan, null, 4),
+        },
+      ],
+    },
+  };
+}
+
+const scan = (cardinality: Json): JsonObject => ({
+  name: "SEQ_SCAN ",
+  children: [],
+  extra_info: { Table: "t", "Estimated Cardinality": cardinality },
+});
+
+const SYNTHETIC: NamedInput[] = [
+  // Fix 5 replaces the ones the TypeScript parser drops (`~100`, `1,234`, `42 rows`).
+  synthetic("estimated cardinality, plain digits", [scan("100")]),
+  synthetic("estimated cardinality, a number", [scan(100)]),
+  synthetic("estimated cardinality, with underscores", [scan("1_000")]),
+  synthetic("estimated cardinality, approximate (~100)", [scan("~100")]),
+  synthetic("estimated cardinality, with a thousands separator", [scan("1,234")]),
+  synthetic("estimated cardinality, with a unit", [scan("~42 rows")]),
+  synthetic("estimated cardinality, not a number", [scan("unknown")]),
+  synthetic(
+    "estimated cardinality, analyzed",
+    {
+      latency: 0.002,
+      children: [
+        {
+          operator_name: "EXPLAIN_ANALYZE",
+          operator_timing: 0,
+          operator_cardinality: 0,
+          children: [
+            {
+              operator_name: "SEQ_SCAN ",
+              operator_timing: 0.001,
+              operator_cardinality: 100,
+              extra_info: { Table: "t", "Estimated Cardinality": "~100" },
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+    true,
+  ),
+  synthetic("an index scan's conditions", [
+    {
+      name: "INDEX_SCAN ",
+      children: [],
+      extra_info: { Table: "t", Conditions: "id=5", "Estimated Cardinality": "1" },
+    },
+  ]),
+  synthetic("a hash join named with a space", [
+    {
+      name: "HASH JOIN",
+      children: [scan("10"), scan("20")],
+      extra_info: { "Join Type": "INNER", Conditions: "a = b" },
+    },
+  ]),
+  synthetic("conditions on another operator are its filter", [
+    {
+      name: "PIECEWISE_MERGE_JOIN",
+      children: [scan("10"), scan("20")],
+      extra_info: { "Join Type": "INNER", Conditions: "a < b", Filters: "c > 1" },
+    },
+  ]),
+  synthetic("filters as a list, with a non-string", [
+    { name: "SEQ_SCAN", children: [], extra_info: { Filters: ["a=1", 2, "b>3"] } },
+  ]),
+  synthetic("a node without a name or extra_info", [{ children: [] }]),
+  synthetic("an empty plan", []),
+  synthetic("not JSON", "physical_plan: <text>"),
+  synthetic(
+    "analyzed, without the EXPLAIN_ANALYZE wrapper",
+    {
+      latency: "slow",
+      children: [
+        {
+          operator_name: "PROJECTION",
+          operator_cardinality: 3,
+          children: [{ operator_name: "SEQ_SCAN", operator_timing: 0.002, children: [] }],
+        },
+      ],
+    },
+    true,
+  ),
+  synthetic("analyzed, no children", { latency: 0.001, children: [] }, true),
+  synthetic("analyzed, not JSON", "not json", true),
+];
+
+// ─── Corpus ──────────────────────────────────────────────────────────
+
+/** Tables the adapter's catalog queries accept (validateIdentifier), and don't fail on. */
+const COLUMN_TARGETS = [
+  { schema: "main", table: "users" },
+  { schema: "main", table: "orders" },
+  { schema: "main", table: "products" },
+  { schema: "main", table: "order_items" },
+  { schema: "main", table: "all_types" },
+  { schema: "main", table: "fx_types" },
+  { schema: "fx_sales", table: "regions" },
+  { schema: "fx_sales", table: "orders" },
+  { schema: "fx_sales", table: "fx_region_totals" },
+];
+
+const INDEX_TARGETS = [
+  { schema: "main", table: "orders" },
+  { schema: "main", table: "users" },
+  { schema: "fx_sales", table: "orders" },
+];
+
+/**
+ * One per table name: the adapter's table sizes list `fx_aux`'s tables again.
+ * `main.fx_items` (only in `fx_aux`) is left out: its count fails, and
+ * TsEngineClient keeps such a table uncounted.
+ */
+const ROW_COUNT_TARGETS = [
+  { schema: "main", table: "users" },
+  { schema: "main", table: "categories" },
+  { schema: "main", table: "orders" },
+  { schema: "main", table: "fx_types" },
+  { schema: "fx_sales", table: "orders" },
+  { schema: "fx_sales", table: "regions" },
+];
+
+async function rowCounts(ctx: RecordContext): Promise<NamedInput[]> {
+  const count = ctx.adapter.getTableRowCountQuery?.bind(ctx.adapter);
+  if (!count) throw new Error("the DuckDB adapter counts rows per table");
+  const out: NamedInput[] = [];
+  for (const { schema, table } of ROW_COUNT_TARGETS) {
+    const { columns, rows } = await ctx.session.select(count(table, schema));
+    out.push({
+      name: `row count ${schema}.${table}`,
+      input: { kind: "rowCount", schema, table, columns, rows },
+    });
+  }
+  return out;
+}
+
+export const duckdb: EngineCorpus = {
+  id: "duckdb",
+  adapter: "duckdb",
+  fixtureDir: crateFixtureDir("duckdb"),
+  connection: (): ConnectConfig => {
+    copyDatabase();
+    return { driver: "duckdb", path: DB };
+  },
+  cleanup: () => {
+    rmSync(DIR, { recursive: true, force: true });
+    copied = false;
+  },
+  pure,
+  parse: {
+    schema: {},
+    columns: COLUMN_TARGETS,
+    indexes: { targets: INDEX_TARGETS },
+    explain: EXPLAIN_TARGETS.map(({ name, sql }) => ({ name, sql, analyze: [false] })),
+    stats: { rowCounts: false },
+    extra: {
+      "parse-explain.json": async (ctx) => [...(await analyzedPlans(ctx)), ...SYNTHETIC],
+      "parse-stats.json": rowCounts,
+    },
+  },
+  bugfixes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+};

@@ -16,5 +16,10 @@ pub async fn query(
     State(state): State<AppState>,
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResult>, ApiError> {
-    Ok(Json(state.core.query(&req.connection_id, &req.sql, req.values).await?))
+    Ok(Json(
+        state
+            .core
+            .query(&req.connection_id, &req.sql, req.values)
+            .await?,
+    ))
 }

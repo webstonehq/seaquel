@@ -1,0 +1,787 @@
+/**
+ * MySQL and MariaDB corpora (Rust Core Phase 2, Task 4). One adapter
+ * (`src/lib/db/mysql.ts`) serves both servers, so there are two corpora with
+ * the same scratch objects and explain targets, recorded into
+ * `crates/seaquel-engine-mysql/tests/fixtures/{mysql,mariadb}/`:
+ *
+ *   npm run fixtures:record -- mysql      (SEAQUEL_TEST_MYSQL, 127.0.0.1:3306)
+ *   npm run fixtures:record -- mariadb    (SEAQUEL_TEST_MARIADB, 127.0.0.1:3307)
+ *
+ * The pure groups (quote, paginate, CRUD, DDL, column types, SQL text) don't
+ * depend on the server and are recorded once, in the MySQL corpus.
+ *
+ * The scratch objects live in `seaquel_test` itself (the adapter's schema,
+ * table-size and statistics queries only look at `DATABASE()`), all named
+ * `fx…`; their SQL is the `scratch` block of each `bugfixes.json`.
+ *
+ * EXPLAIN:
+ * - MySQL records `EXPLAIN FORMAT=JSON` (schema v1) and `EXPLAIN ANALYZE`
+ *   (text) for every target, then JSON schema v2 for a subset: that needs
+ *   `SET GLOBAL explain_json_format_version = 2` and a fresh pooled
+ *   connection (`ctx.openSession()`); the global is restored in `finally`.
+ * - MariaDB has no `EXPLAIN ANALYZE` (a syntax error), so its targets record
+ *   `EXPLAIN FORMAT=JSON` only, plus `ANALYZE FORMAT=JSON` through
+ *   `parse.extra` (stored with `analyze: false`, which is how the adapter's
+ *   JSON branch reads it; the Rust MariaDB branch reads its `r_*` fields).
+ * - A few synthetic plans cover adapter branches no server emits here: the
+ *   `{"query_plan": …}` v2 root, a query-block `attached_subqueries`, a union
+ *   spec without a query block and cost fields that aren't numbers.
+ */
+import { MysqlAdapter } from "$lib/db/mysql";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import {
+  alterCase,
+  col,
+  column,
+  crateFixtureDir,
+  def,
+  fk,
+  idx,
+  toJson,
+  type EngineCorpus,
+  type ExplainTarget,
+  type Json,
+  type NamedInput,
+  type RecordContext,
+  type Row,
+} from "../corpus";
+import { envConnectConfig } from "../server";
+
+type Flavor = "mysql" | "mariadb";
+
+const FALLBACK: Record<Flavor, ConnectConfig> = {
+  mysql: { driver: "mysql", connection_string: "mysql://root@127.0.0.1:3306/seaquel_test" },
+  mariadb: { driver: "mysql", connection_string: "mysql://root@127.0.0.1:3307/seaquel_test" },
+};
+
+const SCHEMA = "seaquel_test";
+
+/** The adapter's index usage query with bug fix 9 (`database_name`, not `TABLE_SCHEMA`). */
+const INDEX_USAGE_SQL = new MysqlAdapter()
+  .getIndexUsageQuery()
+  .replaceAll("TABLE_SCHEMA", "database_name");
+
+/** Only the scratch objects: other tests (and the seed) own the rest of `seaquel_test`. */
+const isScratch = (name: Json | undefined): boolean =>
+  typeof name === "string" && name.startsWith("fx");
+
+// ─── Pure inputs ─────────────────────────────────────────────────────
+
+const customers = () =>
+  def(
+    "shop",
+    "customers",
+    [
+      col("c1", "id", "INT", { nullable: false, isPrimaryKey: true }),
+      col("c2", "name", "VARCHAR", { length: "100", nullable: false }),
+      col("c3", "email", "VARCHAR", { length: "255", isUnique: true }),
+      col("c4", "status", "VARCHAR", { length: "20", defaultValue: "'active'" }),
+      col("c5", "balance", "DECIMAL", { precision: "10,2", nullable: false, defaultValue: "0" }),
+    ],
+    {
+      indexes: [idx("i1", "customers_name_idx", ["name"])],
+      foreignKeys: [fk("f1", "id", "auth", "users", "id")],
+    },
+  );
+
+/** `customers` with the `PRIMARY` index MySQL lists in `information_schema.STATISTICS`. */
+const customersWithPrimaryIndex = () => {
+  const d = customers();
+  d.indexes.unshift(idx("i0", "PRIMARY", ["id"], true));
+  return d;
+};
+
+const crud: NamedInput[] = [
+  {
+    name: "update, single pk",
+    input: {
+      fn: "update",
+      schema: SCHEMA,
+      table: "users",
+      column: "name",
+      value: "Ada L.",
+      primaryKeys: ["id"],
+      row: { id: 1, name: "Ada" },
+    },
+  },
+  {
+    name: "update, composite pk, NULL value",
+    input: {
+      fn: "update",
+      schema: "shop",
+      table: "order_lines",
+      column: "note",
+      value: null,
+      primaryKeys: ["order_id", "line_no"],
+      row: { line_no: 2, order_id: 10, note: "gift" },
+    },
+  },
+  {
+    name: "update ignores the cast map (MySQL has no CAST to column types)",
+    input: {
+      fn: "update",
+      schema: "shop",
+      table: "flags",
+      column: "enabled",
+      value: true,
+      primaryKeys: ["id"],
+      row: { id: 7 },
+      casts: { enabled: "tinyint(1)", id: "int" },
+    },
+  },
+  {
+    name: "update with a JSON value",
+    input: {
+      fn: "update",
+      schema: "shop",
+      table: "settings",
+      column: "doc",
+      value: { theme: "dark", n: [1, 2] },
+      primaryKeys: ["key"],
+      row: { key: "ui" },
+    },
+  },
+  {
+    name: "update, key missing from the row binds NULL",
+    input: {
+      fn: "update",
+      schema: "shop",
+      table: "t",
+      column: "a",
+      value: 1.5,
+      primaryKeys: ["id"],
+      row: { other: 1 },
+    },
+  },
+  {
+    name: "update, identifiers with spaces, dots and backticks",
+    input: {
+      fn: "update",
+      schema: "my db",
+      table: "order`items",
+      column: "unit.price",
+      value: "12.50",
+      primaryKeys: ["line`id"],
+      row: { "line`id": 3 },
+    },
+  },
+  {
+    name: "setDefault, composite pk",
+    input: {
+      fn: "setDefault",
+      schema: "shop",
+      table: "order_lines",
+      column: "qty",
+      primaryKeys: ["order_id", "line_no"],
+      row: { order_id: 10, line_no: 2 },
+    },
+  },
+  {
+    name: "insert, several values in row order",
+    input: {
+      fn: "insert",
+      schema: SCHEMA,
+      table: "users",
+      values: { name: "Grace", email: "grace@example.com", role: null, age: 36 },
+    },
+  },
+  {
+    name: "insert ignores the cast map",
+    input: {
+      fn: "insert",
+      schema: "shop",
+      table: "events",
+      values: { at: "2024-01-02 03:04:05", payload: { a: 1 } },
+      casts: { at: "datetime", payload: "json" },
+    },
+  },
+  {
+    name: "insert, no values",
+    input: { fn: "insert", schema: "shop", table: "counters", values: {} },
+  },
+  {
+    name: "insert, backtick in a column name",
+    input: { fn: "insert", schema: "shop", table: "t", values: { "we`ird": "x" } },
+  },
+  {
+    name: "delete, single pk",
+    input: { fn: "delete", schema: SCHEMA, table: "users", primaryKeys: ["id"], row: { id: 42 } },
+  },
+  {
+    name: "delete, composite pk with a string key",
+    input: {
+      fn: "delete",
+      schema: "shop",
+      table: "stock",
+      primaryKeys: ["region", "sku"],
+      row: { sku: "A-1", region: "eu", qty: 3 },
+    },
+  },
+];
+
+const pure: EngineCorpus["pure"] = {
+  quote: [
+    { name: "plain", input: { id: "users" } },
+    { name: "embedded backtick", input: { id: "we`ird" } },
+    { name: "two backticks", input: { id: "``" } },
+    { name: "space", input: { id: "order items" } },
+    { name: "dot", input: { id: "a.b" } },
+    { name: "double quote", input: { id: 'say "hi"' } },
+    { name: "non-ASCII", input: { id: "café" } },
+    { name: "empty", input: { id: "" } },
+  ],
+  paginate: [
+    { name: "first page", input: { sql: "SELECT * FROM users", limit: 100, offset: 0 } },
+    { name: "later page", input: { sql: "SELECT * FROM users", limit: 50, offset: 150 } },
+    {
+      name: "keeps a trailing semicolon and whitespace",
+      input: { sql: "SELECT 1;\n", limit: 10, offset: 5 },
+    },
+    {
+      name: "large numbers",
+      input: { sql: "SELECT id FROM t ORDER BY id", limit: 1000000, offset: 9007199254740991 },
+    },
+  ],
+  crud,
+  ddlCreate: [
+    { name: "everything together", input: toJson(customers()) },
+    {
+      name: "composite primary key, unique and several indexes",
+      input: toJson(
+        def(
+          "shop",
+          "order_lines",
+          [
+            col("c1", "order_id", "BIGINT", { nullable: false, isPrimaryKey: true }),
+            col("c2", "line_no", "SMALLINT", { nullable: false, isPrimaryKey: true }),
+            col("c3", "sku", "VARCHAR", { length: "64", isUnique: true }),
+            col("c4", "qty", "INT", { nullable: false, defaultValue: "1" }),
+            col("c5", "meta", "JSON"),
+          ],
+          {
+            indexes: [
+              idx("i1", "order_lines_sku_qty_idx", ["sku", "qty"]),
+              idx("i2", "order_lines_meta_key", ["meta"], true),
+            ],
+            foreignKeys: [fk("f1", "order_id", "shop", "orders", "id")],
+          },
+        ),
+      ),
+    },
+    {
+      name: "defaults: functions, padding and rejected values",
+      input: toJson(
+        def("shop", "defaults_demo", [
+          col("c1", "created_at", "DATETIME", {
+            nullable: false,
+            defaultValue: "CURRENT_TIMESTAMP",
+          }),
+          col("c2", "padded", "INT", { defaultValue: "  42  " }),
+          col("c3", "injected", "TEXT", { defaultValue: "'x'; DROP TABLE users" }),
+          col("c4", "commented", "TEXT", { defaultValue: "1 -- sneaky" }),
+          col("c5", "blank", "TEXT", { defaultValue: "   " }),
+          col("c6", "flag", "BOOLEAN", { nullable: false, defaultValue: "FALSE" }),
+        ]),
+      ),
+    },
+    {
+      name: "precision wins over length",
+      input: toJson(
+        def("shop", "prices", [
+          col("c1", "amount", "DECIMAL", { precision: "12,4", length: "8" }),
+          col("c2", "code", "CHAR", { length: "3" }),
+        ]),
+      ),
+    },
+    {
+      name: "names with spaces, dots and non-ASCII",
+      input: toJson(
+        def(
+          "my db",
+          "order items",
+          [
+            col("c1", "line.id", "INT", { nullable: false, isPrimaryKey: true }),
+            col("c2", "naïve", "VARCHAR", { length: "10", isUnique: true }),
+          ],
+          {
+            indexes: [idx("i1", "order items naïve idx", ["naïve"])],
+            foreignKeys: [fk("f1", "line.id", "other db", "lines", "id")],
+          },
+        ),
+      ),
+    },
+    { name: "no columns", input: toJson(def("shop", "empty", [])) },
+  ],
+  ddlAlter: [
+    alterCase("no changes", customers, () => {}),
+    alterCase("rename a column", customers, (d) => {
+      column(d, "c2").name = "full_name";
+    }),
+    alterCase("add columns", customers, (d) => {
+      d.columns.push(
+        col("c6", "tier", "SMALLINT", { nullable: false, defaultValue: "1" }),
+        col("c7", "notes", "TEXT"),
+      );
+    }),
+    alterCase("drop a column", customers, (d) => {
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+    }),
+    alterCase("change a type: MODIFY COLUMN carries NOT NULL and the default", customers, (d) => {
+      Object.assign(column(d, "c4"), { length: "50" });
+    }),
+    alterCase("make a column NOT NULL", customers, (d) => {
+      column(d, "c3").nullable = false;
+    }),
+    alterCase("drop NOT NULL, the default is kept", customers, (d) => {
+      column(d, "c5").nullable = true;
+    }),
+    alterCase("type and default change together", customers, (d) => {
+      Object.assign(column(d, "c5"), { precision: "12,2", defaultValue: "1.5" });
+    }),
+    alterCase("an unsafe default is left out of MODIFY", customers, (d) => {
+      Object.assign(column(d, "c2"), { length: "200", defaultValue: "'x'; DROP TABLE t" });
+    }),
+    alterCase("rename and change a type", customers, (d) => {
+      Object.assign(column(d, "c2"), { name: "display_name", length: "150" });
+    }),
+    alterCase("add an index", customers, (d) => {
+      d.indexes.push(idx("i2", "customers_status_email_idx", ["status", "email"], true));
+    }),
+    alterCase("an unnamed index is skipped", customers, (d) => {
+      d.indexes.push(idx("i2", "", ["status"]));
+    }),
+    alterCase("add a foreign key, with and without a schema", customers, (d) => {
+      d.foreignKeys.push(
+        fk("f2", "status", "", "statuses", "code"),
+        fk("f3", "email", "auth", "emails", "address"),
+      );
+    }),
+    alterCase("a dropped foreign key emits nothing", customers, (d) => {
+      d.foreignKeys = [];
+    }),
+    alterCase("move to another schema and table name", customers, (d) => {
+      d.schemaName = "billing";
+      d.tableName = "clients";
+      column(d, "c3").nullable = false;
+    }),
+    alterCase("statement order: every branch but DROP INDEX and defaults", customers, (d) => {
+      column(d, "c2").name = "display_name";
+      column(d, "c2").length = "150";
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+      column(d, "c5").nullable = true;
+      d.columns.push(col("c6", "tier", "SMALLINT", { nullable: false, defaultValue: "1" }));
+      d.indexes.push(idx("i2", "customers_tier_idx", ["tier"]));
+      d.foreignKeys.push(fk("f2", "tier", "shop", "tiers", "id"));
+    }),
+    // Fix 7 changes these two: bugfixes.json replaces their outputs.
+    alterCase("default-only change (dropped by the adapter)", customers, (d) => {
+      column(d, "c4").defaultValue = "'new'";
+    }),
+    alterCase("default removed only (dropped by the adapter)", customers, (d) => {
+      column(d, "c4").defaultValue = "";
+    }),
+    // Fix 6 changes these two: bugfixes.json replaces their outputs.
+    alterCase("drop an index (unqualified, invalid in MySQL)", customers, (d) => {
+      d.indexes = [];
+    }),
+    alterCase("drop the PRIMARY index", customersWithPrimaryIndex, (d) => {
+      d.indexes = d.indexes.filter((i) => i.name !== "PRIMARY");
+    }),
+  ],
+  ddlAddColumn: [
+    {
+      name: "NOT NULL with a default",
+      input: {
+        schema: "shop",
+        table: "customers",
+        column: toJson(
+          col("c9", "code", "VARCHAR", { length: "8", nullable: false, defaultValue: " 'x' " }),
+        ),
+      },
+    },
+    {
+      name: "nullable, precision",
+      input: {
+        schema: "shop",
+        table: "customers",
+        column: toJson(col("c9", "rate", "DECIMAL", { precision: "5,2" })),
+      },
+    },
+    {
+      name: "names with spaces",
+      input: {
+        schema: "my db",
+        table: "order items",
+        column: toJson(col("c9", "gift note", "TEXT")),
+      },
+    },
+  ],
+  columnTypes: true,
+  sql: [
+    { name: "getSchemaQuery", input: { query: "getSchemaQuery" } },
+    { name: "getSchemasQuery", input: { query: "getSchemasQuery" } },
+    {
+      name: "getColumnsQuery",
+      input: { query: "getColumnsQuery", schema: SCHEMA, table: "users" },
+    },
+    {
+      name: "getIndexesQuery",
+      input: { query: "getIndexesQuery", schema: SCHEMA, table: "users" },
+    },
+    { name: "getTableSizesQuery", input: { query: "getTableSizesQuery" } },
+    { name: "getIndexUsageQuery", input: { query: "getIndexUsageQuery" } },
+    { name: "getDatabaseOverviewQuery", input: { query: "getDatabaseOverviewQuery" } },
+    {
+      name: "getExplainQuery",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: false },
+    },
+    {
+      name: "getExplainQuery, analyze",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: true },
+    },
+    {
+      name: "getExplainQuery strips one trailing semicolon",
+      input: { query: "getExplainQuery", sql: "SELECT 1;;", analyze: false },
+    },
+    {
+      name: "getExplainQuery keeps a semicolon before whitespace",
+      input: { query: "getExplainQuery", sql: "SELECT 1;\n", analyze: true },
+    },
+  ],
+};
+
+// ─── EXPLAIN ─────────────────────────────────────────────────────────
+
+const EXPLAIN_TARGETS: (ExplainTarget & { mysqlOnly?: boolean; v2?: boolean })[] = [
+  { name: "table scan with a filter", sql: "SELECT * FROM fx_customers WHERE note LIKE '%v%'" },
+  { name: "const lookup", sql: "SELECT * FROM fx_customers WHERE id = 1" },
+  {
+    name: "bound parameter",
+    sql: "SELECT name FROM fx_customers WHERE id = ?",
+    params: [5],
+    v2: true,
+  },
+  { name: "range", sql: "SELECT id, name FROM fx_customers WHERE id BETWEEN 10 AND 20" },
+  {
+    name: "join",
+    sql: "SELECT c.name, o.total FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+    v2: true,
+  },
+  { name: "group by", sql: "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind", v2: true },
+  {
+    name: "order by",
+    sql: "SELECT * FROM fx_customers WHERE note LIKE '%v%' ORDER BY note",
+  },
+  {
+    name: "distinct over a join",
+    sql: "SELECT DISTINCT o.kind FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE c.note = 'vip'",
+  },
+  {
+    name: "union",
+    sql: "SELECT id FROM fx_customers WHERE id < 5 UNION SELECT customer_id FROM fx_orders WHERE id < 5",
+    v2: true,
+  },
+  {
+    name: "subquery in WHERE",
+    sql: "SELECT name FROM fx_customers WHERE score > (SELECT AVG(total) FROM fx_orders)",
+    v2: true,
+  },
+  {
+    name: "subquery in the select list",
+    sql: "SELECT id, (SELECT COUNT(*) FROM fx_orders o WHERE o.customer_id = c.id) AS n FROM fx_customers c WHERE c.id < 3",
+  },
+  {
+    name: "subquery in HAVING",
+    sql: "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind HAVING COUNT(*) > (SELECT COUNT(*) FROM fx_customers WHERE note = 'vip')",
+  },
+  {
+    name: "derived table",
+    sql: "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM fx_orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+    v2: true,
+  },
+  { name: "no tables", sql: "SELECT 1", v2: true },
+  { name: "fulltext", sql: "SELECT id FROM fx_orders WHERE MATCH(memo) AGAINST ('gift')" },
+  { name: "index merge", sql: "SELECT * FROM fx_customers WHERE id = 5 OR name = 'Customer 7'" },
+  { name: "hash index, trailing semicolon", sql: "SELECT code FROM fx_mem WHERE id = 2;" },
+  {
+    name: "table name with a space",
+    sql: "SELECT * FROM `fx order items` WHERE qty = 3",
+  },
+  { name: "table name with a dot", sql: "SELECT * FROM `fx.dotted`" },
+  { name: "non-ASCII names", sql: "SELECT * FROM `fx_café` WHERE `naïve` = 'é'" },
+  {
+    name: "never executed",
+    sql: "SELECT * FROM fx_customers c JOIN fx_orders o ON o.customer_id = c.id WHERE c.name = 'nobody'",
+  },
+  {
+    name: "large estimates",
+    sql: "SELECT COUNT(*) FROM fx_orders a JOIN fx_orders b WHERE a.total + b.total = 3",
+    mysqlOnly: true,
+  },
+];
+
+function explainTargets(flavor: Flavor): ExplainTarget[] {
+  return EXPLAIN_TARGETS.filter((t) => flavor === "mysql" || !t.mysqlOnly).map(
+    ({ name, sql, params }) => ({
+      name,
+      sql,
+      ...(params ? { params } : {}),
+      // MariaDB has no `EXPLAIN ANALYZE`; its ANALYZE FORMAT=JSON is an extra.
+      ...(flavor === "mariadb" ? { analyze: [false] } : {}),
+    }),
+  );
+}
+
+/** One `EXPLAIN`-style input from `sql` run as is. */
+async function explainInput(
+  ctx: RecordContext,
+  name: string,
+  query: string,
+  target: ExplainTarget,
+  extra: Record<string, Json> = {},
+): Promise<NamedInput> {
+  const { columns, rows } = await ctx.session.select(query, target.params);
+  return {
+    name,
+    input: {
+      sql: target.sql,
+      analyze: false,
+      ...(target.params ? { params: target.params } : {}),
+      ...extra,
+      columns,
+      rows,
+    },
+  };
+}
+
+/** JSON schema v2 (MySQL 8.3+): a global setting, read by new connections only. */
+async function mysqlV2Plans(ctx: RecordContext): Promise<NamedInput[]> {
+  const setting = await ctx.session
+    .select("SELECT @@GLOBAL.explain_json_format_version AS v")
+    .catch(() => undefined);
+  const previous = Number(setting?.rows[0]?.v);
+  if (!Number.isInteger(previous)) return [];
+  const out: NamedInput[] = [];
+  await ctx.session.execute("SET GLOBAL explain_json_format_version = 2");
+  try {
+    const session = await ctx.openSession();
+    try {
+      for (const target of EXPLAIN_TARGETS.filter((t) => t.v2)) {
+        const { columns, rows } = await session.select(
+          ctx.adapter.getExplainQuery(target.sql, false),
+          target.params,
+        );
+        out.push({
+          name: `EXPLAIN (JSON v2): ${target.name}`,
+          input: {
+            sql: target.sql,
+            analyze: false,
+            ...(target.params ? { params: target.params } : {}),
+            jsonFormatVersion: 2,
+            columns,
+            rows,
+          },
+        });
+      }
+    } finally {
+      await session.close();
+    }
+  } finally {
+    // Restore what the server had, not the default.
+    await ctx.session.execute(`SET GLOBAL explain_json_format_version = ${previous}`);
+  }
+  return out;
+}
+
+/** MariaDB's `ANALYZE FORMAT=JSON`, which the adapter never runs. */
+async function mariadbAnalyzePlans(ctx: RecordContext): Promise<NamedInput[]> {
+  const out: NamedInput[] = [];
+  for (const target of explainTargets("mariadb")) {
+    const base = target.sql.replace(/;$/, "");
+    out.push(
+      await explainInput(
+        ctx,
+        `ANALYZE FORMAT=JSON: ${target.name}`,
+        `ANALYZE FORMAT=JSON ${base}`,
+        target,
+        { mariadbAnalyze: true },
+      ),
+    );
+  }
+  return out;
+}
+
+/** A plan built by hand, stored as the one-cell row the server returns. */
+function synthetic(name: string, plan: unknown, analyze = false): NamedInput {
+  return {
+    name: `synthetic: ${name}`,
+    input: {
+      sql: "(synthetic)",
+      analyze,
+      columns: ["EXPLAIN"],
+      rows: [{ EXPLAIN: typeof plan === "string" ? plan : JSON.stringify(plan) }],
+    },
+  };
+}
+
+const table = (name: string, extra: Record<string, unknown> = {}) => ({
+  table: {
+    table_name: name,
+    access_type: "ALL",
+    rows_examined_per_scan: 10,
+    cost_info: { read_cost: "1.00", eval_cost: "0.50" },
+    ...extra,
+  },
+});
+
+const SYNTHETIC: NamedInput[] = [
+  synthetic("v2 plan under query_plan", {
+    query_plan: {
+      operation: "Nested loop inner join",
+      join_type: "inner join",
+      estimated_rows: 12.5,
+      estimated_total_cost: 40.25,
+      inputs: [
+        {
+          operation: "Table scan on o",
+          table_name: "orders",
+          alias: "o",
+          estimated_rows: 1000,
+          estimated_total_cost: 101.5,
+        },
+        {
+          operation: "Single-row index lookup on c using PRIMARY (id=o.customer_id)",
+          table_name: "customers",
+          alias: "c",
+          index_name: "PRIMARY",
+          lookup_condition: "id=o.customer_id",
+          estimated_rows: 1,
+          estimated_total_cost: 0.25,
+        },
+        { operation: "Filter: (x > 2)", condition: "(x > 2)", estimated_rows: 2.5 },
+        { estimated_rows: "7" },
+      ],
+    },
+  }),
+  synthetic("query block with attached subqueries", {
+    query_block: {
+      select_id: 1,
+      cost_info: { query_cost: "3.50" },
+      attached_subqueries: [
+        { dependent: false, query_block: { select_id: 2, ...table("a") } },
+        { dependent: true, cacheable: false },
+        { query_block: { select_id: 3, cost_info: { query_cost: "1.25" } } },
+      ],
+    },
+  }),
+  synthetic("union spec without a query block", {
+    query_block: {
+      union_result: {
+        table_name: "<union1,2>",
+        query_specifications: [
+          { query_block: { select_id: 1, ...table("a") } },
+          { dependent: false },
+        ],
+      },
+    },
+  }),
+  synthetic("union without specifications", { query_block: { union_result: {} } }),
+  synthetic("costs that are missing, empty or not numbers", {
+    query_block: {
+      cost_info: {},
+      nested_loop: [
+        table("a", { cost_info: { read_cost: "x", eval_cost: "1" } }),
+        table("b", { cost_info: {} }),
+        table("c", { cost_info: { read_cost: "", eval_cost: "2.5" } }),
+        table("d", { cost_info: undefined, access_type: "" }),
+        table("e", { cost_info: { read_cost: 3, eval_cost: " 4 " }, access_type: "system" }),
+        table("f", { access_type: "custom_access" }),
+      ],
+    },
+  }),
+  synthetic("grouping, ordering and duplicates removal nested", {
+    query_block: {
+      cost_info: { query_cost: "9.00" },
+      ordering_operation: {
+        grouping_operation: {
+          duplicates_removal: { nested_loop: [table("a"), table("b")] },
+        },
+      },
+    },
+  }),
+  synthetic("no query block", { something: 1 }),
+  synthetic("plan given as a JSON object cell", '{"query_block":{"select_id":1}}'),
+  synthetic(
+    "analyze text: blank lines, lines without an arrow, several roots",
+    "\n-> Limit: 1 row(s)  (cost=1.5 rows=1) (actual time=0.1..0.2 rows=1 loops=1)\nnot an operator line\n\n-> Table scan on t  (cost=0.5 rows=3)\n",
+    true,
+  ),
+  synthetic(
+    "analyze text: operators on the same level",
+    "-> Nested loop inner join  (cost=2 rows=4)\n    -> Table scan on a  (cost=1 rows=2)\n    -> Index lookup on b using ix (id=a.id)  (cost=0.5 rows=2)\n        -> Deeper  (cost=0.1 rows=1)\n    -> Back up\n",
+    true,
+  ),
+];
+
+async function extraExplain(flavor: Flavor, ctx: RecordContext): Promise<NamedInput[]> {
+  const out: NamedInput[] =
+    flavor === "mysql" ? await mysqlV2Plans(ctx) : await mariadbAnalyzePlans(ctx);
+  return [...out, ...SYNTHETIC];
+}
+
+// ─── Corpora ─────────────────────────────────────────────────────────
+
+const COLUMN_TABLES = [
+  "fx_customers",
+  "fx_orders",
+  "fx_accounts",
+  "fx_dotted_refs",
+  "fx_café",
+  "fx_mem",
+  "fx_customer_names",
+];
+
+const INDEX_TABLES = [
+  "fx_customers",
+  "fx_orders",
+  "fx_accounts",
+  "fx_café",
+  "fx_mem",
+  "fx_customer_names",
+];
+
+function mysqlCorpus(flavor: Flavor): EngineCorpus {
+  const variable = flavor === "mysql" ? "SEAQUEL_TEST_MYSQL" : "SEAQUEL_TEST_MARIADB";
+  return {
+    id: flavor,
+    adapter: flavor,
+    fixtureDir: crateFixtureDir("mysql", flavor),
+    connection: () => envConnectConfig(variable, FALLBACK[flavor]),
+    async prepare(ctx) {
+      // Fresh persistent statistics for the table sizes and innodb_index_stats.
+      await ctx.session.select(
+        "ANALYZE TABLE fx_customers, fx_orders, fx_accounts, `fx order items`, `fx.dotted`, `fx_café`",
+      );
+    },
+    pure: flavor === "mysql" ? pure : {},
+    parse: {
+      schema: { filter: (row: Row) => isScratch(row.table_name) },
+      columns: COLUMN_TABLES.map((table) => ({ schema: SCHEMA, table })),
+      indexes: { targets: INDEX_TABLES.map((table) => ({ schema: SCHEMA, table })) },
+      explain: explainTargets(flavor),
+      stats: {
+        filter: (kind, row) => kind === "overview" || isScratch(row.table_name),
+        // The adapter's index usage query reads `TABLE_SCHEMA`, which
+        // `mysql.innodb_index_stats` doesn't have (it's `database_name`), so it
+        // fails on both servers and takes the whole Statistics view down with
+        // it (bug fix 9). Its rows are recorded with the fixed query.
+        sql: { indexUsage: INDEX_USAGE_SQL },
+      },
+      extra: { "parse-explain.json": (ctx) => extraExplain(flavor, ctx) },
+    },
+    bugfixes: flavor === "mysql" ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 3, 4, 8, 9],
+  };
+}
+
+export const mysql = mysqlCorpus("mysql");
+export const mariadb = mysqlCorpus("mariadb");

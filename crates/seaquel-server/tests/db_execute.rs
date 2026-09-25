@@ -37,10 +37,7 @@ async fn post_json(app: axum::Router, uri: &str, body: Value) -> (StatusCode, Va
 
 #[tokio::test]
 async fn execute_create_and_insert_reports_rows_affected() {
-    let tmp = std::env::temp_dir().join(format!(
-        "seaquel-test-{}.sqlite",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = std::env::temp_dir().join(format!("seaquel-test-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
 
     let app = build_router(AppState::default());

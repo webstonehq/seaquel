@@ -108,11 +108,28 @@ impl DbError {
         }
     }
 
+    /// Statement `index` (0-based) of a transaction affected fewer rows than
+    /// its [`ExpectRows`]; the transaction was rolled back. The message
+    /// carries the index as `(index N)`.
+    pub fn no_rows_affected(index: usize, affected: u64, min: u64) -> Self {
+        Self {
+            message: format!(
+                "Statement {} (index {index}) affected {affected} row{}, expected at least {min}. The transaction was rolled back.",
+                index + 1,
+                if affected == 1 { "" } else { "s" },
+            ),
+            code: "NO_ROWS_AFFECTED".to_string(),
+        }
+    }
+
     /// The build doesn't include an engine for this driver (e.g. a slim CLI
     /// built without the `engine-mssql` feature).
     pub fn engine_not_available(driver: &str) -> Self {
         Self {
-            message: format!("Database engine \"{}\" is not available in this build", driver),
+            message: format!(
+                "Database engine \"{}\" is not available in this build",
+                driver
+            ),
             code: "ENGINE_NOT_AVAILABLE".to_string(),
         }
     }
@@ -168,12 +185,53 @@ pub struct ConnectConfig {
 
 /// A single statement in a batch/transaction
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields))]
 pub struct BatchStatement {
     pub sql: String,
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub params: Vec<Value>,
+    /// How many rows the statement must affect. `transaction` checks it
+    /// before COMMIT and, on a shortfall, rolls back and fails with
+    /// `NO_ROWS_AFFECTED`. Set it for a keyed UPDATE or DELETE (`{ min: 1 }`),
+    /// so an edit whose key went stale fails instead of silently doing
+    /// nothing; leave it out for DDL and INSERT.
+    #[serde(default)]
+    pub expect_rows: Option<ExpectRows>,
+}
+
+impl BatchStatement {
+    /// Checks the rows statement `index` of a batch affected against
+    /// [`BatchStatement::expect_rows`].
+    pub fn check_affected(&self, index: usize, affected: u64) -> Result<(), DbError> {
+        self.expect_rows
+            .map_or(Ok(()), |expect| expect.check(index, affected))
+    }
+}
+
+/// The rows a batch statement must affect (see [`BatchStatement::expect_rows`]).
+///
+/// Engines count differently, which matters only for `min`: MySQL counts
+/// matched rows (sqlx connects with `CLIENT_FOUND_ROWS`), MSSQL adds the rows
+/// its triggers touch, and Postgres (DO INSTEAD rules) and SQLite (INSTEAD OF
+/// triggers on views) report 0 for a write a rule or trigger carried out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ExpectRows {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub min: u64,
+}
+
+impl ExpectRows {
+    /// `NO_ROWS_AFFECTED` when statement `index` (0-based) affected fewer
+    /// than `min` rows.
+    pub fn check(self, index: usize, affected: u64) -> Result<(), DbError> {
+        if affected >= self.min {
+            return Ok(());
+        }
+        Err(DbError::no_rows_affected(index, affected, self.min))
+    }
 }
 
 /// Generated SQL plus the values for its placeholders. `bind_values` is absent

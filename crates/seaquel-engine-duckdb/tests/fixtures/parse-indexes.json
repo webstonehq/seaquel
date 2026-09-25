@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "name": "main.orders",
+      "input": {
+        "schema": "main",
+        "table": "orders",
+        "columns": ["index_name"],
+        "rows": []
+      },
+      "output": []
+    },
+    {
+      "name": "main.users",
+      "input": {
+        "schema": "main",
+        "table": "users",
+        "columns": ["index_name"],
+        "rows": []
+      },
+      "output": []
+    },
+    {
+      "name": "fx_sales.orders",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders",
+        "columns": ["index_name"],
+        "rows": []
+      },
+      "output": []
+    }
+  ]
+}

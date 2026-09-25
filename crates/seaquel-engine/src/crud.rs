@@ -6,6 +6,11 @@
 //! fn, an optional cast map, and a placeholder fn. The inline builders
 //! (MSSQL/DuckDB) move in phase 2.
 //!
+//! The `_qs` variants take a second quote fn for the schema part of the
+//! table name (`Dialect::quote_schema`: DuckDB lists an attached catalog's
+//! schema as `catalog.schema`, two identifiers). The plain builders quote
+//! the schema with `qi`.
+//!
 //! One intended difference (bug fix 6): the cast map also wraps the
 //! primary-key placeholders in the WHERE clause, and update, set-default and
 //! delete all take it. TypeScript cast only the value placeholders.
@@ -92,10 +97,39 @@ pub fn build_param_update(
     casts: Option<&CastMap>,
     placeholder: PlaceholderFn,
 ) -> SqlWithBindings {
+    build_param_update_qs(
+        schema,
+        table,
+        column,
+        value,
+        pks,
+        row,
+        qi,
+        qi,
+        casts,
+        placeholder,
+    )
+}
+
+/// [`build_param_update`] with `qs` quoting the schema part of the table
+/// name (`Dialect::quote_schema`).
+#[allow(clippy::too_many_arguments)]
+pub fn build_param_update_qs(
+    schema: &str,
+    table: &str,
+    column: &str,
+    value: Value,
+    pks: &[String],
+    row: &RowValues,
+    qi: QuoteIdFn,
+    qs: QuoteIdFn,
+    casts: Option<&CastMap>,
+    placeholder: PlaceholderFn,
+) -> SqlWithBindings {
     let value_placeholder = get_cast_placeholder(1, column, placeholder, casts);
     let sql = format!(
         "UPDATE {}.{} SET {} = {} WHERE {}",
-        qi(schema),
+        qs(schema),
         qi(table),
         qi(column),
         value_placeholder,
@@ -121,11 +155,60 @@ pub fn build_param_set_default(
     casts: Option<&CastMap>,
     placeholder: PlaceholderFn,
 ) -> SqlWithBindings {
+    build_param_set_default_qs(schema, table, column, pks, row, qi, qi, casts, placeholder)
+}
+
+/// [`build_param_set_default`] with `qs` quoting the schema part.
+#[allow(clippy::too_many_arguments)]
+pub fn build_param_set_default_qs(
+    schema: &str,
+    table: &str,
+    column: &str,
+    pks: &[String],
+    row: &RowValues,
+    qi: QuoteIdFn,
+    qs: QuoteIdFn,
+    casts: Option<&CastMap>,
+    placeholder: PlaceholderFn,
+) -> SqlWithBindings {
     let sql = format!(
         "UPDATE {}.{} SET {} = DEFAULT WHERE {}",
+        qs(schema),
+        qi(table),
+        qi(column),
+        where_conditions(pks, 1, qi, casts, placeholder)
+    );
+    SqlWithBindings {
+        sql,
+        bind_values: Some(pks.iter().map(|pk| lookup(row, pk)).collect()),
+    }
+}
+
+/// `SET col = (expr)`: [`build_param_set_default`] for engines without
+/// `DEFAULT` in `UPDATE` (SQLite), given the column's default expression as
+/// the database reports it. The expression is SQL from the table's own
+/// definition (trusted like a cast type, never user input) and goes in
+/// parentheses so it stays one operand. A blank one is `NULL`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_param_set_expr(
+    schema: &str,
+    table: &str,
+    column: &str,
+    expr: &str,
+    pks: &[String],
+    row: &RowValues,
+    qi: QuoteIdFn,
+    casts: Option<&CastMap>,
+    placeholder: PlaceholderFn,
+) -> SqlWithBindings {
+    let expr = expr.trim();
+    let expr = if expr.is_empty() { "NULL" } else { expr };
+    let sql = format!(
+        "UPDATE {}.{} SET {} = ({}) WHERE {}",
         qi(schema),
         qi(table),
         qi(column),
+        expr,
         where_conditions(pks, 1, qi, casts, placeholder)
     );
     SqlWithBindings {
@@ -143,6 +226,19 @@ pub fn build_param_insert(
     casts: Option<&CastMap>,
     placeholder: PlaceholderFn,
 ) -> SqlWithBindings {
+    build_param_insert_qs(schema, table, values, qi, qi, casts, placeholder)
+}
+
+/// [`build_param_insert`] with `qs` quoting the schema part.
+pub fn build_param_insert_qs(
+    schema: &str,
+    table: &str,
+    values: &[(String, Value)],
+    qi: QuoteIdFn,
+    qs: QuoteIdFn,
+    casts: Option<&CastMap>,
+    placeholder: PlaceholderFn,
+) -> SqlWithBindings {
     let column_names: Vec<String> = values.iter().map(|(c, _)| qi(c)).collect();
     let placeholders: Vec<String> = values
         .iter()
@@ -151,7 +247,7 @@ pub fn build_param_insert(
         .collect();
     let sql = format!(
         "INSERT INTO {}.{} ({}) VALUES ({})",
-        qi(schema),
+        qs(schema),
         qi(table),
         column_names.join(", "),
         placeholders.join(", ")
@@ -171,9 +267,24 @@ pub fn build_param_delete(
     casts: Option<&CastMap>,
     placeholder: PlaceholderFn,
 ) -> SqlWithBindings {
+    build_param_delete_qs(schema, table, pks, row, qi, qi, casts, placeholder)
+}
+
+/// [`build_param_delete`] with `qs` quoting the schema part.
+#[allow(clippy::too_many_arguments)]
+pub fn build_param_delete_qs(
+    schema: &str,
+    table: &str,
+    pks: &[String],
+    row: &RowValues,
+    qi: QuoteIdFn,
+    qs: QuoteIdFn,
+    casts: Option<&CastMap>,
+    placeholder: PlaceholderFn,
+) -> SqlWithBindings {
     let sql = format!(
         "DELETE FROM {}.{} WHERE {}",
-        qi(schema),
+        qs(schema),
         qi(table),
         where_conditions(pks, 1, qi, casts, placeholder)
     );
@@ -321,7 +432,15 @@ mod tests {
 
     #[test]
     fn missing_pk_in_row_binds_null() {
-        let got = build_param_delete("s", "t", &pks(&["id"]), &row(&[]), &qi, None, &dollar_placeholder);
+        let got = build_param_delete(
+            "s",
+            "t",
+            &pks(&["id"]),
+            &row(&[]),
+            &qi,
+            None,
+            &dollar_placeholder,
+        );
         check(
             got,
             "DELETE FROM \"s\".\"t\" WHERE \"id\" = $1",
@@ -451,7 +570,15 @@ mod tests {
             vec![s("2"), s("n")],
         );
         check(
-            build_param_delete("db", "t", &keys, &r, &backtick, Some(&c), &question_placeholder),
+            build_param_delete(
+                "db",
+                "t",
+                &keys,
+                &r,
+                &backtick,
+                Some(&c),
+                &question_placeholder,
+            ),
             "DELETE FROM `db`.`t` WHERE `id` = ? AND `region` = ?",
             vec![Value::Int(5), s("eu")],
         );
@@ -461,8 +588,15 @@ mod tests {
 
     #[test]
     fn update_casts_primary_keys() {
-        let r = row(&[("id", s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")), ("day", s("2024-01-02"))]);
-        let c = casts(&[("id", "uuid"), ("day", "date"), ("ts", "timestamp without time zone")]);
+        let r = row(&[
+            ("id", s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")),
+            ("day", s("2024-01-02")),
+        ]);
+        let c = casts(&[
+            ("id", "uuid"),
+            ("day", "date"),
+            ("ts", "timestamp without time zone"),
+        ]);
         check(
             build_param_update(
                 "public",
@@ -482,9 +616,15 @@ mod tests {
 
     #[test]
     fn set_default_and_delete_cast_primary_keys() {
-        let r = row(&[("id", s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")), ("n", Value::Int(3))]);
+        let r = row(&[
+            ("id", s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")),
+            ("n", Value::Int(3)),
+        ]);
         // `n` has no cast, and an empty type means none.
-        for c in [casts(&[("id", "uuid")]), casts(&[("id", "uuid"), ("n", "")])] {
+        for c in [
+            casts(&[("id", "uuid")]),
+            casts(&[("id", "uuid"), ("n", "")]),
+        ] {
             check(
                 build_param_set_default(
                     "public",
@@ -500,7 +640,15 @@ mod tests {
                 vec![s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), Value::Int(3)],
             );
             check(
-                build_param_delete("public", "t", &pks(&["id", "n"]), &r, &qi, Some(&c), &dollar_placeholder),
+                build_param_delete(
+                    "public",
+                    "t",
+                    &pks(&["id", "n"]),
+                    &r,
+                    &qi,
+                    Some(&c),
+                    &dollar_placeholder,
+                ),
                 "DELETE FROM \"public\".\"t\" WHERE \"id\" = CAST($1 AS uuid) AND \"n\" = $2",
                 vec![s("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), Value::Int(3)],
             );
@@ -512,7 +660,15 @@ mod tests {
         let r = row(&[("id", s("x"))]);
         let c = casts(&[("id", "CHAR(36)")]);
         check(
-            build_param_delete("db", "t", &pks(&["id"]), &r, &backtick, Some(&c), &question_placeholder),
+            build_param_delete(
+                "db",
+                "t",
+                &pks(&["id"]),
+                &r,
+                &backtick,
+                Some(&c),
+                &question_placeholder,
+            ),
             "DELETE FROM `db`.`t` WHERE `id` = CAST(? AS CHAR(36))",
             vec![s("x")],
         );

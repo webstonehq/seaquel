@@ -10,6 +10,7 @@ seaquel-types = { path = "../seaquel-types" }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+log = { workspace = true }
 serde_json = { workspace = true }
 # Not the workspace tokio-util: that one enables "compat", which pulls tokio "net".
 tokio-util = { version = "0.7", default-features = false }

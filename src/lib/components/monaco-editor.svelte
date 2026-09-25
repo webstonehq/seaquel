@@ -14,6 +14,8 @@
 	import type * as MonacoNS from "monaco-editor";
 	import { editorSettingsStore } from "$lib/stores/editor-settings.svelte.js";
 	import type { SchemaTable } from "$lib/types";
+	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { editorQualifiedTable, getEngineClient } from "$lib/engine";
 
 	let {
 		value = $bindable(""),
@@ -34,6 +36,18 @@
 		onAIInlinePrompt?: (pos: { lineNumber: number; column: number }) => void;
 		class?: string;
 	} = $props();
+
+	// Absent where the editor runs without the app's database context.
+	const db = useDatabase();
+
+	/** Completions insert `schema.table` bare when plain, else quoted for the active engine. */
+	function qualifyTable(): ((schema: string, table: string) => string) | undefined {
+		const connection = db?.state.activeConnection;
+		if (!connection) return undefined;
+		const client = getEngineClient(connection, db.state);
+		return (schema, table) =>
+			editorQualifiedTable(connection.type, (s, t) => client.qualifiedTable(s, t), schema, table);
+	}
 
 	// oxlint-disable-next-line eslint(no-unassigned-vars)
 	let container: HTMLDivElement;
@@ -147,7 +161,7 @@
 		// Register schema-aware completion provider
 		completionDisposable = monaco.languages.registerCompletionItemProvider(
 			"pgsql",
-			createSchemaCompletionProvider(monaco, () => schema)
+			createSchemaCompletionProvider(monaco, () => schema, qualifyTable)
 		);
 
 		// Sync editor content to bound value and notify parent

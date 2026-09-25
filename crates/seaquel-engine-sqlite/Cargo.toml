@@ -7,11 +7,13 @@ description = "SQLite engine for Seaquel."
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-types = { path = "../seaquel-types" }
+futures = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
-time = { workspace = true }
 
 [dev-dependencies]
+serde = { workspace = true }
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt"] }

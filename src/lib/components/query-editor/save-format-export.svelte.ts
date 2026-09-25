@@ -3,8 +3,14 @@ import { errorToast } from "$lib/utils/toast";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { format as formatSQL } from "sql-formatter";
-import { formatConfig, getExportContent, type ExportFormat } from "$lib/utils/export-formats.js";
+import {
+  formatConfig,
+  getExportContent,
+  insertTarget,
+  type ExportFormat,
+} from "$lib/utils/export-formats.js";
 import { m } from "$lib/paraglide/messages.js";
+import { getEngineClient } from "$lib/engine";
 import type { QueryEditorContext } from "./types.js";
 
 export function createSaveFormatExport(ctx: QueryEditorContext) {
@@ -57,12 +63,20 @@ export function createSaveFormatExport(ctx: QueryEditorContext) {
   function getContent(format: ExportFormat): string {
     const activeResult = ctx.getActiveResult();
     if (!activeResult) return format === "json" ? "[]" : "";
+    const connection = db.state.activeConnection;
+    // The INSERT target: the result's source table when every column is its
+    // own, else a placeholder.
+    const source = insertTarget(activeResult, db.state.activeSchema);
+    const tableName =
+      connection && source
+        ? getEngineClient(connection, db.state).qualifiedTable(source.schema, source.name)
+        : undefined;
     return getExportContent(
       format,
       activeResult.columns,
       activeResult.rows,
-      undefined,
-      db.state.activeConnection?.type,
+      tableName,
+      connection?.type,
     );
   }
 

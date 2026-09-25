@@ -6,6 +6,7 @@
 /// read from the execute result.
 ///
 /// - `decode_fn`: `fn(<$db as Database>::ValueRef<'_>) -> Result<Value, DbError>`.
+///   A decode error gets the column's name appended (the value doesn't know it).
 /// - `bind_fn`: `fn<'q>(Query<'q, $db, $args>, &'q Value) -> Result<Query<'q, $db, $args>, DbError>`.
 ///   Binds one parameter. Each engine owns its binder, so type choices (how a
 ///   `Decimal` or an `Array` binds) never become per-database branches here.
@@ -82,7 +83,9 @@ macro_rules! impl_sqlx_driver {
                     let mut values = Vec::with_capacity(columns.len());
                     for i in 0..row.columns().len() {
                         let v = row.try_get_raw(i).map_err($crate::DbError::query_error)?;
-                        values.push($decode_fn(v)?);
+                        values.push(
+                            $decode_fn(v).map_err(|e| $crate::__private::in_column(e, row.columns()[i].name()))?,
+                        );
                     }
                     result_rows.push(values);
                 }
@@ -131,7 +134,9 @@ macro_rules! impl_sqlx_driver {
                         let mut values = Vec::with_capacity(col_count);
                         for i in 0..col_count {
                             let v = row.try_get_raw(i).map_err($crate::DbError::query_error)?;
-                            values.push($decode_fn(v)?);
+                            values.push(
+                                $decode_fn(v).map_err(|e| $crate::__private::in_column(e, row.columns()[i].name()))?,
+                            );
                         }
                         buffer.push(values);
 
@@ -197,12 +202,24 @@ macro_rules! impl_sqlx_driver {
                     .await
                     .map_err($crate::DbError::execute_error)?;
 
-                for stmt in &statements {
+                // An error returned from here drops `tx`, which rolls back.
+                // A shortfall against `expect_rows` rolls back explicitly, so
+                // the connection goes back to the pool clean; if that fails,
+                // the shortfall is still what's returned (dropping `tx` tries
+                // again).
+                for (index, stmt) in statements.iter().enumerate() {
                     let query = sqlx::query(&stmt.sql);
                     let query = bind_params(query, &stmt.params)?;
-                    tx.execute(query)
+                    let result = tx
+                        .execute(query)
                         .await
                         .map_err($crate::DbError::execute_error)?;
+                    if let Err(e) = stmt.check_affected(index, result.rows_affected()) {
+                        if let Err(rollback) = tx.rollback().await {
+                            $crate::__private::log::warn!(activity = "db.transaction"; "Rollback after {} failed: {rollback}", e.code);
+                        }
+                        return Err(e);
+                    }
                 }
 
                 tx.commit()

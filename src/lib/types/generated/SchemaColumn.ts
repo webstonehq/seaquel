@@ -43,4 +43,22 @@ isForeignKey: boolean,
 /**
  * Foreign key reference details, if this is a foreign key
  */
-foreignKeyRef?: ForeignKeyRef, };
+foreignKeyRef?: ForeignKeyRef, 
+/**
+ * The column's collation, only when it differs from the database
+ * default (MSSQL), so that an `ALTER COLUMN` built from it keeps the
+ * collation. Absent for engines that don't report it.
+ */
+collation?: string, 
+/**
+ * The column on its own is a UNIQUE constraint (the table editor's
+ * UNIQUE checkbox). Reported by DuckDB; other engines leave it false.
+ */
+isUnique?: boolean, 
+/**
+ * The column is in some UNIQUE constraint, single-column or composite
+ * (not the primary key, not a unique index). DuckDB can't drop or retype
+ * such a column, or drop one before it, so its ALTER TABLE rules read
+ * this. Not shown in the editor. Reported by DuckDB only.
+ */
+inUniqueConstraint?: boolean, };

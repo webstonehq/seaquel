@@ -1,0 +1,928 @@
+{
+  "about": "Hand-written expectations for the intended changes from the TypeScript MySQL adapter (src/lib/db/mysql.ts); see 'Task 4' in docs/plans/2026-09-26-rust-core-phase-2-plan.md. The recorder never writes this file; its 'scratch' block is what record mode (and tests/smoke.rs, in a fresh database) builds, unqualified, in seaquel_test. Fix 1: catalog filters are bound, so tables named with a space, '-' or '.' load ('columns'/'indexes' cases, checked live by smoke.rs). Fix 2: the DDL quote doubles backticks. Fix 3: is_foreign_key comes from KEY_COLUMN_USAGE.REFERENCED_TABLE_NAME alone (a PRI or UNI column can be a foreign key), and the reference is three columns, not a CONCAT that a dotted name breaks. Fix 4: catalog text is UTF-8 (the TS decoded byte cells as Latin-1: 'é' became 'Ã©'), and table_type is aliased and decoded (MySQL named the bare column TABLE_TYPE, so views were listed as tables). Fix 5: EXPLAIN ANALYZE text with fractional or scientific numbers, cost ranges, '(never executed)' and relation names that aren't one ASCII word. Fix 6: DROP INDEX `i` ON `schema`.`table` (the original table), and ALTER TABLE ... DROP PRIMARY KEY for PRIMARY. Fix 7 (revised in review): a default-only change is ALTER TABLE ... ALTER COLUMN ... SET DEFAULT <expr> / DROP DEFAULT (the TS emitted nothing); MODIFY COLUMN only for a type or nullability change, as before, so ON UPDATE, COMMENT and collation aren't rebuilt from the editor's definition. Fix 8 (decided in review): SchemaColumn.defaultValue is the default as a SQL expression, as Postgres reports it, because the table editor copies it into DDL verbatim. MySQL reports literal defaults unquoted, so they are quoted (\\ and ' escaped) unless the column is numeric or BIT or EXTRA says DEFAULT_GENERATED (CURRENT_TIMESTAMP[(n)] kept, other expressions parenthesized); an empty string is ''. MariaDB already reports SQL, so only its bare word NULL becomes no default. The TS query's MySQL rows have no EXTRA and keep the TS value. Fix 9 (found while recording): the index usage query read TABLE_SCHEMA from mysql.innodb_index_stats, which only has database_name, so it failed on both servers and the whole Statistics view with it; the recorder records its rows with the fixed query. Fix 10 (found while recording): JSON plans the TS showed as empty: MySQL's schema v2 (explain_json_format_version = 2) puts the plan at the root, where the TS looked for a 'query_plan' key, and a v1 'windowing' block (window functions) had no branch. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs). Re-recording changes timings and costs, so the 'replaces' cases of fixes 5 and 10 must be regenerated and reviewed with it.",
+  "scratch": {
+    "schema": "seaquel_test",
+    "setup": [
+      "CREATE TABLE fx_customers (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL, email VARCHAR(255) UNIQUE, status VARCHAR(20) DEFAULT 'active', quoted VARCHAR(20) DEFAULT 'it''s', literal_null VARCHAR(10) DEFAULT 'NULL', score DECIMAL(10,2) NOT NULL DEFAULT 0.00, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, note TEXT, KEY fx_customers_name_idx (name))",
+      "INSERT INTO fx_customers (name, email, score, note) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 200) SELECT CONCAT('Customer ', n), CONCAT('c', n, '@example.com'), n % 50, IF(n % 3 = 0, 'vip', NULL) FROM seq",
+      "CREATE TABLE fx_orders (id INT PRIMARY KEY AUTO_INCREMENT, customer_id INT NOT NULL, kind ENUM('click', 'view', 'buy') NOT NULL, total DECIMAL(10,2), placed_at DATETIME NOT NULL, memo TEXT, KEY fx_orders_customer_placed_idx (customer_id, placed_at), FULLTEXT KEY fx_orders_memo_ft (memo), CONSTRAINT fx_orders_customer_fk FOREIGN KEY (customer_id) REFERENCES fx_customers (id))",
+      "INSERT INTO fx_orders (customer_id, kind, total, placed_at, memo) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 1000) SELECT n % 200 + 1, ELT(n % 3 + 1, 'click', 'view', 'buy'), n % 97, TIMESTAMP '2026-01-01 00:00:00' + INTERVAL n MINUTE, IF(n % 10 = 0, 'gift wrap', 'standard') FROM seq",
+      "CREATE TABLE fx_accounts (customer_id INT PRIMARY KEY, email VARCHAR(255) UNIQUE, referrer_id INT, plan VARCHAR(20) NOT NULL DEFAULT 'free', CONSTRAINT fx_accounts_customer_fk FOREIGN KEY (customer_id) REFERENCES fx_customers (id), CONSTRAINT fx_accounts_email_fk FOREIGN KEY (email) REFERENCES fx_customers (email), CONSTRAINT fx_accounts_referrer_fk FOREIGN KEY (referrer_id) REFERENCES fx_customers (id))",
+      "INSERT INTO fx_accounts (customer_id, email, referrer_id, plan) VALUES (1, 'c1@example.com', NULL, 'pro'), (2, 'c2@example.com', 1, 'free'), (3, NULL, 1, 'free')",
+      "CREATE TABLE `fx order items` (id INT PRIMARY KEY, `order id` INT NOT NULL, sku VARCHAR(32) NOT NULL, qty INT NOT NULL DEFAULT 1, UNIQUE KEY `fx order items order sku` (`order id`, sku), KEY `fx order items sku idx` (sku), CONSTRAINT `fx order items order fk` FOREIGN KEY (`order id`) REFERENCES fx_orders (id))",
+      "INSERT INTO `fx order items` (id, `order id`, sku, qty) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 300) SELECT n, n % 1000 + 1, CONCAT('SKU-', n % 40), n % 5 + 1 FROM seq",
+      "CREATE TABLE `fx-my-table` (id INT PRIMARY KEY, value VARCHAR(20) DEFAULT 'n/a')",
+      "CREATE TABLE `fx.dotted` (id INT PRIMARY KEY, label VARCHAR(20))",
+      "INSERT INTO `fx.dotted` (id, label) VALUES (1, 'one'), (2, 'two')",
+      "CREATE TABLE fx_dotted_refs (id INT PRIMARY KEY, dotted_id INT, CONSTRAINT fx_dotted_refs_fk FOREIGN KEY (dotted_id) REFERENCES `fx.dotted` (id))",
+      "CREATE TABLE `fx_café` (id INT PRIMARY KEY, `naïve` VARCHAR(10) DEFAULT 'é', KEY `fx_café_naïve_idx` (`naïve`))",
+      "CREATE TABLE fx_mem (id INT NOT NULL, code CHAR(4), KEY fx_mem_id_hash USING HASH (id)) ENGINE=MEMORY",
+      "INSERT INTO fx_mem (id, code) VALUES (1, 'a'), (2, 'b'), (3, 'c')",
+      "CREATE VIEW fx_customer_names AS SELECT id, name FROM fx_customers"
+    ],
+    "teardown": [
+      "DROP VIEW IF EXISTS fx_customer_names",
+      "DROP TABLE IF EXISTS fx_dotted_refs, `fx.dotted`, `fx order items`, `fx-my-table`, fx_accounts, fx_orders, fx_mem, `fx_café`, fx_customers"
+    ]
+  },
+  "cases": [
+    {
+      "name": "fix 1: columns of a table with a space in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx order items"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "order id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_orders",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "sku",
+          "type": "varchar(32)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "qty",
+          "type": "int(11)",
+          "nullable": false,
+          "defaultValue": "1",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx-my-table"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "value",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'n/a'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a dot in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx.dotted"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "label",
+          "type": "varchar(20)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes of a table with a space in its name",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx order items"
+      },
+      "output": [
+        {
+          "name": "fx order items order sku",
+          "columns": ["order id", "sku"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "fx order items sku idx",
+          "columns": ["sku"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx-my-table"
+      },
+      "output": [
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "fix 3: a PRI or UNI column that is also a foreign key shows as one",
+      "fix": 3,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_accounts"
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "email"
+          }
+        },
+        {
+          "name": "referrer_id",
+          "type": "int(11)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "plan",
+          "type": "varchar(20)",
+          "nullable": false,
+          "defaultValue": "'free'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 3: a foreign key to a table with a dot in its name keeps its reference",
+      "fix": 3,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_dotted_refs"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "dotted_id",
+          "type": "int(11)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx.dotted",
+            "referencedColumn": "id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fix 4: non-ASCII names and defaults decode as UTF-8",
+      "fix": 4,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_café"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "naïve",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "'é'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 8: defaults are SQL expressions",
+      "fix": 8,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customers"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(100)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'active'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "quoted",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'it''s'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "literal_null",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "'NULL'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal(10,2)",
+          "nullable": false,
+          "defaultValue": "0.00",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": true,
+          "defaultValue": "current_timestamp()",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 9: index usage reads innodb_index_stats.database_name",
+      "fix": 9,
+      "kind": "sql",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tdatabase_name AS schema_name,\n\t\t\tTABLE_NAME AS table_name,\n\t\t\tINDEX_NAME AS index_name,\n\t\t\tCONCAT(ROUND(STAT_VALUE * @@innodb_page_size / 1024, 2), ' KB') AS size,\n\t\t\t0 AS scans,\n\t\t\t0 AS rows_read,\n\t\t\t0 AS unused\n\t\tFROM mysql.innodb_index_stats\n\t\tWHERE stat_name = 'size' AND database_name = DATABASE()\n\t\tORDER BY STAT_VALUE DESC"
+    },
+    {
+      "name": "fix 4: views are listed as views (table_type is read)",
+      "fix": 4,
+      "kind": "schema",
+      "input": {},
+      "output": [
+        {
+          "name": "fx order items",
+          "type": "table"
+        },
+        {
+          "name": "fx-my-table",
+          "type": "table"
+        },
+        {
+          "name": "fx.dotted",
+          "type": "table"
+        },
+        {
+          "name": "fx_accounts",
+          "type": "table"
+        },
+        {
+          "name": "fx_café",
+          "type": "table"
+        },
+        {
+          "name": "fx_customers",
+          "type": "table"
+        },
+        {
+          "name": "fx_customer_names",
+          "type": "view"
+        },
+        {
+          "name": "fx_dotted_refs",
+          "type": "table"
+        },
+        {
+          "name": "fx_mem",
+          "type": "table"
+        },
+        {
+          "name": "fx_orders",
+          "type": "table"
+        }
+      ]
+    },
+    {
+      "name": "fix 8: MariaDB's bare NULL is no default (seaquel_test.fx_customers)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_customers",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customers",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "varchar(100)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "email",
+            "data_type": "varchar(255)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "status",
+            "data_type": "varchar(20)",
+            "is_nullable": "YES",
+            "column_default": "'active'",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "quoted",
+            "data_type": "varchar(20)",
+            "is_nullable": "YES",
+            "column_default": "'it''s'",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "literal_null",
+            "data_type": "varchar(10)",
+            "is_nullable": "YES",
+            "column_default": "'NULL'",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "score",
+            "data_type": "decimal(10,2)",
+            "is_nullable": "NO",
+            "column_default": "0.00",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "datetime",
+            "is_nullable": "YES",
+            "column_default": "current_timestamp()",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "note",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(100)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'active'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "quoted",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'it''s'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "literal_null",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "'NULL'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal(10,2)",
+          "nullable": false,
+          "defaultValue": "0.00",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": true,
+          "defaultValue": "current_timestamp()",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 8: MariaDB's bare NULL is no default (seaquel_test.fx_orders)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_orders",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_orders",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "customer_id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "kind",
+            "data_type": "enum('click','view','buy')",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "total",
+            "data_type": "decimal(10,2)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "placed_at",
+            "data_type": "datetime",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "memo",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "kind",
+          "type": "enum('click','view','buy')",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "decimal(10,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_at",
+          "type": "datetime",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "memo",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 8: MariaDB's bare NULL is no default (seaquel_test.fx_accounts)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_accounts",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_accounts",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "customer_id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "email",
+            "data_type": "varchar(255)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": "seaquel_test.fx_customers.email"
+          },
+          {
+            "column_name": "referrer_id",
+            "data_type": "int(11)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "plan",
+            "data_type": "varchar(20)",
+            "is_nullable": "NO",
+            "column_default": "'free'",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "email"
+          }
+        },
+        {
+          "name": "referrer_id",
+          "type": "int(11)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "plan",
+          "type": "varchar(20)",
+          "nullable": false,
+          "defaultValue": "'free'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 8: MariaDB's bare NULL is no default (seaquel_test.fx_dotted_refs)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_dotted_refs",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_dotted_refs",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "dotted_id",
+            "data_type": "int(11)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx.dotted.id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "dotted_id",
+          "type": "int(11)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true
+        }
+      ]
+    },
+    {
+      "name": "fix 8: MariaDB's bare NULL is no default (seaquel_test.fx_mem)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_mem",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_mem",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int(11)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "code",
+            "data_type": "char(4)",
+            "is_nullable": "YES",
+            "column_default": "NULL",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int(11)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "code",
+          "type": "char(4)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    }
+  ]
+}

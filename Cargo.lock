@@ -5315,6 +5315,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
 name = "rsa"
 version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5885,6 +5891,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "futures",
+ "log",
  "seaquel-runtime",
  "seaquel-types",
  "serde_json",
@@ -5895,11 +5902,15 @@ dependencies = [
 name = "seaquel-engine-duckdb"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "async-stream",
  "duckdb",
+ "futures",
+ "log",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-types",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -5908,13 +5919,14 @@ dependencies = [
 name = "seaquel-engine-mssql"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "futures",
  "log",
+ "roxmltree",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-types",
+ "serde",
  "serde_json",
  "tiberius",
  "tokio",
@@ -5925,13 +5937,15 @@ dependencies = [
 name = "seaquel-engine-mysql"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "rust_decimal",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-types",
+ "serde",
  "serde_json",
  "sqlx",
- "time",
  "tokio",
 ]
 
@@ -5956,12 +5970,14 @@ dependencies = [
 name = "seaquel-engine-sqlite"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-types",
+ "serde",
  "serde_json",
  "sqlx",
- "time",
  "tokio",
  "uuid",
 ]
@@ -5972,8 +5988,10 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "seaquel-engine",
+ "seaquel-engine-sqlite",
  "seaquel-types",
  "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -5991,7 +6009,6 @@ version = "0.1.0"
 dependencies = [
  "seaquel-core",
  "seaquel-engine",
- "seaquel-engine-sqlite",
  "seaquel-runtime",
  "seaquel-types",
  "serde",

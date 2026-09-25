@@ -14,6 +14,9 @@ pub async fn transaction(
     State(state): State<AppState>,
     Json(req): Json<TransactionRequest>,
 ) -> Result<(), ApiError> {
-    state.core.transaction(&req.connection_id, req.statements).await?;
+    state
+        .core
+        .transaction(&req.connection_id, req.statements)
+        .await?;
     Ok(())
 }

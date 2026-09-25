@@ -1,0 +1,167 @@
+/**
+ * Record mode: which inputs a corpus produces for each fixture file. Pure
+ * files come straight from the corpus; parse files run the adapter's own SQL
+ * through the Rust driver (see `server.ts`).
+ */
+import {
+  type EngineCorpus,
+  type FixtureFileName,
+  type Json,
+  type NamedInput,
+  type ParseFile,
+  type PureFile,
+  type RecordContext,
+  type Row,
+  PARSE_FILES,
+  PURE_FILES,
+} from "./corpus";
+import { decodeStoredRows } from "./replay";
+
+function pureInputs(corpus: EngineCorpus, file: PureFile): NamedInput[] {
+  const p = corpus.pure;
+  switch (file) {
+    case "quote.json":
+      return p.quote ?? [];
+    case "paginate.json":
+      return p.paginate ?? [];
+    case "crud.json":
+      return p.crud ?? [];
+    case "ddl-create.json":
+      return p.ddlCreate ?? [];
+    case "ddl-alter.json":
+      return p.ddlAlter ?? [];
+    case "ddl-add-column.json":
+      return p.ddlAddColumn ?? [];
+    case "column-types.json":
+      return p.columnTypes ? [{ name: "getColumnTypes", input: {} }] : [];
+    case "sql.json":
+      return p.sql ?? [];
+  }
+}
+
+function declaresParse(corpus: EngineCorpus, file: ParseFile): boolean {
+  const p = corpus.parse;
+  if (p.extra?.[file]) return true;
+  switch (file) {
+    case "parse-schema.json":
+      return p.schema !== undefined;
+    case "parse-columns.json":
+      return (p.columns?.length ?? 0) > 0;
+    case "parse-indexes.json":
+      return (p.indexes?.targets.length ?? 0) > 0;
+    case "parse-explain.json":
+      return (p.explain?.length ?? 0) > 0;
+    case "parse-stats.json":
+      return p.stats !== undefined;
+  }
+}
+
+/** The fixture files this corpus records (and check mode requires), in record order. */
+export function corpusFiles(corpus: EngineCorpus): FixtureFileName[] {
+  return [
+    ...PURE_FILES.filter((f) => pureInputs(corpus, f).length > 0),
+    ...PARSE_FILES.filter((f) => declaresParse(corpus, f)),
+  ];
+}
+
+async function recordParse(ctx: RecordContext, file: ParseFile): Promise<NamedInput[]> {
+  const { session, adapter, corpus } = ctx;
+  const p = corpus.parse;
+  const out: NamedInput[] = [];
+  switch (file) {
+    case "parse-schema.json": {
+      if (!p.schema) break;
+      const { columns, rows } = await session.select(adapter.getSchemaQuery());
+      const kept = p.schema.filter ? rows.filter(p.schema.filter) : rows;
+      out.push({ name: "schema", input: { columns, rows: kept } });
+      break;
+    }
+    case "parse-columns.json":
+      for (const { schema, table } of p.columns ?? []) {
+        const { columns, rows } = await session.select(adapter.getColumnsQuery(table, schema));
+        const input: Record<string, Json> = { schema, table, columns, rows };
+        const fks = await session.select(adapter.getForeignKeysQuery(table, schema));
+        input.foreignKeyColumns = fks.columns;
+        input.foreignKeys = fks.rows;
+        out.push({ name: `${schema}.${table}`, input });
+      }
+      break;
+    case "parse-indexes.json":
+      for (const { schema, table } of p.indexes?.targets ?? []) {
+        const { columns, rows } = await session.select(adapter.getIndexesQuery(table, schema));
+        if (p.indexes?.sort) rows.sort(p.indexes.sort);
+        out.push({ name: `${schema}.${table}`, input: { schema, table, columns, rows } });
+      }
+      break;
+    case "parse-explain.json":
+      for (const target of p.explain ?? []) {
+        for (const analyze of target.analyze ?? [false, true]) {
+          const { columns, rows } = await session.select(
+            adapter.getExplainQuery(target.sql, analyze),
+            target.params,
+          );
+          const input: Record<string, Json> = { sql: target.sql, analyze };
+          if (target.params) input.params = target.params;
+          out.push({
+            name: `${analyze ? "EXPLAIN ANALYZE" : "EXPLAIN"}: ${target.name}`,
+            input: { ...input, columns, rows },
+          });
+        }
+      }
+      break;
+    case "parse-stats.json": {
+      const stats = p.stats;
+      if (!stats) break;
+      for (const sql of stats.before ?? []) await session.execute(sql);
+      const kinds: [string, string, string][] = [
+        ["tableSizes", "table sizes", adapter.getTableSizesQuery()],
+        ["indexUsage", "index usage", adapter.getIndexUsageQuery()],
+        ["overview", "database overview", adapter.getDatabaseOverviewQuery()],
+      ];
+      let tableSizeRows: Row[] = [];
+      for (const [kind, name, sql] of kinds) {
+        const override = stats.sql?.[kind as keyof NonNullable<typeof stats.sql>];
+        const { columns, rows } = await session.select(override ?? sql);
+        const kept = stats.filter ? rows.filter((r) => stats.filter!(kind, r)) : rows;
+        if (kind === "tableSizes") tableSizeRows = kept;
+        out.push({ name, input: { kind, columns, rows: kept } });
+      }
+      out.push({
+        name: "database overview, no rows (fallbacks)",
+        input: { kind: "overview", columns: [], rows: [] },
+      });
+      if (stats.rowCounts !== false) {
+        // TsEngineClient counts rows per table listed by the table sizes, and
+        // keeps a table uncounted when its count fails.
+        const sizes = adapter.parseTableSizesResult(decodeStoredRows(tableSizeRows));
+        for (const { schema, name: table } of sizes) {
+          let result;
+          try {
+            result = await session.select(adapter.getTableRowCountQuery(table, schema));
+          } catch (e) {
+            console.warn(`row count ${schema}.${table} skipped: ${String(e)}`);
+            continue;
+          }
+          out.push({
+            name: `row count ${schema}.${table}`,
+            input: { kind: "rowCount", schema, table, columns: result.columns, rows: result.rows },
+          });
+        }
+      }
+      break;
+    }
+  }
+  const extra = p.extra?.[file];
+  if (extra) out.push(...(await extra(ctx)));
+  return out;
+}
+
+/** The inputs to record for `file`. */
+export async function recordInputs(
+  ctx: RecordContext,
+  file: FixtureFileName,
+): Promise<NamedInput[]> {
+  return (PURE_FILES as readonly string[]).includes(file)
+    ? pureInputs(ctx.corpus, file as PureFile)
+    : recordParse(ctx, file as ParseFile);
+}

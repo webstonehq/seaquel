@@ -1,0 +1,2393 @@
+{
+  "about": "Hand-written expectations for the intended changes from the TypeScript SQLite adapter (src/lib/db/sqlite.ts); see 'Task 8' in docs/plans/2026-09-26-rust-core-phase-2-plan.md. The recorder never writes this file; its 'scratch' block is what record mode (in a fresh temp-file database) and tests/smoke.rs build. Fix 1: table names are bound (pragma_table_info(?), pragma_index_list(?), pragma_foreign_key_list(?)) or quoted with \" doubled (row counts) instead of passed through validateIdentifier, which rejected any name with a space, '-' or a quote, so such tables showed no columns, indexes or row count ('columns'/'indexes' cases, checked live). Fix 2: the DDL quote doubles \". Fix 3: an added index is CREATE INDEX \"schema\".\"name\" ON \"table\" (SQLite rejects a schema-qualified table there). Fix 4: SQLite has no ALTER TABLE ... ADD FOREIGN KEY, so a foreign key on an existing column is a comment line saying the table must be recreated; one on a column added in the same edit (without a default, as SQLite requires) goes inline: ADD COLUMN c ... REFERENCES \"t\" (\"id\"). Fix 5: index columns come from pragma_index_info (the TS listed none); an expression key is '<expression>'. Fix 6: with no ALTER COLUMN in SQLite, a type, nullability or default edit was dropped silently (the TS returned '-- No changes detected'); it is now a comment line naming the column and what changed. No table-rebuild recipe (follow-up). Comment lines follow every statement, so a client that splits on ';\\n' and skips '--' lines still runs every statement; line breaks in names become spaces so nothing escapes the comment. Fix 7: the autoindexes behind UNIQUE and PRIMARY KEY constraints (sqlite_autoindex_*) are listed, marked unique, and counted in the statistics; since the table editor copies them into its definition, removing one there is a comment line (SQLite can't drop them) instead of DROP INDEX. Fix 8: EXPLAIN QUERY PLAN details the TS regexes missed: names that aren't one ASCII word, numbered subqueries (SCALAR/LIST SUBQUERY n), SCAN CONSTANT ROW, BLOOM FILTER, LEFT-JOIN/RIGHT-JOIN, virtual tables, LAST n TERMS OF ORDER BY, count(DISTINCT), a bare SEARCH (rowid seek). Fix 9 (found while recording): a foreign key declared without parent columns (REFERENCES customers) has a NULL 'to'; the TS showed referencedColumn null, the fixed query resolves it to the parent's primary key column at the same position. Its 'replaces' case only records the parser side: the TS query's NULL 'to' reads as \"\" because the reference column is a String on the wire. Fix 10 (found while recording): NOT LIKE 'sqlite_%' treats '_' as a wildcard, so the TS hid user tables such as 'sqlitex' from the schema and statistics; only the reserved 'sqlite_' prefix is hidden now. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null: the recorded case's input applies. Fix 11 (Task 10): SQLite has no DEFAULT in UPDATE, so Set to default was a syntax error; given the column's default expression from its metadata (defaultValue, the text of pragma_table_info's dflt_value, or NULL for a column without one), the dialect assigns it in parentheses: SET \"c\" = (CURRENT_TIMESTAMP). A bare-word or quoted-name default (DEFAULT active, DEFAULT \"dq\", `bt`, [br]) is stored as a string by SQLite but would read a column as an expression, so it becomes a string literal; numbers (+1, -0x10), blob literals, keywords and (expr) defaults stay as they are. 'crud-set-default' cases are checked by tests/dialect_parity.rs and executed by tests/smoke.rs; without a columnDefault the TypeScript statement is kept.",
+  "scratch": {
+    "schema": "main",
+    "setup": [
+      "CREATE TABLE customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE, status TEXT DEFAULT 'active', score REAL NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, note TEXT)",
+      "CREATE INDEX customers_name_idx ON customers (name)",
+      "CREATE UNIQUE INDEX customers_status_email_idx ON customers (status, email)",
+      "CREATE INDEX customers_lower_email_idx ON customers (lower(email), id)",
+      "CREATE INDEX customers_vip_idx ON customers (note) WHERE note = 'vip'",
+      "INSERT INTO customers (name, email, score, note) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 200) SELECT 'Customer ' || n, 'c' || n || '@example.com', n % 50, CASE WHEN n % 3 = 0 THEN 'vip' END FROM seq",
+      "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers (id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK (kind IN ('click', 'view', 'buy')), total NUMERIC(10,2), placed_at TEXT NOT NULL, memo BLOB)",
+      "CREATE INDEX orders_customer_kind_idx ON orders (customer_id, kind)",
+      "INSERT INTO orders (customer_id, kind, total, placed_at, memo) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 1000) SELECT n % 200 + 1, CASE n % 3 WHEN 0 THEN 'click' WHEN 1 THEN 'view' ELSE 'buy' END, n % 97, datetime('2026-01-01', '+' || n || ' minutes'), CASE WHEN n % 10 = 0 THEN X'00ff' END FROM seq",
+      "CREATE TABLE accounts (customer_id INTEGER NOT NULL REFERENCES customers, region TEXT NOT NULL, balance REAL, PRIMARY KEY (customer_id, region))",
+      "CREATE TABLE kv (k TEXT PRIMARY KEY, v) WITHOUT ROWID",
+      "CREATE TABLE \"order items\" (id INTEGER PRIMARY KEY, \"order id\" INTEGER NOT NULL REFERENCES orders (id), sku TEXT NOT NULL, qty INTEGER NOT NULL DEFAULT 1, UNIQUE (\"order id\", sku))",
+      "CREATE INDEX \"order items sku idx\" ON \"order items\" (sku)",
+      "CREATE TABLE \"my-table\" (id INTEGER PRIMARY KEY, value TEXT DEFAULT 'n/a')",
+      "CREATE TABLE \"it's\" (id INTEGER PRIMARY KEY, \"say \"\"hi\"\"\" TEXT)",
+      "CREATE TABLE \"café\" (\"naïve\" TEXT DEFAULT 'é', v INTEGER)",
+      "CREATE INDEX \"café_naïve_idx\" ON \"café\" (\"naïve\")",
+      "CREATE TABLE ledger (account_id INTEGER, account_region TEXT, amount REAL, FOREIGN KEY (account_id, account_region) REFERENCES accounts (customer_id, region), FOREIGN KEY (account_id, account_region) REFERENCES accounts)",
+      "CREATE TABLE sqlitex (id INTEGER)",
+      "CREATE TABLE a (x INTEGER, y INTEGER)",
+      "CREATE TABLE b (x INTEGER, y INTEGER)",
+      "INSERT INTO a VALUES (1,1),(2,2),(3,3)",
+      "INSERT INTO b VALUES (2,2),(3,3),(4,4)",
+      "CREATE VIEW customer_names AS SELECT id, name FROM customers",
+      "ANALYZE"
+    ],
+    "teardown": [
+      "DROP VIEW IF EXISTS customer_names",
+      "DROP TABLE IF EXISTS ledger",
+      "DROP TABLE IF EXISTS \"order items\"",
+      "DROP TABLE IF EXISTS orders",
+      "DROP TABLE IF EXISTS accounts",
+      "DROP TABLE IF EXISTS customers",
+      "DROP TABLE IF EXISTS kv",
+      "DROP TABLE IF EXISTS \"my-table\"",
+      "DROP TABLE IF EXISTS \"it's\"",
+      "DROP TABLE IF EXISTS \"café\"",
+      "DROP TABLE IF EXISTS sqlitex",
+      "DROP TABLE IF EXISTS a",
+      "DROP TABLE IF EXISTS b"
+    ]
+  },
+  "cases": [
+    {
+      "name": "fix 2: the DDL quote doubles \" in every identifier",
+      "fix": 2,
+      "kind": "ddl-create",
+      "replaces": "ddl-create.json: names with double quotes (unescaped by the adapter)",
+      "input": null,
+      "output": "CREATE TABLE \"say \"\"hi\"\"\" (\n  \"id\"\"\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"a\"\"b\" TEXT UNIQUE,\n  FOREIGN KEY (\"a\"\"b\") REFERENCES \"other\"\"t\" (\"c\"\"d\")\n);\n\nCREATE INDEX \"idx\"\"1\" ON \"say \"\"hi\"\"\" (\"a\"\"b\");"
+    },
+    {
+      "name": "fix 4: an added foreign key is a comment line, not ADD FOREIGN KEY",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: add a foreign key (invalid in SQLite)",
+      "input": null,
+      "output": "-- SQLite can't add a foreign key to an existing table: (\"email\") REFERENCES \"emails\" (\"address\"); recreate the table to add it\n-- SQLite can't add a foreign key to an existing table: (\"name\") REFERENCES \"main\".\"names\" (\"value\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 3: CREATE INDEX puts the schema on the index name, not the table",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: add an index (qualified table, invalid in SQLite)",
+      "input": null,
+      "output": "CREATE UNIQUE INDEX \"main\".\"customers_status_email_idx\" ON \"customers\" (\"status\", \"email\");"
+    },
+    {
+      "name": "fix 6: a type change is a comment line, not dropped",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: change a type (dropped by the adapter)",
+      "input": null,
+      "output": "-- SQLite can't alter column \"email\" (type); recreate the table to change it"
+    },
+    {
+      "name": "fix 6: a default change is a comment line, not dropped",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: default-only change (dropped by the adapter)",
+      "input": null,
+      "output": "-- SQLite can't alter column \"status\" (default); recreate the table to change it"
+    },
+    {
+      "name": "fix 6: a nullability change is a comment line, not dropped",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: make a column NOT NULL (dropped by the adapter)",
+      "input": null,
+      "output": "-- SQLite can't alter column \"email\" (NOT NULL); recreate the table to change it"
+    },
+    {
+      "name": "fix 6: the rename runs and the type change is a comment line",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: rename and change a type (the type change is dropped)",
+      "input": null,
+      "output": "ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\n-- SQLite can't alter column \"display_name\" (type); recreate the table to change it"
+    },
+    {
+      "name": "fix 6: fixes 3, 4 and 6 together: statements first, then the comment lines",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: statement order: every branch",
+      "input": null,
+      "output": "ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"main\".\"customers\" ADD COLUMN \"tier\" INTEGER NOT NULL DEFAULT 1;\nALTER TABLE \"main\".\"customers\" DROP COLUMN \"email\";\nDROP INDEX \"customers_name_idx\";\nCREATE INDEX \"main\".\"customers_tier_idx\" ON \"customers\" (\"tier\");\n-- SQLite can't alter column \"display_name\" (type); recreate the table to change it\n-- SQLite can't alter column \"balance\" (NOT NULL); recreate the table to change it\n-- SQLite can't add a foreign key to an existing table: (\"tier\") REFERENCES \"main\".\"tiers\" (\"id\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 9 (parser side): a NULL \"to\" in the TS query's rows reads as \"\" (the reference column is a String on the wire, the TS sent null); the actual fix is the foreign-key SQL, which resolves the parent column (main.accounts)",
+      "fix": 9,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: main.accounts",
+      "input": null,
+      "output": [
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "",
+            "referencedSchema": "main",
+            "referencedTable": "customers"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": true,
+          "name": "customer_id",
+          "nullable": false,
+          "type": "INTEGER"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": true,
+          "name": "region",
+          "nullable": false,
+          "type": "TEXT"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "balance",
+          "nullable": true,
+          "type": "REAL"
+        }
+      ]
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: EXISTS subquery)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: EXISTS subquery",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "c"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "indexCond": "customer_id=?",
+                  "indexName": "orders_customer_kind_idx",
+                  "nodeType": "Index Scan",
+                  "relationName": "o"
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Correlated Subquery"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: IN subquery)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: IN subquery",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "indexCond": "rowid=?",
+              "indexName": "PRIMARY KEY",
+              "nodeType": "Index Scan",
+              "relationName": "customers"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "indexName": "orders_customer_kind_idx",
+                  "nodeType": "Index Only Scan",
+                  "relationName": "orders"
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Subquery"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: correlated IN subquery)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: correlated IN subquery",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "c"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "relationName": "o"
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Correlated Subquery"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: correlated scalar subquery in the select list)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: correlated scalar subquery in the select list",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "indexCond": "rowid<?",
+              "indexName": "PRIMARY KEY",
+              "nodeType": "Index Scan",
+              "relationName": "c"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "indexCond": "customer_id=?",
+                  "indexName": "orders_customer_kind_idx",
+                  "nodeType": "Index Only Scan",
+                  "relationName": "o"
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Correlated Subquery"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: count distinct)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: count distinct",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Distinct"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "indexName": "orders_customer_kind_idx",
+              "nodeType": "Index Only Scan",
+              "relationName": "orders"
+            }
+          ],
+          "id": "node-2",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: delete)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: delete",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "indexCond": "customer_id=?",
+              "indexName": "orders_customer_kind_idx",
+              "nodeType": "Index Only Scan",
+              "relationName": "orders"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "indexCond": "order id=?",
+              "indexName": "sqlite_autoindex_order items_1",
+              "nodeType": "Index Only Scan",
+              "relationName": "order items"
+            }
+          ],
+          "id": "node-2",
+          "nodeType": "Nested Loop"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: full join)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: full join",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "a"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "joinType": "Left",
+              "nodeType": "Seq Scan",
+              "relationName": "b"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "relationName": "b"
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Right Join",
+              "relationName": "b"
+            }
+          ],
+          "id": "node-4",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: index name with spaces)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: index name with spaces",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "indexCond": "sku=?",
+          "indexName": "order items sku idx",
+          "nodeType": "Index Only Scan",
+          "relationName": "order items"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: join through an automatic index and a bloom filter)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: join through an automatic index and a bloom filter",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "o"
+            },
+            {
+              "children": [],
+              "filter": "score=?",
+              "id": "node-1",
+              "nodeType": "Bloom Filter",
+              "relationName": "c"
+            },
+            {
+              "children": [],
+              "id": "node-2",
+              "indexCond": "score=?",
+              "indexName": "<automatic>",
+              "nodeType": "Index Only Scan",
+              "relationName": "c"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: left join)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: left join",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "c"
+            },
+            {
+              "children": [],
+              "filter": "total=?",
+              "id": "node-1",
+              "nodeType": "Bloom Filter",
+              "relationName": "o"
+            },
+            {
+              "children": [],
+              "id": "node-2",
+              "indexCond": "total=?",
+              "indexName": "<automatic>",
+              "joinType": "Left",
+              "nodeType": "Index Only Scan",
+              "relationName": "o"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: materialized CTE)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: materialized CTE",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "relationName": "orders"
+                }
+              ],
+              "id": "node-0",
+              "nodeType": "Materialize",
+              "relationName": "x"
+            },
+            {
+              "children": [],
+              "id": "node-2",
+              "nodeType": "Seq Scan",
+              "relationName": "a"
+            },
+            {
+              "children": [],
+              "filter": "id=?",
+              "id": "node-3",
+              "nodeType": "Bloom Filter",
+              "relationName": "b"
+            },
+            {
+              "children": [],
+              "id": "node-4",
+              "indexCond": "id=?",
+              "indexName": "<automatic>",
+              "nodeType": "Index Only Scan",
+              "relationName": "b"
+            }
+          ],
+          "id": "node-5",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: max through the rowid)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: max through the rowid",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "indexName": "PRIMARY KEY",
+          "nodeType": "Index Scan",
+          "relationName": "customers"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: no tables)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: no tables",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Result"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: non-ASCII names)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: non-ASCII names",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "indexCond": "naïve=?",
+          "indexName": "café_naïve_idx",
+          "nodeType": "Index Scan",
+          "relationName": "café"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: order by the last term)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: order by the last term",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "indexCond": "customer_id=?",
+              "indexName": "orders_customer_kind_idx",
+              "nodeType": "Index Scan",
+              "relationName": "orders"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "nodeType": "Sort"
+            }
+          ],
+          "id": "node-2",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: order by the last terms)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: order by the last terms",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "indexCond": "customer_id=?",
+              "indexName": "orders_customer_kind_idx",
+              "nodeType": "Index Scan",
+              "relationName": "orders"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "nodeType": "Sort"
+            }
+          ],
+          "id": "node-2",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: recursive CTE)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: recursive CTE",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "node-2",
+                      "nodeType": "Result"
+                    }
+                  ],
+                  "id": "node-1",
+                  "nodeType": "SETUP"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "node-4",
+                      "nodeType": "Seq Scan",
+                      "relationName": "r"
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "RECURSIVE"
+                }
+              ],
+              "id": "node-0",
+              "nodeType": "Subquery",
+              "relationName": "r"
+            },
+            {
+              "children": [],
+              "id": "node-5",
+              "nodeType": "Seq Scan",
+              "relationName": "r"
+            }
+          ],
+          "id": "node-6",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: right join)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: right join",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "a"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "nodeType": "Seq Scan",
+              "relationName": "b"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "relationName": "b"
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Right Join",
+              "relationName": "b"
+            }
+          ],
+          "id": "node-4",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: scalar subquery)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: scalar subquery",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "customers"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "relationName": "orders"
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Subquery"
+            }
+          ],
+          "id": "node-3",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: table name with a hyphen)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: table name with a hyphen",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "relationName": "my-table"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: table name with a space)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: table name with a space",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "relationName": "order items"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: virtual table)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: virtual table",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Virtual Table Scan",
+          "relationName": "pragma_table_info"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (EXPLAIN: window function (unnamed subquery))",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: window function (unnamed subquery)",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "relationName": "a"
+                },
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "nodeType": "Sort"
+                }
+              ],
+              "id": "node-0",
+              "nodeType": "Subquery",
+              "relationName": "(subquery-2)"
+            },
+            {
+              "children": [],
+              "id": "node-3",
+              "nodeType": "Seq Scan",
+              "relationName": "(subquery-2)"
+            }
+          ],
+          "id": "node-4",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 8: EXPLAIN QUERY PLAN detail is read (synthetic: every temp b-tree)",
+      "fix": 8,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: synthetic: every temp b-tree",
+      "input": null,
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "relationName": "t"
+            },
+            {
+              "children": [],
+              "id": "node-1",
+              "nodeType": "Sort"
+            },
+            {
+              "children": [],
+              "id": "node-2",
+              "nodeType": "Group"
+            },
+            {
+              "children": [],
+              "id": "node-3",
+              "nodeType": "Distinct"
+            },
+            {
+              "children": [],
+              "id": "node-4",
+              "nodeType": "Sort"
+            },
+            {
+              "children": [],
+              "id": "node-5",
+              "nodeType": "Sort"
+            },
+            {
+              "children": [],
+              "id": "node-6",
+              "nodeType": "Sort"
+            }
+          ],
+          "id": "node-7",
+          "nodeType": "Query Plan"
+        },
+        "planningTime": 0.0
+      }
+    },
+    {
+      "name": "fix 7: autoindexes are listed (main.accounts)",
+      "fix": 7,
+      "kind": "parse-indexes",
+      "replaces": "parse-indexes.json: main.accounts",
+      "input": null,
+      "output": [
+        {
+          "columns": [],
+          "name": "sqlite_autoindex_accounts_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 7: autoindexes are listed (main.customers)",
+      "fix": 7,
+      "kind": "parse-indexes",
+      "replaces": "parse-indexes.json: main.customers",
+      "input": null,
+      "output": [
+        {
+          "columns": [],
+          "name": "customers_vip_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": [],
+          "name": "customers_lower_email_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": [],
+          "name": "customers_status_email_idx",
+          "type": "btree",
+          "unique": true
+        },
+        {
+          "columns": [],
+          "name": "customers_name_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": [],
+          "name": "sqlite_autoindex_customers_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 7: autoindexes are listed (main.kv)",
+      "fix": 7,
+      "kind": "parse-indexes",
+      "replaces": "parse-indexes.json: main.kv",
+      "input": null,
+      "output": [
+        {
+          "columns": [],
+          "name": "sqlite_autoindex_kv_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 2: ALTER TABLE doubles \" in every identifier",
+      "fix": 2,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "we\"ird",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a\"b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "we\"ird",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "c\"d",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "i\"x",
+              "columns": ["c\"d"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"we\"\"ird\" RENAME COLUMN \"a\"\"b\" TO \"c\"\"d\";\nCREATE INDEX \"main\".\"i\"\"x\" ON \"we\"\"ird\" (\"c\"\"d\");"
+    },
+    {
+      "name": "fix 2: ADD COLUMN doubles \"",
+      "fix": 2,
+      "kind": "ddl-add-column",
+      "input": {
+        "schema": "main",
+        "table": "we\"ird",
+        "column": {
+          "id": "c9",
+          "name": "n\"ote",
+          "type": "TEXT",
+          "nullable": false,
+          "defaultValue": "''",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"we\"\"ird\" ADD COLUMN \"n\"\"ote\" TEXT NOT NULL DEFAULT '';"
+    },
+    {
+      "name": "fix 2: CREATE TABLE doubles \" (not in default literals)",
+      "fix": 2,
+      "kind": "ddl-create",
+      "input": {
+        "tableName": "t\"1",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "n\"ote",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'say \"hi\"'",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "t\"1_note",
+            "columns": ["n\"ote"],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"t\"\"1\" (\n  \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"n\"\"ote\" TEXT DEFAULT 'say \"hi\"'\n);\n\nCREATE UNIQUE INDEX \"t\"\"1_note\" ON \"t\"\"1\" (\"n\"\"ote\");"
+    },
+    {
+      "name": "fix 3: the index goes into the table's schema",
+      "fix": 3,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "aux",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "aux",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_b",
+              "columns": ["a", "b"],
+              "unique": true,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "CREATE UNIQUE INDEX \"aux\".\"t_a_b\" ON \"t\" (\"a\", \"b\");"
+    },
+    {
+      "name": "fix 4: a foreign key on a column added in the same edit goes inline",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "owner_id",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "owner_id",
+              "referencedSchema": "main",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"t\" ADD COLUMN \"owner_id\" INTEGER REFERENCES \"users\" (\"id\");"
+    },
+    {
+      "name": "fix 4: a new column with a default keeps its foreign key as a comment line",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "owner_id",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "1",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "owner_id",
+              "referencedSchema": "main",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"t\" ADD COLUMN \"owner_id\" INTEGER DEFAULT 1;\n-- SQLite can't add a foreign key to an existing table: (\"owner_id\") REFERENCES \"main\".\"users\" (\"id\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 7: removing a constraint's autoindex is a comment line, not DROP INDEX",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "sqlite_autoindex_t_1",
+              "columns": ["b"],
+              "unique": true,
+              "type": "btree"
+            },
+            {
+              "id": "i2",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"t_a_idx\";\n-- SQLite can't drop or rename index \"sqlite_autoindex_t_1\": it belongs to a UNIQUE or PRIMARY KEY constraint; recreate the table to change it"
+    },
+    {
+      "name": "fix 6: an unsafe new default is still a change to report",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "c",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "c",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "1; DROP TABLE t",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "-- SQLite can't alter column \"c\" (default); recreate the table to change it"
+    },
+    {
+      "name": "fix 6: a line break in a column name can't end the comment",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a\nDROP TABLE t",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"t\" RENAME COLUMN \"a\" TO \"a\nDROP TABLE t\";\n-- SQLite can't alter column \"a DROP TABLE t\" (type); recreate the table to change it"
+    },
+    {
+      "name": "fix 5: index columns from pragma_index_info (with an expression key and an autoindex)",
+      "fix": 5,
+      "kind": "parse-indexes",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "columns": ["seq", "name", "unique", "origin", "partial", "column_name"],
+        "rows": [
+          {
+            "column_name": "note",
+            "name": "customers_vip_idx",
+            "origin": "c",
+            "partial": 1,
+            "seq": 0,
+            "unique": 0
+          },
+          {
+            "column_name": "<expression>",
+            "name": "customers_lower_email_idx",
+            "origin": "c",
+            "partial": 0,
+            "seq": 1,
+            "unique": 0
+          },
+          {
+            "column_name": "id",
+            "name": "customers_lower_email_idx",
+            "origin": "c",
+            "partial": 0,
+            "seq": 1,
+            "unique": 0
+          },
+          {
+            "column_name": "status",
+            "name": "customers_status_email_idx",
+            "origin": "c",
+            "partial": 0,
+            "seq": 2,
+            "unique": 1
+          },
+          {
+            "column_name": "email",
+            "name": "customers_status_email_idx",
+            "origin": "c",
+            "partial": 0,
+            "seq": 2,
+            "unique": 1
+          },
+          {
+            "column_name": "name",
+            "name": "customers_name_idx",
+            "origin": "c",
+            "partial": 0,
+            "seq": 3,
+            "unique": 0
+          },
+          {
+            "column_name": "email",
+            "name": "sqlite_autoindex_customers_1",
+            "origin": "u",
+            "partial": 0,
+            "seq": 4,
+            "unique": 1
+          }
+        ]
+      },
+      "output": [
+        {
+          "columns": ["note"],
+          "name": "customers_vip_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["<expression>", "id"],
+          "name": "customers_lower_email_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["status", "email"],
+          "name": "customers_status_email_idx",
+          "type": "btree",
+          "unique": true
+        },
+        {
+          "columns": ["name"],
+          "name": "customers_name_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["email"],
+          "name": "sqlite_autoindex_customers_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 9: the fixed foreign-key query resolves omitted parent columns",
+      "fix": 9,
+      "kind": "parse-columns",
+      "input": {
+        "schema": "main",
+        "table": "ledger",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "dflt_value": null,
+            "name": "account_id",
+            "notnull": 0,
+            "pk": 0,
+            "type": "INTEGER"
+          },
+          {
+            "cid": 1,
+            "dflt_value": null,
+            "name": "account_region",
+            "notnull": 0,
+            "pk": 0,
+            "type": "TEXT"
+          },
+          {
+            "cid": 2,
+            "dflt_value": null,
+            "name": "amount",
+            "notnull": 0,
+            "pk": 0,
+            "type": "REAL"
+          }
+        ],
+        "foreignKeyColumns": [
+          "id",
+          "seq",
+          "table",
+          "from",
+          "to",
+          "on_update",
+          "on_delete",
+          "match"
+        ],
+        "foreignKeys": [
+          {
+            "from": "account_id",
+            "id": 0,
+            "match": "NONE",
+            "on_delete": "NO ACTION",
+            "on_update": "NO ACTION",
+            "seq": 0,
+            "table": "accounts",
+            "to": "customer_id"
+          },
+          {
+            "from": "account_region",
+            "id": 0,
+            "match": "NONE",
+            "on_delete": "NO ACTION",
+            "on_update": "NO ACTION",
+            "seq": 1,
+            "table": "accounts",
+            "to": "region"
+          },
+          {
+            "from": "account_id",
+            "id": 1,
+            "match": "NONE",
+            "on_delete": "NO ACTION",
+            "on_update": "NO ACTION",
+            "seq": 0,
+            "table": "accounts",
+            "to": "customer_id"
+          },
+          {
+            "from": "account_region",
+            "id": 1,
+            "match": "NONE",
+            "on_delete": "NO ACTION",
+            "on_update": "NO ACTION",
+            "seq": 1,
+            "table": "accounts",
+            "to": "region"
+          }
+        ]
+      },
+      "output": [
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "customer_id",
+            "referencedSchema": "main",
+            "referencedTable": "accounts"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": false,
+          "name": "account_id",
+          "nullable": true,
+          "type": "INTEGER"
+        },
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "region",
+            "referencedSchema": "main",
+            "referencedTable": "accounts"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": false,
+          "name": "account_region",
+          "nullable": true,
+          "type": "TEXT"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "amount",
+          "nullable": true,
+          "type": "REAL"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "my-table"
+      },
+      "output": [
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": true,
+          "name": "id",
+          "nullable": true,
+          "type": "INTEGER"
+        },
+        {
+          "defaultValue": "'n/a'",
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "value",
+          "nullable": true,
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with spaces in its name and its columns",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "order items"
+      },
+      "output": [
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": true,
+          "name": "id",
+          "nullable": true,
+          "type": "INTEGER"
+        },
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "id",
+            "referencedSchema": "main",
+            "referencedTable": "orders"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": false,
+          "name": "order id",
+          "nullable": false,
+          "type": "INTEGER"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "sku",
+          "nullable": false,
+          "type": "TEXT"
+        },
+        {
+          "defaultValue": "1",
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "qty",
+          "nullable": false,
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a quote in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "it's"
+      },
+      "output": [
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": true,
+          "name": "id",
+          "nullable": true,
+          "type": "INTEGER"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "say \"hi\"",
+          "nullable": true,
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "fix 9: columns of a foreign key declared without parent columns references the parent's primary key",
+      "fix": 9,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "accounts"
+      },
+      "output": [
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "id",
+            "referencedSchema": "main",
+            "referencedTable": "customers"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": true,
+          "name": "customer_id",
+          "nullable": false,
+          "type": "INTEGER"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": true,
+          "name": "region",
+          "nullable": false,
+          "type": "TEXT"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "balance",
+          "nullable": true,
+          "type": "REAL"
+        }
+      ]
+    },
+    {
+      "name": "fix 9: columns of a composite foreign key with and without parent columns",
+      "fix": 9,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "ledger"
+      },
+      "output": [
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "customer_id",
+            "referencedSchema": "main",
+            "referencedTable": "accounts"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": false,
+          "name": "account_id",
+          "nullable": true,
+          "type": "INTEGER"
+        },
+        {
+          "foreignKeyRef": {
+            "referencedColumn": "region",
+            "referencedSchema": "main",
+            "referencedTable": "accounts"
+          },
+          "isForeignKey": true,
+          "isPrimaryKey": false,
+          "name": "account_region",
+          "nullable": true,
+          "type": "TEXT"
+        },
+        {
+          "isForeignKey": false,
+          "isPrimaryKey": false,
+          "name": "amount",
+          "nullable": true,
+          "type": "REAL"
+        }
+      ]
+    },
+    {
+      "name": "fix 5: indexes of customers list their key columns (an expression key, a partial index, the UNIQUE constraint's autoindex)",
+      "fix": 5,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "customers"
+      },
+      "output": [
+        {
+          "columns": ["note"],
+          "name": "customers_vip_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["<expression>", "id"],
+          "name": "customers_lower_email_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["status", "email"],
+          "name": "customers_status_email_idx",
+          "type": "btree",
+          "unique": true
+        },
+        {
+          "columns": ["name"],
+          "name": "customers_name_idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["email"],
+          "name": "sqlite_autoindex_customers_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes of a table with spaces in its name, with columns and its UNIQUE constraint",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "order items"
+      },
+      "output": [
+        {
+          "columns": ["sku"],
+          "name": "order items sku idx",
+          "type": "btree",
+          "unique": false
+        },
+        {
+          "columns": ["order id", "sku"],
+          "name": "sqlite_autoindex_order items_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 7: indexes of a composite primary key's autoindex",
+      "fix": 7,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "accounts"
+      },
+      "output": [
+        {
+          "columns": ["customer_id", "region"],
+          "name": "sqlite_autoindex_accounts_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 7: indexes of a WITHOUT ROWID table's primary key",
+      "fix": 7,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "kv"
+      },
+      "output": [
+        {
+          "columns": ["k"],
+          "name": "sqlite_autoindex_kv_1",
+          "type": "btree",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "fix 5: indexes of non-ASCII index and column names",
+      "fix": 5,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "café"
+      },
+      "output": [
+        {
+          "columns": ["naïve"],
+          "name": "café_naïve_idx",
+          "type": "btree",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "fix 10: tables named like sqlite_ but without the reserved prefix are listed",
+      "fix": 10,
+      "kind": "schema",
+      "input": {
+        "schema": "main"
+      },
+      "output": [
+        {
+          "name": "a",
+          "type": "table"
+        },
+        {
+          "name": "accounts",
+          "type": "table"
+        },
+        {
+          "name": "b",
+          "type": "table"
+        },
+        {
+          "name": "café",
+          "type": "table"
+        },
+        {
+          "name": "customer_names",
+          "type": "view"
+        },
+        {
+          "name": "customers",
+          "type": "table"
+        },
+        {
+          "name": "it's",
+          "type": "table"
+        },
+        {
+          "name": "kv",
+          "type": "table"
+        },
+        {
+          "name": "ledger",
+          "type": "table"
+        },
+        {
+          "name": "my-table",
+          "type": "table"
+        },
+        {
+          "name": "order items",
+          "type": "table"
+        },
+        {
+          "name": "orders",
+          "type": "table"
+        },
+        {
+          "name": "sqlitex",
+          "type": "table"
+        }
+      ]
+    },
+    {
+      "name": "fix 11: set default assigns a literal default",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "status",
+        "columnDefault": "'active'",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"status\" = ('active') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: set default evaluates CURRENT_TIMESTAMP for the row",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "created_at",
+        "columnDefault": "CURRENT_TIMESTAMP",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"created_at\" = (CURRENT_TIMESTAMP) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: set default assigns a numeric default",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "score",
+        "columnDefault": "0",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"score\" = (0) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a column without a default is set to NULL",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "note",
+        "columnDefault": "NULL",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"note\" = (NULL) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a blank default is NULL too",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "note",
+        "columnDefault": " ",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"note\" = (NULL) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: without the default expression the TypeScript statement is kept",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": "status",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"customers\" SET \"status\" = DEFAULT WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: an expression default goes in parentheses",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "set defaults",
+        "column": "slug",
+        "columnDefault": "lower('A') || 'b'",
+        "primaryKeys": ["k", "n"],
+        "row": {
+          "n": 2,
+          "k": "x"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"set defaults\" SET \"slug\" = (lower('A') || 'b') WHERE \"k\" = $1 AND \"n\" = $2",
+        "bindValues": ["x", 2]
+      }
+    },
+    {
+      "name": "fix 11: a bare-word default is its text, not the column of that name",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "s",
+        "columnDefault": "active",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"s\" = ('active') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a double-quoted default is its text, not the column of that name",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "d",
+        "columnDefault": "\"dq\"",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"d\" = ('dq') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a double-quoted default with quotes inside",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "q",
+        "columnDefault": "\"it's \"\"x\"\"\"",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"q\" = ('it''s \"x\"') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a backquoted default is its text",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "b",
+        "columnDefault": "`bt`",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"b\" = ('bt') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a bracketed default is its text",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "k",
+        "columnDefault": "[br]",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"k\" = ('br') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a keyword default stays a keyword",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "t",
+        "columnDefault": "TRUE",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"t\" = (TRUE) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a signed number default stays a number",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "n",
+        "columnDefault": "+1",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"n\" = (+1) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a negative hex default stays a number",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "h",
+        "columnDefault": "-0x10",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"h\" = (-0x10) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: a blob literal default stays a blob",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "x",
+        "columnDefault": "x'00ff'",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"x\" = (x'00ff') WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    },
+    {
+      "name": "fix 11: an (expr) default, shown without its parentheses",
+      "fix": 11,
+      "kind": "crud-set-default",
+      "input": {
+        "schema": "main",
+        "table": "bare defaults",
+        "column": "e",
+        "columnDefault": "1+2",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"bare defaults\" SET \"e\" = (1+2) WHERE \"id\" = $1",
+        "bindValues": [1]
+      }
+    }
+  ]
+}

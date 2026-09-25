@@ -1,0 +1,690 @@
+/**
+ * SQLite corpus (Rust Core Phase 2, Task 8), recorded into
+ * `crates/seaquel-engine-sqlite/tests/fixtures/`:
+ *
+ *   npm run fixtures:record -- sqlite
+ *
+ * No server: the Rust driver creates a fresh temp-file database for each
+ * recording (not `:memory:`, which would give every pooled connection its
+ * own database) and `cleanup` deletes it. `SEAQUEL_TEST_SQLITE` (ConnectConfig
+ * JSON) overrides the location.
+ *
+ * The scratch objects are the `scratch` block of `bugfixes.json`, so the Rust
+ * tests build the same ones. Tables whose names fail the adapter's
+ * `validateIdentifier` (`my-table`, `order items`, `it's`) can't be recorded
+ * through the adapter's PRAGMA queries; their expectations are hand-written
+ * bug-fix cases (fix 1) and checked live by `tests/smoke.rs`. Their per-table
+ * row counts are skipped here, as `TsEngineClient` skips a count that throws.
+ *
+ * EXPLAIN: `EXPLAIN QUERY PLAN` is the same statement with and without
+ * ANALYZE (TsEngineClient executes the query separately and times it; that
+ * is checked live in Task 9, not replayed here), so most targets record the
+ * plain form only. Synthetic plans (`parse.extra`) cover detail strings the
+ * bundled SQLite no longer prints (pre-3.36 `SCALAR SUBQUERY` without a
+ * number, ` AS alias`, bare `MATERIALIZE`/`CO-ROUTINE`, `AUTOMATIC INDEX`
+ * without COVERING, the LEFT/RIGHT PART OF ORDER BY forms), orphan parent
+ * ids, and an empty plan.
+ */
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import {
+  alterCase,
+  col,
+  column,
+  crateFixtureDir,
+  def,
+  fk,
+  idx,
+  toJson,
+  type EngineCorpus,
+  type ExplainTarget,
+  type NamedInput,
+} from "../corpus";
+import { envConnectConfig } from "../server";
+
+const DB = `${tmpdir()}/seaquel-fixtures-sqlite-${process.pid}.db`;
+const FALLBACK: ConnectConfig = {
+  driver: "sqlite",
+  connection_string: `sqlite://${DB}`,
+  create_if_missing: true,
+};
+
+// ─── Pure inputs ─────────────────────────────────────────────────────
+
+const customers = () =>
+  def(
+    "main",
+    "customers",
+    [
+      col("c1", "id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+      col("c2", "name", "TEXT", { nullable: false }),
+      col("c3", "email", "VARCHAR", { length: "255", isUnique: true }),
+      col("c4", "status", "TEXT", { defaultValue: "'active'" }),
+      col("c5", "balance", "NUMERIC", { precision: "10,2", nullable: false, defaultValue: "0" }),
+    ],
+    {
+      indexes: [idx("i1", "customers_name_idx", ["name"])],
+      foreignKeys: [fk("f1", "status", "main", "statuses", "code")],
+    },
+  );
+
+const crud: NamedInput[] = [
+  {
+    name: "update, single pk",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: "users",
+      column: "name",
+      value: "Ada L.",
+      primaryKeys: ["id"],
+      row: { id: 1, name: "Ada" },
+    },
+  },
+  {
+    name: "update, composite pk, NULL value",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: "order_lines",
+      column: "note",
+      value: null,
+      primaryKeys: ["order_id", "line_no"],
+      row: { line_no: 2, order_id: 10, note: "gift" },
+    },
+  },
+  {
+    name: "update with a JSON value",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: "settings",
+      column: "doc",
+      value: { theme: "dark", n: [1, 2] },
+      primaryKeys: ["key"],
+      row: { key: "ui" },
+    },
+  },
+  {
+    name: "update with a boolean and a float key",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: "flags",
+      column: "enabled",
+      value: true,
+      primaryKeys: ["weight"],
+      row: { weight: 1.5 },
+    },
+  },
+  {
+    name: "update, key missing from the row binds NULL",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: "t",
+      column: "a",
+      value: 1,
+      primaryKeys: ["id"],
+      row: { other: 1 },
+    },
+  },
+  {
+    name: "update, identifiers with double quotes, spaces and dots",
+    input: {
+      fn: "update",
+      schema: "main",
+      table: 'order "items"',
+      column: "unit.price",
+      value: "12.50",
+      primaryKeys: ['line "id"'],
+      row: { 'line "id"': 3 },
+    },
+  },
+  {
+    name: "setDefault, composite pk",
+    input: {
+      fn: "setDefault",
+      schema: "main",
+      table: "order_lines",
+      column: "qty",
+      primaryKeys: ["order_id", "line_no"],
+      row: { order_id: 10, line_no: 2 },
+    },
+  },
+  {
+    name: "insert, several values in row order",
+    input: {
+      fn: "insert",
+      schema: "main",
+      table: "users",
+      values: { name: "Grace", email: "grace@example.com", role: null, age: 36 },
+    },
+  },
+  {
+    name: "insert, no values",
+    input: { fn: "insert", schema: "main", table: "counters", values: {} },
+  },
+  {
+    name: "insert, double quote in a column name",
+    input: { fn: "insert", schema: "main", table: "t", values: { 'we"ird': "x" } },
+  },
+  {
+    name: "delete, single pk",
+    input: { fn: "delete", schema: "main", table: "users", primaryKeys: ["id"], row: { id: 42 } },
+  },
+  {
+    name: "delete, composite pk with a string key",
+    input: {
+      fn: "delete",
+      schema: "main",
+      table: "stock",
+      primaryKeys: ["region", "sku"],
+      row: { sku: "A-1", region: "eu", qty: 3 },
+    },
+  },
+];
+
+const pure: EngineCorpus["pure"] = {
+  quote: [
+    { name: "plain", input: { id: "users" } },
+    { name: "embedded double quote", input: { id: 'say "hi"' } },
+    { name: "two double quotes", input: { id: '""' } },
+    { name: "space", input: { id: "order items" } },
+    { name: "dot", input: { id: "a.b" } },
+    { name: "backtick", input: { id: "we`ird" } },
+    { name: "non-ASCII", input: { id: "café" } },
+    { name: "empty", input: { id: "" } },
+  ],
+  paginate: [
+    { name: "first page", input: { sql: "SELECT * FROM users", limit: 100, offset: 0 } },
+    { name: "later page", input: { sql: "SELECT * FROM users", limit: 50, offset: 150 } },
+    {
+      name: "keeps a trailing semicolon and whitespace",
+      input: { sql: "SELECT 1;\n", limit: 10, offset: 5 },
+    },
+    {
+      name: "large numbers",
+      input: { sql: "SELECT id FROM t ORDER BY id", limit: 1000000, offset: 9007199254740991 },
+    },
+  ],
+  crud,
+  ddlCreate: [
+    { name: "everything together", input: toJson(customers()) },
+    {
+      name: "single INTEGER primary key gets AUTOINCREMENT",
+      input: toJson(
+        def("main", "events", [
+          col("c1", "id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+          col("c2", "at", "DATETIME", { nullable: false, defaultValue: "CURRENT_TIMESTAMP" }),
+        ]),
+      ),
+    },
+    {
+      name: "lower-case integer primary key, nullable",
+      input: toJson(
+        def("main", "lower", [col("c1", "id", "integer", { isPrimaryKey: true, isUnique: true })]),
+      ),
+    },
+    {
+      name: "single TEXT primary key has no AUTOINCREMENT",
+      input: toJson(
+        def("main", "kv", [
+          col("c1", "k", "TEXT", { nullable: false, isPrimaryKey: true, isUnique: true }),
+          col("c2", "v", "BLOB"),
+        ]),
+      ),
+    },
+    {
+      name: "composite primary key, unique and several indexes",
+      input: toJson(
+        def(
+          "main",
+          "order_lines",
+          [
+            col("c1", "order_id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c2", "line_no", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c3", "sku", "VARCHAR", { length: "64", isUnique: true }),
+            col("c4", "qty", "INTEGER", { nullable: false, defaultValue: "1" }),
+          ],
+          {
+            indexes: [
+              idx("i1", "order_lines_sku_qty_idx", ["sku", "qty"]),
+              idx("i2", "order_lines_qty_key", ["qty"], true),
+            ],
+            foreignKeys: [
+              fk("f1", "order_id", "main", "orders", "id"),
+              fk("f2", "sku", "", "products", "sku"),
+            ],
+          },
+        ),
+      ),
+    },
+    {
+      name: "defaults: functions, padding and rejected values",
+      input: toJson(
+        def("main", "defaults_demo", [
+          col("c1", "created_at", "DATETIME", {
+            nullable: false,
+            defaultValue: "CURRENT_TIMESTAMP",
+          }),
+          col("c2", "padded", "INTEGER", { defaultValue: "  42  " }),
+          col("c3", "injected", "TEXT", { defaultValue: "'x'; DROP TABLE users" }),
+          col("c4", "commented", "TEXT", { defaultValue: "1 -- sneaky" }),
+          col("c5", "blank", "TEXT", { defaultValue: "   " }),
+          col("c6", "flag", "BOOLEAN", { nullable: false, defaultValue: "0" }),
+          col("c7", "expr", "REAL", { defaultValue: "(random() / 2)" }),
+        ]),
+      ),
+    },
+    {
+      name: "precision wins over length",
+      input: toJson(
+        def("main", "prices", [
+          col("c1", "amount", "NUMERIC", { precision: "12,4", length: "8" }),
+          col("c2", "code", "VARCHAR", { length: "3" }),
+        ]),
+      ),
+    },
+    {
+      name: "names with spaces, dots and non-ASCII",
+      input: toJson(
+        def(
+          "main",
+          "order items",
+          [
+            col("c1", "line.id", "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c2", "naïve", "VARCHAR", { length: "10", isUnique: true }),
+          ],
+          {
+            indexes: [idx("i1", "order items naïve idx", ["naïve"])],
+            foreignKeys: [fk("f1", "line.id", "main", "lines", "id")],
+          },
+        ),
+      ),
+    },
+    // Fix 2 replaces this one (the DDL quote didn't escape `"`).
+    {
+      name: "names with double quotes (unescaped by the adapter)",
+      input: toJson(
+        def(
+          "main",
+          'say "hi"',
+          [
+            col("c1", 'id"', "INTEGER", { nullable: false, isPrimaryKey: true }),
+            col("c2", 'a"b', "TEXT", { isUnique: true }),
+          ],
+          {
+            indexes: [idx("i1", 'idx"1', ['a"b'])],
+            foreignKeys: [fk("f1", 'a"b', "main", 'other"t', 'c"d')],
+          },
+        ),
+      ),
+    },
+    { name: "no columns", input: toJson(def("main", "empty", [])) },
+  ],
+  ddlAlter: [
+    alterCase("no changes", customers, () => {}),
+    alterCase("rename a column", customers, (d) => {
+      column(d, "c2").name = "full_name";
+    }),
+    alterCase("add columns", customers, (d) => {
+      d.columns.push(
+        col("c6", "tier", "INTEGER", { nullable: false, defaultValue: "1" }),
+        col("c7", "notes", "TEXT"),
+      );
+    }),
+    alterCase("drop a column", customers, (d) => {
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+    }),
+    alterCase("drop an index", customers, (d) => {
+      d.indexes = [];
+    }),
+    alterCase("a dropped foreign key emits nothing", customers, (d) => {
+      d.foreignKeys = [];
+    }),
+    alterCase("an unnamed index is skipped", customers, (d) => {
+      d.indexes.push(idx("i2", "", ["status"]));
+    }),
+    alterCase("rename and drop, another table name", customers, (d) => {
+      d.tableName = "clients";
+      column(d, "c2").name = "display_name";
+      d.columns = d.columns.filter((c) => c.id !== "c4");
+    }),
+    // Fix 6 replaces these: the adapter silently dropped type, nullability
+    // and default edits (supportsAlterColumn: false).
+    alterCase("change a type (dropped by the adapter)", customers, (d) => {
+      Object.assign(column(d, "c3"), { length: "320" });
+    }),
+    alterCase("make a column NOT NULL (dropped by the adapter)", customers, (d) => {
+      column(d, "c3").nullable = false;
+    }),
+    alterCase("default-only change (dropped by the adapter)", customers, (d) => {
+      column(d, "c4").defaultValue = "'new'";
+    }),
+    alterCase("rename and change a type (the type change is dropped)", customers, (d) => {
+      Object.assign(column(d, "c2"), { name: "display_name", type: "VARCHAR", length: "150" });
+    }),
+    // Fix 3 replaces this: SQLite rejects a schema-qualified table in CREATE INDEX … ON.
+    alterCase("add an index (qualified table, invalid in SQLite)", customers, (d) => {
+      d.indexes.push(idx("i2", "customers_status_email_idx", ["status", "email"], true));
+    }),
+    // Fix 4 replaces this: SQLite has no ALTER TABLE … ADD FOREIGN KEY.
+    alterCase("add a foreign key (invalid in SQLite)", customers, (d) => {
+      d.foreignKeys.push(
+        fk("f2", "email", "", "emails", "address"),
+        fk("f3", "name", "main", "names", "value"),
+      );
+    }),
+    // Fixes 3, 4 and 6 replace this.
+    alterCase("statement order: every branch", customers, (d) => {
+      column(d, "c2").name = "display_name";
+      column(d, "c2").type = "VARCHAR";
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+      column(d, "c5").nullable = true;
+      d.columns.push(col("c6", "tier", "INTEGER", { nullable: false, defaultValue: "1" }));
+      d.indexes = [idx("i2", "customers_tier_idx", ["tier"])];
+      d.foreignKeys.push(fk("f2", "tier", "main", "tiers", "id"));
+    }),
+  ],
+  ddlAddColumn: [
+    {
+      name: "NOT NULL with a default",
+      input: {
+        schema: "main",
+        table: "customers",
+        column: toJson(
+          col("c9", "code", "VARCHAR", { length: "8", nullable: false, defaultValue: " 'x' " }),
+        ),
+      },
+    },
+    {
+      name: "nullable, precision",
+      input: {
+        schema: "main",
+        table: "customers",
+        column: toJson(col("c9", "rate", "NUMERIC", { precision: "5,2" })),
+      },
+    },
+    {
+      name: "the schema is always main",
+      input: {
+        schema: "aux",
+        table: "order items",
+        column: toJson(col("c9", "gift note", "TEXT")),
+      },
+    },
+  ],
+  columnTypes: true,
+  sql: [
+    { name: "getSchemaQuery", input: { query: "getSchemaQuery" } },
+    { name: "getSchemasQuery", input: { query: "getSchemasQuery" } },
+    {
+      name: "getColumnsQuery",
+      input: { query: "getColumnsQuery", schema: "main", table: "users" },
+    },
+    {
+      name: "getIndexesQuery",
+      input: { query: "getIndexesQuery", schema: "main", table: "users" },
+    },
+    {
+      name: "getForeignKeysQuery",
+      input: { query: "getForeignKeysQuery", schema: "main", table: "users" },
+    },
+    { name: "getTableSizesQuery", input: { query: "getTableSizesQuery" } },
+    {
+      name: "getTableRowCountQuery",
+      input: { query: "getTableRowCountQuery", schema: "main", table: "users" },
+    },
+    { name: "getIndexUsageQuery", input: { query: "getIndexUsageQuery" } },
+    { name: "getDatabaseOverviewQuery", input: { query: "getDatabaseOverviewQuery" } },
+    {
+      name: "getExplainQuery",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: false },
+    },
+    {
+      name: "getExplainQuery, analyze",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: true },
+    },
+    {
+      name: "getExplainQuery strips one trailing semicolon",
+      input: { query: "getExplainQuery", sql: "SELECT 1;;", analyze: false },
+    },
+    {
+      name: "getExplainQuery keeps a semicolon before whitespace",
+      input: { query: "getExplainQuery", sql: "SELECT 1;\n", analyze: true },
+    },
+  ],
+};
+
+// ─── EXPLAIN ─────────────────────────────────────────────────────────
+
+const both = [false, true];
+
+const EXPLAIN_TARGETS: ExplainTarget[] = [
+  {
+    name: "table scan with a filter",
+    sql: "SELECT * FROM customers WHERE note LIKE '%v%'",
+    analyze: both,
+  },
+  { name: "scan with an alias", sql: "SELECT * FROM customers c WHERE c.note LIKE '%v%'" },
+  { name: "scan using a covering index", sql: "SELECT name FROM customers ORDER BY name" },
+  { name: "scan using an index", sql: "SELECT * FROM customers ORDER BY name" },
+  { name: "integer primary key lookup", sql: "SELECT * FROM customers WHERE id = 1" },
+  { name: "integer primary key range", sql: "SELECT * FROM customers WHERE id > 150" },
+  {
+    name: "unique constraint lookup",
+    sql: "SELECT * FROM customers WHERE email = 'c1@example.com'",
+  },
+  { name: "covering index lookup", sql: "SELECT name FROM customers WHERE name = 'Customer 7'" },
+  {
+    name: "expression index lookup",
+    sql: "SELECT * FROM customers WHERE lower(email) = 'c1@example.com'",
+  },
+  {
+    name: "partial index lookup",
+    sql: "SELECT * FROM customers WHERE note = 'vip' AND name > 'C'",
+  },
+  { name: "WITHOUT ROWID primary key", sql: "SELECT * FROM kv WHERE k = 'a'" },
+  {
+    name: "bound parameter",
+    sql: "SELECT name FROM customers WHERE id = ?",
+    params: [5],
+    analyze: both,
+  },
+  { name: "trailing semicolon", sql: "SELECT * FROM customers WHERE id = 2;" },
+  {
+    name: "join through a primary key",
+    sql: "SELECT c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+    analyze: both,
+  },
+  {
+    name: "join through an automatic index and a bloom filter",
+    sql: "SELECT c.name, o.total FROM customers c JOIN orders o ON o.total = c.score",
+  },
+  {
+    name: "left join",
+    sql: "SELECT c.name, o.total FROM customers c LEFT JOIN orders o ON o.total = c.score",
+  },
+  { name: "right join", sql: "SELECT * FROM a RIGHT JOIN b ON a.x = b.x" },
+  { name: "full join", sql: "SELECT * FROM a FULL JOIN b ON a.x = b.x" },
+  { name: "cross join of two scans", sql: "SELECT * FROM a, b" },
+  { name: "group by", sql: "SELECT kind, COUNT(*) FROM orders GROUP BY kind" },
+  { name: "distinct", sql: "SELECT DISTINCT kind FROM orders" },
+  { name: "count distinct", sql: "SELECT count(DISTINCT kind) FROM orders" },
+  { name: "order by", sql: "SELECT * FROM customers WHERE note LIKE '%v%' ORDER BY note" },
+  {
+    name: "order by the last term",
+    sql: "SELECT * FROM orders WHERE customer_id = 1 ORDER BY kind, total",
+  },
+  {
+    name: "order by the last terms",
+    sql: "SELECT * FROM orders WHERE customer_id = 1 ORDER BY kind, total, placed_at",
+  },
+  { name: "multi-index OR", sql: "SELECT * FROM customers WHERE id = 5 OR name = 'Customer 7'" },
+  {
+    name: "IN subquery",
+    sql: "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders WHERE kind = 'buy')",
+  },
+  {
+    name: "correlated IN subquery",
+    sql: "SELECT * FROM customers c WHERE c.id IN (SELECT o.customer_id FROM orders o WHERE o.total > c.score)",
+  },
+  {
+    name: "EXISTS subquery",
+    sql: "SELECT * FROM customers c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.total > 90)",
+  },
+  {
+    name: "scalar subquery",
+    sql: "SELECT name FROM customers WHERE score > (SELECT AVG(total) FROM orders)",
+  },
+  {
+    name: "correlated scalar subquery in the select list",
+    sql: "SELECT id, (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS n FROM customers c WHERE c.id < 3",
+  },
+  {
+    name: "derived table (co-routine)",
+    sql: "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+  },
+  {
+    name: "materialized CTE",
+    sql: "WITH x AS MATERIALIZED (SELECT * FROM orders) SELECT * FROM x a, x b WHERE a.id = b.id",
+  },
+  {
+    name: "co-routine and materialize together",
+    sql: "SELECT * FROM (SELECT * FROM a LIMIT 2) s JOIN (SELECT * FROM b LIMIT 2) t ON s.x = t.x",
+  },
+  {
+    name: "window function (unnamed subquery)",
+    sql: "SELECT x, row_number() OVER (ORDER BY y) FROM a",
+  },
+  {
+    name: "recursive CTE",
+    sql: "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+  },
+  { name: "union", sql: "SELECT x FROM a UNION SELECT x FROM b" },
+  { name: "union all", sql: "SELECT x FROM a UNION ALL SELECT x FROM b" },
+  { name: "intersect", sql: "SELECT x FROM a INTERSECT SELECT x FROM b" },
+  { name: "except", sql: "SELECT x FROM a EXCEPT SELECT x FROM b" },
+  {
+    name: "three-way compound",
+    sql: "SELECT x FROM a UNION SELECT x FROM b UNION ALL SELECT x FROM a",
+  },
+  { name: "merge union", sql: "SELECT x FROM a UNION SELECT x FROM b ORDER BY 1 DESC" },
+  { name: "merge union all", sql: "SELECT x FROM a UNION ALL SELECT x FROM b ORDER BY 1" },
+  { name: "merge intersect", sql: "SELECT x FROM a INTERSECT SELECT x FROM b ORDER BY 1" },
+  { name: "merge except", sql: "SELECT x FROM a EXCEPT SELECT x FROM b ORDER BY 1" },
+  { name: "no tables", sql: "SELECT 1" },
+  { name: "max through the rowid", sql: "SELECT max(id) FROM customers" },
+  { name: "virtual table", sql: "SELECT * FROM pragma_table_info('customers')" },
+  { name: "table name with a space", sql: 'SELECT * FROM "order items" WHERE qty = 3' },
+  { name: "table name with a hyphen", sql: "SELECT * FROM \"my-table\" WHERE value = 'x'" },
+  {
+    name: "index name with spaces",
+    sql: "SELECT sku FROM \"order items\" WHERE sku = 'A'",
+  },
+  { name: "non-ASCII names", sql: 'SELECT * FROM "café" WHERE "naïve" = \'é\'' },
+  { name: "update", sql: "UPDATE customers SET note = 'x' WHERE id = 1" },
+  { name: "delete", sql: "DELETE FROM orders WHERE customer_id = 3" },
+  { name: "insert values (empty plan)", sql: "INSERT INTO a VALUES (9, 9)", analyze: both },
+  { name: "insert select", sql: "INSERT INTO a SELECT x, y FROM b" },
+];
+
+/** A plan built by hand: `[id, parent, detail]` rows as EXPLAIN QUERY PLAN returns them. */
+function synthetic(name: string, rows: [number, number, string][], analyze = false): NamedInput {
+  return {
+    name: `synthetic: ${name}`,
+    input: {
+      sql: "(synthetic)",
+      analyze,
+      columns: ["id", "parent", "notused", "detail"],
+      rows: rows.map(([id, parent, detail]) => ({ id, parent, notused: 0, detail })),
+    },
+  };
+}
+
+const SYNTHETIC: NamedInput[] = [
+  synthetic("pre-3.36 aliases and unnumbered subqueries", [
+    [2, 0, "SCAN t AS a USING COVERING INDEX t_idx"],
+    [5, 0, "SEARCH u AS b USING INDEX u_idx (x=?)"],
+    [8, 0, "SEARCH v AS v USING INTEGER PRIMARY KEY (rowid=?)"],
+    [11, 0, "SEARCH w AS c USING AUTOMATIC INDEX (y=?)"],
+    [14, 0, "SCALAR SUBQUERY"],
+    [17, 14, "SCAN s AS s"],
+    [20, 0, "CORRELATED SCALAR SUBQUERY"],
+    [23, 20, "SEARCH p USING PRIMARY KEY"],
+  ]),
+  synthetic("bare MATERIALIZE and CO-ROUTINE", [
+    [1, 0, "MATERIALIZE"],
+    [2, 1, "SCAN t"],
+    [3, 0, "CO-ROUTINE"],
+    [4, 3, "SCAN u"],
+    [5, 0, "MATERIALIZE 1"],
+  ]),
+  synthetic("every temp b-tree", [
+    [1, 0, "SCAN t"],
+    [2, 0, "USE TEMP B-TREE FOR ORDER BY"],
+    [3, 0, "USE TEMP B-TREE FOR GROUP BY"],
+    [4, 0, "USE TEMP B-TREE FOR DISTINCT"],
+    [5, 0, "USE TEMP B-TREE FOR RIGHT PART OF ORDER BY"],
+    [6, 0, "USE TEMP B-TREE FOR LEFT PART OF ORDER BY"],
+    [7, 0, "USE TEMP B-TREE FOR LAST 3 TERMS OF ORDER BY"],
+  ]),
+  synthetic("every compound operator", [
+    [1, 0, "COMPOUND QUERY"],
+    [2, 1, "LEFT-MOST SUBQUERY"],
+    [3, 2, "SCAN a"],
+    [4, 1, "UNION ALL"],
+    [5, 1, "UNION"],
+    [6, 1, "UNION USING TEMP B-TREE"],
+    [7, 1, "EXCEPT"],
+    [8, 1, "EXCEPT USING TEMP B-TREE"],
+    [9, 1, "INTERSECT"],
+    [10, 1, "INTERSECT USING TEMP B-TREE"],
+    [11, 0, "MERGE (UNION ALL)"],
+    [12, 11, "LEFT"],
+    [13, 11, "RIGHT"],
+  ]),
+  synthetic("a parent that isn't in the plan becomes a root", [
+    [1, 0, "SCAN a"],
+    [2, 99, "SCAN b"],
+  ]),
+  synthetic("two scans are a nested loop", [
+    [3, 0, "SCAN a"],
+    [5, 0, "SEARCH b USING INDEX b_idx (x=?)"],
+    [7, 0, "SCAN c USING COVERING INDEX c_idx"],
+  ]),
+  synthetic("unknown details keep their first word", [
+    [1, 0, "SOMETHING NEW t"],
+    [2, 0, ""],
+    [3, 0, "SCAN"],
+  ]),
+  synthetic("an empty plan, analyzed", [], true),
+];
+
+// ─── Corpus ──────────────────────────────────────────────────────────
+
+/** Tables the adapter's PRAGMA queries accept (validateIdentifier). */
+const TABLES = ["customers", "orders", "accounts", "kv", "café", "ledger", "sqlitex"];
+
+export const sqlite: EngineCorpus = {
+  id: "sqlite",
+  adapter: "sqlite",
+  fixtureDir: crateFixtureDir("sqlite"),
+  connection: () => envConnectConfig("SEAQUEL_TEST_SQLITE", FALLBACK),
+  cleanup: () => {
+    for (const suffix of ["", "-wal", "-shm", "-journal"])
+      rmSync(`${DB}${suffix}`, { force: true });
+  },
+  pure,
+  parse: {
+    schema: {},
+    columns: TABLES.map((table) => ({ schema: "main", table })),
+    indexes: { targets: TABLES.map((table) => ({ schema: "main", table })) },
+    explain: EXPLAIN_TARGETS.map((t) => ({ ...t, analyze: t.analyze ?? [false] })),
+    stats: {},
+    extra: { "parse-explain.json": () => Promise.resolve(SYNTHETIC) },
+  },
+  bugfixes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+};

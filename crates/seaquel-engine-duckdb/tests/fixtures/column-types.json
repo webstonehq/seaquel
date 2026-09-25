@@ -1,0 +1,136 @@
+{
+  "cases": [
+    {
+      "name": "getColumnTypes",
+      "input": {},
+      "output": [
+        {
+          "name": "VARCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "TEXT",
+          "category": "String"
+        },
+        {
+          "name": "INTEGER",
+          "category": "Numeric"
+        },
+        {
+          "name": "BIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "HUGEINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "SMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "TINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UINTEGER",
+          "category": "Numeric"
+        },
+        {
+          "name": "UBIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UHUGEINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "USMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UTINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DOUBLE",
+          "category": "Numeric"
+        },
+        {
+          "name": "FLOAT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DECIMAL",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "BIGNUM",
+          "category": "Numeric"
+        },
+        {
+          "name": "DATE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIMESTAMP",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIMESTAMP WITH TIME ZONE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "INTERVAL",
+          "category": "Date/Time"
+        },
+        {
+          "name": "BOOLEAN",
+          "category": "Boolean"
+        },
+        {
+          "name": "JSON",
+          "category": "JSON"
+        },
+        {
+          "name": "BLOB",
+          "category": "Binary"
+        },
+        {
+          "name": "BIT",
+          "category": "Binary"
+        },
+        {
+          "name": "UUID",
+          "category": "UUID"
+        },
+        {
+          "name": "ARRAY",
+          "category": "Other"
+        },
+        {
+          "name": "LIST",
+          "category": "Other"
+        },
+        {
+          "name": "MAP",
+          "category": "Other"
+        },
+        {
+          "name": "STRUCT",
+          "category": "Other"
+        },
+        {
+          "name": "UNION",
+          "category": "Other"
+        }
+      ]
+    }
+  ]
+}

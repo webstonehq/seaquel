@@ -62,6 +62,28 @@ pub struct SchemaColumn {
     /// Foreign key reference details, if this is a foreign key
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreign_key_ref: Option<ForeignKeyRef>,
+    /// The column's collation, only when it differs from the database
+    /// default (MSSQL), so that an `ALTER COLUMN` built from it keeps the
+    /// collation. Absent for engines that don't report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collation: Option<String>,
+    /// The column on its own is a UNIQUE constraint (the table editor's
+    /// UNIQUE checkbox). Reported by DuckDB; other engines leave it false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub is_unique: bool,
+    /// The column is in some UNIQUE constraint, single-column or composite
+    /// (not the primary key, not a unique index). DuckDB can't drop or retype
+    /// such a column, or drop one before it, so its ALTER TABLE rules read
+    /// this. Not shown in the editor. Reported by DuckDB only.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub in_unique_constraint: bool,
+}
+
+/// `skip_serializing_if` for flags that are absent when false.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Represents an index on a database table.
@@ -352,6 +374,17 @@ pub struct CreateTableColumn {
     pub default_value: String,
     pub is_primary_key: bool,
     pub is_unique: bool,
+    /// The collation `ALTER COLUMN` restates (MSSQL `COLLATE`), copied from
+    /// [`SchemaColumn::collation`] by the table editor. Unset means the
+    /// database default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collation: Option<String>,
+    /// Copied from [`SchemaColumn::in_unique_constraint`] by the table
+    /// editor: the column is in a (possibly composite) UNIQUE constraint.
+    /// DDL generation reads it, never writes a constraint from it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub in_unique_constraint: bool,
 }
 
 /// An index definition in the Create Table form.

@@ -1,0 +1,187 @@
+/**
+ * MSSQL execution plans for `parse-explain.json`, captured with the Node
+ * `mssql` package (as the e2e seeder uses it) instead of `seaquel-server`,
+ * whose `query` returns only the first result set.
+ *
+ * All requests run on one pooled connection (`max: 1`), since the SET options
+ * are per session:
+ * - EXPLAIN: `SET SHOWPLAN_XML ON`, the query, `SET SHOWPLAN_XML OFF`, each
+ *   its own batch. The query can't be bound: under SHOWPLAN_XML an
+ *   `sp_executesql` call returns no result set.
+ * - EXPLAIN ANALYZE: `SET STATISTICS XML ON`, the query (through
+ *   `sp_executesql` when it has parameters), `SET STATISTICS XML OFF`. The
+ *   plan is the result set after the query's own: `recordsets[1]` for a
+ *   SELECT, `recordsets[0]` for DML, which returns no rows. A `rollback`
+ *   target runs inside `BEGIN TRANSACTION` … `ROLLBACK`.
+ *
+ * Each case stores the plan result sets' rows, as
+ * `[{ "Microsoft SQL Server 2005 XML Showplan": "<ShowPlanXML …>" }]`, or no
+ * rows when the server returned no plan (a trivial statement under
+ * STATISTICS XML).
+ *
+ * `normalizeShowplan` rewrites what changes between two runs on the same data
+ * (compile and run times, memory grants, cache flags, statistics timestamps
+ * and auto-created statistics names), so re-recording is byte-identical.
+ */
+import sql, { type config as MssqlConfig } from "mssql";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import type { Json, NamedInput, Row } from "./corpus";
+
+export const SHOWPLAN_COLUMN = "Microsoft SQL Server 2005 XML Showplan";
+
+export interface ShowplanTarget {
+  name: string;
+  sql: string;
+  /** Which modes to record; default both `false` and `true`. */
+  analyze?: boolean[];
+  /** Bound as `@P1`, `@P2`, … (EXPLAIN ANALYZE only). */
+  params?: Json[];
+  /** Run the analyzed statement in a transaction that is rolled back (DML). */
+  rollback?: boolean;
+}
+
+/** Attributes whose values differ between runs; set to a fixed value. */
+const VOLATILE: Record<string, string> = {
+  // QueryPlan / QueryTimeStats
+  CachedPlanSize: "0",
+  CompileTime: "0",
+  CompileCPU: "0",
+  CompileMemory: "0",
+  CpuTime: "0",
+  ElapsedTime: "0",
+  UdfCpuTime: "0",
+  UdfElapsedTime: "0",
+  // OptimizerHardwareDependentProperties (machine-dependent)
+  EstimatedAvailableMemoryGrant: "0",
+  EstimatedPagesCached: "0",
+  EstimatedAvailableDegreeOfParallelism: "0",
+  MaxCompileMemory: "0",
+  // MemoryGrantInfo
+  SerialRequiredMemory: "0",
+  SerialDesiredMemory: "0",
+  RequiredMemory: "0",
+  DesiredMemory: "0",
+  RequestedMemory: "0",
+  GrantWaitTime: "0",
+  GrantedMemory: "0",
+  MaxUsedMemory: "0",
+  MaxQueryMemory: "0",
+  LastRequestedMemory: "0",
+  IsMemoryGrantFeedbackAdjusted: "No: First Execution",
+  // StmtSimple
+  RetrievedFromCache: "false",
+  StatementCompId: "1",
+  // StatisticsInfo
+  LastUpdate: "2026-01-01T00:00:00.00",
+  ModificationCount: "0",
+  // RunTimeCountersPerThread (cache-dependent; ActualElapsedms is below)
+  ActualCPUms: "0",
+  ActualPhysicalReads: "0",
+  ActualReadAheads: "0",
+  ActualLobPhysicalReads: "0",
+  ActualLobReadAheads: "0",
+  // MemoryGrant on operators (sorts, hashes)
+  InputMemoryGrant: "0",
+  OutputMemoryGrant: "0",
+  UsedMemoryGrant: "0",
+};
+
+/**
+ * `xml` with run-dependent values made deterministic:
+ * - the attributes in `VOLATILE` get fixed values;
+ * - `ActualElapsedms` becomes `(n + 1) % 4` for the n-th thread counter in
+ *   the document, so the parser sees zero and non-zero times and a maximum
+ *   across threads;
+ * - auto-created statistics (`_WA_Sys_<column>_<object id>`) lose the object id,
+ *   and `StatisticsInfo` elements are sorted (the server lists them in any order);
+ * - `WaitStats` is removed (which waits occur varies).
+ */
+export function normalizeShowplan(xml: string): string {
+  let n = 0;
+  return xml
+    .replace(/<WaitStats>.*?<\/WaitStats>/gs, "")
+    .replace(/\b(\w+)="([^"]*)"/g, (whole, name: string) => {
+      if (name === "ActualElapsedms") return `ActualElapsedms="${(n++ + 1) % 4}"`;
+      const fixed = VOLATILE[name];
+      return fixed === undefined ? whole : `${name}="${fixed}"`;
+    })
+    .replace(/_WA_Sys_([0-9A-F]{8})_[0-9A-F]{8}/g, "_WA_Sys_$1_00000000")
+    .replace(
+      /<OptimizerStatsUsage>(.*?)<\/OptimizerStatsUsage>/gs,
+      (_whole, body: string) =>
+        `<OptimizerStatsUsage>${(body.match(/<StatisticsInfo\b.*?(?:\/>|<\/StatisticsInfo>)/gs) ?? []).sort().join("")}</OptimizerStatsUsage>`,
+    );
+}
+
+function mssqlConfig(config: ConnectConfig): MssqlConfig {
+  return {
+    server: config.host ?? "127.0.0.1",
+    port: config.port ?? 1433,
+    user: config.username,
+    password: config.password,
+    database: config.database,
+    options: {
+      encrypt: config.encrypt ?? true,
+      trustServerCertificate: config.trust_cert ?? false,
+    },
+    pool: { max: 1, min: 1 },
+  };
+}
+
+/** Plan rows from the result sets that carry the showplan column. */
+function planRows(recordsets: Record<string, unknown>[][]): Row[] {
+  const rows: Row[] = [];
+  for (const set of recordsets) {
+    for (const row of set) {
+      const xml = row[SHOWPLAN_COLUMN];
+      if (typeof xml === "string") rows.push({ [SHOWPLAN_COLUMN]: normalizeShowplan(xml) });
+    }
+  }
+  return rows;
+}
+
+/** One `parse-explain.json` case per target and mode, named as the recorder names them. */
+export async function captureShowplans(
+  config: ConnectConfig,
+  targets: ShowplanTarget[],
+): Promise<NamedInput[]> {
+  const pool = await new sql.ConnectionPool(mssqlConfig(config)).connect();
+  const batch = (text: string) => pool.request().batch(text);
+  const out: NamedInput[] = [];
+  try {
+    for (const target of targets) {
+      for (const analyze of target.analyze ?? [false, true]) {
+        if (!analyze && target.params) {
+          throw new Error(`${target.name}: SHOWPLAN_XML can't capture a bound statement`);
+        }
+        const option = analyze ? "STATISTICS XML" : "SHOWPLAN_XML";
+        const rollback = analyze && target.rollback;
+        let recordsets: Record<string, unknown>[][];
+        if (rollback) await batch("BEGIN TRANSACTION");
+        await batch(`SET ${option} ON`);
+        try {
+          if (target.params) {
+            const request = pool.request();
+            target.params.forEach((value, i) => request.input(`P${i + 1}`, value));
+            ({ recordsets } = await request.query(target.sql));
+          } else {
+            ({ recordsets } = await batch(target.sql));
+          }
+        } finally {
+          await batch(`SET ${option} OFF`);
+          if (rollback) await batch("ROLLBACK");
+        }
+        const rows = planRows(recordsets);
+        const input: Record<string, Json> = { sql: target.sql, analyze };
+        if (target.params) input.params = target.params;
+        out.push({
+          name: `${analyze ? "EXPLAIN ANALYZE" : "EXPLAIN"}: ${target.name}`,
+          input: { ...input, columns: rows.length > 0 ? [SHOWPLAN_COLUMN] : [], rows },
+        });
+      }
+    }
+  } finally {
+    await pool.close();
+  }
+  return out;
+}

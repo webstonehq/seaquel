@@ -1,0 +1,279 @@
+/**
+ * The per-engine corpus the recorder in `dialect-fixtures.test.ts` runs.
+ * Engine tasks write one `corpora/<engine>.ts` exporting an `EngineCorpus`
+ * and register it in `corpora/index.ts`. The recorder does the rest: it runs
+ * the adapter's SQL through the Rust driver, writes the fixture files and
+ * replays them in check mode.
+ */
+import { fileURLToPath } from "node:url";
+import type {
+  CreateTableColumn,
+  CreateTableDefinition,
+  CreateTableForeignKey,
+  CreateTableIndex,
+  DatabaseType,
+} from "$lib/types";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import type { DatabaseAdapter } from "$lib/db";
+import type { Session } from "./server";
+
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+/** A row as the recorder stores it: column name → wire-format cell. */
+export type Row = Record<string, Json>;
+
+/** A result as recorded: column names in result order, and the rows. */
+export interface RowSet {
+  columns: string[];
+  rows: Row[];
+}
+
+export interface FixtureCase {
+  name: string;
+  input: Json;
+  output: Json;
+}
+export interface FixtureFile {
+  cases: FixtureCase[];
+}
+export interface NamedInput {
+  name: string;
+  input: Json;
+}
+
+/** Fixture files written from pure adapter functions (no database). */
+export const PURE_FILES = [
+  "quote.json",
+  "paginate.json",
+  "crud.json",
+  "ddl-create.json",
+  "ddl-alter.json",
+  "ddl-add-column.json",
+  "column-types.json",
+  "sql.json",
+] as const;
+export type PureFile = (typeof PURE_FILES)[number];
+
+/** Fixture files whose inputs are rows the adapter's SQL returned from the Rust driver. */
+export const PARSE_FILES = [
+  "parse-schema.json",
+  "parse-columns.json",
+  "parse-indexes.json",
+  "parse-explain.json",
+  // Last: statistics recorders may drop or change scratch objects.
+  "parse-stats.json",
+] as const;
+export type ParseFile = (typeof PARSE_FILES)[number];
+
+export type FixtureFileName = PureFile | ParseFile;
+
+/** What a recorder hook gets in record mode. */
+export interface RecordContext {
+  session: Session;
+  /**
+   * A new connection on the same server with the corpus's ConnectConfig, for
+   * cases that need session or global settings on a fresh pooled connection
+   * (e.g. MySQL `explain_json_format_version`). The caller closes it.
+   */
+  openSession(): Promise<Session>;
+  adapter: DatabaseAdapter;
+  corpus: EngineCorpus;
+}
+
+export interface TableTarget {
+  schema: string;
+  table: string;
+}
+
+export interface ExplainTarget {
+  name: string;
+  sql: string;
+  /** Which modes to record; default both `false` and `true`. */
+  analyze?: boolean[];
+  /** Bind values passed with the EXPLAIN (the deleted MySQL and SQLite adapters bound them). */
+  params?: Json[];
+}
+
+export interface EngineCorpus {
+  /** The `ENGINE` value, e.g. `duckdb`. */
+  id: string;
+  /** The adapter key passed to `getAdapter`. */
+  adapter: DatabaseType;
+  /** Absolute fixture directory; usually `crateFixtureDir(...)`. `FIXTURES_DIR` overrides it. */
+  fixtureDir: string;
+  /** The Rust ConnectConfig for record mode, usually `envConnectConfig(...)`. */
+  connection(): ConnectConfig | Promise<ConnectConfig>;
+  /**
+   * Scratch objects the parse cases introspect. Without this, the recorder
+   * reads the `scratch` block of `<fixtureDir>/bugfixes.json` (hand-written,
+   * as in phase 1), so the Rust tests can rebuild the same objects.
+   * Teardown runs before setup (so a failed run is cleaned up) and after
+   * recording.
+   */
+  scratch?: { setup: string[]; teardown: string[] };
+
+  /**
+   * Pure-function cases. Only groups with at least one case are recorded
+   * (and required in check mode). Input shapes, per file:
+   * - `quote`: `{ id }`
+   * - `paginate`: `{ sql, limit, offset }`
+   * - `crud`: `{ fn: "update"|"setDefault"|"insert"|"delete", schema, table, column?, value?,
+   *   values?, primaryKeys?, row?, casts? }`
+   * - `ddlCreate`: a `CreateTableDefinition`
+   * - `ddlAlter`: `{ from, to }` definitions (see `alterCase`)
+   * - `ddlAddColumn`: `{ schema, table, column }`
+   * - `columnTypes`: `true` records `getColumnTypes()` once
+   * - `sql`: `{ query: "<adapter method>", ...args }` — the generated SQL of
+   *   `getSchemaQuery`, `getColumnsQuery`, `getExplainQuery`, and so on
+   */
+  pure: {
+    quote?: NamedInput[];
+    paginate?: NamedInput[];
+    crud?: NamedInput[];
+    ddlCreate?: NamedInput[];
+    ddlAlter?: NamedInput[];
+    ddlAddColumn?: NamedInput[];
+    columnTypes?: boolean;
+    sql?: NamedInput[];
+  };
+
+  /**
+   * SQL-driven parser cases. Each declared group is recorded by running the
+   * adapter's own query through the Rust driver. Input shapes:
+   * - schema: `{ columns, rows }`
+   * - columns: `{ schema, table, columns, rows, foreignKeyColumns?, foreignKeys? }`
+   *   (the foreign-key result when the adapter has `getForeignKeysQuery`)
+   * - indexes: `{ schema, table, columns, rows }`
+   * - explain: `{ sql, analyze, params?, columns, rows }`
+   * - stats: `{ kind: "tableSizes"|"indexUsage"|"overview", columns, rows }` and
+   *   `{ kind: "rowCount", schema, table, columns, rows }` (per table, for
+   *   adapters with `getTableRowCountQuery`; tables whose count fails are
+   *   skipped, as TsEngineClient keeps them uncounted)
+   * `columns` lists the result's column names in order; `rows` are objects.
+   */
+  parse: {
+    /** Keep only the rows this corpus owns (other tests may leave objects behind). */
+    schema?: { filter?: (row: Row) => boolean };
+    columns?: TableTarget[];
+    indexes?: { targets: TableTarget[]; sort?: (a: Row, b: Row) => number };
+    explain?: ExplainTarget[];
+    stats?: {
+      /** Run before the statistics queries (e.g. refresh counters). */
+      before?: string[];
+      /** Filter each kind's rows before they are stored. */
+      filter?: (kind: string, row: Row) => boolean;
+      /** Record `getTableRowCountQuery` per table from the table sizes (default true). */
+      rowCounts?: boolean;
+      /**
+       * SQL to run instead of the adapter's for a kind, when the adapter's own
+       * query fails on the server (MySQL's index usage reads columns
+       * `mysql.innodb_index_stats` doesn't have). The adapter's parser still
+       * produces the output; the corpus says why in a comment.
+       */
+      sql?: Partial<Record<"tableSizes" | "indexUsage" | "overview", string>>;
+    };
+    /** Extra cases appended to a parse file, for engine-specific plumbing (e.g. MSSQL SHOWPLAN). */
+    extra?: Partial<Record<ParseFile, (ctx: RecordContext) => Promise<NamedInput[]>>>;
+  };
+
+  /** Runs once after scratch setup in record mode (ANALYZE, session settings, …). */
+  prepare?(ctx: RecordContext): Promise<void>;
+  /** Runs last in record mode, after disconnecting (e.g. delete a temp database file). */
+  cleanup?(): void | Promise<void>;
+  /** Fix numbers `bugfixes.json` must cover with at least one case. */
+  bugfixes?: number[];
+  /** Minimum total case count across all recorded files. */
+  minCases?: number;
+}
+
+const CRATES_DIR = fileURLToPath(new URL("../../crates/", import.meta.url));
+
+/** `crates/seaquel-engine-<crate>/tests/fixtures/[sub/]`. */
+export function crateFixtureDir(crate: string, sub?: string): string {
+  return `${CRATES_DIR}seaquel-engine-${crate}/tests/fixtures/${sub ? `${sub}/` : ""}`;
+}
+
+// ─── Builders for pure inputs ────────────────────────────────────────
+
+/** What a fixture file holds: JSON drops `undefined` properties. */
+export function toJson(value: unknown): Json {
+  return JSON.parse(
+    JSON.stringify(value, (_key, v: unknown) =>
+      typeof v === "bigint" ? (Number.isSafeInteger(Number(v)) ? Number(v) : v.toString()) : v,
+    ) ?? "null",
+  ) as Json;
+}
+
+export function col(
+  id: string,
+  name: string,
+  type: string,
+  extra: Partial<CreateTableColumn> = {},
+): CreateTableColumn {
+  return {
+    id,
+    name,
+    type,
+    nullable: true,
+    defaultValue: "",
+    isPrimaryKey: false,
+    isUnique: false,
+    ...extra,
+  };
+}
+
+export function idx(
+  id: string,
+  name: string,
+  columns: string[],
+  unique = false,
+  type = "btree",
+): CreateTableIndex {
+  return { id, name, columns, unique, type };
+}
+
+export function fk(
+  id: string,
+  column: string,
+  referencedSchema: string,
+  referencedTable: string,
+  referencedColumn: string,
+): CreateTableForeignKey {
+  return { id, column, referencedSchema, referencedTable, referencedColumn };
+}
+
+export function def(
+  schemaName: string,
+  tableName: string,
+  columns: CreateTableColumn[],
+  extra: Partial<CreateTableDefinition> = {},
+): CreateTableDefinition {
+  return { tableName, schemaName, columns, indexes: [], foreignKeys: [], ...extra };
+}
+
+/** A `ddlAlter` case: `change` edits a fresh copy of `base()`. */
+export function alterCase(
+  name: string,
+  base: () => CreateTableDefinition,
+  change: (d: CreateTableDefinition) => void,
+): NamedInput {
+  const to = base();
+  change(to);
+  return { name, input: { from: toJson(base()), to: toJson(to) } };
+}
+
+/** The column with `id` in `d` (for `alterCase` edits). */
+export function column(d: CreateTableDefinition, id: string): CreateTableColumn {
+  const c = d.columns.find((x) => x.id === id);
+  if (!c) throw new Error(`no column ${id}`);
+  return c;
+}
+
+/** Order rows by a column, so re-recording catalog output without ORDER BY is stable. */
+export function byColumn(name: string): (a: Row, b: Row) => number {
+  return (a, b) => {
+    const key = (v: Json) => (typeof v === "string" ? v : JSON.stringify(v));
+    const x = key(a[name]);
+    const y = key(b[name]);
+    return x < y ? -1 : x > y ? 1 : 0;
+  };
+}

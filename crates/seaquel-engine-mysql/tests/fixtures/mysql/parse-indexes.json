@@ -1,0 +1,236 @@
+{
+  "cases": [
+    {
+      "name": "seaquel_test.fx_customers",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customers",
+        "columns": ["index_name", "column_name", "non_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "email",
+            "column_name": "email",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "fx_customers_lower_email_idx",
+            "column_name": null,
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "fx_customers_name_idx",
+            "column_name": "name",
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "PRIMARY",
+            "column_name": "id",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "email",
+          "columns": ["email"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "fx_customers_lower_email_idx",
+          "columns": [""],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "fx_customers_name_idx",
+          "columns": ["name"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_orders",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_orders",
+        "columns": ["index_name", "column_name", "non_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_orders_customer_placed_idx",
+            "column_name": "customer_id",
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "fx_orders_customer_placed_idx",
+            "column_name": "placed_at",
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "fx_orders_memo_ft",
+            "column_name": "memo",
+            "non_unique": 1,
+            "index_type": "FULLTEXT"
+          },
+          {
+            "index_name": "PRIMARY",
+            "column_name": "id",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_orders_customer_placed_idx",
+          "columns": ["customer_id", "placed_at"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "fx_orders_memo_ft",
+          "columns": ["memo"],
+          "unique": false,
+          "type": "fulltext"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_accounts",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_accounts",
+        "columns": ["index_name", "column_name", "non_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "email",
+            "column_name": "email",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "fx_accounts_referrer_fk",
+            "column_name": "referrer_id",
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "PRIMARY",
+            "column_name": "customer_id",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "email",
+          "columns": ["email"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "fx_accounts_referrer_fk",
+          "columns": ["referrer_id"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["customer_id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_café",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_café",
+        "columns": ["index_name", "column_name", "non_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_café_naïve_idx",
+            "column_name": "naïve",
+            "non_unique": 1,
+            "index_type": "BTREE"
+          },
+          {
+            "index_name": "PRIMARY",
+            "column_name": "id",
+            "non_unique": 0,
+            "index_type": "BTREE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_café_naïve_idx",
+          "columns": ["naïve"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_mem",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_mem",
+        "columns": ["index_name", "column_name", "non_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_mem_id_hash",
+            "column_name": "id",
+            "non_unique": 1,
+            "index_type": "HASH"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_mem_id_hash",
+          "columns": ["id"],
+          "unique": false,
+          "type": "hash"
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_customer_names",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customer_names",
+        "columns": [],
+        "rows": []
+      },
+      "output": []
+    }
+  ]
+}

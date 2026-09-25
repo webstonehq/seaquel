@@ -1,0 +1,576 @@
+{
+  "cases": [
+    {
+      "name": "table sizes",
+      "input": {
+        "kind": "tableSizes",
+        "columns": [
+          "schema_name",
+          "table_name",
+          "row_count",
+          "total_size",
+          "total_size_bytes",
+          "data_size",
+          "index_size"
+        ],
+        "rows": [
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_mem",
+            "row_count": 3,
+            "total_size": "2047.94 KB",
+            "total_size_bytes": 2097088,
+            "data_size": "1023.97 KB",
+            "index_size": "1023.97 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_orders",
+            "row_count": 1000,
+            "total_size": "192.00 KB",
+            "total_size_bytes": 196608,
+            "data_size": "96.00 KB",
+            "index_size": "96.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customers",
+            "row_count": 200,
+            "total_size": "80.00 KB",
+            "total_size_bytes": 81920,
+            "data_size": "48.00 KB",
+            "index_size": "32.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx order items",
+            "row_count": 300,
+            "total_size": "48.00 KB",
+            "total_size_bytes": 49152,
+            "data_size": "16.00 KB",
+            "index_size": "32.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_accounts",
+            "row_count": 3,
+            "total_size": "48.00 KB",
+            "total_size_bytes": 49152,
+            "data_size": "16.00 KB",
+            "index_size": "32.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_dotted_refs",
+            "row_count": 0,
+            "total_size": "32.00 KB",
+            "total_size_bytes": 32768,
+            "data_size": "16.00 KB",
+            "index_size": "16.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_café",
+            "row_count": 0,
+            "total_size": "32.00 KB",
+            "total_size_bytes": 32768,
+            "data_size": "16.00 KB",
+            "index_size": "16.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx-my-table",
+            "row_count": 0,
+            "total_size": "16.00 KB",
+            "total_size_bytes": 16384,
+            "data_size": "16.00 KB",
+            "index_size": "0.00 KB"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx.dotted",
+            "row_count": 2,
+            "total_size": "16.00 KB",
+            "total_size_bytes": 16384,
+            "data_size": "16.00 KB",
+            "index_size": "0.00 KB"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "seaquel_test",
+          "name": "fx_mem",
+          "rowCount": 3,
+          "totalSize": "2047.94 KB",
+          "totalSizeBytes": 2097088,
+          "dataSize": "1023.97 KB",
+          "indexSize": "1023.97 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx_orders",
+          "rowCount": 1000,
+          "totalSize": "192.00 KB",
+          "totalSizeBytes": 196608,
+          "dataSize": "96.00 KB",
+          "indexSize": "96.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx_customers",
+          "rowCount": 200,
+          "totalSize": "80.00 KB",
+          "totalSizeBytes": 81920,
+          "dataSize": "48.00 KB",
+          "indexSize": "32.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx order items",
+          "rowCount": 300,
+          "totalSize": "48.00 KB",
+          "totalSizeBytes": 49152,
+          "dataSize": "16.00 KB",
+          "indexSize": "32.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx_accounts",
+          "rowCount": 3,
+          "totalSize": "48.00 KB",
+          "totalSizeBytes": 49152,
+          "dataSize": "16.00 KB",
+          "indexSize": "32.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx_dotted_refs",
+          "rowCount": 0,
+          "totalSize": "32.00 KB",
+          "totalSizeBytes": 32768,
+          "dataSize": "16.00 KB",
+          "indexSize": "16.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx_café",
+          "rowCount": 0,
+          "totalSize": "32.00 KB",
+          "totalSizeBytes": 32768,
+          "dataSize": "16.00 KB",
+          "indexSize": "16.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx-my-table",
+          "rowCount": 0,
+          "totalSize": "16.00 KB",
+          "totalSizeBytes": 16384,
+          "dataSize": "16.00 KB",
+          "indexSize": "0.00 KB"
+        },
+        {
+          "schema": "seaquel_test",
+          "name": "fx.dotted",
+          "rowCount": 2,
+          "totalSize": "16.00 KB",
+          "totalSizeBytes": 16384,
+          "dataSize": "16.00 KB",
+          "indexSize": "0.00 KB"
+        }
+      ]
+    },
+    {
+      "name": "index usage",
+      "input": {
+        "kind": "indexUsage",
+        "columns": [
+          "schema_name",
+          "table_name",
+          "index_name",
+          "size",
+          "scans",
+          "rows_read",
+          "unused"
+        ],
+        "rows": [
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_orders",
+            "index_name": "PRIMARY",
+            "size": "96.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_orders",
+            "index_name": "FTS_DOC_ID_INDEX",
+            "size": "48.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_orders",
+            "index_name": "fx_orders_customer_placed_idx",
+            "size": "48.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customers",
+            "index_name": "PRIMARY",
+            "size": "48.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_café",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_café",
+            "index_name": "fx_café_naïve_idx",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx.dotted",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx-my-table",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_accounts",
+            "index_name": "email",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_accounts",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_accounts",
+            "index_name": "fx_accounts_referrer_fk",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customers",
+            "index_name": "email",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customers",
+            "index_name": "fx_customers_name_idx",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx order items",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx order items",
+            "index_name": "fx order items sku idx",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx order items",
+            "index_name": "fx order items order sku",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_dotted_refs",
+            "index_name": "PRIMARY",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_dotted_refs",
+            "index_name": "fx_dotted_refs_fk",
+            "size": "16.00 KB",
+            "scans": 0,
+            "rows_read": 0,
+            "unused": 0
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "seaquel_test",
+          "table": "fx_orders",
+          "indexName": "PRIMARY",
+          "size": "96.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_orders",
+          "indexName": "FTS_DOC_ID_INDEX",
+          "size": "48.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_orders",
+          "indexName": "fx_orders_customer_placed_idx",
+          "size": "48.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_customers",
+          "indexName": "PRIMARY",
+          "size": "48.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_café",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_café",
+          "indexName": "fx_café_naïve_idx",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx.dotted",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx-my-table",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_accounts",
+          "indexName": "email",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_accounts",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_accounts",
+          "indexName": "fx_accounts_referrer_fk",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_customers",
+          "indexName": "email",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_customers",
+          "indexName": "fx_customers_name_idx",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx order items",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx order items",
+          "indexName": "fx order items sku idx",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx order items",
+          "indexName": "fx order items order sku",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_dotted_refs",
+          "indexName": "PRIMARY",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        },
+        {
+          "schema": "seaquel_test",
+          "table": "fx_dotted_refs",
+          "indexName": "fx_dotted_refs_fk",
+          "size": "16.00 KB",
+          "scans": 0,
+          "rowsRead": 0,
+          "unused": false
+        }
+      ]
+    },
+    {
+      "name": "database overview",
+      "input": {
+        "kind": "overview",
+        "columns": [
+          "database_name",
+          "total_size",
+          "total_size_bytes",
+          "table_count",
+          "index_count",
+          "connection_count"
+        ],
+        "rows": [
+          {
+            "database_name": "seaquel_test",
+            "total_size": "2879.94 KB",
+            "total_size_bytes": "2949056",
+            "table_count": 15,
+            "index_count": 33,
+            "connection_count": 1
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "seaquel_test",
+        "totalSize": "2879.94 KB",
+        "totalSizeBytes": 2949056,
+        "tableCount": 15,
+        "indexCount": 33,
+        "connectionCount": 1
+      }
+    },
+    {
+      "name": "database overview, no rows (fallbacks)",
+      "input": {
+        "kind": "overview",
+        "columns": [],
+        "rows": []
+      },
+      "output": {
+        "databaseName": "Unknown",
+        "totalSize": "0 bytes",
+        "totalSizeBytes": 0,
+        "tableCount": 0,
+        "indexCount": 0,
+        "connectionCount": 0
+      }
+    }
+  ]
+}

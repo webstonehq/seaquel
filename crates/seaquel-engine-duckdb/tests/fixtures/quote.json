@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "id": "users"
+      },
+      "output": "\"users\""
+    },
+    {
+      "name": "embedded double quote",
+      "input": {
+        "id": "say \"hi\""
+      },
+      "output": "\"say \"\"hi\"\"\""
+    },
+    {
+      "name": "two double quotes",
+      "input": {
+        "id": "\"\""
+      },
+      "output": "\"\"\"\"\"\""
+    },
+    {
+      "name": "space",
+      "input": {
+        "id": "order items"
+      },
+      "output": "\"order items\""
+    },
+    {
+      "name": "dot",
+      "input": {
+        "id": "a.b"
+      },
+      "output": "\"a.b\""
+    },
+    {
+      "name": "single quote",
+      "input": {
+        "id": "it's"
+      },
+      "output": "\"it's\""
+    },
+    {
+      "name": "non-ASCII",
+      "input": {
+        "id": "café"
+      },
+      "output": "\"café\""
+    },
+    {
+      "name": "empty",
+      "input": {
+        "id": ""
+      },
+      "output": "\"\""
+    }
+  ]
+}

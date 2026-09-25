@@ -1,0 +1,181 @@
+{
+  "cases": [
+    {
+      "name": "main.customers",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "columns": ["seq", "name", "unique", "origin", "partial"],
+        "rows": [
+          {
+            "seq": 0,
+            "name": "customers_vip_idx",
+            "unique": 0,
+            "origin": "c",
+            "partial": 1
+          },
+          {
+            "seq": 1,
+            "name": "customers_lower_email_idx",
+            "unique": 0,
+            "origin": "c",
+            "partial": 0
+          },
+          {
+            "seq": 2,
+            "name": "customers_status_email_idx",
+            "unique": 1,
+            "origin": "c",
+            "partial": 0
+          },
+          {
+            "seq": 3,
+            "name": "customers_name_idx",
+            "unique": 0,
+            "origin": "c",
+            "partial": 0
+          },
+          {
+            "seq": 4,
+            "name": "sqlite_autoindex_customers_1",
+            "unique": 1,
+            "origin": "u",
+            "partial": 0
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customers_vip_idx",
+          "columns": [],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "customers_lower_email_idx",
+          "columns": [],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "customers_status_email_idx",
+          "columns": [],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "customers_name_idx",
+          "columns": [],
+          "unique": false,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "main.orders",
+      "input": {
+        "schema": "main",
+        "table": "orders",
+        "columns": ["seq", "name", "unique", "origin", "partial"],
+        "rows": [
+          {
+            "seq": 0,
+            "name": "orders_customer_kind_idx",
+            "unique": 0,
+            "origin": "c",
+            "partial": 0
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "orders_customer_kind_idx",
+          "columns": [],
+          "unique": false,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "main.accounts",
+      "input": {
+        "schema": "main",
+        "table": "accounts",
+        "columns": ["seq", "name", "unique", "origin", "partial"],
+        "rows": [
+          {
+            "seq": 0,
+            "name": "sqlite_autoindex_accounts_1",
+            "unique": 1,
+            "origin": "pk",
+            "partial": 0
+          }
+        ]
+      },
+      "output": []
+    },
+    {
+      "name": "main.kv",
+      "input": {
+        "schema": "main",
+        "table": "kv",
+        "columns": ["seq", "name", "unique", "origin", "partial"],
+        "rows": [
+          {
+            "seq": 0,
+            "name": "sqlite_autoindex_kv_1",
+            "unique": 1,
+            "origin": "pk",
+            "partial": 0
+          }
+        ]
+      },
+      "output": []
+    },
+    {
+      "name": "main.café",
+      "input": {
+        "schema": "main",
+        "table": "café",
+        "columns": ["seq", "name", "unique", "origin", "partial"],
+        "rows": [
+          {
+            "seq": 0,
+            "name": "café_naïve_idx",
+            "unique": 0,
+            "origin": "c",
+            "partial": 0
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "café_naïve_idx",
+          "columns": [],
+          "unique": false,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "main.ledger",
+      "input": {
+        "schema": "main",
+        "table": "ledger",
+        "columns": [],
+        "rows": []
+      },
+      "output": []
+    },
+    {
+      "name": "main.sqlitex",
+      "input": {
+        "schema": "main",
+        "table": "sqlitex",
+        "columns": [],
+        "rows": []
+      },
+      "output": []
+    }
+  ]
+}

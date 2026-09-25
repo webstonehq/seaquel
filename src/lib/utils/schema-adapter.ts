@@ -31,21 +31,25 @@ export function tutorialToQueryBuilder(schema: TutorialTable[]): QueryBuilderTab
  * Convert a SchemaTable array to QueryBuilderTable array.
  * SchemaTable uses `isPrimaryKey: boolean` and `foreignKeyRef?: { referencedSchema, referencedTable, referencedColumn }`.
  * @param schema - Database schema tables
+ * @param qualify - Names a table in generated SQL (`sqlName`), from its
+ *   listed schema: `editorQualifiedTable` with the connection's engine client.
  * @returns Unified QueryBuilderTable array
  */
-export function schemaToQueryBuilder(schema: SchemaTable[]): QueryBuilderTable[] {
+export function schemaToQueryBuilder(
+  schema: SchemaTable[],
+  qualify?: (schema: string, table: string) => string,
+): QueryBuilderTable[] {
   return schema.map((table) => ({
     name: table.name,
-    columns: table.columns.map(
-      (col): QueryBuilderColumn => ({
-        name: col.name,
-        type: col.type,
-        primaryKey: col.isPrimaryKey,
-        foreignKey: col.foreignKeyRef
-          ? { table: col.foreignKeyRef.referencedTable, column: col.foreignKeyRef.referencedColumn }
-          : undefined,
-      }),
-    ),
+    ...(qualify && table.schema ? { sqlName: qualify(table.schema, table.name) } : {}),
+    columns: table.columns.map((col): QueryBuilderColumn => ({
+      name: col.name,
+      type: col.type,
+      primaryKey: col.isPrimaryKey,
+      foreignKey: col.foreignKeyRef
+        ? { table: col.foreignKeyRef.referencedTable, column: col.foreignKeyRef.referencedColumn }
+        : undefined,
+    })),
   }));
 }
 

@@ -1,0 +1,490 @@
+{
+  "cases": [
+    {
+      "name": "table sizes",
+      "input": {
+        "kind": "tableSizes",
+        "columns": ["schema_name", "table_name"],
+        "rows": [
+          {
+            "schema_name": "fx.a.b",
+            "table_name": "things"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "users"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx order lines"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "regions"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "regions"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "all_types"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "categories"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "categories"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx it's"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx_items"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx_types"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "items"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "products"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "users"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "users"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "fx.a.b",
+          "name": "things",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "fx order lines",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "orders",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "regions",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "regions",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "all_types",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "categories",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "categories",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx it's",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx_items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx_types",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "order_items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "orders",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "products",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        }
+      ]
+    },
+    {
+      "name": "index usage",
+      "input": {
+        "kind": "indexUsage",
+        "columns": ["schema_name", "table_name", "index_name", "is_unique"],
+        "rows": [
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx order lines",
+            "index_name": "fx lines \"odd\" idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "index_name": "fx_orders_expr_idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "index_name": "fx_orders_no_region_idx",
+            "is_unique": true
+          },
+          {
+            "schema_name": "main",
+            "table_name": "items",
+            "index_name": "items_note_idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_order",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_product",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "index_name": "idx_orders_status",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "index_name": "idx_orders_user",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "products",
+            "index_name": "idx_products_category",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "users",
+            "index_name": "fx_aux_users_nickname_idx",
+            "is_unique": false
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "fx_sales",
+          "table": "fx order lines",
+          "indexName": "fx lines \"odd\" idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "fx_sales",
+          "table": "orders",
+          "indexName": "fx_orders_expr_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "fx_sales",
+          "table": "orders",
+          "indexName": "fx_orders_no_region_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "items",
+          "indexName": "items_note_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "order_items",
+          "indexName": "idx_order_items_order",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "order_items",
+          "indexName": "idx_order_items_product",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "orders",
+          "indexName": "idx_orders_status",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "orders",
+          "indexName": "idx_orders_user",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "products",
+          "indexName": "idx_products_category",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "users",
+          "indexName": "fx_aux_users_nickname_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        }
+      ]
+    },
+    {
+      "name": "database overview",
+      "input": {
+        "kind": "overview",
+        "columns": ["table_count", "index_count", "total_size_bytes"],
+        "rows": [
+          {
+            "table_count": 18,
+            "index_count": 10,
+            "total_size_bytes": 0
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "DuckDB Database",
+        "totalSize": "In-memory",
+        "totalSizeBytes": 0,
+        "tableCount": 18,
+        "indexCount": 10
+      }
+    },
+    {
+      "name": "database overview, no rows (fallbacks)",
+      "input": {
+        "kind": "overview",
+        "columns": [],
+        "rows": []
+      },
+      "output": {
+        "databaseName": "DuckDB Database",
+        "totalSize": "In-memory",
+        "totalSizeBytes": 0,
+        "tableCount": 0,
+        "indexCount": 0
+      }
+    },
+    {
+      "name": "row count main.users",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "users",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 15
+          }
+        ]
+      },
+      "output": 15
+    },
+    {
+      "name": "row count main.categories",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "categories",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 5
+          }
+        ]
+      },
+      "output": 5
+    },
+    {
+      "name": "row count main.orders",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "orders",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 500
+          }
+        ]
+      },
+      "output": 500
+    },
+    {
+      "name": "row count main.fx_types",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "fx_types",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 1
+          }
+        ]
+      },
+      "output": 1
+    },
+    {
+      "name": "row count fx_sales.orders",
+      "input": {
+        "kind": "rowCount",
+        "schema": "fx_sales",
+        "table": "orders",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 300
+          }
+        ]
+      },
+      "output": 300
+    },
+    {
+      "name": "row count fx_sales.regions",
+      "input": {
+        "kind": "rowCount",
+        "schema": "fx_sales",
+        "table": "regions",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 3
+          }
+        ]
+      },
+      "output": 3
+    }
+  ]
+}

@@ -14,6 +14,7 @@
 
 use serde_json::Value as Json;
 
+use seaquel_engine::introspect::{rows, truthy, Ids, Row};
 use seaquel_engine::{DbError, QueryResult, Value};
 use seaquel_types::{
     DatabaseOverview, ExplainPlanNode, ExplainResult, ForeignKeyRef, IndexUsageInfo, SchemaColumn,
@@ -73,6 +74,15 @@ pub const INDEXES_SQL: &str = "SELECT
 \t\tWHERE t.relname = $1 AND n.nspname = $2
 \t\tORDER BY ic.relname";
 
+/// Unique indexes of a table that are partial or have INCLUDE columns: not a
+/// column's UNIQUE (Task 18), so `apply_unique_indexes` leaves them out. Not
+/// in the TypeScript. Binds `$1` = table, `$2` = schema.
+pub const PARTIAL_UNIQUE_SQL: &str = "SELECT ic.relname AS index_name FROM pg_index i \
+     JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid \
+     JOIN pg_namespace n ON n.oid = t.relnamespace \
+     WHERE t.relname = $1 AND n.nspname = $2 AND i.indisunique \
+     AND (i.indpred IS NOT NULL OR i.indnatts <> i.indnkeyatts)";
+
 /// Table sizes (TS `getTableSizesQuery`). Bug fix 5: sizes by `relid`, not
 /// by a spliced `schemaname || '.' || relname`, which fails for any name that
 /// needs quoting.
@@ -86,48 +96,18 @@ pub const OVERVIEW_SQL: &str = "SELECT\n\t\t\tcurrent_database() AS database_nam
 
 // ── Row access ───────────────────────────────────────────────────────────────
 
-static NULL: Value = Value::Null;
-
-/// Rows of a result, read by column name like the TS row objects. A missing
-/// column reads as `Null` (TS `undefined`).
-struct Rows<'a> {
-    result: &'a QueryResult,
+/// Postgres' readings of a catalog cell, on top of the shared [`Row`].
+///
+/// `printed`, not `text`: `Row::text` (text cells only) would shadow it.
+trait PgRow {
+    fn opt_printed(&self, column: &str) -> Option<String>;
+    fn printed(&self, column: &str) -> String;
+    fn bool(&self, column: &str) -> bool;
 }
 
-struct Row<'a> {
-    columns: &'a [String],
-    cells: &'a [Value],
-}
-
-impl<'a> Rows<'a> {
-    fn new(result: &'a QueryResult) -> Self {
-        Self { result }
-    }
-
-    fn iter(&self) -> impl Iterator<Item = Row<'a>> + 'a {
-        let columns = &self.result.columns;
-        self.result
-            .rows
-            .iter()
-            .map(move |cells| Row { columns, cells })
-    }
-
-    fn first(&self) -> Option<Row<'a>> {
-        self.iter().next()
-    }
-}
-
-impl<'a> Row<'a> {
-    fn get(&self, column: &str) -> &'a Value {
-        self.columns
-            .iter()
-            .position(|c| c == column)
-            .and_then(|i| self.cells.get(i))
-            .unwrap_or(&NULL)
-    }
-
+impl PgRow for Row<'_> {
     /// A text cell. Other scalars are printed; `Null` is `None`.
-    fn opt_text(&self, column: &str) -> Option<String> {
+    fn opt_printed(&self, column: &str) -> Option<String> {
         match self.get(column) {
             Value::Null => None,
             Value::Text(s) | Value::Decimal(s) => Some(s.clone()),
@@ -139,45 +119,13 @@ impl<'a> Row<'a> {
     }
 
     /// A text cell, `""` when `Null`.
-    fn text(&self, column: &str) -> String {
-        self.opt_text(column).unwrap_or_default()
+    fn printed(&self, column: &str) -> String {
+        self.opt_printed(column).unwrap_or_default()
     }
 
     /// The TS reads these booleans as they arrive; only `true` is true.
     fn bool(&self, column: &str) -> bool {
         matches!(self.get(column), Value::Bool(true))
-    }
-
-    /// `Number(x) || 0`.
-    fn number(&self, column: &str) -> i64 {
-        number_or_zero(self.get(column))
-    }
-}
-
-/// TS `Number(x) || 0`, truncated to an integer: `Int`, `Float`, `Decimal`
-/// and numeric `Text` count; `Null`, NaN and anything unparsable are 0.
-fn number_or_zero(v: &Value) -> i64 {
-    let f = match v {
-        Value::Int(i) => return *i,
-        Value::Bool(b) => return i64::from(*b),
-        Value::Float(f) => *f,
-        Value::Decimal(s) | Value::Text(s) => {
-            let s = s.trim();
-            if s.is_empty() {
-                return 0;
-            }
-            if let Ok(i) = s.parse::<i64>() {
-                return i;
-            }
-            s.parse::<f64>().unwrap_or(f64::NAN)
-        }
-        _ => f64::NAN,
-    };
-    if f.is_finite() {
-        // `as` saturates beyond the i64 range.
-        f.trunc() as i64
-    } else {
-        0
     }
 }
 
@@ -201,20 +149,16 @@ fn value_to_json(v: &Value) -> Json {
 
 /// Rows of [`SCHEMAS_SQL`].
 pub fn parse_schemas(result: &QueryResult) -> Vec<String> {
-    Rows::new(result)
-        .iter()
-        .map(|r| r.text("schema_name"))
-        .collect()
+    rows(result).map(|r| r.printed("schema_name")).collect()
 }
 
 /// Rows of [`SCHEMA_SQL`] (TS `parseSchemaResult`). Columns and indexes are
 /// loaded per table, so they're empty here.
 pub fn parse_schema(result: &QueryResult) -> Vec<SchemaTable> {
-    Rows::new(result)
-        .iter()
+    rows(result)
         .map(|r| SchemaTable {
-            name: r.text("table_name"),
-            schema: r.text("schema_name"),
+            name: r.printed("table_name"),
+            schema: r.printed("schema_name"),
             kind: match r.get("table_type").as_str() {
                 Some("VIEW") => TableKind::View,
                 Some("MATERIALIZED VIEW") => TableKind::MaterializedView,
@@ -229,12 +173,11 @@ pub fn parse_schema(result: &QueryResult) -> Vec<SchemaTable> {
 
 /// Rows of [`COLUMNS_SQL`] (TS `parseColumnsResult`).
 pub fn parse_columns(result: &QueryResult) -> Vec<SchemaColumn> {
-    Rows::new(result)
-        .iter()
+    rows(result)
         .map(|r| {
             // `if (col.foreign_key_ref)`, then split on every '.'.
             let foreign_key_ref = r
-                .opt_text("foreign_key_ref")
+                .opt_printed("foreign_key_ref")
                 .filter(|s| !s.is_empty())
                 .and_then(|s| match s.split('.').collect::<Vec<_>>()[..] {
                     [schema, table, column] => Some(ForeignKeyRef {
@@ -245,15 +188,18 @@ pub fn parse_columns(result: &QueryResult) -> Vec<SchemaColumn> {
                     _ => None,
                 });
             SchemaColumn {
-                name: r.text("column_name"),
-                ty: r.text("data_type"),
-                cast_type: r.opt_text("cast_type").filter(|s| !s.is_empty()),
+                name: r.printed("column_name"),
+                ty: r.printed("data_type"),
+                cast_type: r.opt_printed("cast_type").filter(|s| !s.is_empty()),
                 nullable: r.get("is_nullable").as_str() == Some("YES"),
                 // `column_default || undefined`
-                default_value: r.opt_text("column_default").filter(|s| !s.is_empty()),
+                default_value: r.opt_printed("column_default").filter(|s| !s.is_empty()),
                 is_primary_key: r.bool("is_primary_key"),
                 is_foreign_key: r.bool("is_foreign_key"),
                 foreign_key_ref,
+                collation: None,
+                is_unique: false,
+                in_unique_constraint: false,
             }
         })
         .collect()
@@ -263,8 +209,7 @@ pub fn parse_columns(result: &QueryResult) -> Vec<SchemaColumn> {
 /// `columns` is a `text[]` (an `Array` of `Text`, or a JSON array once
 /// decoded natively).
 pub fn parse_indexes(result: &QueryResult) -> Vec<SchemaIndex> {
-    Rows::new(result)
-        .iter()
+    rows(result)
         .map(|r| {
             let columns = match value_to_json(r.get("columns")) {
                 Json::Array(items) => items
@@ -277,10 +222,10 @@ pub fn parse_indexes(result: &QueryResult) -> Vec<SchemaIndex> {
                 _ => vec![],
             };
             SchemaIndex {
-                name: r.text("index_name"),
+                name: r.printed("index_name"),
                 columns,
                 unique: r.bool("is_unique"),
-                ty: r.text("index_type"),
+                ty: r.printed("index_type"),
             }
         })
         .collect()
@@ -290,29 +235,27 @@ pub fn parse_indexes(result: &QueryResult) -> Vec<SchemaIndex> {
 
 /// Rows of [`TABLE_SIZES_SQL`] (TS `parseTableSizesResult`).
 pub fn parse_table_sizes(result: &QueryResult) -> Vec<TableSizeInfo> {
-    Rows::new(result)
-        .iter()
+    rows(result)
         .map(|r| TableSizeInfo {
-            schema: r.text("schema_name"),
-            name: r.text("table_name"),
+            schema: r.printed("schema_name"),
+            name: r.printed("table_name"),
             row_count: r.number("row_count"),
-            total_size: r.text("total_size"),
+            total_size: r.printed("total_size"),
             total_size_bytes: r.number("total_size_bytes"),
-            data_size: r.opt_text("data_size"),
-            index_size: r.opt_text("index_size"),
+            data_size: r.opt_printed("data_size"),
+            index_size: r.opt_printed("index_size"),
         })
         .collect()
 }
 
 /// Rows of [`INDEX_USAGE_SQL`] (TS `parseIndexUsageResult`).
 pub fn parse_index_usage(result: &QueryResult) -> Vec<IndexUsageInfo> {
-    Rows::new(result)
-        .iter()
+    rows(result)
         .map(|r| IndexUsageInfo {
-            schema: r.text("schema_name"),
-            table: r.text("table_name"),
-            index_name: r.text("index_name"),
-            size: r.text("size"),
+            schema: r.printed("schema_name"),
+            table: r.printed("table_name"),
+            index_name: r.printed("index_name"),
+            size: r.printed("size"),
             scans: r.number("scans"),
             rows_read: Some(r.number("rows_read")),
             unused: r.bool("unused"),
@@ -323,11 +266,10 @@ pub fn parse_index_usage(result: &QueryResult) -> Vec<IndexUsageInfo> {
 /// The row of [`OVERVIEW_SQL`] (TS `parseDatabaseOverviewResult`), with the
 /// TS fallbacks when there is no row.
 pub fn parse_overview(result: &QueryResult) -> DatabaseOverview {
-    let rows = Rows::new(result);
-    let row = rows.first();
+    let row = rows(result).next();
     let text = |c: &str, fallback: &str| {
         row.as_ref()
-            .and_then(|r| r.opt_text(c))
+            .and_then(|r| r.opt_printed(c))
             .unwrap_or_else(|| fallback.to_string())
     };
     let number = |c: &str| row.as_ref().map_or(0, |r| r.number(c));
@@ -343,18 +285,6 @@ pub fn parse_overview(result: &QueryResult) -> DatabaseOverview {
 
 // ── EXPLAIN ──────────────────────────────────────────────────────────────────
 
-/// JS truthiness of a cell (`a || b` picks `b` when `a` is falsy).
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Int(i) => *i != 0,
-        Value::Float(f) => *f != 0.0 && !f.is_nan(),
-        Value::Text(s) => !s.is_empty(),
-        _ => true,
-    }
-}
-
 /// The result of `EXPLAIN (FORMAT JSON)` (TS `parseExplainResult`). The plan
 /// is read from the `QUERY PLAN` (or `query plan`) column, as JSON or as JSON
 /// text. Node ids are assigned post-order, children first.
@@ -362,8 +292,7 @@ fn truthy(v: &Value) -> bool {
 /// With no rows the TS adapter throws; this returns an `Unknown` root with
 /// planning time 0, as it does for an empty plan array.
 pub fn parse_explain(result: &QueryResult, analyze: bool) -> Result<ExplainResult, DbError> {
-    let rows = Rows::new(result);
-    let plan_cell = rows.first().map(|r| {
+    let plan_cell = rows(result).next().map(|r| {
         let upper = r.get("QUERY PLAN");
         if truthy(upper) {
             upper
@@ -381,8 +310,7 @@ pub fn parse_explain(result: &QueryResult, analyze: bool) -> Result<ExplainResul
     let top = parsed.get(0).and_then(Json::as_object).unwrap_or(&empty);
     let root = top.get("Plan").and_then(Json::as_object).unwrap_or(&empty);
 
-    let mut next_id = 0usize;
-    let plan = convert_node(root, analyze, &mut next_id);
+    let plan = convert_node(root, analyze, &mut Ids::new());
     Ok(ExplainResult {
         plan,
         planning_time: top
@@ -397,7 +325,7 @@ pub fn parse_explain(result: &QueryResult, analyze: bool) -> Result<ExplainResul
 fn convert_node(
     node: &serde_json::Map<String, Json>,
     analyze: bool,
-    next_id: &mut usize,
+    ids: &mut Ids,
 ) -> ExplainPlanNode {
     let children = node
         .get("Plans")
@@ -406,13 +334,12 @@ fn convert_node(
             plans
                 .iter()
                 .filter_map(Json::as_object)
-                .map(|child| convert_node(child, analyze, next_id))
+                .map(|child| convert_node(child, analyze, ids))
                 .collect()
         })
         .unwrap_or_default();
 
-    let id = format!("node-{next_id}");
-    *next_id += 1;
+    let id = ids.next();
 
     let text = |k: &str| node.get(k).and_then(Json::as_str).map(str::to_string);
     let float = |k: &str| node.get(k).and_then(Json::as_f64);

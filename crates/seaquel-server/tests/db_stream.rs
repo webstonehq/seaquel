@@ -51,10 +51,7 @@ async fn spawn_server() -> (std::net::SocketAddr, axum::Router) {
 
 #[tokio::test]
 async fn stream_multi_batch_sqlite_roundtrip() {
-    let tmp = std::env::temp_dir().join(format!(
-        "seaquel-stream-{}.sqlite",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = std::env::temp_dir().join(format!("seaquel-stream-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
 
     let (addr, app) = spawn_server().await;
@@ -155,7 +152,10 @@ async fn stream_multi_batch_sqlite_roundtrip() {
     }
 
     assert_eq!(columns_seen.as_deref(), Some(&["n".to_string()][..]));
-    assert_eq!(total_rows, 12_345, "expected all rows streamed across batches");
+    assert_eq!(
+        total_rows, 12_345,
+        "expected all rows streamed across batches"
+    );
     assert!(
         batch_count >= 2,
         "expected multi-batch streaming, got {batch_count} batch(es)"

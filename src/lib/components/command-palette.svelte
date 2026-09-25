@@ -43,6 +43,7 @@
 	import { Link } from "@lucide/svelte";
 	import { handleDeepLink } from "$lib/services/deep-link";
 	import { getExportContent } from "$lib/utils/export-formats";
+	import { getEngineClient, selectPreview } from "$lib/engine";
 	import { errorToast } from "$lib/utils/toast";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
@@ -158,7 +159,10 @@
 
 	function queryTable(table: { name: string; schema: string }) {
 		runAndClose(() => {
-			const query = `SELECT * FROM "${table.schema}"."${table.name}" LIMIT 100`;
+			const connection = db.state.activeConnection;
+			if (!connection) return;
+			const from = getEngineClient(connection, db.state).qualifiedTable(table.schema, table.name);
+			const query = selectPreview(connection.type, from, 100);
 			db.queryTabs.add(`Query: ${table.name}`, query);
 			db.ui.setActiveView("query");
 		});

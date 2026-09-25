@@ -14,7 +14,11 @@
 	import type { DataFilter, ForeignKeyRef, SchemaColumn, SchemaTable } from "$lib/types";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
 	import DataFilterBar from "$lib/components/data-filter-bar.svelte";
-	import { inputTypeForColumnType, inputStepForColumnType } from "$lib/utils/cell-type";
+	import {
+		binaryStringEncoding,
+		inputTypeForColumnType,
+		inputStepForColumnType,
+	} from "$lib/utils/cell-type";
 	import { rowToObject } from "$lib/utils/row-access";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
@@ -46,6 +50,11 @@
 		for (const c of tableColumns) map[c.name] = c.type;
 		return map;
 	});
+
+	// MySQL/MariaDB send clean UTF-8 binary cells as text; other engines send bytes.
+	const binaryStrings = $derived(
+		binaryStringEncoding(db.state.connections.find((c) => c.id === tab?.connectionId)?.type),
+	);
 
 	// Build FK column map for navigation
 	const foreignKeyColumns = $derived.by((): Map<string, { ref: ForeignKeyRef; table: SchemaTable }> => {
@@ -268,7 +277,9 @@
 				tab.results.sourceTable,
 				rowToObject(row, tab.results.columns),
 			);
-			if (result.queued) {
+			if (!result.success) {
+				errorToast(`Failed to delete row: ${result.error ?? "Unknown error"}`);
+			} else if (result.queued) {
 				toast.info("Delete added to pending changes");
 			} else {
 				void db.dataTabs.refresh(tabId);
@@ -480,6 +491,7 @@
 							{foreignKeyColumns}
 							onForeignKeyClick={handleForeignKeyClick}
 							{declaredColumnTypes}
+							{binaryStrings}
 						/>
 					</div>
 				{/if}

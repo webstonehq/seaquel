@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "id": "users"
+      },
+      "output": "[users]"
+    },
+    {
+      "name": "closing bracket",
+      "input": {
+        "id": "odd]name"
+      },
+      "output": "[odd]]name]"
+    },
+    {
+      "name": "two closing brackets",
+      "input": {
+        "id": "]]"
+      },
+      "output": "[]]]]]"
+    },
+    {
+      "name": "opening bracket",
+      "input": {
+        "id": "[x"
+      },
+      "output": "[[x]"
+    },
+    {
+      "name": "both brackets",
+      "input": {
+        "id": "[a]"
+      },
+      "output": "[[a]]]"
+    },
+    {
+      "name": "space",
+      "input": {
+        "id": "order items"
+      },
+      "output": "[order items]"
+    },
+    {
+      "name": "dot",
+      "input": {
+        "id": "a.b"
+      },
+      "output": "[a.b]"
+    },
+    {
+      "name": "quotes",
+      "input": {
+        "id": "it's \"q\""
+      },
+      "output": "[it's \"q\"]"
+    },
+    {
+      "name": "non-ASCII",
+      "input": {
+        "id": "名前"
+      },
+      "output": "[名前]"
+    },
+    {
+      "name": "empty",
+      "input": {
+        "id": ""
+      },
+      "output": "[]"
+    }
+  ]
+}

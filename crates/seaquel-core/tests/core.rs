@@ -112,6 +112,7 @@ async fn transaction_is_all_or_nothing() {
     let insert = |v: i64| BatchStatement {
         sql: "INSERT INTO t (id) VALUES (?)".into(),
         params: vec![Value::from(v)],
+        expect_rows: None,
     };
     assert!(core
         .transaction(&id, vec![insert(1), insert(1)])

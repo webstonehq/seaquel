@@ -284,7 +284,11 @@ fn without_pk_casts(mut i: CrudInput) -> CrudInput {
     i
 }
 
-fn compare_crud(d: &dyn Dialect, input: &CrudInput, output: &Json) -> Option<(String, String, String)> {
+fn compare_crud(
+    d: &dyn Dialect,
+    input: &CrudInput,
+    output: &Json,
+) -> Option<(String, String, String)> {
     let out: CrudOutput =
         serde_json::from_value(output.clone()).expect("output is {sql, bindValues}");
     let expected = SqlWithBindings {

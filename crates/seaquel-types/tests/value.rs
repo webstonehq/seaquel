@@ -11,8 +11,16 @@ const MAX_SAFE: i64 = (1 << 53) - 1;
 /// and check both give the value back.
 fn round_trip(v: Value, wire: serde_json::Value) {
     assert_eq!(to_value(&v).unwrap(), wire, "serialize {v:?}");
-    assert_eq!(Value::from_wire(wire.clone()).unwrap(), v, "from_wire {wire}");
-    assert_eq!(from_value::<Value>(wire.clone()).unwrap(), v, "deserialize {wire}");
+    assert_eq!(
+        Value::from_wire(wire.clone()).unwrap(),
+        v,
+        "from_wire {wire}"
+    );
+    assert_eq!(
+        from_value::<Value>(wire.clone()).unwrap(),
+        v,
+        "deserialize {wire}"
+    );
 }
 
 #[test]
@@ -68,7 +76,10 @@ fn non_finite_float_is_tagged() {
     );
     let nan = Value::from_wire(json!({ "$sq": "float", "v": "NaN" })).unwrap();
     assert!(matches!(nan, Value::Float(f) if f.is_nan()));
-    round_trip(Value::Float(f64::INFINITY), json!({ "$sq": "float", "v": "inf" }));
+    round_trip(
+        Value::Float(f64::INFINITY),
+        json!({ "$sq": "float", "v": "inf" }),
+    );
     round_trip(
         Value::Float(f64::NEG_INFINITY),
         json!({ "$sq": "float", "v": "-inf" }),
@@ -81,7 +92,10 @@ fn decimal_is_tagged_and_keeps_its_text() {
         Value::Decimal("12.50".into()),
         json!({ "$sq": "decimal", "v": "12.50" }),
     );
-    round_trip(Value::Decimal("NaN".into()), json!({ "$sq": "decimal", "v": "NaN" }));
+    round_trip(
+        Value::Decimal("NaN".into()),
+        json!({ "$sq": "decimal", "v": "NaN" }),
+    );
 }
 
 #[test]
@@ -144,7 +158,10 @@ fn plain_huge_numbers_stay_floats() {
     let big: serde_json::Value = serde_json::from_str("1e+30").unwrap();
     assert_eq!(Value::from_wire(big).unwrap(), Value::Float(1e30));
     let two_pow_64: serde_json::Value = serde_json::from_str("18446744073709551616").unwrap();
-    assert_eq!(Value::from_wire(two_pow_64).unwrap(), Value::Float(18446744073709551616.0));
+    assert_eq!(
+        Value::from_wire(two_pow_64).unwrap(),
+        Value::Float(18446744073709551616.0)
+    );
 
     // Driver float cells keep their float form on the wire.
     let cell = Value::from_json_cell(json!(1e20));
@@ -227,7 +244,10 @@ fn as_str_reads_text() {
 fn float_wire_bytes_match_serde_json() {
     // Cells that used to be serde_json numbers must serialize identically.
     for f in [1.0, 0.1, 1e300, -2.5e-8] {
-        assert_eq!(to_string(&Value::Float(f)).unwrap(), to_string(&json!(f)).unwrap());
+        assert_eq!(
+            to_string(&Value::Float(f)).unwrap(),
+            to_string(&json!(f)).unwrap()
+        );
     }
     assert_eq!(to_string(&Value::Int(5)).unwrap(), "5");
 }
@@ -242,12 +262,17 @@ fn sql_with_bindings_shape() {
         to_value(&s).unwrap(),
         json!({ "sql": "UPDATE t SET a = $1", "bindValues": [1, { "$sq": "bytes", "v": "AQ==" }] })
     );
-    let bare = SqlWithBindings { sql: "DELETE".into(), bind_values: None };
+    let bare = SqlWithBindings {
+        sql: "DELETE".into(),
+        bind_values: None,
+    };
     assert_eq!(to_value(&bare).unwrap(), json!({ "sql": "DELETE" }));
     assert_eq!(
-        from_value::<SqlWithBindings>(json!({ "sql": "x", "bindValues": [{ "$sq": "bigint", "v": "9007199254740993" }] }))
-            .unwrap()
-            .bind_values,
+        from_value::<SqlWithBindings>(
+            json!({ "sql": "x", "bindValues": [{ "$sq": "bigint", "v": "9007199254740993" }] })
+        )
+        .unwrap()
+        .bind_values,
         Some(vec![Value::Int(9007199254740993)])
     );
 }

@@ -1,8 +1,11 @@
 //! `dispatch` routes every `EngineRequest` to the right Core call, and each
 //! request and response keeps its wire shape.
 //!
-//! The Core has two engines: the real SQLite engine (no Rust dialect, no
-//! introspection yet) and a mock "postgres" engine whose dialect and driver
+//! The Core has two mock engines: one with no Rust dialect or introspection
+//! (what an engine looks like before its dialect moves to Rust), registered
+//! as "duckdb" only because `DriverType` is a closed enum and a made-up id
+//! can't connect (the real DuckDB engine isn't in this Core, so its dialect
+//! won't change the test), and a "postgres" engine whose dialect and driver
 //! echo their arguments, so a test can see what reached them.
 
 use std::sync::{Arc, Mutex};
@@ -176,7 +179,8 @@ impl Driver for EchoDriver {
             .push(format!("table_metadata {schema}.{table}"));
         let column = serde_json::from_value(json!({
             "name": "id", "type": "integer", "nullable": false,
-            "isPrimaryKey": true, "isForeignKey": false
+            "isPrimaryKey": true, "isForeignKey": false,
+            "isUnique": true, "inUniqueConstraint": true
         }))
         .unwrap();
         let index = serde_json::from_value(json!({
@@ -228,13 +232,51 @@ impl Engine for EchoEngine {
     }
 }
 
+/// A driver with only the required methods: every introspection call gets
+/// the trait's `NOT_SUPPORTED` default.
+struct BareDriver;
+
+#[seaquel_runtime::async_trait]
+impl Driver for BareDriver {
+    async fn query(&self, _sql: &str, _params: Vec<Value>) -> Result<QueryResult, DbError> {
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+        })
+    }
+    async fn execute(&self, _sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
+        Ok(ExecuteResult {
+            rows_affected: 0,
+            last_insert_id: None,
+        })
+    }
+    async fn close(&self) -> Result<(), DbError> {
+        Ok(())
+    }
+}
+
+/// An engine without a Rust dialect.
+struct NoDialectEngine;
+
+#[seaquel_runtime::async_trait]
+impl Engine for NoDialectEngine {
+    /// Any `DriverType` id works: a made-up one can't be connected, since
+    /// `ConnectConfig.driver` only accepts the five real engines.
+    fn id(&self) -> &'static str {
+        "duckdb"
+    }
+    async fn open(&self, _config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError> {
+        Ok(Arc::new(BareDriver))
+    }
+}
+
 struct Fixture {
     core: Core,
     driver: Arc<EchoDriver>,
     /// A connection on the mock "postgres" engine.
     pg: String,
-    /// A real in-memory SQLite connection.
-    lite: String,
+    /// A connection on the bare engine.
+    bare: String,
 }
 
 async fn fixture() -> Fixture {
@@ -242,7 +284,7 @@ async fn fixture() -> Fixture {
     // Not `with_default_plugins()`: in a workspace build Cargo unifies
     // seaquel-core's features, so that could already register "postgres".
     let core = Core::builder()
-        .engine(seaquel_engine_sqlite::engine())
+        .engine(Arc::new(NoDialectEngine))
         .engine(Arc::new(EchoEngine(driver.clone())))
         .build();
     let connect = |config: Json| {
@@ -253,12 +295,12 @@ async fn fixture() -> Fixture {
         }
     };
     let pg = connect(json!({ "driver": "postgres" })).await;
-    let lite = connect(json!({ "driver": "sqlite", "connection_string": "sqlite::memory:" })).await;
+    let bare = connect(json!({ "driver": "duckdb" })).await;
     Fixture {
         core,
         driver,
         pg,
-        lite,
+        bare,
     }
 }
 
@@ -313,6 +355,8 @@ async fn table_metadata() {
     assert_eq!(out["kind"], "tableMetadata");
     assert_eq!(out["data"]["columns"][0]["name"], "id");
     assert_eq!(out["data"]["indexes"][0]["name"], "orders_pkey");
+    assert_eq!(out["data"]["columns"][0]["isUnique"], true);
+    assert_eq!(out["data"]["columns"][0]["inUniqueConstraint"], true);
     assert_eq!(
         *f.driver.calls.lock().unwrap(),
         vec!["table_metadata sales.order items"]
@@ -489,7 +533,10 @@ async fn build_delete() {
     .await
     .unwrap();
     // `casts` is optional.
-    assert_eq!(out["data"]["sql"], "delete public.t pks=id row=id=9 casts=none");
+    assert_eq!(
+        out["data"]["sql"],
+        "delete public.t pks=id row=id=9 casts=none"
+    );
     let out = call(
         &f.core,
         &f.pg,
@@ -500,7 +547,10 @@ async fn build_delete() {
     )
     .await
     .unwrap();
-    assert_eq!(out["data"]["sql"], "delete public.t pks=id row=id=9 casts=id:uuid");
+    assert_eq!(
+        out["data"]["sql"],
+        "delete public.t pks=id row=id=9 casts=id:uuid"
+    );
 }
 
 #[tokio::test]
@@ -555,12 +605,12 @@ fn every_request() -> Vec<Json> {
 }
 
 #[tokio::test]
-async fn every_variant_on_sqlite_is_not_supported() {
+async fn every_variant_without_a_rust_dialect_is_not_supported() {
     let f = fixture().await;
     let requests = every_request();
     assert_eq!(requests.len(), 13, "one per EngineRequest variant");
     for request in requests {
-        let err = call(&f.core, &f.lite, request.clone()).await.unwrap_err();
+        let err = call(&f.core, &f.bare, request.clone()).await.unwrap_err();
         assert_eq!(err.code, "NOT_SUPPORTED", "{request}: {}", err.message);
     }
 }

@@ -8,6 +8,7 @@ import { getEngineClient, usesRustEngine, type CastMap, type TableMetadata } fro
 import { describePendingChange } from "$lib/db/pending-change-description";
 import type { SchemaColumn } from "$lib/types";
 import { storeTableMetadata } from "./schema-cache.js";
+import { noRowMatchedMessage } from "./stale-edit.js";
 
 type CrudResult = { success: boolean; error?: string; queued?: boolean };
 
@@ -18,14 +19,14 @@ const UNCAST_TYPES = new Set(["text", "character varying", "user-defined", "arra
  * Types information_schema reports without their length. `CAST(… AS bit)`
  * is bit(1) and `CAST(… AS character)` is char(1), which truncate the value,
  * so a key compared that way matches no row. The unbounded types compare
- * (and assign) at the column's own length. Postgres's spelling; SQLite
- * gives them the same affinity as before, and MySQL ignores casts.
+ * (and assign) at the column's own length. Postgres only: no other engine
+ * gets a cast map (see `buildCastMap`).
  */
 const UNBOUNDED_CAST: Record<string, string> = { bit: "bit varying", character: "bpchar" };
 
 /**
- * Column name → type for the adapters that wrap bind placeholders in
- * `CAST($N AS type)` (e.g. Postgres). Columns that need no cast are absent.
+ * Column name → type for Postgres, whose builders wrap bind placeholders in
+ * `CAST($N AS type)`. Columns that need no cast are absent.
  * The Rust dialects also cast primary-key placeholders with it (update,
  * set default, delete), so uuid/date/timestamp keys sent as text compare.
  *
@@ -42,6 +43,23 @@ export function castMapForColumns(columns: readonly SchemaColumn[]): CastMap {
       return UNCAST_TYPES.has(type) ? [] : [[c.name, UNBOUNDED_CAST[type] ?? c.type]];
     }),
   );
+}
+
+/**
+ * The result of a keyed edit (update, set default, delete) that ran: an
+ * error naming the table and key when it matched no row, so a stale key
+ * doesn't lose the edit silently.
+ */
+function matchedRow(
+  sourceTable: { schema: string; name: string; primaryKeys: string[] },
+  row: Record<string, unknown>,
+  rowsAffected: number,
+): CrudResult {
+  if (rowsAffected !== 0) return { success: true };
+  const key = Object.fromEntries(sourceTable.primaryKeys.map((pk) => [pk, row[pk]]));
+  const error = noRowMatchedMessage(sourceTable.schema, sourceTable.name, key);
+  void log.error(`Keyed edit matched no row: ${error}`);
+  return { success: false, error };
 }
 
 /**
@@ -77,13 +95,18 @@ export class QueryCrudManager {
    * see `loadedColumns`) and puts them in the schema cache if its entry still
    * has none: without casts, typed keys don't compare (`uuid = text`) and a
    * NULL doesn't assign to jsonb, enum or array columns. `undefined` without an
-   * active connection, or when that load fails. TypeScript engines never load:
-   * their builders cast nothing (SQLite only for type affinity), as before.
+   * active connection, or when that load fails.
+   *
+   * Only Postgres gets a cast map. SQLite would wrap values in
+   * `CAST(? AS <declared type>)`, and its affinity rules turn DATETIME, DATE,
+   * BOOLEAN, JSON, UUID and NUMERIC(…) casts numeric (`'2024-01-01 10:00'`
+   * becomes 2024, `'{"a":1}'` becomes 0) and the BLOB fallback turns text into
+   * a blob. MySQL, MariaDB, MSSQL and DuckDB ignore casts.
    */
   async buildCastMap(schema: string, tableName: string): Promise<CastMap | undefined> {
     const connectionId = this.state.activeConnectionId;
     const connection = this.state.activeConnection;
-    if (!connectionId || !connection) return undefined;
+    if (!connectionId || !connection || connection.type !== "postgres") return undefined;
     const findTable = () =>
       (this.state.schemas[connectionId] ?? []).find(
         (t) => t.name === tableName && t.schema === schema,
@@ -120,6 +143,28 @@ export class QueryCrudManager {
       );
       return undefined;
     }
+  }
+
+  /**
+   * The default expression Set to default assigns on SQLite, which has no
+   * `DEFAULT` in `UPDATE`: the column's `defaultValue` (the SQL text of its
+   * DEFAULT clause), or `"NULL"` for a column without one. Read from fresh
+   * metadata, since the schema cache may predate a change to the default.
+   * `undefined` for every other engine, whose dialects write `DEFAULT`.
+   */
+  private async setDefaultExpression(
+    schema: string,
+    table: string,
+    column: string,
+  ): Promise<string | undefined> {
+    const connection = this.state.activeConnection;
+    if (!connection || connection.type !== "sqlite" || !usesRustEngine(connection)) {
+      return undefined;
+    }
+    const { columns } = await getEngineClient(connection, this.state).tableMetadata(schema, table);
+    const found = columns.find((c) => c.name === column);
+    if (!found) throw new Error(`Column "${column}" not found in "${table}"`);
+    return found.defaultValue ?? "NULL";
   }
 
   /**
@@ -197,8 +242,12 @@ export class QueryCrudManager {
         return { success: true, queued: true };
       }
 
-      await provider.execute(connection.providerConnectionId, query, bindValues);
-      return { success: true };
+      const { rowsAffected } = await provider.execute(
+        connection.providerConnectionId,
+        query,
+        bindValues,
+      );
+      return matchedRow(sourceTable, row, rowsAffected);
     } catch (error) {
       return { success: false, error: extractErrorMessage(error) };
     }
@@ -226,6 +275,11 @@ export class QueryCrudManager {
     try {
       const provider = await this.providers.getForType(connection.type);
       const client = getEngineClient(connection, this.state);
+      const columnDefault = await this.setDefaultExpression(
+        sourceTable.schema,
+        sourceTable.name,
+        column,
+      );
       const { sql: query, bindValues } = await client.buildSetDefault(
         sourceTable.schema,
         sourceTable.name,
@@ -233,6 +287,7 @@ export class QueryCrudManager {
         sourceTable.primaryKeys,
         row,
         await this.buildCastMap(sourceTable.schema, sourceTable.name),
+        ...(columnDefault === undefined ? [] : [columnDefault]),
       );
 
       if (this.pendingChanges.isEnabled()) {
@@ -275,8 +330,12 @@ export class QueryCrudManager {
         return { success: true, queued: true };
       }
 
-      await provider.execute(connection.providerConnectionId, query, bindValues);
-      return { success: true };
+      const { rowsAffected } = await provider.execute(
+        connection.providerConnectionId,
+        query,
+        bindValues,
+      );
+      return matchedRow(sourceTable, row, rowsAffected);
     } catch (error) {
       return { success: false, error: extractErrorMessage(error) };
     }
@@ -383,8 +442,12 @@ export class QueryCrudManager {
         return { success: true, queued: true };
       }
 
-      await provider.execute(connection.providerConnectionId, query, bindValues);
-      return { success: true };
+      const { rowsAffected } = await provider.execute(
+        connection.providerConnectionId,
+        query,
+        bindValues,
+      );
+      return matchedRow(sourceTable, row, rowsAffected);
     } catch (error) {
       return { success: false, error: extractErrorMessage(error) };
     }

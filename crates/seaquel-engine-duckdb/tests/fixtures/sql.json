@@ -1,0 +1,111 @@
+{
+  "cases": [
+    {
+      "name": "getSchemaQuery",
+      "input": {
+        "query": "getSchemaQuery"
+      },
+      "output": "SELECT\n\t\t\ttable_schema AS schema_name,\n\t\t\ttable_name,\n\t\t\ttable_type\n\t\tFROM\n\t\t\tinformation_schema.tables\n\t\tWHERE\n\t\t\ttable_type IN ('BASE TABLE', 'VIEW')\n\t\t\tAND table_schema NOT IN ('pg_catalog', 'information_schema')\n\t\tORDER BY\n\t\t\ttable_schema, table_name"
+    },
+    {
+      "name": "getSchemasQuery",
+      "input": {
+        "query": "getSchemasQuery"
+      },
+      "output": "SELECT schema_name FROM information_schema.schemata WHERE catalog_name NOT IN ('system', 'temp') ORDER BY schema_name;"
+    },
+    {
+      "name": "getColumnsQuery",
+      "input": {
+        "query": "getColumnsQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tc.column_name,\n\t\t\tc.data_type,\n\t\t\tc.is_nullable,\n\t\t\tc.column_default,\n\t\t\tCOALESCE((\n\t\t\t\tSELECT true\n\t\t\t\tFROM duckdb_constraints() dc\n\t\t\t\tWHERE dc.constraint_type = 'PRIMARY KEY'\n\t\t\t\t\tAND dc.table_name = c.table_name\n\t\t\t\t\tAND dc.schema_name = c.table_schema\n\t\t\t\t\tAND list_contains(dc.constraint_column_names, c.column_name)\n\t\t\t), false) AS is_primary_key\n\t\tFROM information_schema.columns c\n\t\tWHERE c.table_name = 'users' AND c.table_schema = 'main'\n\t\tORDER BY c.ordinal_position"
+    },
+    {
+      "name": "getIndexesQuery",
+      "input": {
+        "query": "getIndexesQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "SELECT NULL AS index_name WHERE 1=0"
+    },
+    {
+      "name": "getForeignKeysQuery",
+      "input": {
+        "query": "getForeignKeysQuery",
+        "schema": "main",
+        "table": "orders"
+      },
+      "output": "SELECT\n\t\t\tschema_name,\n\t\t\treferenced_table,\n\t\t\tunnest(constraint_column_names) AS source_column,\n\t\t\tunnest(referenced_column_names) AS referenced_column\n\t\tFROM duckdb_constraints()\n\t\tWHERE constraint_type = 'FOREIGN KEY'\n\t\t\tAND table_name = 'orders'\n\t\t\tAND schema_name = 'main'"
+    },
+    {
+      "name": "getTableSizesQuery",
+      "input": {
+        "query": "getTableSizesQuery"
+      },
+      "output": "SELECT\n\t\t\ttable_schema AS schema_name,\n\t\t\ttable_name\n\t\tFROM information_schema.tables\n\t\tWHERE table_type = 'BASE TABLE'\n\t\t\tAND table_schema NOT IN ('pg_catalog', 'information_schema')\n\t\tORDER BY table_schema, table_name"
+    },
+    {
+      "name": "getTableRowCountQuery",
+      "input": {
+        "query": "getTableRowCountQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "SELECT COUNT(*) AS row_count FROM \"main\".\"users\""
+    },
+    {
+      "name": "getIndexUsageQuery",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tschema_name,\n\t\t\ttable_name,\n\t\t\tindex_name,\n\t\t\tis_unique\n\t\tFROM duckdb_indexes()\n\t\tORDER BY schema_name, table_name, index_name"
+    },
+    {
+      "name": "getDatabaseOverviewQuery",
+      "input": {
+        "query": "getDatabaseOverviewQuery"
+      },
+      "output": "SELECT\n\t\t\t(SELECT COUNT(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema')) AS table_count,\n\t\t\t(SELECT COUNT(*) FROM duckdb_indexes()) AS index_count,\n\t\t\t0 AS total_size_bytes"
+    },
+    {
+      "name": "getExplainQuery",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": false
+      },
+      "output": "EXPLAIN (FORMAT JSON) SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery, analyze",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": true
+      },
+      "output": "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery strips one trailing semicolon",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;;",
+        "analyze": false
+      },
+      "output": "EXPLAIN (FORMAT JSON) SELECT 1;"
+    },
+    {
+      "name": "getExplainQuery keeps a semicolon before whitespace",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;\n",
+        "analyze": true
+      },
+      "output": "EXPLAIN (ANALYZE, FORMAT JSON) SELECT 1;\n"
+    }
+  ]
+}

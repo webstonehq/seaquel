@@ -1,0 +1,607 @@
+{
+  "cases": [
+    {
+      "name": "seaquel_test.fx_customers",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customers",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 49, 48, 48, 41],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "email",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 53, 53, 41],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "status",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [97, 99, 116, 105, 118, 101],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "quoted",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [105, 116, 39, 115],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "literal_null",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 49, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [78, 85, 76, 76],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "score",
+            "data_type": [100, 101, 99, 105, 109, 97, 108, 40, 49, 48, 44, 50, 41],
+            "is_nullable": "NO",
+            "column_default": [48, 46, 48, 48],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": [100, 97, 116, 101, 116, 105, 109, 101],
+            "is_nullable": "YES",
+            "column_default": [67, 85, 82, 82, 69, 78, 84, 95, 84, 73, 77, 69, 83, 84, 65, 77, 80],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "note",
+            "data_type": [116, 101, 120, 116],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(100)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "active",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "quoted",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "it's",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "literal_null",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "NULL",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal(10,2)",
+          "nullable": false,
+          "defaultValue": "0.00",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_orders",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_orders",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "customer_id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "kind",
+            "data_type": [
+              101, 110, 117, 109, 40, 39, 99, 108, 105, 99, 107, 39, 44, 39, 118, 105, 101, 119, 39,
+              44, 39, 98, 117, 121, 39, 41
+            ],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "total",
+            "data_type": [100, 101, 99, 105, 109, 97, 108, 40, 49, 48, 44, 50, 41],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "placed_at",
+            "data_type": [100, 97, 116, 101, 116, 105, 109, 101],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "memo",
+            "data_type": [116, 101, 120, 116],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "kind",
+          "type": "enum('click','view','buy')",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "decimal(10,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_at",
+          "type": "datetime",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "memo",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_accounts",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_accounts",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "customer_id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "email",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 53, 53, 41],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": "seaquel_test.fx_customers.email"
+          },
+          {
+            "column_name": "referrer_id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx_customers.id"
+          },
+          {
+            "column_name": "plan",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 48, 41],
+            "is_nullable": "NO",
+            "column_default": [102, 114, 101, 101],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "email"
+          }
+        },
+        {
+          "name": "referrer_id",
+          "type": "int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "plan",
+          "type": "varchar(20)",
+          "nullable": false,
+          "defaultValue": "free",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_dotted_refs",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_dotted_refs",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "dotted_id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "foreign_key_ref": "seaquel_test.fx.dotted.id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "dotted_id",
+          "type": "int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_café",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_café",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "naïve",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 49, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [195, 169],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "naïve",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "Ã©",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_mem",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_mem",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "code",
+            "data_type": [99, 104, 97, 114, 40, 52, 41],
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "code",
+          "type": "char(4)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "seaquel_test.fx_customer_names",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customer_names",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": [48],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "name",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 49, 48, 48, 41],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(100)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    }
+  ]
+}

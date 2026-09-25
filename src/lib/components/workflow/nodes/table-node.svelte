@@ -12,6 +12,7 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
 	import MoreHorizontalIcon from "@lucide/svelte/icons/more-horizontal";
+	import { getEngineClient, selectPreview } from "$lib/engine";
 
 	interface Props {
 		id: string;
@@ -29,16 +30,15 @@
 	const hiddenColumnCount = $derived(data.columns.length - maxVisibleColumns);
 
 	function handleQueryTable() {
-		const type = db.state.activeConnection?.type;
-		let query: string;
-
-		if (type === 'mssql') {
-			// MS SQL Server uses TOP and bracket identifiers
-			query = `SELECT TOP 100 * FROM [${data.schemaName}].[${data.tableName}]`;
-		} else {
-			// PostgreSQL, MySQL, MariaDB, SQLite, DuckDB use LIMIT
-			query = `SELECT * FROM "${data.schemaName}"."${data.tableName}" LIMIT 100`;
-		}
+		const connection = db.state.activeConnection;
+		if (!connection) return;
+		// TOP on SQL Server, LIMIT elsewhere; the table as the engine quotes it
+		// (DuckDB's `catalog.schema` is two names).
+		const from = getEngineClient(connection, db.state).qualifiedTable(
+			data.schemaName,
+			data.tableName,
+		);
+		const query = selectPreview(connection.type, from, 100);
 
 		const queryNodeId = db.workflow.addQueryNode(query);
 		// Connect table node to query node

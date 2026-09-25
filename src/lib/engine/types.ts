@@ -5,8 +5,8 @@
  * Two implementations:
  * - `RustEngineClient` sends an `EngineCall` to the Rust core
  *   (`invoke("db_engine")` on desktop, `POST /api/db/engine` on web).
- * - `TsEngineClient` runs today's TypeScript `DatabaseAdapter` against a
- *   `DatabaseProvider`.
+ * - `TsEngineClient` runs the demo's TypeScript DuckDB adapter against its
+ *   DuckDB-WASM provider (the browser demo has no Rust core).
  *
  * `getEngineClient(connection)` in `./index` picks one. One method per
  * `EngineRequest` variant, taking and returning the generated wire types.
@@ -55,6 +55,20 @@ export interface EngineClient {
   /** `sql` wrapped with this dialect's LIMIT/OFFSET. */
   paginate(sql: string, limit: number, offset: number): Promise<string>;
 
+  /**
+   * One identifier (a column, an index), quoted and escaped the way the
+   * dialect's `quote_ident` does. Local, like `paginate`; see `./qualified-table`.
+   */
+  quoteIdent(name: string): string;
+
+  /**
+   * `"schema"."table"` for a table as `schemaTables` lists it. Build every
+   * table name from a listed schema with this, never by quoting the schema
+   * as one identifier (DuckDB's `catalog.schema` is two). Local, like
+   * `paginate`; see `./qualified-table`.
+   */
+  qualifiedTable(schema: string, table: string): string;
+
   buildUpdate(
     schema: string,
     table: string,
@@ -65,7 +79,12 @@ export interface EngineClient {
     casts?: CastMap,
   ): Promise<SqlWithBindings>;
 
-  /** `casts` wraps the primary-key placeholders (Rust dialects only). */
+  /**
+   * `casts` wraps the primary-key placeholders (Rust dialects only).
+   * `columnDefault` is the column's default expression from its metadata
+   * (`defaultValue`, or `"NULL"` when it has none): SQLite has no `DEFAULT`
+   * in `UPDATE` and assigns it instead. Other engines ignore it.
+   */
   buildSetDefault(
     schema: string,
     table: string,
@@ -73,6 +92,7 @@ export interface EngineClient {
     primaryKeys: string[],
     row: RowRecord,
     casts?: CastMap,
+    columnDefault?: string,
   ): Promise<SqlWithBindings>;
 
   buildInsert(

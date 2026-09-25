@@ -31,17 +31,10 @@ describe("formatLiteralValue with decoded values", () => {
 });
 
 describe("inline CRUD with byte primary keys", () => {
-  it("DuckDB matches the row with a blob literal", () => {
+  it("matches the row with a blob literal", () => {
     const { sql } = getAdapter("duckdb").buildDeleteSql("main", "t", ["k"], {
       k: new Uint8Array([0xab]),
     });
     expect(sql).toContain(`= '\\xAB'::BLOB`);
-  });
-
-  it("MSSQL uses a 0x binary literal", () => {
-    const { sql } = getAdapter("mssql").buildDeleteSql("dbo", "t", ["k"], {
-      k: new Uint8Array([0xab, 1]),
-    });
-    expect(sql).toContain("= 0xAB01");
   });
 });

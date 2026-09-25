@@ -8,7 +8,7 @@
 //! primary-key placeholders from the cast map (fix 6).
 
 use seaquel_engine::crud::{self, dollar_placeholder};
-use seaquel_engine::ddl::{self, AlterTableOptions};
+use seaquel_engine::ddl::{self, AlterTableOptions, AlterTableRules, UniqueChanges};
 use seaquel_engine::{CastMap, Dialect, RowValues, SqlWithBindings, Value};
 use seaquel_types::{ColumnCategory, ColumnTypeInfo, CreateTableDefinition};
 
@@ -25,6 +25,24 @@ const ALTER_OPTIONS: AlterTableOptions = AlterTableOptions {
     supports_alter_column: true,
     use_modify_column: false,
     qualify_drop_index: true,
+    drop_index_on_table: false,
+    alter_default_with_modify_column: false,
+    qualify_index_name: false,
+    supports_add_foreign_key: true,
+    unsupported_notes: None,
+    inline_foreign_keys_on_added_columns: false,
+    constraint_index_prefix: None,
+    drop_indexes_first: false,
+    tsql: false,
+};
+
+/// Postgres adds a UNIQUE constraint and drops one (or a unique index) by the
+/// name the catalog gives (Task 18).
+const ALTER_RULES: AlterTableRules = AlterTableRules {
+    not_null_after_add_column: false,
+    indexes_block_column_changes: false,
+    constraints_block_column_drops: false,
+    unique_changes: UniqueChanges::AddAndDropPostgres,
 };
 
 impl Dialect for PostgresDialect {
@@ -106,7 +124,7 @@ impl Dialect for PostgresDialect {
     }
 
     fn alter_table(&self, from: &CreateTableDefinition, to: &CreateTableDefinition) -> String {
-        ddl::generate_alter_table_sql(from, to, &qi, ALTER_OPTIONS)
+        ddl::generate_alter_table_sql_with(from, to, &qi, &qi, ALTER_OPTIONS, ALTER_RULES)
     }
 
     fn column_types(&self) -> Vec<ColumnTypeInfo> {

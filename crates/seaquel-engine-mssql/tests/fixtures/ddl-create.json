@@ -1,0 +1,464 @@
+{
+  "cases": [
+    {
+      "name": "everything together",
+      "input": {
+        "tableName": "customers",
+        "schemaName": "dbo",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "name",
+            "type": "NVARCHAR",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "100"
+          },
+          {
+            "id": "c3",
+            "name": "email",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "255"
+          },
+          {
+            "id": "c4",
+            "name": "status",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "'active'",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "20"
+          },
+          {
+            "id": "c5",
+            "name": "balance",
+            "type": "DECIMAL",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "10,2"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "customers_name_idx",
+            "columns": ["name"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "status",
+            "referencedSchema": "dbo",
+            "referencedTable": "statuses",
+            "referencedColumn": "code"
+          }
+        ]
+      },
+      "output": "CREATE TABLE [dbo].[customers] (\n  [id] INT NOT NULL,\n  [name] NVARCHAR(100) NOT NULL,\n  [email] NVARCHAR(255),\n  [status] VARCHAR(20) DEFAULT 'active',\n  [balance] DECIMAL(10,2) NOT NULL DEFAULT 0,\n  PRIMARY KEY ([id]),\n  UNIQUE ([email]),\n  FOREIGN KEY ([status]) REFERENCES [dbo].[statuses] ([code])\n);\n\nCREATE INDEX [customers_name_idx] ON [dbo].[customers] ([name]);"
+    },
+    {
+      "name": "SQL Server types and defaults",
+      "input": {
+        "tableName": "profiles",
+        "schemaName": "dbo",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "UNIQUEIDENTIFIER",
+            "nullable": false,
+            "defaultValue": "NEWID()",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "bio",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "MAX"
+          },
+          {
+            "id": "c3",
+            "name": "created_at",
+            "type": "DATETIME2",
+            "nullable": false,
+            "defaultValue": "SYSUTCDATETIME()",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "avatar",
+            "type": "VARBINARY",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "MAX"
+          },
+          {
+            "id": "c5",
+            "name": "balance",
+            "type": "MONEY",
+            "nullable": true,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c6",
+            "name": "is_active",
+            "type": "BIT",
+            "nullable": false,
+            "defaultValue": "1",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c7",
+            "name": "settings",
+            "type": "XML",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c8",
+            "name": "rate",
+            "type": "DECIMAL",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "5,4"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE [dbo].[profiles] (\n  [id] UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),\n  [bio] NVARCHAR(MAX),\n  [created_at] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),\n  [avatar] VARBINARY(MAX),\n  [balance] MONEY DEFAULT 0,\n  [is_active] BIT NOT NULL DEFAULT 1,\n  [settings] XML,\n  [rate] DECIMAL(5,4),\n  PRIMARY KEY ([id])\n);"
+    },
+    {
+      "name": "composite primary key, unique and several indexes",
+      "input": {
+        "tableName": "order_lines",
+        "schemaName": "sales",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "order_id",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "line_no",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "sku",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "64"
+          },
+          {
+            "id": "c4",
+            "name": "qty",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "1",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order_lines_sku_qty_idx",
+            "columns": ["sku", "qty"],
+            "unique": false,
+            "type": "btree"
+          },
+          {
+            "id": "i2",
+            "name": "order_lines_qty_key",
+            "columns": ["qty"],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "order_id",
+            "referencedSchema": "sales",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          },
+          {
+            "id": "f2",
+            "column": "sku",
+            "referencedSchema": "dbo",
+            "referencedTable": "products",
+            "referencedColumn": "sku"
+          }
+        ]
+      },
+      "output": "CREATE TABLE [sales].[order_lines] (\n  [order_id] INT NOT NULL,\n  [line_no] INT NOT NULL,\n  [sku] VARCHAR(64),\n  [qty] INT NOT NULL DEFAULT 1,\n  PRIMARY KEY ([order_id], [line_no]),\n  UNIQUE ([sku]),\n  FOREIGN KEY ([order_id]) REFERENCES [sales].[orders] ([id]),\n  FOREIGN KEY ([sku]) REFERENCES [dbo].[products] ([sku])\n);\n\nCREATE INDEX [order_lines_sku_qty_idx] ON [sales].[order_lines] ([sku], [qty]);\n\nCREATE UNIQUE INDEX [order_lines_qty_key] ON [sales].[order_lines] ([qty]);"
+    },
+    {
+      "name": "defaults: padding and rejected values",
+      "input": {
+        "tableName": "defaults_demo",
+        "schemaName": "dbo",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "padded",
+            "type": "INT",
+            "nullable": true,
+            "defaultValue": "  42  ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "injected",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "'x'; DROP TABLE users",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "10"
+          },
+          {
+            "id": "c3",
+            "name": "commented",
+            "type": "INT",
+            "nullable": true,
+            "defaultValue": "1 -- sneaky",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "blank",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "   ",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "10"
+          },
+          {
+            "id": "c5",
+            "name": "expr",
+            "type": "INT",
+            "nullable": true,
+            "defaultValue": "(ABS(CHECKSUM(NEWID())) % 10)",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c6",
+            "name": "unicode",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "N'é'",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "10"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE [dbo].[defaults_demo] (\n  [padded] INT DEFAULT 42,\n  [injected] NVARCHAR(10),\n  [commented] INT,\n  [blank] NVARCHAR(10),\n  [expr] INT DEFAULT (ABS(CHECKSUM(NEWID())) % 10),\n  [unicode] NVARCHAR(10) DEFAULT N'é'\n);"
+    },
+    {
+      "name": "precision wins over length",
+      "input": {
+        "tableName": "prices",
+        "schemaName": "dbo",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "amount",
+            "type": "DECIMAL",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "12,4",
+            "length": "8"
+          },
+          {
+            "id": "c2",
+            "name": "code",
+            "type": "CHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "3"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE [dbo].[prices] (\n  [amount] DECIMAL(12,4),\n  [code] CHAR(3)\n);"
+    },
+    {
+      "name": "names with spaces, dots and non-ASCII",
+      "input": {
+        "tableName": "order items",
+        "schemaName": "my schema",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "line.id",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "名前",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "10"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order items 名前 idx",
+            "columns": ["名前"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "line.id",
+            "referencedSchema": "my schema",
+            "referencedTable": "lines",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE [my schema].[order items] (\n  [line.id] INT NOT NULL,\n  [名前] NVARCHAR(10),\n  PRIMARY KEY ([line.id]),\n  UNIQUE ([名前]),\n  FOREIGN KEY ([line.id]) REFERENCES [my schema].[lines] ([id])\n);\n\nCREATE INDEX [order items 名前 idx] ON [my schema].[order items] ([名前]);"
+    },
+    {
+      "name": "names with ] (unescaped by the adapter)",
+      "input": {
+        "tableName": "odd]table",
+        "schemaName": "dbo",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id]",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "a]b",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "20"
+          },
+          {
+            "id": "c3",
+            "name": "note",
+            "type": "NVARCHAR",
+            "nullable": true,
+            "defaultValue": "N'x]y'",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "50"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "idx]1",
+            "columns": ["a]b"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "a]b",
+            "referencedSchema": "sch]x",
+            "referencedTable": "other]t",
+            "referencedColumn": "c]d"
+          }
+        ]
+      },
+      "output": "CREATE TABLE [dbo].[odd]table] (\n  [id]] INT NOT NULL,\n  [a]b] NVARCHAR(20),\n  [note] NVARCHAR(50) DEFAULT N'x]y',\n  PRIMARY KEY ([id]]),\n  UNIQUE ([a]b]),\n  FOREIGN KEY ([a]b]) REFERENCES [sch]x].[other]t] ([c]d])\n);\n\nCREATE INDEX [idx]1] ON [dbo].[odd]table] ([a]b]);"
+    },
+    {
+      "name": "no columns",
+      "input": {
+        "tableName": "empty",
+        "schemaName": "dbo",
+        "columns": [],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE [dbo].[empty] (\n\n);"
+    }
+  ]
+}

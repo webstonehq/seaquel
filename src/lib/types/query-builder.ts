@@ -398,6 +398,11 @@ export interface QueryBuilderColumn {
 export interface QueryBuilderTable {
   /** Table name */
   name: string;
+  /**
+   * How FROM and JOIN name the table in generated SQL: schema-qualified,
+   * quoted where needed. Absent for the tutorial's tables, which go by `name`.
+   */
+  sqlName?: string;
   /** Column definitions for this table */
   columns: QueryBuilderColumn[];
 }

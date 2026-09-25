@@ -28,6 +28,9 @@ impl IntoResponse for ApiError {
             // The engine has no Rust dialect or introspection yet; the client
             // falls back to its TypeScript adapter.
             "NOT_SUPPORTED" => StatusCode::NOT_IMPLEMENTED,
+            // A transaction statement matched fewer rows than it expected
+            // (a stale key); the transaction was rolled back.
+            "NO_ROWS_AFFECTED" => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self.0)).into_response()
@@ -53,6 +56,7 @@ mod tests {
         assert_eq!(status_of("CONNECTION_ERROR"), StatusCode::BAD_GATEWAY);
         assert_eq!(status_of("QUERY_ERROR"), StatusCode::BAD_REQUEST);
         assert_eq!(status_of("NOT_SUPPORTED"), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(status_of("NO_ROWS_AFFECTED"), StatusCode::CONFLICT);
         assert_eq!(
             status_of("SOMETHING_ELSE"),
             StatusCode::INTERNAL_SERVER_ERROR

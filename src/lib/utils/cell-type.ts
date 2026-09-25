@@ -1,4 +1,4 @@
-import { SqlDecimal, cellText, jsonReplacer, toHex } from "$lib/values";
+import { SqlDecimal, cellText, fromHex, jsonReplacer, toHex } from "$lib/values";
 
 export type CellType =
   | "null"
@@ -18,8 +18,9 @@ export type CellType =
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME_RE =
-  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?\s*(Z|[+-]\d{2}:?\d{2}(:\d{2})?)?$/;
-const TIME_RE = /^\d{2}:\d{2}(:\d{2})?(\.\d+)?$/;
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?\s*(Z|[+-]\d{2}(:?\d{2}(:\d{2})?)?)?$/;
+// An offset for TIME WITH TIME ZONE: DuckDB's `12:00:00+02`, `12:00:00-05:30`.
+const TIME_RE = /^\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}(:\d{2}){0,2})?$/;
 const LONG_TEXT_THRESHOLD = 100;
 
 export function detectCellType(value: unknown): CellType {
@@ -27,7 +28,9 @@ export function detectCellType(value: unknown): CellType {
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return Number.isInteger(value) ? "integer" : "float";
   if (typeof value === "bigint") return "integer";
-  if (value instanceof SqlDecimal) return "float";
+  // An integral decimal is an integer: MySQL BIGINT UNSIGNED above 2^63-1
+  // arrives as the digits of a SqlDecimal (the wire has no unsigned int64).
+  if (value instanceof SqlDecimal) return /^[+-]?\d+$/.test(value.value) ? "integer" : "float";
   if (value instanceof Uint8Array) return "binary";
   if (Array.isArray(value)) return "array";
   if (typeof value === "object") return "json";
@@ -49,6 +52,9 @@ export function detectCellType(value: unknown): CellType {
  * sampling in that case.
  */
 export function cellTypeFromColumnType(dbType: string): CellType | null {
+  // BIT(n) with n > 1 holds a number (MySQL decodes it as one), not a flag.
+  const bits = /^\s*bit\s*\(\s*(\d+)\s*\)/i.exec(dbType);
+  if (bits && Number(bits[1]) > 1) return null;
   const t = dbType
     .toLowerCase()
     .replace(/\(.*\)/, "")
@@ -62,7 +68,7 @@ export function cellTypeFromColumnType(dbType: string): CellType | null {
   if (t === "uuid" || t === "uniqueidentifier") return "uuid";
   if (/^(json|jsonb)$/.test(t)) return "json";
   if (t.endsWith("[]")) return "array";
-  if (/^(bytea|blob|varbinary|binary|image)$/.test(t)) return "binary";
+  if (/^(bytea|(tiny|medium|long)?blob|varbinary|binary|image)$/.test(t)) return "binary";
   return null;
 }
 
@@ -163,34 +169,140 @@ export function formatDate(s: string): string {
   return dateFormatter.format(d);
 }
 
+/**
+ * What `formatDateTime` hands to `new Date()`. Anything else is shown as
+ * the database printed it: V8's fallback parser reads DuckDB's
+ * `0044-03-15 (BC) 12:00:00` as the year 2044 (the parentheses are a
+ * comment to it).
+ */
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+
 export function formatDateTime(s: string): string {
-  const d = new Date(normalizeDatetime(s));
+  const normalized = normalizeDatetime(s);
+  if (!ISO_DATETIME_RE.test(normalized)) return s;
+  const d = new Date(normalized);
   if (isNaN(d.getTime())) return s;
   return dateTimeFormatter.format(d);
 }
 
 /**
  * Normalize PostgreSQL-style timestamps like "2026-02-15 21:40:23.568684 +00:00:00"
- * into a format that `new Date()` can parse.
+ * and DuckDB's "2026-02-15 21:40:23.568684+00" into a format that `new Date()`
+ * can parse.
  */
 function normalizeDatetime(s: string): string {
   // Replace space separator with T for ISO compatibility
-  let normalized = s.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/, "$1T$2");
-  // Remove the seconds part from timezone offset (+00:00:00 → +00:00)
-  normalized = normalized.replace(/\s*([+-]\d{2}:\d{2}):\d{2}$/, "$1");
-  return normalized;
+  const normalized = s.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/, "$1T$2");
+  return normalizeOffset(normalized);
 }
 
+/**
+ * A timestamp's UTC offset as `new Date()` parses it: `+HH:MM`. Drops the
+ * seconds part (+00:00:00 → +00:00), completes an hour-only offset
+ * (DuckDB's +00 → +00:00) and adds the colon to `+0530`.
+ */
+function normalizeOffset(s: string): string {
+  const time = String.raw`(\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*`;
+  return s
+    .replace(/\s*([+-]\d{2}:\d{2}):\d{2}$/, "$1")
+    .replace(new RegExp(`${time}([+-]\\d{2})$`), "$1$2:00")
+    .replace(new RegExp(`${time}([+-]\\d{2})(\\d{2})$`), "$1$2:$3");
+}
+
+/** A time of day with a UTC offset: `12:00:00+02`, `12:00:00-05:30:15`. */
+const TIME_WITH_ZONE_RE = /[+-]\d{2}(:?\d{2}){0,2}$/;
+
+/**
+ * A time of day in the viewer's format. A time with a zone (TIMETZ) is
+ * shown as the database printed it: it has no date, so converting it to
+ * local time would pick one (and drop offset seconds).
+ */
 export function formatTime(s: string): string {
+  if (TIME_WITH_ZONE_RE.test(s)) return s;
   const d = new Date(`1970-01-01T${s}`);
   if (isNaN(d.getTime())) return s;
   return timeFormatter.format(d);
 }
 
+/**
+ * How a binary column's string cells hold their bytes:
+ * - `utf8`: MySQL/MariaDB send binary strings that are clean UTF-8 as text
+ *   (the wire can't tell `VARBINARY` from a `*_bin` collation), so their bytes
+ *   are the UTF-8 of the text.
+ * - `text`: a string is text, not bytes. Every other engine, e.g. SQLite,
+ *   which reports untyped columns as BLOB but keeps TEXT values in them.
+ *   Postgres bytea, MSSQL binary and DuckDB BLOB (native, and the
+ *   DuckDB-WASM demo) always arrive as a `Uint8Array`.
+ */
+export type BinaryStringEncoding = "utf8" | "text";
+
+/** The encoding of string cells in binary columns for a connection type. */
+export function binaryStringEncoding(dbType: string | undefined): BinaryStringEncoding {
+  if (dbType === "mysql" || dbType === "mariadb") return "utf8";
+  return "text";
+}
+
+/**
+ * The bytes of a cell in a binary column: a `Uint8Array` as is, a string
+ * as its UTF-8 under `utf8`. `null` for anything else, and for a string
+ * under `text`.
+ */
+export function binaryCellBytes(
+  value: unknown,
+  encoding: BinaryStringEncoding = "text",
+): Uint8Array | null {
+  if (value instanceof Uint8Array) return value;
+  if (typeof value !== "string") return null;
+  if (encoding === "utf8") return new TextEncoder().encode(value);
+  return null;
+}
+
+/**
+ * The type to display a cell as. Under `text` (e.g. SQLite, whose untyped
+ * columns report BLOB but hold any value), a value in a binary column that
+ * isn't a `Uint8Array` is classified by its value, so text shows as text and
+ * a number as a number; everything else keeps `columnType`.
+ */
+export function displayCellType(
+  value: unknown,
+  columnType: CellType,
+  encoding: BinaryStringEncoding = "text",
+): CellType {
+  if (columnType === "binary" && encoding === "text" && !(value instanceof Uint8Array)) {
+    return detectCellType(value);
+  }
+  return columnType;
+}
+
+/**
+ * The value to save for an inline edit. Bytes are edited as `\x…` hex (see
+ * `toHex`, and editable-cell's `formatValue`), so hex typed into a cell that
+ * held bytes is saved as those bytes; saved as text, MySQL would store the
+ * characters `\x…` themselves. Any other cell (a string, or NULL) counts as
+ * bytes only in a binary column whose strings are bytes (`utf8`: MySQL and
+ * MariaDB), never under `text` (every other engine), where `\x…` in SQLite's untyped "BLOB" column would
+ * store a blob over text. Anything else is saved as typed.
+ */
+export function editedCellValue(
+  original: unknown,
+  columnType: CellType,
+  input: string,
+  encoding: BinaryStringEncoding = "text",
+): unknown {
+  const holdsBytes =
+    original instanceof Uint8Array || (columnType === "binary" && encoding !== "text");
+  if (holdsBytes) {
+    const bytes = fromHex(input);
+    if (bytes) return bytes;
+  }
+  return input;
+}
+
 export function formatByteSize(value: Uint8Array | string): string {
-  // Bytes decoded by the providers know their size; MSSQL still sends base64
-  // strings, whose decoded size is estimated from the length.
-  const bytes = value instanceof Uint8Array ? value.byteLength : Math.ceil((value.length * 3) / 4);
+  // A value that isn't bytes (e.g. a number in a MySQL binary column) is
+  // sized by its text's UTF-8.
+  const bytes =
+    value instanceof Uint8Array ? value.byteLength : new TextEncoder().encode(value).byteLength;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -310,8 +422,14 @@ function stringify(value: unknown): string {
  * Returns the display text for a cell value given its detected type.
  * Used for estimating column widths.
  */
-export function getFormattedCellText(value: unknown, columnType: CellType): string {
+export function getFormattedCellText(
+  value: unknown,
+  columnType: CellType,
+  binaryStrings: BinaryStringEncoding = "text",
+): string {
   if (value === null || value === undefined) return "NULL";
+  const shown = displayCellType(value, columnType, binaryStrings);
+  if (shown !== columnType) return getFormattedCellText(value, shown);
   if (columnType === "boolean") return "false"; // checkbox, fixed width
   if (columnType === "integer" || columnType === "float") return formatCellNumber(value);
   if (columnType === "date") return formatDate(stringify(value));
@@ -325,8 +443,8 @@ export function getFormattedCellText(value: unknown, columnType: CellType): stri
       (value.length > 3 ? `  +${value.length - 3}` : "")
     );
   if (columnType === "binary") {
-    if (value instanceof Uint8Array)
-      return `${formatBinaryPreview(value)} ${formatByteSize(value)}`;
+    const bytes = binaryCellBytes(value, binaryStrings);
+    if (bytes) return `${formatBinaryPreview(bytes)} ${formatByteSize(bytes)}`;
     return formatByteSize(stringify(value));
   }
   if (columnType === "long_text") return truncateText(stringify(value), 80);

@@ -1,6 +1,8 @@
 <script lang="ts">
-	import type { CellType } from "$lib/utils/cell-type";
+	import type { BinaryStringEncoding, CellType } from "$lib/utils/cell-type";
 	import {
+		binaryCellBytes,
+		displayCellType,
 		formatCellNumber,
 		formatBinaryPreview,
 		formatDate,
@@ -20,9 +22,14 @@
 		columnType: CellType;
 		isEditable?: boolean;
 		onSave?: (newValue: unknown) => Promise<void>;
+		/** How string cells in a binary column hold their bytes (see `binaryCellBytes`). */
+		binaryStrings?: BinaryStringEncoding;
 	}
 
-	let { value, columnType, isEditable = false, onSave }: Props = $props();
+	let { value, columnType: declaredType, isEditable = false, onSave, binaryStrings = "text" }: Props = $props();
+
+	// A string in a binary column is text on engines that don't send bytes as strings.
+	const columnType = $derived(displayCellType(value, declaredType, binaryStrings));
 </script>
 
 {#if value === null || value === undefined}
@@ -91,10 +98,11 @@
 		{String(value)}
 	{/if}
 {:else if columnType === 'binary'}
-	{#if value instanceof Uint8Array}
+	{@const bytes = binaryCellBytes(value, binaryStrings)}
+	{#if bytes}
 		<span class="flex items-center gap-1 overflow-hidden">
-			<span class="font-mono text-xs truncate">{formatBinaryPreview(value)}</span>
-			<Badge variant="secondary">{formatByteSize(value)}</Badge>
+			<span class="font-mono text-xs truncate">{formatBinaryPreview(bytes)}</span>
+			<Badge variant="secondary">{formatByteSize(bytes)}</Badge>
 		</span>
 	{:else}
 		<Badge variant="secondary">{formatByteSize(String(value))}</Badge>

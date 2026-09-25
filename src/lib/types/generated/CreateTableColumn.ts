@@ -15,4 +15,16 @@ length?: string,
 /**
  * Precision parameter, e.g. "10,2" for DECIMAL(10,2)
  */
-precision?: string, nullable: boolean, defaultValue: string, isPrimaryKey: boolean, isUnique: boolean, };
+precision?: string, nullable: boolean, defaultValue: string, isPrimaryKey: boolean, isUnique: boolean, 
+/**
+ * The collation `ALTER COLUMN` restates (MSSQL `COLLATE`), copied from
+ * [`SchemaColumn::collation`] by the table editor. Unset means the
+ * database default.
+ */
+collation?: string, 
+/**
+ * Copied from [`SchemaColumn::in_unique_constraint`] by the table
+ * editor: the column is in a (possibly composite) UNIQUE constraint.
+ * DDL generation reads it, never writes a constraint from it.
+ */
+inUniqueConstraint?: boolean, };

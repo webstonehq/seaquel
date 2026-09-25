@@ -69,19 +69,11 @@ fn batch(n: i64) -> StreamBatch {
 
 #[seaquel_runtime::async_trait]
 impl Driver for MockDriver {
-    async fn query(
-        &self,
-        _sql: &str,
-        _params: Vec<Value>,
-    ) -> Result<QueryResult, DbError> {
+    async fn query(&self, _sql: &str, _params: Vec<Value>) -> Result<QueryResult, DbError> {
         futures::future::pending().await
     }
 
-    async fn execute(
-        &self,
-        _sql: &str,
-        _params: Vec<Value>,
-    ) -> Result<ExecuteResult, DbError> {
+    async fn execute(&self, _sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
         unimplemented!()
     }
 

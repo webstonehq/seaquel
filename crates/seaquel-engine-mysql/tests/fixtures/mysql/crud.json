@@ -1,0 +1,253 @@
+{
+  "cases": [
+    {
+      "name": "update, single pk",
+      "input": {
+        "fn": "update",
+        "schema": "seaquel_test",
+        "table": "users",
+        "column": "name",
+        "value": "Ada L.",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1,
+          "name": "Ada"
+        }
+      },
+      "output": {
+        "sql": "UPDATE `seaquel_test`.`users` SET `name` = ? WHERE `id` = ?",
+        "bindValues": ["Ada L.", 1]
+      }
+    },
+    {
+      "name": "update, composite pk, NULL value",
+      "input": {
+        "fn": "update",
+        "schema": "shop",
+        "table": "order_lines",
+        "column": "note",
+        "value": null,
+        "primaryKeys": ["order_id", "line_no"],
+        "row": {
+          "line_no": 2,
+          "order_id": 10,
+          "note": "gift"
+        }
+      },
+      "output": {
+        "sql": "UPDATE `shop`.`order_lines` SET `note` = ? WHERE `order_id` = ? AND `line_no` = ?",
+        "bindValues": [null, 10, 2]
+      }
+    },
+    {
+      "name": "update ignores the cast map (MySQL has no CAST to column types)",
+      "input": {
+        "fn": "update",
+        "schema": "shop",
+        "table": "flags",
+        "column": "enabled",
+        "value": true,
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 7
+        },
+        "casts": {
+          "enabled": "tinyint(1)",
+          "id": "int"
+        }
+      },
+      "output": {
+        "sql": "UPDATE `shop`.`flags` SET `enabled` = ? WHERE `id` = ?",
+        "bindValues": [true, 7]
+      }
+    },
+    {
+      "name": "update with a JSON value",
+      "input": {
+        "fn": "update",
+        "schema": "shop",
+        "table": "settings",
+        "column": "doc",
+        "value": {
+          "theme": "dark",
+          "n": [1, 2]
+        },
+        "primaryKeys": ["key"],
+        "row": {
+          "key": "ui"
+        }
+      },
+      "output": {
+        "sql": "UPDATE `shop`.`settings` SET `doc` = ? WHERE `key` = ?",
+        "bindValues": [
+          {
+            "theme": "dark",
+            "n": [1, 2]
+          },
+          "ui"
+        ]
+      }
+    },
+    {
+      "name": "update, key missing from the row binds NULL",
+      "input": {
+        "fn": "update",
+        "schema": "shop",
+        "table": "t",
+        "column": "a",
+        "value": 1.5,
+        "primaryKeys": ["id"],
+        "row": {
+          "other": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE `shop`.`t` SET `a` = ? WHERE `id` = ?",
+        "bindValues": [1.5, null]
+      }
+    },
+    {
+      "name": "update, identifiers with spaces, dots and backticks",
+      "input": {
+        "fn": "update",
+        "schema": "my db",
+        "table": "order`items",
+        "column": "unit.price",
+        "value": "12.50",
+        "primaryKeys": ["line`id"],
+        "row": {
+          "line`id": 3
+        }
+      },
+      "output": {
+        "sql": "UPDATE `my db`.`order``items` SET `unit.price` = ? WHERE `line``id` = ?",
+        "bindValues": ["12.50", 3]
+      }
+    },
+    {
+      "name": "setDefault, composite pk",
+      "input": {
+        "fn": "setDefault",
+        "schema": "shop",
+        "table": "order_lines",
+        "column": "qty",
+        "primaryKeys": ["order_id", "line_no"],
+        "row": {
+          "order_id": 10,
+          "line_no": 2
+        }
+      },
+      "output": {
+        "sql": "UPDATE `shop`.`order_lines` SET `qty` = DEFAULT WHERE `order_id` = ? AND `line_no` = ?",
+        "bindValues": [10, 2]
+      }
+    },
+    {
+      "name": "insert, several values in row order",
+      "input": {
+        "fn": "insert",
+        "schema": "seaquel_test",
+        "table": "users",
+        "values": {
+          "name": "Grace",
+          "email": "grace@example.com",
+          "role": null,
+          "age": 36
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO `seaquel_test`.`users` (`name`, `email`, `role`, `age`) VALUES (?, ?, ?, ?)",
+        "bindValues": ["Grace", "grace@example.com", null, 36]
+      }
+    },
+    {
+      "name": "insert ignores the cast map",
+      "input": {
+        "fn": "insert",
+        "schema": "shop",
+        "table": "events",
+        "values": {
+          "at": "2024-01-02 03:04:05",
+          "payload": {
+            "a": 1
+          }
+        },
+        "casts": {
+          "at": "datetime",
+          "payload": "json"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO `shop`.`events` (`at`, `payload`) VALUES (?, ?)",
+        "bindValues": [
+          "2024-01-02 03:04:05",
+          {
+            "a": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "insert, no values",
+      "input": {
+        "fn": "insert",
+        "schema": "shop",
+        "table": "counters",
+        "values": {}
+      },
+      "output": {
+        "sql": "INSERT INTO `shop`.`counters` () VALUES ()",
+        "bindValues": []
+      }
+    },
+    {
+      "name": "insert, backtick in a column name",
+      "input": {
+        "fn": "insert",
+        "schema": "shop",
+        "table": "t",
+        "values": {
+          "we`ird": "x"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO `shop`.`t` (`we``ird`) VALUES (?)",
+        "bindValues": ["x"]
+      }
+    },
+    {
+      "name": "delete, single pk",
+      "input": {
+        "fn": "delete",
+        "schema": "seaquel_test",
+        "table": "users",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 42
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM `seaquel_test`.`users` WHERE `id` = ?",
+        "bindValues": [42]
+      }
+    },
+    {
+      "name": "delete, composite pk with a string key",
+      "input": {
+        "fn": "delete",
+        "schema": "shop",
+        "table": "stock",
+        "primaryKeys": ["region", "sku"],
+        "row": {
+          "sku": "A-1",
+          "region": "eu",
+          "qty": 3
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM `shop`.`stock` WHERE `region` = ? AND `sku` = ?",
+        "bindValues": ["eu", "A-1"]
+      }
+    }
+  ]
+}

@@ -5,9 +5,9 @@
 use seaquel_types::{
     BatchStatement, ColumnCategory, ColumnTypeInfo, ConnectConfig, ConnectResult,
     CreateTableColumn, CreateTableDefinition, CreateTableForeignKey, CreateTableIndex,
-    DatabaseOverview, DatabaseStatistics, DbError, DriverType, ExecuteResult, ExplainPlanNode,
-    ExplainResult, ForeignKeyRef, IndexUsageInfo, QueryResult, SchemaColumn, SchemaIndex,
-    SchemaTable, StreamBatch, StreamEvent, TableKind, TableSizeInfo, Value,
+    DatabaseOverview, DatabaseStatistics, DbError, DriverType, ExecuteResult, ExpectRows,
+    ExplainPlanNode, ExplainResult, ForeignKeyRef, IndexUsageInfo, QueryResult, SchemaColumn,
+    SchemaIndex, SchemaTable, StreamBatch, StreamEvent, TableKind, TableSizeInfo, Value,
 };
 use serde_json::{from_value, json, to_value};
 
@@ -53,7 +53,10 @@ fn connect_result_shape() {
     let r = ConnectResult {
         connection_id: "sqlite-1".into(),
     };
-    assert_eq!(to_value(&r).unwrap(), json!({ "connection_id": "sqlite-1" }));
+    assert_eq!(
+        to_value(&r).unwrap(),
+        json!({ "connection_id": "sqlite-1" })
+    );
 }
 
 #[test]
@@ -125,6 +128,22 @@ fn batch_statement_params_default_to_empty() {
     let s: BatchStatement = from_value(json!({ "sql": "DELETE FROM t" })).unwrap();
     assert_eq!(s.sql, "DELETE FROM t");
     assert!(s.params.is_empty());
+    assert_eq!(s.expect_rows, None);
+}
+
+#[test]
+fn batch_statement_expect_rows_is_camel_case() {
+    let s: BatchStatement = from_value(json!({
+        "sql": "UPDATE t SET a = 1 WHERE id = 1",
+        "params": [],
+        "expectRows": { "min": 1 }
+    }))
+    .unwrap();
+    assert_eq!(s.expect_rows, Some(ExpectRows { min: 1 }));
+    assert!(s.check_affected(0, 1).is_ok());
+    let err = s.check_affected(2, 0).unwrap_err();
+    assert_eq!(err.code, "NO_ROWS_AFFECTED");
+    assert!(err.message.contains("(index 2)"), "{}", err.message);
 }
 
 #[test]
@@ -142,7 +161,10 @@ fn stream_event_batch_is_flattened() {
 
 #[test]
 fn stream_event_done_and_error() {
-    assert_eq!(to_value(StreamEvent::Done).unwrap(), json!({ "type": "done" }));
+    assert_eq!(
+        to_value(StreamEvent::Done).unwrap(),
+        json!({ "type": "done" })
+    );
     assert_eq!(
         to_value(StreamEvent::from(DbError::connection_not_found("x"))).unwrap(),
         json!({
@@ -190,7 +212,10 @@ fn schema_table_shape() {
 fn table_kind_names() {
     assert_eq!(to_value(TableKind::Table).unwrap(), json!("table"));
     assert_eq!(to_value(TableKind::View).unwrap(), json!("view"));
-    assert_eq!(to_value(TableKind::MaterializedView).unwrap(), json!("materialized-view"));
+    assert_eq!(
+        to_value(TableKind::MaterializedView).unwrap(),
+        json!("materialized-view")
+    );
 }
 
 #[test]
@@ -213,6 +238,9 @@ fn schema_table_full_shape() {
                 referenced_table: "users".into(),
                 referenced_column: "id".into(),
             }),
+            collation: Some("Latin1_General_BIN".into()),
+            is_unique: false,
+            in_unique_constraint: false,
         }],
         indexes: vec![SchemaIndex {
             name: "orders_user_id_idx".into(),
@@ -240,7 +268,8 @@ fn schema_table_full_shape() {
                     "referencedSchema": "public",
                     "referencedTable": "users",
                     "referencedColumn": "id"
-                }
+                },
+                "collation": "Latin1_General_BIN"
             }],
             "indexes": [{ "name": "orders_user_id_idx", "columns": ["user_id"], "unique": false, "type": "btree" }]
         }),
@@ -258,10 +287,35 @@ fn schema_column_omits_absent_optionals() {
         is_primary_key: true,
         is_foreign_key: false,
         foreign_key_ref: None,
+        collation: None,
+        is_unique: false,
+        in_unique_constraint: false,
     };
     round_trip(
         &c,
         json!({ "name": "id", "type": "integer", "nullable": false, "isPrimaryKey": true, "isForeignKey": false }),
+    );
+}
+
+/// The UNIQUE flags are sent only when set.
+#[test]
+fn schema_column_unique_flags() {
+    let c = SchemaColumn {
+        name: "email".into(),
+        ty: "VARCHAR".into(),
+        cast_type: None,
+        nullable: true,
+        default_value: None,
+        is_primary_key: false,
+        is_foreign_key: false,
+        foreign_key_ref: None,
+        collation: None,
+        is_unique: true,
+        in_unique_constraint: true,
+    };
+    round_trip(
+        &c,
+        json!({ "name": "email", "type": "VARCHAR", "nullable": true, "isPrimaryKey": false, "isForeignKey": false, "isUnique": true, "inUniqueConstraint": true }),
     );
 }
 
@@ -526,6 +580,8 @@ fn create_table_definition_shape() {
                 default_value: "".into(),
                 is_primary_key: false,
                 is_unique: true,
+                collation: Some("Latin1_General_CS_AS".into()),
+                in_unique_constraint: false,
             },
             CreateTableColumn {
                 id: "c2".into(),
@@ -537,6 +593,8 @@ fn create_table_definition_shape() {
                 default_value: "0".into(),
                 is_primary_key: false,
                 is_unique: false,
+                collation: None,
+                in_unique_constraint: false,
             },
         ],
         indexes: vec![CreateTableIndex {
@@ -562,7 +620,8 @@ fn create_table_definition_shape() {
             "columns": [
                 {
                     "id": "c1", "name": "code", "type": "VARCHAR", "length": "255",
-                    "nullable": true, "defaultValue": "", "isPrimaryKey": false, "isUnique": true
+                    "nullable": true, "defaultValue": "", "isPrimaryKey": false, "isUnique": true,
+                    "collation": "Latin1_General_CS_AS"
                 },
                 {
                     "id": "c2", "name": "amount", "type": "DECIMAL", "precision": "10,2",

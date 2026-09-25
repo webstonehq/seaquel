@@ -41,7 +41,7 @@ function tag(kind: string, v: unknown): Tagged {
   return { $sq: kind, v };
 }
 
-function base64ToBytes(b64: string): Uint8Array {
+export function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -133,6 +133,19 @@ export function toHex(bytes: Uint8Array): string {
   let hex = "\\x";
   for (const b of bytes) hex += b.toString(16).padStart(2, "0");
   return hex;
+}
+
+/**
+ * The bytes of `\x`-prefixed hex, as `toHex` writes it (either case, an even
+ * number of digits); `null` for anything else.
+ */
+export function fromHex(text: string): Uint8Array | null {
+  const m = /^\\x((?:[0-9a-fA-F]{2})*)$/.exec(text);
+  if (!m) return null;
+  const hex = m[1];
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return bytes;
 }
 
 /**

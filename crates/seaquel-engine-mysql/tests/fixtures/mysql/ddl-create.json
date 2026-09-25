@@ -1,0 +1,319 @@
+{
+  "cases": [
+    {
+      "name": "everything together",
+      "input": {
+        "tableName": "customers",
+        "schemaName": "shop",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "name",
+            "type": "VARCHAR",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "100"
+          },
+          {
+            "id": "c3",
+            "name": "email",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "255"
+          },
+          {
+            "id": "c4",
+            "name": "status",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "'active'",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "20"
+          },
+          {
+            "id": "c5",
+            "name": "balance",
+            "type": "DECIMAL",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "10,2"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "customers_name_idx",
+            "columns": ["name"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "id",
+            "referencedSchema": "auth",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE `shop`.`customers` (\n  `id` INT NOT NULL,\n  `name` VARCHAR(100) NOT NULL,\n  `email` VARCHAR(255),\n  `status` VARCHAR(20) DEFAULT 'active',\n  `balance` DECIMAL(10,2) NOT NULL DEFAULT 0,\n  PRIMARY KEY (`id`),\n  UNIQUE (`email`),\n  FOREIGN KEY (`id`) REFERENCES `auth`.`users` (`id`)\n);\n\nCREATE INDEX `customers_name_idx` ON `shop`.`customers` (`name`);"
+    },
+    {
+      "name": "composite primary key, unique and several indexes",
+      "input": {
+        "tableName": "order_lines",
+        "schemaName": "shop",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "order_id",
+            "type": "BIGINT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "line_no",
+            "type": "SMALLINT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "sku",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "64"
+          },
+          {
+            "id": "c4",
+            "name": "qty",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "1",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c5",
+            "name": "meta",
+            "type": "JSON",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order_lines_sku_qty_idx",
+            "columns": ["sku", "qty"],
+            "unique": false,
+            "type": "btree"
+          },
+          {
+            "id": "i2",
+            "name": "order_lines_meta_key",
+            "columns": ["meta"],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "order_id",
+            "referencedSchema": "shop",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE `shop`.`order_lines` (\n  `order_id` BIGINT NOT NULL,\n  `line_no` SMALLINT NOT NULL,\n  `sku` VARCHAR(64),\n  `qty` INT NOT NULL DEFAULT 1,\n  `meta` JSON,\n  PRIMARY KEY (`order_id`, `line_no`),\n  UNIQUE (`sku`),\n  FOREIGN KEY (`order_id`) REFERENCES `shop`.`orders` (`id`)\n);\n\nCREATE INDEX `order_lines_sku_qty_idx` ON `shop`.`order_lines` (`sku`, `qty`);\n\nCREATE UNIQUE INDEX `order_lines_meta_key` ON `shop`.`order_lines` (`meta`);"
+    },
+    {
+      "name": "defaults: functions, padding and rejected values",
+      "input": {
+        "tableName": "defaults_demo",
+        "schemaName": "shop",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "created_at",
+            "type": "DATETIME",
+            "nullable": false,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "padded",
+            "type": "INT",
+            "nullable": true,
+            "defaultValue": "  42  ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "injected",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'x'; DROP TABLE users",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "commented",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "1 -- sneaky",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c5",
+            "name": "blank",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "   ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c6",
+            "name": "flag",
+            "type": "BOOLEAN",
+            "nullable": false,
+            "defaultValue": "FALSE",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE `shop`.`defaults_demo` (\n  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `padded` INT DEFAULT 42,\n  `injected` TEXT,\n  `commented` TEXT,\n  `blank` TEXT,\n  `flag` BOOLEAN NOT NULL DEFAULT FALSE\n);"
+    },
+    {
+      "name": "precision wins over length",
+      "input": {
+        "tableName": "prices",
+        "schemaName": "shop",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "amount",
+            "type": "DECIMAL",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "12,4",
+            "length": "8"
+          },
+          {
+            "id": "c2",
+            "name": "code",
+            "type": "CHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "3"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE `shop`.`prices` (\n  `amount` DECIMAL(12,4),\n  `code` CHAR(3)\n);"
+    },
+    {
+      "name": "names with spaces, dots and non-ASCII",
+      "input": {
+        "tableName": "order items",
+        "schemaName": "my db",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "line.id",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "naïve",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "10"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order items naïve idx",
+            "columns": ["naïve"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "line.id",
+            "referencedSchema": "other db",
+            "referencedTable": "lines",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE `my db`.`order items` (\n  `line.id` INT NOT NULL,\n  `naïve` VARCHAR(10),\n  PRIMARY KEY (`line.id`),\n  UNIQUE (`naïve`),\n  FOREIGN KEY (`line.id`) REFERENCES `other db`.`lines` (`id`)\n);\n\nCREATE INDEX `order items naïve idx` ON `my db`.`order items` (`naïve`);"
+    },
+    {
+      "name": "no columns",
+      "input": {
+        "tableName": "empty",
+        "schemaName": "shop",
+        "columns": [],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE `shop`.`empty` (\n\n);"
+    }
+  ]
+}

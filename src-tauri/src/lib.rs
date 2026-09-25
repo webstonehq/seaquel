@@ -55,20 +55,22 @@ fn read_dbeaver_config() -> Result<Option<String>, CommandError> {
     })?;
 
     #[cfg(target_os = "macos")]
-    let config_path = home.join("Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+    let config_path =
+        home.join("Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
 
     #[cfg(target_os = "windows")]
-    let config_path = home.join("AppData/Roaming/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+    let config_path =
+        home.join("AppData/Roaming/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
 
     #[cfg(target_os = "linux")]
-    let config_path = home.join(".local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
+    let config_path =
+        home.join(".local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
 
     if config_path.exists() {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|e| CommandError {
-                message: format!("Failed to read DBeaver config: {}", e),
-                code: "READ_ERROR".to_string(),
-            })?;
+        let content = fs::read_to_string(&config_path).map_err(|e| CommandError {
+            message: format!("Failed to read DBeaver config: {}", e),
+            code: "READ_ERROR".to_string(),
+        })?;
         Ok(Some(content))
     } else {
         Ok(None)
@@ -88,18 +90,17 @@ fn read_tableplus_config() -> Result<Option<String>, CommandError> {
             code: "HOME_DIR_ERROR".to_string(),
         })?;
 
-        let config_path = home.join("Library/Application Support/com.tinyapp.TablePlus/Data/Connections.plist");
+        let config_path =
+            home.join("Library/Application Support/com.tinyapp.TablePlus/Data/Connections.plist");
         if config_path.exists() {
-            let value: plist::Value = plist::from_file(&config_path)
-                .map_err(|e| CommandError {
-                    message: format!("Failed to parse TablePlus plist: {}", e),
-                    code: "PARSE_ERROR".to_string(),
-                })?;
-            let json = serde_json::to_string(&value)
-                .map_err(|e| CommandError {
-                    message: format!("Failed to serialize plist to JSON: {}", e),
-                    code: "SERIALIZE_ERROR".to_string(),
-                })?;
+            let value: plist::Value = plist::from_file(&config_path).map_err(|e| CommandError {
+                message: format!("Failed to parse TablePlus plist: {}", e),
+                code: "PARSE_ERROR".to_string(),
+            })?;
+            let json = serde_json::to_string(&value).map_err(|e| CommandError {
+                message: format!("Failed to serialize plist to JSON: {}", e),
+                code: "SERIALIZE_ERROR".to_string(),
+            })?;
             Ok(Some(json))
         } else {
             Ok(None)
@@ -130,17 +131,15 @@ fn copy_image_to_clipboard(path: String) -> Result<(), CommandError> {
         bytes: rgba.into_raw().into(),
     };
 
-    let mut clipboard = Clipboard::new()
-        .map_err(|e| CommandError {
-            message: format!("Failed to access clipboard: {}", e),
-            code: "CLIPBOARD_ERROR".to_string(),
-        })?;
+    let mut clipboard = Clipboard::new().map_err(|e| CommandError {
+        message: format!("Failed to access clipboard: {}", e),
+        code: "CLIPBOARD_ERROR".to_string(),
+    })?;
 
-    clipboard.set_image(img_data)
-        .map_err(|e| CommandError {
-            message: format!("Failed to copy image: {}", e),
-            code: "CLIPBOARD_ERROR".to_string(),
-        })?;
+    clipboard.set_image(img_data).map_err(|e| CommandError {
+        message: format!("Failed to copy image: {}", e),
+        code: "CLIPBOARD_ERROR".to_string(),
+    })?;
 
     Ok(())
 }
@@ -185,22 +184,27 @@ fn read_log_file(app: tauri::AppHandle) -> Result<String, CommandError> {
     let truncated = file_size > MAX_BYTES;
 
     if truncated {
-        file.seek(SeekFrom::End(-(MAX_BYTES as i64))).map_err(|e| CommandError {
-            message: format!("Failed to seek log file: {}", e),
-            code: "READ_ERROR".to_string(),
-        })?;
+        file.seek(SeekFrom::End(-(MAX_BYTES as i64)))
+            .map_err(|e| CommandError {
+                message: format!("Failed to seek log file: {}", e),
+                code: "READ_ERROR".to_string(),
+            })?;
     }
 
     let mut content = String::new();
-    file.read_to_string(&mut content).map_err(|e| CommandError {
-        message: format!("Failed to read log file: {}", e),
-        code: "READ_ERROR".to_string(),
-    })?;
+    file.read_to_string(&mut content)
+        .map_err(|e| CommandError {
+            message: format!("Failed to read log file: {}", e),
+            code: "READ_ERROR".to_string(),
+        })?;
 
     if truncated {
         // Skip to the first complete line after the seek point
         if let Some(newline_pos) = content.find('\n') {
-            content = format!("… (showing last 512KB of log)\n{}", &content[newline_pos + 1..]);
+            content = format!(
+                "… (showing last 512KB of log)\n{}",
+                &content[newline_pos + 1..]
+            );
         }
     }
 
@@ -228,26 +232,22 @@ fn get_data_dir(app: tauri::AppHandle) -> Result<String, CommandError> {
     if let Ok(custom_dir) = std::env::var("SEAQUEL_DATA_DIR") {
         let path = std::path::PathBuf::from(&custom_dir);
         if !path.exists() {
-            std::fs::create_dir_all(&path)
-                .map_err(|e| CommandError {
-                    message: format!("Failed to create data dir: {}", e),
-                    code: "DIR_ERROR".to_string(),
-                })?;
+            std::fs::create_dir_all(&path).map_err(|e| CommandError {
+                message: format!("Failed to create data dir: {}", e),
+                code: "DIR_ERROR".to_string(),
+            })?;
         }
         Ok(custom_dir)
     } else {
-        let path = app.path()
-            .app_data_dir()
-            .map_err(|e| CommandError {
-                message: format!("Failed to get app data dir: {}", e),
+        let path = app.path().app_data_dir().map_err(|e| CommandError {
+            message: format!("Failed to get app data dir: {}", e),
+            code: "DIR_ERROR".to_string(),
+        })?;
+        if !path.exists() {
+            std::fs::create_dir_all(&path).map_err(|e| CommandError {
+                message: format!("Failed to create data dir: {}", e),
                 code: "DIR_ERROR".to_string(),
             })?;
-        if !path.exists() {
-            std::fs::create_dir_all(&path)
-                .map_err(|e| CommandError {
-                    message: format!("Failed to create data dir: {}", e),
-                    code: "DIR_ERROR".to_string(),
-                })?;
         }
         Ok(path.to_string_lossy().to_string())
     }
@@ -344,13 +344,11 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // Load and decode the app icon for the About dialog
     let icon = {
         let icon_bytes = include_bytes!("../icons/128x128@2x.png");
-        image::load_from_memory(icon_bytes)
-            .ok()
-            .map(|img| {
-                let rgba = img.to_rgba8();
-                let (width, height) = rgba.dimensions();
-                tauri::image::Image::new_owned(rgba.into_raw(), width, height)
-            })
+        image::load_from_memory(icon_bytes).ok().map(|img| {
+            let rgba = img.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            tauri::image::Image::new_owned(rgba.into_raw(), width, height)
+        })
     };
 
     // About metadata with custom icon
@@ -391,14 +389,7 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .accelerator("CmdOrCtrl+W")
         .build(app)?;
 
-    let file_menu = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[
-            &close_tab,
-        ],
-    )?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&close_tab])?;
 
     // Edit menu with standard items
     let edit_menu = Submenu::with_items(
@@ -441,7 +432,9 @@ pub fn run() {
                 .format(logging::make_logfmt_formatter(TimezoneStrategy::UseLocal))
                 .targets([
                     Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::LogDir { file_name: Some("seaquel".into()) }),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some("seaquel".into()),
+                    }),
                     Target::new(TargetKind::Webview)
                         .filter(|metadata| metadata.level() <= log::Level::Info),
                 ])
@@ -456,7 +449,9 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
         .manage(seaquel_core::with_default_plugins().build())
-        .manage(PendingUpdate { bytes: Mutex::new(None) })
+        .manage(PendingUpdate {
+            bytes: Mutex::new(None),
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -506,56 +501,50 @@ pub fn run() {
             license::validate_license,
             license::deactivate_license,
         ])
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::Destroyed => {
-                    if window.label() == "main" {
-                        for (label, w) in window.app_handle().webview_windows() {
-                            if label != "main" {
-                                let _ = w.destroy();
-                            }
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Destroyed => {
+                if window.label() == "main" {
+                    for (label, w) in window.app_handle().webview_windows() {
+                        if label != "main" {
+                            let _ = w.destroy();
                         }
                     }
                 }
-                tauri::WindowEvent::DragDrop(drag_drop_event) => {
-                    match drag_drop_event {
-                        tauri::DragDropEvent::Drop { paths, .. } => {
-                            let supported_extensions = [
-                                "parquet", "csv", "json", "duckdb", "db", "xlsx", "xls",
-                            ];
-                            let supported_paths: Vec<String> = paths
-                                .iter()
-                                .filter(|p| {
-                                    p.extension()
-                                        .and_then(|ext| ext.to_str())
-                                        .map(|ext| {
-                                            supported_extensions
-                                                .contains(&ext.to_lowercase().as_str())
-                                        })
-                                        .unwrap_or(false)
+            }
+            tauri::WindowEvent::DragDrop(drag_drop_event) => match drag_drop_event {
+                tauri::DragDropEvent::Drop { paths, .. } => {
+                    let supported_extensions =
+                        ["parquet", "csv", "json", "duckdb", "db", "xlsx", "xls"];
+                    let supported_paths: Vec<String> = paths
+                        .iter()
+                        .filter(|p| {
+                            p.extension()
+                                .and_then(|ext| ext.to_str())
+                                .map(|ext| {
+                                    supported_extensions.contains(&ext.to_lowercase().as_str())
                                 })
-                                .filter_map(|p| p.to_str().map(String::from))
-                                .collect();
-                            if !supported_paths.is_empty() {
-                                let _ = window.emit("file-drop", supported_paths);
-                            }
-                        }
-                        tauri::DragDropEvent::Enter { paths, .. } => {
-                            let paths: Vec<String> = paths
-                                .iter()
-                                .filter_map(|p| p.to_str().map(String::from))
-                                .collect();
-                            let _ = window.emit("file-drop-hover", paths);
-                        }
-                        tauri::DragDropEvent::Over { .. } => {}
-                        tauri::DragDropEvent::Leave => {
-                            let _ = window.emit("file-drop-leave", ());
-                        }
-                        _ => {}
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|p| p.to_str().map(String::from))
+                        .collect();
+                    if !supported_paths.is_empty() {
+                        let _ = window.emit("file-drop", supported_paths);
                     }
+                }
+                tauri::DragDropEvent::Enter { paths, .. } => {
+                    let paths: Vec<String> = paths
+                        .iter()
+                        .filter_map(|p| p.to_str().map(String::from))
+                        .collect();
+                    let _ = window.emit("file-drop-hover", paths);
+                }
+                tauri::DragDropEvent::Over { .. } => {}
+                tauri::DragDropEvent::Leave => {
+                    let _ = window.emit("file-drop-leave", ());
                 }
                 _ => {}
-            }
+            },
+            _ => {}
         })
         .setup(|app| {
             // Set up custom menu
@@ -566,9 +555,10 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 if event.id().as_ref() == "close_tab" {
                     // If a child window is focused, close it instead of closing a tab
-                    let focused_child = app.webview_windows().into_iter().find(|(label, w)| {
-                        label != "main" && w.is_focused().unwrap_or(false)
-                    });
+                    let focused_child = app
+                        .webview_windows()
+                        .into_iter()
+                        .find(|(label, w)| label != "main" && w.is_focused().unwrap_or(false));
                     if let Some((_, child)) = focused_child {
                         let _ = child.destroy();
                     } else {
@@ -623,7 +613,10 @@ async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result
 
         // Store the bytes for later installation
         let pending = app.state::<PendingUpdate>();
-        *pending.bytes.lock().expect("Failed to lock pending update bytes") = Some(bytes);
+        *pending
+            .bytes
+            .lock()
+            .expect("Failed to lock pending update bytes") = Some(bytes);
 
         let _ = app.emit("update-downloaded", info);
     }

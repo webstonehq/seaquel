@@ -1,0 +1,57 @@
+{
+  "cases": [
+    {
+      "name": "NOT NULL with a default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaultValue": " 'x' ",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "length": "8"
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"code\" VARCHAR(8) NOT NULL DEFAULT 'x';"
+    },
+    {
+      "name": "nullable, precision",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "rate",
+          "type": "NUMERIC",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "precision": "5,2"
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"rate\" NUMERIC(5,2);"
+    },
+    {
+      "name": "the schema is always main",
+      "input": {
+        "schema": "aux",
+        "table": "order items",
+        "column": {
+          "id": "c9",
+          "name": "gift note",
+          "type": "TEXT",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"order items\" ADD COLUMN \"gift note\" TEXT;"
+    }
+  ]
+}

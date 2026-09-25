@@ -1,7 +1,8 @@
 /**
- * Picks the `EngineClient` for a connection: the Rust core for Postgres on
- * desktop and web, the TypeScript adapters everywhere else (other engines,
- * and every engine in the browser demo, which has no Rust core).
+ * Picks the `EngineClient` for a connection: the Rust core for Postgres,
+ * MySQL, MariaDB, SQLite, SQL Server and DuckDB on desktop and web, and
+ * `TsEngineClient` over `duckdb.ts` in the browser demo, which has no Rust
+ * core (only DuckDB-WASM).
  *
  * The provider connection id is read on every call, not when the client is
  * made. `reconnect()` doesn't mutate the connection object: it replaces it in
@@ -21,11 +22,19 @@ import type { EngineClient } from "./types";
 export type { CastMap, EngineClient, RowRecord, TableMetadata } from "./types";
 export { RustEngineClient } from "./rust-engine-client";
 export { TsEngineClient, type TsEngineClientOptions } from "./ts-engine-client";
+export { editorQualifiedTable, quoteIdent, selectPreview } from "./qualified-table";
 
-type EngineConnection = Pick<DatabaseConnection, "id" | "type" | "name" | "providerConnectionId">;
+type EngineConnection = Pick<DatabaseConnection, "id" | "type" | "providerConnectionId">;
 
-/** Engines whose dialect runs in Rust (phase 1: Postgres). */
-const RUST_ENGINES: ReadonlySet<string> = new Set<RustEngine>(["postgres"]);
+/** Connection types whose dialect runs in Rust (MariaDB uses the MySQL engine). */
+const RUST_ENGINES: ReadonlySet<string> = new Set<RustEngine>([
+  "postgres",
+  "mysql",
+  "mariadb",
+  "sqlite",
+  "mssql",
+  "duckdb",
+]);
 
 function isRustEngine(type: DatabaseConnection["type"]): type is RustEngine {
   return RUST_ENGINES.has(type);
@@ -53,7 +62,6 @@ export function getEngineClient(
   }
   return new TsEngineClient({
     type: connection.type,
-    connectionName: connection.name,
     getConnectionId,
   });
 }

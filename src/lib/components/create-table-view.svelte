@@ -43,10 +43,9 @@
 	);
 	const connectionId = $derived(connection?.id);
 	const connectionType = $derived(connection?.type);
-	const connectionName = $derived(connection?.name ?? "");
 	const providerConnectionId = $derived(connection?.providerConnectionId);
-	// Rust-engine dialects (Postgres) need a live connection even for pure SQL generation;
-	// the TypeScript adapters work offline.
+	// Rust-engine dialects need a live connection even for pure SQL generation;
+	// the demo's TypeScript DuckDB adapter works offline.
 	const needsConnection = $derived(
 		!!connectionType && usesRustEngine({ type: connectionType }) && !providerConnectionId,
 	);
@@ -55,7 +54,7 @@
 	function engineClient() {
 		if (!connectionId || !connectionType) throw new Error("No connection");
 		return getEngineClient(
-			{ id: connectionId, type: connectionType, name: connectionName, providerConnectionId },
+			{ id: connectionId, type: connectionType, providerConnectionId },
 			db.state,
 		);
 	}

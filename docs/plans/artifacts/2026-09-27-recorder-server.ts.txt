@@ -1,0 +1,165 @@
+/**
+ * Record mode's database access: a local `seaquel-server` and a session that
+ * talks to it the way `HttpProvider` does (`/api/db/connect`,
+ * `/api/db/query`, `/api/db/execute`).
+ *
+ * Rows are kept in the wire format (cells tagged `{"$sq": …}` where JS can't
+ * hold them exactly) so fixtures stay lossless; `replay.ts` decodes them with
+ * `decodeRows` before the parser sees them, which is the step `HttpProvider`
+ * performs at runtime.
+ */
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
+import { postJson } from "$lib/providers/http-provider";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import type { ConnectResult } from "$lib/types/generated/ConnectResult";
+import type { ExecuteResult } from "$lib/types/generated/ExecuteResult";
+import type { QueryResult } from "$lib/types/generated/QueryResult";
+import { dedupeColumnNames } from "$lib/utils/row-access";
+import { encodeParams } from "$lib/values";
+import type { Json, Row, RowSet } from "./corpus";
+
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+/** The test database name is a project convention; only the server location varies. */
+export const TEST_DATABASE = "seaquel_test";
+
+/**
+ * A `SEAQUEL_TEST_*` ConnectConfig (JSON, as the Rust smoke tests read it),
+ * falling back to `fallback`. For the server engines (postgres, mysql,
+ * mariadb, mssql) the database is always forced to `seaquel_test`, whatever
+ * the variable says; file-based configs (sqlite, duckdb) pass through.
+ */
+export function envConnectConfig(variable: string, fallback: ConnectConfig): ConnectConfig {
+  const raw = process.env[variable];
+  const config: ConnectConfig = raw ? (JSON.parse(raw) as ConnectConfig) : { ...fallback };
+  if (config.connection_string && (config.driver === "postgres" || config.driver === "mysql")) {
+    const url = new URL(config.connection_string);
+    url.pathname = `/${TEST_DATABASE}`;
+    config.connection_string = url.toString();
+  } else if (config.driver === "mssql") {
+    config.database = TEST_DATABASE;
+  }
+  return config;
+}
+
+export interface SeaquelServer {
+  baseUrl: string;
+  stop(): Promise<void>;
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const address = srv.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitForHealth(baseUrl: string, child: ChildProcess): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`seaquel-server exited early with code ${child.exitCode}`);
+    }
+    try {
+      const res = await fetch(`${baseUrl}/health`);
+      if (res.ok) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`seaquel-server did not answer ${baseUrl}/health within 30s`);
+}
+
+/**
+ * Build and start `seaquel-server` on a free loopback port. With
+ * `SEAQUEL_SERVER_URL` set, that running server is used instead and nothing
+ * is built or started.
+ */
+export async function startServer(): Promise<SeaquelServer> {
+  const external = process.env.SEAQUEL_SERVER_URL;
+  if (external) return { baseUrl: external.replace(/\/$/, ""), stop: async () => {} };
+
+  const build = spawnSync("cargo", ["build", "-p", "seaquel-server"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+  });
+  if (build.status !== 0) throw new Error("cargo build -p seaquel-server failed");
+
+  const targetDir = process.env.CARGO_TARGET_DIR ?? `${REPO_ROOT}target`;
+  const binary = `${targetDir}/debug/seaquel-server`;
+  if (!existsSync(binary)) throw new Error(`no seaquel-server binary at ${binary}`);
+
+  const port = await freePort();
+  const child = spawn(binary, [], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, BIND_ADDR: `127.0.0.1:${port}` },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    await waitForHealth(baseUrl, child);
+  } catch (e) {
+    child.kill();
+    throw e;
+  }
+  return {
+    baseUrl,
+    stop: () =>
+      new Promise<void>((resolve) => {
+        if (child.exitCode !== null) return resolve();
+        child.once("exit", () => resolve());
+        child.kill();
+      }),
+  };
+}
+
+/** One connection on the Rust driver, used by the corpus recorders. */
+export interface Session {
+  /**
+   * Rows as objects keyed by (deduplicated) column name, cells in wire
+   * format, plus those names in result order (JSON objects don't keep it
+   * for every reader).
+   */
+  select(sql: string, params?: unknown[]): Promise<RowSet>;
+  execute(sql: string, params?: unknown[]): Promise<ExecuteResult>;
+  close(): Promise<void>;
+}
+
+export async function openSession(baseUrl: string, config: ConnectConfig): Promise<Session> {
+  const { connection_id } = await postJson<ConnectResult>(`${baseUrl}/api/db/connect`, config);
+  return {
+    async select(sql, params) {
+      const result = await postJson<QueryResult>(`${baseUrl}/api/db/query`, {
+        connection_id,
+        sql,
+        values: encodeParams(params),
+      });
+      const columns = dedupeColumnNames(result.columns);
+      const rows = result.rows.map((cells) => {
+        const row: Row = {};
+        columns.forEach((name, i) => (row[name] = cells[i] as Json));
+        return row;
+      });
+      return { columns, rows };
+    },
+    execute(sql, params) {
+      return postJson<ExecuteResult>(`${baseUrl}/api/db/execute`, {
+        connection_id,
+        sql,
+        values: encodeParams(params),
+      });
+    },
+    async close() {
+      await postJson<unknown>(`${baseUrl}/api/db/disconnect`, { connection_id });
+    },
+  };
+}

@@ -1,0 +1,266 @@
+/**
+ * Parity fixtures for the TypeScript dialect adapters (Rust Core Phase 2).
+ *
+ * Record mode (`npm run fixtures:record -- <engine>`, i.e. RECORD_FIXTURES=1
+ * ENGINE=<engine>) builds and starts `seaquel-server`, connects with the
+ * corpus's ConnectConfig, builds the scratch objects, and writes one JSON file
+ * per group to `crates/seaquel-engine-<crate>/tests/fixtures/`. Each file is
+ * `{ "cases": [ { "name", "input", "output" } ] }`, the shape phase 1 used.
+ *
+ * - Pure groups (quote, paginate, crud, ddl-create, ddl-alter, ddl-add-column,
+ *   column-types, sql) call the adapter directly.
+ * - Parse groups (parse-schema, -columns, -indexes, -explain, -stats) run the
+ *   adapter's own SQL through Seaquel's Rust driver over `/api/db/query`, so
+ *   `rows` are exactly what the parser got at runtime. Cells are stored in the
+ *   Value wire format (`{"$sq": …}` tags where JS can't hold them exactly)
+ *   and decoded with `decodeRows` before the parser runs, as `HttpProvider`
+ *   does. Each result also stores `columns`, its column names in result
+ *   order (for foreign keys: `foreignKeyColumns`). Rust parity harnesses must
+ *   read cells with `Value::from_wire` (not `from_json_cell`) and rebuild the
+ *   `QueryResult` in `columns` order: the workspace's serde_json has no
+ *   `preserve_order`, so a row object's key order is lost. TypeScript replay
+ *   ignores `columns`.
+ *
+ * Check mode (the default) needs no database: it replays every stored input
+ * through `getAdapter(<adapter>)` and compares with the stored output. It
+ * checks every registered corpus whose fixture directory exists and skips the
+ * rest; with ENGINE set it checks only that one and requires its fixtures.
+ *
+ * Only DuckDB is still registered (its adapter stays for the browser demo).
+ * The other engines' TypeScript adapters are deleted, so their fixtures are
+ * frozen and can be neither re-recorded nor checked here; the Rust parity
+ * tests read them. Their corpora are in `docs/plans/artifacts/`.
+ *
+ * `bugfixes.json` is written by hand, never by this script. Check mode
+ * validates its shape; its `scratch` block (`setup`/`teardown` SQL) is what
+ * record mode builds, unless the corpus has an inline `scratch`.
+ *
+ * Adding an engine (Tasks 4, 8, 12, 17):
+ * 1. Write `scripts/fixtures/corpora/<engine>.ts` exporting an `EngineCorpus`
+ *    (see `corpus.ts` for every field and input shape). `connection` usually is
+ *    `envConnectConfig("SEAQUEL_TEST_<ENGINE>", fallback)`, which forces the
+ *    `seaquel_test` database.
+ * 2. Register it in `corpora/index.ts`.
+ * 3. Hand-write `bugfixes.json` with its `scratch` block and the fix cases.
+ * 4. `npm run fixtures:record -- <engine>`, then `npx vitest run scripts/fixtures`.
+ *    Record mode deletes fixture files of groups the corpus no longer
+ *    declares (never `bugfixes.json` or `README.md`).
+ * For DuckDB file corpora, copy `e2e/test-databases/duckdb/seaquel_test.duckdb`
+ * to a temp path (e.g. in `connection()`) and record against the copy, so the
+ * scratch setup never writes to the checked-in database; remove it in
+ * `cleanup()`.
+ * `RecordContext.openSession()` opens a fresh connection on the same server,
+ * for settings that only a new pooled connection picks up (e.g. MySQL
+ * `SET GLOBAL explain_json_format_version = 2`; restore it in `finally`).
+ * Engine-specific checks (e.g. "TypeScript still shows the bug") go in a
+ * separate `it` block in this file, guarded by the corpus id.
+ *
+ * Env: RECORD_FIXTURES=1, ENGINE=<id>, FIXTURES_DIR (write/read elsewhere),
+ * SEAQUEL_SERVER_URL (use a running seaquel-server instead of starting one),
+ * SEAQUEL_TEST_* (ConnectConfig JSON per engine).
+ */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { getAdapter } from "$lib/db";
+import type {
+  EngineCorpus,
+  FixtureCase,
+  FixtureFile,
+  FixtureFileName,
+  RecordContext,
+} from "./corpus";
+import { PARSE_FILES, PURE_FILES, toJson } from "./corpus";
+import { corpora } from "./corpora";
+import { corpusFiles, recordInputs } from "./inputs";
+import { replay } from "./replay";
+import { openSession, startServer, type SeaquelServer, type Session } from "./server";
+
+const RECORD = process.env.RECORD_FIXTURES === "1";
+const ENGINE = process.env.ENGINE;
+
+function selectCorpora(): EngineCorpus[] {
+  if (ENGINE) {
+    const corpus = corpora[ENGINE];
+    if (!corpus) {
+      throw new Error(
+        `ENGINE=${ENGINE} has no corpus; registered: ${Object.keys(corpora).join(", ")}`,
+      );
+    }
+    const dir = process.env.FIXTURES_DIR;
+    return [dir ? { ...corpus, fixtureDir: dir.endsWith("/") ? dir : `${dir}/` } : corpus];
+  }
+  if (RECORD) throw new Error("record mode needs ENGINE=<engine>");
+  return Object.values(corpora).filter((c) => existsSync(c.fixtureDir));
+}
+
+function readFixture(corpus: EngineCorpus, file: string): FixtureFile {
+  return JSON.parse(readFileSync(`${corpus.fixtureDir}${file}`, "utf-8")) as FixtureFile;
+}
+
+function writeFixture(corpus: EngineCorpus, file: string, cases: FixtureCase[]): void {
+  mkdirSync(corpus.fixtureDir, { recursive: true });
+  writeFileSync(`${corpus.fixtureDir}${file}`, JSON.stringify({ cases }, null, 2) + "\n");
+}
+
+/**
+ * Delete recorder-owned files for groups the corpus no longer declares, so a
+ * dropped group can't linger as a stale fixture. Hand-written files
+ * (`bugfixes.json`, `README.md`) are never touched.
+ */
+function removeStaleFixtures(corpus: EngineCorpus, keep: FixtureFileName[]): void {
+  for (const file of [...PURE_FILES, ...PARSE_FILES]) {
+    const path = `${corpus.fixtureDir}${file}`;
+    if (!keep.includes(file) && existsSync(path)) rmSync(path);
+  }
+}
+
+interface Bugfixes {
+  about: string;
+  scratch: { setup: string[]; teardown: string[] };
+  cases: { name: string; fix: number; kind: string; input: unknown; output: unknown }[];
+}
+
+function readBugfixes(corpus: EngineCorpus): Bugfixes | undefined {
+  const path = `${corpus.fixtureDir}bugfixes.json`;
+  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Bugfixes) : undefined;
+}
+
+function scratchOf(corpus: EngineCorpus): { setup: string[]; teardown: string[] } {
+  if (corpus.scratch) return corpus.scratch;
+  const bugfixes = readBugfixes(corpus);
+  if (!bugfixes) {
+    throw new Error(`${corpus.id}: no inline scratch and no ${corpus.fixtureDir}bugfixes.json`);
+  }
+  return bugfixes.scratch;
+}
+
+function checkCases(corpus: EngineCorpus, file: FixtureFileName, cases: FixtureCase[]): void {
+  const adapter = getAdapter(corpus.adapter);
+  expect(cases.length, `${file} has cases`).toBeGreaterThan(0);
+  const names = new Set<string>();
+  for (const c of cases) {
+    expect(names.has(c.name), `${file}: duplicate case name "${c.name}"`).toBe(false);
+    names.add(c.name);
+    const got = toJson(replay[file](adapter, c.input as Record<string, unknown>));
+    expect(got, `${file}: ${c.name}`).toStrictEqual(c.output);
+  }
+}
+
+const selected = selectCorpora();
+
+if (selected.length === 0) {
+  describe("dialect parity fixtures", () => {
+    it.skip("no engine has recorded fixtures yet", () => {});
+  });
+}
+
+for (const corpus of selected) {
+  describe(`${corpus.id} dialect parity fixtures`, () => {
+    const files = corpusFiles(corpus);
+    let server: SeaquelServer | undefined;
+    let session: Session | undefined;
+
+    const context = (): RecordContext => {
+      const srv = server;
+      if (!session || !srv) throw new Error("no session (record mode only)");
+      return {
+        session,
+        openSession: async () => openSession(srv.baseUrl, await corpus.connection()),
+        adapter: getAdapter(corpus.adapter),
+        corpus,
+      };
+    };
+
+    if (RECORD) {
+      beforeAll(async () => {
+        const { setup, teardown } = scratchOf(corpus);
+        server = await startServer();
+        session = await openSession(server.baseUrl, await corpus.connection());
+        for (const sql of teardown) await session.execute(sql);
+        for (const sql of setup) await session.execute(sql);
+        await corpus.prepare?.(context());
+        removeStaleFixtures(corpus, files);
+      }, 900_000);
+
+      afterAll(async () => {
+        try {
+          if (session) {
+            try {
+              for (const sql of scratchOf(corpus).teardown) await session.execute(sql);
+            } finally {
+              await session.close();
+            }
+          }
+        } finally {
+          session = undefined;
+          await server?.stop();
+          server = undefined;
+          await corpus.cleanup?.();
+        }
+      }, 60_000);
+    } else {
+      it("has a fixture directory", () => {
+        expect(existsSync(corpus.fixtureDir), `${corpus.fixtureDir} (record it first)`).toBe(true);
+      });
+    }
+
+    it("declares at least one fixture file", () => {
+      expect(files.length).toBeGreaterThan(0);
+    });
+
+    for (const file of files) {
+      it(
+        file,
+        async () => {
+          let cases: FixtureCase[];
+          if (RECORD) {
+            const adapter = getAdapter(corpus.adapter);
+            const inputs = await recordInputs(context(), file);
+            cases = inputs.map(({ name, input }) => ({
+              name,
+              input,
+              output: toJson(replay[file](adapter, input as Record<string, unknown>)),
+            }));
+            writeFixture(corpus, file, cases);
+          } else {
+            cases = readFixture(corpus, file).cases;
+          }
+          checkCases(corpus, file, cases);
+        },
+        120_000,
+      );
+    }
+
+    it("bugfixes.json (hand-written) has a valid shape", () => {
+      const bugfixes = readBugfixes(corpus);
+      if (!bugfixes) {
+        expect(corpus.bugfixes ?? [], "bugfixes.json is missing").toEqual([]);
+        return;
+      }
+      expect(typeof bugfixes.about).toBe("string");
+      for (const key of ["setup", "teardown"] as const) {
+        expect(Array.isArray(bugfixes.scratch?.[key]), `scratch.${key}`).toBe(true);
+        for (const sql of bugfixes.scratch[key]) expect(typeof sql).toBe("string");
+      }
+      const names = new Set<string>();
+      for (const c of bugfixes.cases) {
+        expect(names.has(c.name), `duplicate bugfix case "${c.name}"`).toBe(false);
+        names.add(c.name);
+        expect(Number.isInteger(c.fix), `${c.name}: fix`).toBe(true);
+        expect(typeof c.kind, `${c.name}: kind`).toBe("string");
+        expect("input" in c && "output" in c, `${c.name}: input/output`).toBe(true);
+      }
+      const covered = new Set(bugfixes.cases.map((c) => c.fix));
+      for (const fix of corpus.bugfixes ?? []) {
+        expect(covered.has(fix), `bugfixes.json covers fix ${fix}`).toBe(true);
+      }
+    });
+
+    if (corpus.minCases) {
+      it(`has at least ${corpus.minCases} cases in total`, () => {
+        const total = files.reduce((n, f) => n + readFixture(corpus, f).cases.length, 0);
+        expect(total).toBeGreaterThanOrEqual(corpus.minCases!);
+      });
+    }
+  });
+}

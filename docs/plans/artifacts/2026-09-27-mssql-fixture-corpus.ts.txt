@@ -1,0 +1,585 @@
+/**
+ * MSSQL corpus (Rust Core Phase 2, Task 12), recorded into
+ * `crates/seaquel-engine-mssql/tests/fixtures/`:
+ *
+ *   npm run fixtures:record -- mssql    (SEAQUEL_TEST_MSSQL, 127.0.0.1:1433)
+ *
+ * The scratch objects live in `seaquel_test` (in `dbo` and a `fx_sales`
+ * schema), all named `fx…`; their SQL is the `scratch` block of
+ * `bugfixes.json`, so the Rust tests build the same ones. Every constraint
+ * and index is named, since SQL Server's generated names change per run.
+ *
+ * Tables whose names fail the adapter's `validateIdentifier` (`fx order
+ * items`, `fx]odd name`) and the views (the adapter joined `sys.tables`, so a
+ * view had no columns) can't be recorded through the adapter's catalog
+ * queries; their expectations are hand-written bug-fix cases, checked live.
+ *
+ * EXPLAIN: the adapter's `getExplainQuery` puts `SET SHOWPLAN_XML ON`, the
+ * query and `OFF` in one batch, which SQL Server rejects, and its STATISTICS
+ * XML batch returns the query's rows first, where `seaquel-server` stops. So
+ * `parse.explain` isn't used: the plans are captured with the Node `mssql`
+ * package (`../mssql-showplan.ts`) through `parse.extra`, and replayed
+ * through `parseExplainResult`.
+ *
+ * `parseExplainResult` uses the browser's `DOMParser`; vitest runs in Node,
+ * so jsdom's is installed on `globalThis` below.
+ *
+ * No CRUD group: the Rust dialect binds parameters (`@P1`, decision 4 of the
+ * phase 2 plan) instead of the adapter's inline literals, and is checked with
+ * live tests (Task 13). No statistics: the adapter has none.
+ */
+import { JSDOM } from "jsdom";
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import {
+  alterCase,
+  col,
+  column,
+  crateFixtureDir,
+  def,
+  fk,
+  idx,
+  toJson,
+  type EngineCorpus,
+  type Json,
+  type NamedInput,
+  type Row,
+} from "../corpus";
+import { captureShowplans, type ShowplanTarget } from "../mssql-showplan";
+import { envConnectConfig } from "../server";
+
+globalThis.DOMParser ??= new JSDOM().window.DOMParser;
+
+const FALLBACK: ConnectConfig = {
+  driver: "mssql",
+  host: "127.0.0.1",
+  port: 1433,
+  username: "sa",
+  password: "Seaquel_Test_123!",
+  encrypt: true,
+  trust_cert: true,
+};
+
+/** Only the scratch objects: the seed and other tests own the rest of `seaquel_test`. */
+const isScratch = (name: Json | undefined): boolean =>
+  typeof name === "string" && name.startsWith("fx");
+
+// ─── Pure inputs ─────────────────────────────────────────────────────
+
+const customers = () =>
+  def(
+    "dbo",
+    "customers",
+    [
+      col("c1", "id", "INT", { nullable: false, isPrimaryKey: true }),
+      col("c2", "name", "NVARCHAR", { length: "100", nullable: false }),
+      col("c3", "email", "NVARCHAR", { length: "255", isUnique: true }),
+      col("c4", "status", "VARCHAR", { length: "20", defaultValue: "'active'" }),
+      col("c5", "balance", "DECIMAL", { precision: "10,2", nullable: false, defaultValue: "0" }),
+    ],
+    {
+      indexes: [idx("i1", "customers_name_idx", ["name"])],
+      foreignKeys: [fk("f1", "status", "dbo", "statuses", "code")],
+    },
+  );
+
+/** Names with `]`, which the adapter's DDL quote didn't escape (fix 2). */
+const bracketed = () =>
+  def(
+    "dbo",
+    "odd]table",
+    [
+      col("c1", "id]", "INT", { nullable: false, isPrimaryKey: true }),
+      col("c2", "a]b", "NVARCHAR", { length: "20", isUnique: true }),
+      col("c3", "note", "NVARCHAR", { length: "50", defaultValue: "N'x]y'" }),
+    ],
+    {
+      indexes: [idx("i1", "idx]1", ["a]b"])],
+      foreignKeys: [fk("f1", "a]b", "sch]x", "other]t", "c]d")],
+    },
+  );
+
+const pure: EngineCorpus["pure"] = {
+  quote: [
+    { name: "plain", input: { id: "users" } },
+    { name: "closing bracket", input: { id: "odd]name" } },
+    { name: "two closing brackets", input: { id: "]]" } },
+    { name: "opening bracket", input: { id: "[x" } },
+    { name: "both brackets", input: { id: "[a]" } },
+    { name: "space", input: { id: "order items" } },
+    { name: "dot", input: { id: "a.b" } },
+    { name: "quotes", input: { id: `it's "q"` } },
+    { name: "non-ASCII", input: { id: "名前" } },
+    { name: "empty", input: { id: "" } },
+  ],
+  paginate: [
+    { name: "first page", input: { sql: "SELECT * FROM users", limit: 100, offset: 0 } },
+    { name: "later page", input: { sql: "SELECT * FROM users", limit: 50, offset: 150 } },
+    {
+      name: "keeps a top-level ORDER BY",
+      input: { sql: "SELECT id, name FROM users ORDER BY name", limit: 10, offset: 20 },
+    },
+    {
+      name: "lower-case order by across a line break",
+      input: { sql: "SELECT id FROM users order\n  by id DESC", limit: 10, offset: 0 },
+    },
+    {
+      name: "ORDER BY after a UNION",
+      input: { sql: "SELECT id FROM a UNION SELECT id FROM b ORDER BY id", limit: 5, offset: 5 },
+    },
+    {
+      name: "a column named like ORDER_BY is not ORDER BY",
+      input: { sql: "SELECT order_by FROM t", limit: 10, offset: 0 },
+    },
+    {
+      name: "large numbers",
+      input: { sql: "SELECT id FROM t ORDER BY id", limit: 1000000, offset: 9007199254740991 },
+    },
+    {
+      name: "keeps a trailing semicolon",
+      input: { sql: "SELECT 1;", limit: 10, offset: 5 },
+    },
+    // Fix 8 replaces these: an ORDER BY that isn't the query's own made the
+    // adapter leave out `ORDER BY (SELECT NULL)`, which OFFSET/FETCH needs.
+    {
+      name: "ORDER BY inside OVER() (read as the query's)",
+      input: {
+        sql: "SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users",
+        limit: 10,
+        offset: 0,
+      },
+    },
+    {
+      name: "ORDER BY inside a subquery (read as the query's)",
+      input: {
+        sql: "SELECT * FROM users WHERE id IN (SELECT TOP 5 user_id FROM orders ORDER BY total DESC)",
+        limit: 10,
+        offset: 0,
+      },
+    },
+    {
+      name: "ORDER BY inside a CTE (read as the query's)",
+      input: {
+        sql: "WITH r AS (SELECT id, ROW_NUMBER() OVER (PARTITION BY kind ORDER BY id) AS rn FROM orders) SELECT * FROM r",
+        limit: 25,
+        offset: 50,
+      },
+    },
+    {
+      name: "ORDER BY inside a string literal (read as the query's)",
+      input: {
+        sql: "SELECT * FROM notes WHERE body = N'sort: ORDER BY name'",
+        limit: 10,
+        offset: 0,
+      },
+    },
+    {
+      name: "ORDER BY inside a bracketed name (read as the query's)",
+      input: { sql: "SELECT [order by] FROM t", limit: 10, offset: 0 },
+    },
+    {
+      name: "ORDER BY inside a comment (read as the query's)",
+      input: { sql: "SELECT id FROM t /* ORDER BY id */ WHERE id > 1", limit: 10, offset: 0 },
+    },
+  ],
+  ddlCreate: [
+    { name: "everything together", input: toJson(customers()) },
+    {
+      name: "SQL Server types and defaults",
+      input: toJson(
+        def("dbo", "profiles", [
+          col("c1", "id", "UNIQUEIDENTIFIER", {
+            nullable: false,
+            isPrimaryKey: true,
+            defaultValue: "NEWID()",
+          }),
+          col("c2", "bio", "NVARCHAR", { length: "MAX" }),
+          col("c3", "created_at", "DATETIME2", {
+            nullable: false,
+            defaultValue: "SYSUTCDATETIME()",
+          }),
+          col("c4", "avatar", "VARBINARY", { length: "MAX" }),
+          col("c5", "balance", "MONEY", { defaultValue: "0" }),
+          col("c6", "is_active", "BIT", { nullable: false, defaultValue: "1" }),
+          col("c7", "settings", "XML"),
+          col("c8", "rate", "DECIMAL", { precision: "5,4" }),
+        ]),
+      ),
+    },
+    {
+      name: "composite primary key, unique and several indexes",
+      input: toJson(
+        def(
+          "sales",
+          "order_lines",
+          [
+            col("c1", "order_id", "INT", { nullable: false, isPrimaryKey: true }),
+            col("c2", "line_no", "INT", { nullable: false, isPrimaryKey: true }),
+            col("c3", "sku", "VARCHAR", { length: "64", isUnique: true }),
+            col("c4", "qty", "INT", { nullable: false, defaultValue: "1" }),
+          ],
+          {
+            indexes: [
+              idx("i1", "order_lines_sku_qty_idx", ["sku", "qty"]),
+              idx("i2", "order_lines_qty_key", ["qty"], true),
+            ],
+            foreignKeys: [
+              fk("f1", "order_id", "sales", "orders", "id"),
+              fk("f2", "sku", "dbo", "products", "sku"),
+            ],
+          },
+        ),
+      ),
+    },
+    {
+      name: "defaults: padding and rejected values",
+      input: toJson(
+        def("dbo", "defaults_demo", [
+          col("c1", "padded", "INT", { defaultValue: "  42  " }),
+          col("c2", "injected", "NVARCHAR", {
+            length: "10",
+            defaultValue: "'x'; DROP TABLE users",
+          }),
+          col("c3", "commented", "INT", { defaultValue: "1 -- sneaky" }),
+          col("c4", "blank", "NVARCHAR", { length: "10", defaultValue: "   " }),
+          col("c5", "expr", "INT", { defaultValue: "(ABS(CHECKSUM(NEWID())) % 10)" }),
+          col("c6", "unicode", "NVARCHAR", { length: "10", defaultValue: "N'é'" }),
+        ]),
+      ),
+    },
+    {
+      name: "precision wins over length",
+      input: toJson(
+        def("dbo", "prices", [
+          col("c1", "amount", "DECIMAL", { precision: "12,4", length: "8" }),
+          col("c2", "code", "CHAR", { length: "3" }),
+        ]),
+      ),
+    },
+    {
+      name: "names with spaces, dots and non-ASCII",
+      input: toJson(
+        def(
+          "my schema",
+          "order items",
+          [
+            col("c1", "line.id", "INT", { nullable: false, isPrimaryKey: true }),
+            col("c2", "名前", "NVARCHAR", { length: "10", isUnique: true }),
+          ],
+          {
+            indexes: [idx("i1", "order items 名前 idx", ["名前"])],
+            foreignKeys: [fk("f1", "line.id", "my schema", "lines", "id")],
+          },
+        ),
+      ),
+    },
+    // Fix 2 replaces this one (the DDL quote didn't escape `]`).
+    { name: "names with ] (unescaped by the adapter)", input: toJson(bracketed()) },
+    { name: "no columns", input: toJson(def("dbo", "empty", [])) },
+  ],
+  ddlAlter: [
+    alterCase("no changes", customers, () => {}),
+    // Fix 7 replaces the cases marked (invalid T-SQL).
+    alterCase("rename a column (invalid T-SQL)", customers, (d) => {
+      column(d, "c2").name = "full_name";
+    }),
+    alterCase("add columns (invalid T-SQL)", customers, (d) => {
+      d.columns.push(
+        col("c6", "tier", "INT", { nullable: false, defaultValue: "1" }),
+        col("c7", "notes", "NVARCHAR", { length: "MAX" }),
+      );
+    }),
+    alterCase("drop a column", customers, (d) => {
+      d.columns = d.columns.filter((c) => c.id !== "c2");
+    }),
+    alterCase("drop an index (invalid T-SQL)", customers, (d) => {
+      d.indexes = [];
+    }),
+    alterCase("add an index", customers, (d) => {
+      d.indexes.push(idx("i2", "customers_status_email_idx", ["status", "email"], true));
+    }),
+    alterCase("add foreign keys", customers, (d) => {
+      d.foreignKeys.push(
+        fk("f2", "email", "", "emails", "address"),
+        fk("f3", "name", "dbo", "names", "value"),
+      );
+    }),
+    alterCase("a dropped foreign key emits nothing", customers, (d) => {
+      d.foreignKeys = [];
+    }),
+    alterCase("an unnamed index is skipped", customers, (d) => {
+      d.indexes.push(idx("i2", "", ["status"]));
+    }),
+    alterCase("change a type (invalid T-SQL)", customers, (d) => {
+      column(d, "c3").length = "320";
+    }),
+    alterCase("make a column NOT NULL (invalid T-SQL)", customers, (d) => {
+      column(d, "c3").nullable = false;
+    }),
+    alterCase("make a column nullable (invalid T-SQL)", customers, (d) => {
+      column(d, "c5").nullable = true;
+    }),
+    alterCase("change a type and make it NOT NULL (invalid T-SQL)", customers, (d) => {
+      Object.assign(column(d, "c4"), { length: "40", nullable: false });
+    }),
+    alterCase("change a default (invalid T-SQL)", customers, (d) => {
+      column(d, "c4").defaultValue = "'new'";
+    }),
+    alterCase("remove a default (invalid T-SQL)", customers, (d) => {
+      column(d, "c5").defaultValue = "";
+    }),
+    alterCase("add a default (invalid T-SQL)", customers, (d) => {
+      column(d, "c3").defaultValue = "N'none'";
+    }),
+    alterCase("rename and change a type (invalid T-SQL)", customers, (d) => {
+      Object.assign(column(d, "c2"), { name: "display_name", type: "VARCHAR", length: "150" });
+    }),
+    alterCase("statement order: every branch (invalid T-SQL)", customers, (d) => {
+      column(d, "c2").name = "display_name";
+      column(d, "c2").type = "VARCHAR";
+      d.columns = d.columns.filter((c) => c.id !== "c3");
+      column(d, "c4").defaultValue = "'open'";
+      column(d, "c5").nullable = true;
+      d.columns.push(col("c6", "tier", "INT", { nullable: false, defaultValue: "1" }));
+      d.indexes = [idx("i2", "customers_tier_idx", ["tier"])];
+      d.foreignKeys.push(fk("f2", "tier", "dbo", "tiers", "id"));
+    }),
+    // Fixes 2 and 7 replace this.
+    alterCase("names with ] (unescaped, invalid T-SQL)", bracketed, (d) => {
+      column(d, "c2").name = "c]d";
+      column(d, "c3").defaultValue = "N'it''s'";
+      d.columns.push(col("c4", "new]col", "INT"));
+      d.indexes = [idx("i2", "idx]2", ["c]d"])];
+    }),
+  ],
+  ddlAddColumn: [
+    {
+      name: "NOT NULL with a default",
+      input: {
+        schema: "dbo",
+        table: "customers",
+        column: toJson(
+          col("c9", "code", "VARCHAR", { length: "8", nullable: false, defaultValue: " 'x' " }),
+        ),
+      },
+    },
+    {
+      name: "nullable, precision",
+      input: {
+        schema: "dbo",
+        table: "customers",
+        column: toJson(col("c9", "rate", "DECIMAL", { precision: "5,2" })),
+      },
+    },
+    {
+      name: "names with spaces and non-ASCII",
+      input: {
+        schema: "my schema",
+        table: "order items",
+        column: toJson(col("c9", "gift note 名前", "NVARCHAR", { length: "MAX" })),
+      },
+    },
+    // Fix 2 replaces this.
+    {
+      name: "names with ] (unescaped by the adapter)",
+      input: {
+        schema: "sch]x",
+        table: "odd]table",
+        column: toJson(col("c9", "a]b", "INT", { nullable: false, defaultValue: "0" })),
+      },
+    },
+  ],
+  columnTypes: true,
+  sql: [
+    { name: "getSchemaQuery", input: { query: "getSchemaQuery" } },
+    { name: "getSchemasQuery", input: { query: "getSchemasQuery" } },
+    {
+      name: "getColumnsQuery",
+      input: { query: "getColumnsQuery", schema: "dbo", table: "users" },
+    },
+    {
+      name: "getIndexesQuery",
+      input: { query: "getIndexesQuery", schema: "dbo", table: "users" },
+    },
+    {
+      name: "getExplainQuery",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: false },
+    },
+    {
+      name: "getExplainQuery, analyze",
+      input: { query: "getExplainQuery", sql: "SELECT * FROM users", analyze: true },
+    },
+    {
+      name: "getExplainQuery strips one trailing semicolon",
+      input: { query: "getExplainQuery", sql: "SELECT 1;;", analyze: false },
+    },
+    {
+      name: "getExplainQuery keeps a semicolon before whitespace",
+      input: { query: "getExplainQuery", sql: "SELECT 1;\n", analyze: true },
+    },
+  ],
+};
+
+// ─── EXPLAIN (captured with the Node mssql package) ─────────────────
+
+const EXPLAIN_TARGETS: ShowplanTarget[] = [
+  { name: "clustered index seek", sql: "SELECT * FROM dbo.fx_customers WHERE id = 42" },
+  {
+    name: "index seek and key lookup",
+    sql: "SELECT name, balance FROM dbo.fx_customers WHERE name = N'Customer 7'",
+  },
+  {
+    name: "clustered index scan with a predicate",
+    sql: "SELECT id, name FROM dbo.fx_customers WHERE balance > 2400",
+  },
+  {
+    name: "hash join and aggregates",
+    sql: "SELECT c.status, COUNT(*) AS n, SUM(o.total) AS total FROM dbo.fx_orders o JOIN dbo.fx_customers c ON c.id = o.customer_id GROUP BY c.status",
+  },
+  {
+    name: "top n sort",
+    sql: "SELECT TOP (50) id, total FROM dbo.fx_orders ORDER BY total DESC, id",
+  },
+  {
+    name: "nested loops",
+    sql: "SELECT o.id, c.name FROM dbo.fx_orders o JOIN dbo.fx_customers c ON c.id = o.customer_id WHERE o.customer_id = 5",
+  },
+  {
+    name: "merge join",
+    sql: "SELECT c.id, a.region FROM dbo.fx_customers c JOIN dbo.fx_accounts a ON a.customer_id = c.id OPTION (MERGE JOIN)",
+  },
+  {
+    // The per-thread row split of a parallel plan changes between runs, so
+    // only the estimated plan is recorded.
+    name: "parallel plan",
+    sql: "SELECT o.kind, COUNT_BIG(*) AS n FROM dbo.fx_orders o JOIN dbo.fx_orders p ON p.customer_id = o.customer_id GROUP BY o.kind OPTION (USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE'))",
+    analyze: [false],
+  },
+  {
+    name: "heap: index seek and RID lookup",
+    sql: "SELECT id, label FROM dbo.fx_heap WITH (INDEX (fx_heap_v_idx)) WHERE v = 7",
+  },
+  { name: "heap: table scan", sql: "SELECT id, label FROM dbo.fx_heap WHERE v = 7" },
+  {
+    name: "clustered index that isn't the primary key",
+    sql: "SELECT id, payload FROM dbo.fx_events WHERE occurred_at >= '2026-01-01T00:10:00' AND occurred_at < '2026-01-01T00:20:00'",
+  },
+  {
+    name: "semi join (EXISTS) in another schema",
+    sql: "SELECT c.id FROM dbo.fx_customers c WHERE EXISTS (SELECT 1 FROM fx_sales.fx_invoices i WHERE i.customer_id = c.id AND i.amount > 450)",
+  },
+  {
+    name: "view in another schema",
+    sql: "SELECT customer_id, total FROM fx_sales.fx_invoice_totals WHERE total > 400",
+  },
+  {
+    name: "window function",
+    sql: "SELECT id, customer_id, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY placed_at) AS rn FROM dbo.fx_orders WHERE customer_id < 10",
+  },
+  {
+    name: "union all",
+    sql: "SELECT id FROM dbo.fx_customers WHERE id < 5 UNION ALL SELECT id FROM dbo.fx_heap WHERE v = 3",
+  },
+  { name: "distinct", sql: "SELECT DISTINCT kind FROM dbo.fx_orders" },
+  {
+    name: "computed column in a filter",
+    sql: "SELECT id, display_name FROM dbo.fx_customers WHERE LEN(display_name) > 32",
+  },
+  {
+    name: "table and column names with spaces",
+    sql: "SELECT i.sku, SUM(i.qty) AS qty FROM dbo.[fx order items] i WHERE i.[order id] < 100 GROUP BY i.sku",
+  },
+  {
+    name: "table name with ]",
+    sql: "SELECT * FROM dbo.[fx]]odd name] WHERE [the value] = N'one'",
+  },
+  {
+    name: "non-ASCII names",
+    sql: "SELECT [名前] FROM dbo.fx_café WHERE [naïve] = N'é'",
+  },
+  {
+    name: "bound parameter",
+    sql: "SELECT id, total FROM dbo.fx_orders WHERE customer_id = @P1",
+    params: [7],
+    analyze: [true],
+  },
+  {
+    name: "update (rolled back)",
+    sql: "UPDATE dbo.fx_orders SET total = total + 1 WHERE customer_id = 3",
+    rollback: true,
+  },
+  // STATISTICS XML returns no plan for a trivial statement.
+  { name: "constant select", sql: "SELECT 1 AS one" },
+];
+
+/** A plan built by hand: branches no captured plan reaches. */
+function synthetic(name: string, xml: string | null, analyze = false): NamedInput {
+  const column = "Microsoft SQL Server 2005 XML Showplan";
+  return {
+    name: `synthetic: ${name}`,
+    input: {
+      sql: "(synthetic)",
+      analyze,
+      columns: xml === null ? [] : [column],
+      rows: xml === null ? [] : [{ [column]: xml }],
+    },
+  };
+}
+
+const NS = `xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"`;
+
+const SYNTHETIC: NamedInput[] = [
+  synthetic("no plan rows", null),
+  synthetic("no plan rows, analyzed", null, true),
+  synthetic(
+    "a statement without a RelOp",
+    `<ShowPlanXML ${NS} Version="1.564" Build="16.0.4245.2"><BatchSequence><Batch><Statements><StmtSimple StatementText="SET NOCOUNT ON" StatementId="1" StatementCompId="1" StatementType="SET ON/OFF" RetrievedFromCache="true"/></Statements></Batch></BatchSequence></ShowPlanXML>`,
+  ),
+  {
+    name: "synthetic: cells that aren't plans are skipped",
+    input: {
+      sql: "(synthetic)",
+      analyze: true,
+      columns: ["one"],
+      rows: [{ one: 1 }, { one: "<not a plan/>" }],
+    },
+  },
+  synthetic(
+    "PhysicalOp without LogicalOp, EstimateRowSize and two threads",
+    `<ShowPlanXML ${NS}><BatchSequence><Batch><Statements><StmtSimple><QueryPlan><RelOp NodeId="0" PhysicalOp="Parallelism" EstimateRows="12.5" EstimateRowSize="8" AvgRowSize="99" EstimatedTotalSubtreeCost="1.5e-03"><RunTimeInformation><RunTimeCountersPerThread Thread="1" ActualRows="7" ActualElapsedms="3" ActualExecutions="1"/><RunTimeCountersPerThread Thread="2" ActualRows="5" ActualElapsedms="9" ActualExecutions="1"/><RunTimeCountersPerThread Thread="0" ActualRows="0" ActualExecutions="1"/></RunTimeInformation><Parallelism><RelOp NodeId="1"><IndexScan><Object Database="[db]" Schema="[dbo]" Table="[t]]x]" Index="[ix]"/><Predicate><ScalarOperator ScalarString="[t].[a]&gt;(1)"/></Predicate></IndexScan></RelOp></Parallelism></RelOp></QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>`,
+    true,
+  ),
+];
+
+// ─── Corpus ──────────────────────────────────────────────────────────
+
+/** Tables the adapter's catalog queries accept (validateIdentifier). */
+const TABLES: [string, string][] = [
+  ["dbo", "fx_customers"],
+  ["dbo", "fx_orders"],
+  ["dbo", "fx_accounts"],
+  ["dbo", "fx_ledger"],
+  ["fx_sales", "fx_invoices"],
+  ["dbo", "fx_events"],
+  ["dbo", "fx_heap"],
+  ["dbo", "fx_café"],
+];
+
+export const mssql: EngineCorpus = {
+  id: "mssql",
+  adapter: "mssql",
+  fixtureDir: crateFixtureDir("mssql"),
+  connection: () => envConnectConfig("SEAQUEL_TEST_MSSQL", FALLBACK),
+  pure,
+  parse: {
+    schema: { filter: (row: Row) => isScratch(row.table_name) },
+    columns: TABLES.map(([schema, table]) => ({ schema, table })),
+    indexes: { targets: TABLES.map(([schema, table]) => ({ schema, table })) },
+    extra: {
+      "parse-explain.json": async (ctx) => [
+        ...(await captureShowplans(await ctx.corpus.connection(), EXPLAIN_TARGETS)),
+        ...SYNTHETIC,
+      ],
+    },
+  },
+  bugfixes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+};

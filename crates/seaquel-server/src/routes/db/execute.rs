@@ -16,5 +16,10 @@ pub async fn execute(
     State(state): State<AppState>,
     Json(req): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResult>, ApiError> {
-    Ok(Json(state.core.execute(&req.connection_id, &req.sql, req.values).await?))
+    Ok(Json(
+        state
+            .core
+            .execute(&req.connection_id, &req.sql, req.values)
+            .await?,
+    ))
 }

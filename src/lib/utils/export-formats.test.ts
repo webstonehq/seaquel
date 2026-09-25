@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { escapeSQLValue, getExportContent } from "./export-formats";
+import { escapeSQLValue, getExportContent, insertTarget } from "./export-formats";
+import type { SchemaTable } from "$lib/types";
 import { SqlDecimal } from "$lib/values";
 
 const columns = ["id", "price", "blob"];
@@ -20,7 +21,20 @@ describe("export with decoded values", () => {
 
   it("SQL leaves numbers unquoted and casts bytes for Postgres", () => {
     expect(getExportContent("sql", columns, rows, "t", "postgres")).toBe(
-      "INSERT INTO t (id, price, blob) VALUES (9007199254740993, 12.50, '\\x01ff'::bytea);",
+      'INSERT INTO t ("id", "price", "blob") VALUES (9007199254740993, 12.50, \'\\x01ff\'::bytea);',
+    );
+  });
+
+  it("SQL quotes the columns for the engine and keeps a quoted table as given", () => {
+    const row = [[1]];
+    expect(getExportContent("sql", ['we"ird'], row, '"s"."t"', "postgres")).toBe(
+      'INSERT INTO "s"."t" ("we""ird") VALUES (1);',
+    );
+    expect(getExportContent("sql", ["a`b"], row, "`db`.`t`", "mysql")).toBe(
+      "INSERT INTO `db`.`t` (`a``b`) VALUES (1);",
+    );
+    expect(getExportContent("sql", ["order"], row, undefined, "mssql")).toBe(
+      "INSERT INTO table_name ([order]) VALUES (1);",
     );
   });
 
@@ -58,5 +72,55 @@ describe("export with decoded values", () => {
     expect(getExportContent("markdown", ["j"], [[obj]])).toBe(
       '| j |\n| --- |\n| {"a":"x\\|y","n":1} |',
     );
+  });
+});
+
+describe("insertTarget", () => {
+  const users = {
+    schema: "public",
+    name: "users",
+    type: "table",
+    columns: ["id", "name", "email"].map((name) => ({ name, type: "text", nullable: true })),
+    indexes: [],
+  } as unknown as SchemaTable;
+  const sourceTable = { schema: "public", name: "users", primaryKeys: ["id"] };
+  const src = (column: string) => ({ ...sourceTable, table: "users", column });
+
+  it("is the source table when every column is its own", () => {
+    expect(insertTarget({ columns: ["id", "name"], sourceTable }, [users])).toEqual({
+      schema: "public",
+      name: "users",
+    });
+    expect(
+      insertTarget(
+        { columns: ["id", "email"], sourceTable, columnSources: [src("id"), src("email")] },
+        [users],
+      ),
+    ).toEqual({ schema: "public", name: "users" });
+  });
+
+  it("is undefined for aggregates, expressions, aliases and unknown tables", () => {
+    // SELECT id, count(*) … / SELECT id, upper(name) …
+    expect(insertTarget({ columns: ["id", "count"], sourceTable }, [users])).toBeUndefined();
+    // SELECT name AS email: the name exists, but it isn't that column.
+    expect(
+      insertTarget(
+        { columns: ["id", "email"], sourceTable, columnSources: [src("id"), src("name")] },
+        [users],
+      ),
+    ).toBeUndefined();
+    // A JOIN column from another table.
+    expect(
+      insertTarget(
+        {
+          columns: ["id", "name"],
+          sourceTable,
+          columnSources: [src("id"), { ...src("name"), table: "orders" }],
+        },
+        [users],
+      ),
+    ).toBeUndefined();
+    expect(insertTarget({ columns: ["id"], sourceTable }, [])).toBeUndefined();
+    expect(insertTarget({ columns: ["id"] }, [users])).toBeUndefined();
   });
 });

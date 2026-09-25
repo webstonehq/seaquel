@@ -1,4 +1,5 @@
-import type { DatabaseType } from "$lib/types";
+import type { DatabaseType, QueryResult, SchemaTable } from "$lib/types";
+import { quoteIdent } from "$lib/engine/qualified-table";
 import { SqlDecimal, cellText, jsonReplacer, toHex } from "$lib/values";
 
 export type ExportFormat = "csv" | "json" | "sql" | "markdown";
@@ -61,6 +62,12 @@ export function generateJSON(columns: string[], rows: unknown[][]): string {
   return JSON.stringify(objects, jsonReplacer, 2);
 }
 
+/**
+ * One INSERT per row. `tableName` goes in as given: pass the source table
+ * quoted (`EngineClient.qualifiedTable`) when it is known; the default is a
+ * placeholder to replace. Columns are quoted for `dbType` (double quotes
+ * when it is unknown).
+ */
 export function generateSQL(
   columns: string[],
   rows: unknown[][],
@@ -69,7 +76,7 @@ export function generateSQL(
 ): string {
   if (rows.length === 0) return "";
 
-  const columnNames = columns.join(", ");
+  const columnNames = columns.map((c) => quoteIdent(dbType ?? "postgres", c)).join(", ");
   const inserts = rows.map((row) => {
     const values = row.map((v) => escapeSQLValue(v, dbType)).join(", ");
     return `INSERT INTO ${tableName} (${columnNames}) VALUES (${values});`;
@@ -86,6 +93,38 @@ export function generateMarkdown(columns: string[], rows: unknown[][]): string {
   const dataRows = rows.map((row) => `| ${row.map((v) => escapeMarkdownValue(v)).join(" | ")} |`);
 
   return [header, separator, ...dataRows].join("\n");
+}
+
+/**
+ * The table an SQL export's INSERTs can target: the result's source table,
+ * when every result column is one of its columns under its own name (so no
+ * JOIN column, aggregate, expression or alias). `tables` is the schema cache;
+ * a table missing from it gives `undefined`, and so the placeholder.
+ */
+export function insertTarget(
+  result: Pick<QueryResult, "columns" | "sourceTable" | "columnSources">,
+  tables: readonly SchemaTable[],
+): { schema: string; name: string } | undefined {
+  const source = result.sourceTable;
+  if (!source || result.columns.length === 0) return undefined;
+  const table = tables.find((t) => t.schema === source.schema && t.name === source.name);
+  if (!table) return undefined;
+  const names = new Set(table.columns.map((c) => c.name));
+  if (!result.columns.every((c) => names.has(c))) return undefined;
+  const sources = result.columnSources;
+  if (
+    sources &&
+    !sources.every(
+      (s, i) =>
+        s !== undefined &&
+        s.schema === source.schema &&
+        s.table === source.name &&
+        s.column === result.columns[i],
+    )
+  ) {
+    return undefined;
+  }
+  return { schema: source.schema, name: source.name };
 }
 
 export function getExportContent(

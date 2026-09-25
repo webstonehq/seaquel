@@ -1,0 +1,1718 @@
+{
+  "cases": [
+    {
+      "name": "EXPLAIN: table scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE note LIKE '%v%'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0451644,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"rows\": 200,\n          \"cost\": 0.0451644,\n          \"filtered\": 100,\n          \"attached_condition\": \"fx_customers.note like '%v%'\"\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.note like '%v%'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: const lookup",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE id = 1",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"const\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"rows\": 1,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Const",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: bound parameter",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE id = ?",
+        "analyze": false,
+        "params": [5],
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"const\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"rows\": 1,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Const",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: range",
+      "input": {
+        "sql": "SELECT id, name FROM fx_customers WHERE id BETWEEN 10 AND 20",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00540241,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"range\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"loops\": 1,\n          \"rows\": 11,\n          \"cost\": 0.00540241,\n          \"filtered\": 100,\n          \"attached_condition\": \"fx_customers.`id` between 10 and 20\"\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Range Scan",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "filter": "fx_customers.`id` between 10 and 20",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: join",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 1.0750264,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"o\",\n          \"access_type\": \"ALL\",\n          \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n          \"loops\": 1,\n          \"rows\": 1000,\n          \"cost\": 0.1781288,\n          \"filtered\": 100,\n          \"attached_condition\": \"o.kind = 'buy'\"\n        }\n      },\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"eq_ref\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"seaquel_test.o.customer_id\"],\n          \"loops\": 1000,\n          \"rows\": 1,\n          \"cost\": 0.8968976,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "o",
+              "filter": "o.kind = 'buy'",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Scan",
+              "relationName": "c",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: group by",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.83256816,\n    \"filesort\": {\n      \"sort_key\": \"fx_orders.kind\",\n      \"temporary_table\": {\n        \"nested_loop\": [\n          {\n            \"table\": {\n              \"table_name\": \"fx_orders\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"rows\": 1000,\n              \"cost\": 0.1781288,\n              \"filtered\": 100\n            }\n          }\n        ]\n      }\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: order by",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE note LIKE '%v%' ORDER BY note",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.174799407,\n    \"nested_loop\": [\n      {\n        \"read_sorted_file\": {\n          \"filesort\": {\n            \"sort_key\": \"fx_customers.note\",\n            \"table\": {\n              \"table_name\": \"fx_customers\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"rows\": 200,\n              \"cost\": 0.0451644,\n              \"filtered\": 100,\n              \"attached_condition\": \"fx_customers.note like '%v%'\"\n            }\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Query Block",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: distinct over a join",
+      "input": {
+        "sql": "SELECT DISTINCT o.kind FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE c.note = 'vip'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 1.0750264,\n    \"temporary_table\": {\n      \"nested_loop\": [\n        {\n          \"table\": {\n            \"table_name\": \"o\",\n            \"access_type\": \"ALL\",\n            \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n            \"loops\": 1,\n            \"rows\": 1000,\n            \"cost\": 0.1781288,\n            \"filtered\": 100\n          }\n        },\n        {\n          \"table\": {\n            \"table_name\": \"c\",\n            \"access_type\": \"eq_ref\",\n            \"possible_keys\": [\"PRIMARY\"],\n            \"key\": \"PRIMARY\",\n            \"key_length\": \"4\",\n            \"used_key_parts\": [\"id\"],\n            \"ref\": [\"seaquel_test.o.customer_id\"],\n            \"loops\": 1000,\n            \"rows\": 1,\n            \"cost\": 0.8968976,\n            \"filtered\": 100,\n            \"attached_condition\": \"c.note = 'vip'\",\n            \"distinct\": true\n          }\n        }\n      ]\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: union",
+      "input": {
+        "sql": "SELECT id FROM fx_customers WHERE id < 5 UNION SELECT customer_id FROM fx_orders WHERE id < 5",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"union_result\": {\n      \"table_name\": \"<union1,2>\",\n      \"access_type\": \"ALL\",\n      \"query_specifications\": [\n        {\n          \"query_block\": {\n            \"select_id\": 1,\n            \"cost\": 0.00320452,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"fx_customers\",\n                  \"access_type\": \"range\",\n                  \"possible_keys\": [\"PRIMARY\"],\n                  \"key\": \"PRIMARY\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"id\"],\n                  \"loops\": 1,\n                  \"rows\": 4,\n                  \"cost\": 0.00320452,\n                  \"filtered\": 100,\n                  \"attached_condition\": \"fx_customers.`id` < 5\"\n                }\n              }\n            ]\n          }\n        },\n        {\n          \"query_block\": {\n            \"select_id\": 2,\n            \"operation\": \"UNION\",\n            \"cost\": 0.00320452,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"fx_orders\",\n                  \"access_type\": \"range\",\n                  \"possible_keys\": [\"PRIMARY\"],\n                  \"key\": \"PRIMARY\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"id\"],\n                  \"loops\": 1,\n                  \"rows\": 4,\n                  \"cost\": 0.00320452,\n                  \"filtered\": 100,\n                  \"attached_condition\": \"fx_orders.`id` < 5\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Union",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Nested Loop",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Range Scan",
+                  "relationName": "fx_customers",
+                  "indexName": "PRIMARY",
+                  "filter": "fx_customers.`id` < 5",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Nested Loop",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Range Scan",
+                  "relationName": "fx_orders",
+                  "indexName": "PRIMARY",
+                  "filter": "fx_orders.`id` < 5",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: subquery in WHERE",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE score > (SELECT AVG(total) FROM fx_orders)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0451644,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"rows\": 200,\n          \"cost\": 0.0451644,\n          \"filtered\": 100,\n          \"attached_condition\": \"fx_customers.score > (subquery#2)\"\n        }\n      }\n    ],\n    \"subqueries\": [\n      {\n        \"query_block\": {\n          \"select_id\": 2,\n          \"cost\": 0.1781288,\n          \"nested_loop\": [\n            {\n              \"table\": {\n                \"table_name\": \"fx_orders\",\n                \"access_type\": \"ALL\",\n                \"loops\": 1,\n                \"rows\": 1000,\n                \"cost\": 0.1781288,\n                \"filtered\": 100\n              }\n            }\n          ]\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.score > (subquery#2)",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: subquery in the select list",
+      "input": {
+        "sql": "SELECT id, (SELECT COUNT(*) FROM fx_orders o WHERE o.customer_id = c.id) AS n FROM fx_customers c WHERE c.id < 3",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00282078,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"range\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"loops\": 1,\n          \"rows\": 2,\n          \"cost\": 0.00282078,\n          \"filtered\": 100,\n          \"attached_condition\": \"c.`id` < 3\"\n        }\n      }\n    ],\n    \"subqueries\": [\n      {\n        \"subquery_cache\": {\n          \"state\": \"uninitialized\",\n          \"query_block\": {\n            \"select_id\": 2,\n            \"cost\": 0.002379345,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"o\",\n                  \"access_type\": \"ref\",\n                  \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n                  \"key\": \"fx_orders_customer_placed_idx\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"customer_id\"],\n                  \"ref\": [\"seaquel_test.c.id\"],\n                  \"loops\": 1,\n                  \"rows\": 5,\n                  \"cost\": 0.002379345,\n                  \"filtered\": 100,\n                  \"using_index\": true\n                }\n              }\n            ]\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Range Scan",
+              "relationName": "c",
+              "indexName": "PRIMARY",
+              "filter": "c.`id` < 3",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: subquery in HAVING",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind HAVING COUNT(*) > (SELECT COUNT(*) FROM fx_customers WHERE note = 'vip')",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.83256816,\n    \"having_condition\": \"count(0) > (subquery#2)\",\n    \"filesort\": {\n      \"sort_key\": \"fx_orders.kind\",\n      \"temporary_table\": {\n        \"nested_loop\": [\n          {\n            \"table\": {\n              \"table_name\": \"fx_orders\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"rows\": 1000,\n              \"cost\": 0.1781288,\n              \"filtered\": 100\n            }\n          }\n        ],\n        \"subqueries\": [\n          {\n            \"query_block\": {\n              \"select_id\": 2,\n              \"cost\": 0.0451644,\n              \"nested_loop\": [\n                {\n                  \"table\": {\n                    \"table_name\": \"fx_customers\",\n                    \"access_type\": \"ALL\",\n                    \"loops\": 1,\n                    \"rows\": 200,\n                    \"cost\": 0.0451644,\n                    \"filtered\": 100,\n                    \"attached_condition\": \"fx_customers.note = 'vip'\"\n                  }\n                }\n              ]\n            }\n          }\n        ]\n      }\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: derived table",
+      "input": {
+        "sql": "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM fx_orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.010223423,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"<derived2>\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"rows\": 5,\n          \"cost\": 0.010223423,\n          \"filtered\": 100,\n          \"attached_condition\": \"t.n > 1\",\n          \"materialized\": {\n            \"query_block\": {\n              \"select_id\": 2,\n              \"cost\": 0.15418572,\n              \"filesort\": {\n                \"sort_key\": \"count(0) desc\",\n                \"temporary_table\": {\n                  \"nested_loop\": [\n                    {\n                      \"table\": {\n                        \"table_name\": \"fx_orders\",\n                        \"access_type\": \"index\",\n                        \"key\": \"fx_orders_customer_placed_idx\",\n                        \"key_length\": \"9\",\n                        \"used_key_parts\": [\"customer_id\", \"placed_at\"],\n                        \"loops\": 1,\n                        \"rows\": 1000,\n                        \"cost\": 0.15418572,\n                        \"filtered\": 100,\n                        \"using_index\": true\n                      }\n                    }\n                  ]\n                }\n              }\n            }\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "<derived2>",
+              "filter": "t.n > 1",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"table\": {\n      \"message\": \"No tables used\"\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Table Scan",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: fulltext",
+      "input": {
+        "sql": "SELECT id FROM fx_orders WHERE MATCH(memo) AGAINST ('gift')",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00009287,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_orders\",\n          \"access_type\": \"fulltext\",\n          \"possible_keys\": [\"fx_orders_memo_ft\"],\n          \"key\": \"fx_orders_memo_ft\",\n          \"key_length\": \"0\",\n          \"used_key_parts\": [\"memo\"],\n          \"loops\": 1,\n          \"rows\": 1,\n          \"cost\": 0.00009287,\n          \"filtered\": 100,\n          \"attached_condition\": \"(match fx_orders.memo against ('gift'))\"\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Fulltext Scan",
+              "relationName": "fx_orders",
+              "indexName": "fx_orders_memo_ft",
+              "filter": "(match fx_orders.memo against ('gift'))",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: index merge",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE id = 5 OR name = 'Customer 7'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.008482221,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"index_merge\",\n          \"possible_keys\": [\"PRIMARY\", \"fx_customers_name_idx\"],\n          \"key_length\": \"4,402\",\n          \"index_merge\": {\n            \"union\": [\n              {\n                \"range\": {\n                  \"key\": \"PRIMARY\",\n                  \"used_key_parts\": [\"id\"]\n                }\n              },\n              {\n                \"range\": {\n                  \"key\": \"fx_customers_name_idx\",\n                  \"used_key_parts\": [\"name\"]\n                }\n              }\n            ]\n          },\n          \"loops\": 1,\n          \"rows\": 2,\n          \"cost\": 0.008482221,\n          \"filtered\": 100,\n          \"attached_condition\": \"fx_customers.`id` = 5 or fx_customers.`name` = 'Customer 7'\"\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Merge",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.`id` = 5 or fx_customers.`name` = 'Customer 7'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: hash index, trailing semicolon",
+      "input": {
+        "sql": "SELECT code FROM fx_mem WHERE id = 2;",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.000384418,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_mem\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_mem_id_hash\"],\n          \"key\": \"fx_mem_id_hash\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"rows\": 2,\n          \"cost\": 0.000384418,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "fx_mem",
+              "indexName": "fx_mem_id_hash",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: table name with a space",
+      "input": {
+        "sql": "SELECT * FROM `fx order items` WHERE qty = 3",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0597548,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx order items\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"rows\": 300,\n          \"cost\": 0.0597548,\n          \"filtered\": 100,\n          \"attached_condition\": \"`fx order items`.qty = 3\"\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx order items",
+              "filter": "`fx order items`.qty = 3",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: table name with a dot",
+      "input": {
+        "sql": "SELECT * FROM `fx.dotted`",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0111808,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx.dotted\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"rows\": 2,\n          \"cost\": 0.0111808,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx.dotted",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: non-ASCII names",
+      "input": {
+        "sql": "SELECT * FROM `fx_café` WHERE `naïve` = 'é'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.001792605,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_café\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_café_naïve_idx\"],\n          \"key\": \"fx_café_naïve_idx\",\n          \"key_length\": \"43\",\n          \"used_key_parts\": [\"naïve\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"rows\": 1,\n          \"cost\": 0.001792605,\n          \"filtered\": 100,\n          \"attached_condition\": \"fx_café.naïve = 'é'\",\n          \"using_index\": true\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "fx_café",
+              "indexName": "fx_café_naïve_idx",
+              "filter": "fx_café.naïve = 'é'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: never executed",
+      "input": {
+        "sql": "SELECT * FROM fx_customers c JOIN fx_orders o ON o.customer_id = c.id WHERE c.name = 'nobody'",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.01416768,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"PRIMARY\", \"fx_customers_name_idx\"],\n          \"key\": \"fx_customers_name_idx\",\n          \"key_length\": \"402\",\n          \"used_key_parts\": [\"name\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"rows\": 1,\n          \"cost\": 0.00345856,\n          \"filtered\": 100,\n          \"index_condition\": \"c.`name` = 'nobody'\"\n        }\n      },\n      {\n        \"table\": {\n          \"table_name\": \"o\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n          \"key\": \"fx_orders_customer_placed_idx\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"customer_id\"],\n          \"ref\": [\"seaquel_test.c.id\"],\n          \"loops\": 1,\n          \"rows\": 5,\n          \"cost\": 0.01070912,\n          \"filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "c",
+              "indexName": "fx_customers_name_idx",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Scan",
+              "relationName": "o",
+              "indexName": "fx_orders_customer_placed_idx",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: table scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE note LIKE '%v%'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.011625\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0451644,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.057583333,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 200,\n          \"r_rows\": 200,\n          \"cost\": 0.0451644,\n          \"r_table_time_ms\": 0.047583333,\n          \"r_other_time_ms\": 0.006916667,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 3\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 33,\n          \"attached_condition\": \"fx_customers.note like '%v%'\",\n          \"r_filtered\": 33\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.note like '%v%'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: const lookup",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE id = 1",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.01725\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 4.166667e-4,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"const\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"r_loops\": 0,\n          \"rows\": 1,\n          \"r_rows\": null,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 2\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": null,\n          \"r_filtered\": null\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Const",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: bound parameter",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE id = ?",
+        "analyze": false,
+        "params": [5],
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.013291667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 5.833333e-4,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"const\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"r_loops\": 0,\n          \"rows\": 1,\n          \"r_rows\": null,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 2\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": null,\n          \"r_filtered\": null\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Const",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: range",
+      "input": {
+        "sql": "SELECT id, name FROM fx_customers WHERE id BETWEEN 10 AND 20",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.016583333\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00540241,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.009333333,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"range\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 11,\n          \"r_rows\": 11,\n          \"cost\": 0.00540241,\n          \"r_table_time_ms\": 0.004291667,\n          \"r_other_time_ms\": 0.00275,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 4\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"fx_customers.`id` between 10 and 20\",\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Range Scan",
+              "relationName": "fx_customers",
+              "indexName": "PRIMARY",
+              "filter": "fx_customers.`id` between 10 and 20",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: join",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.021375\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 1.0750264,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.161666667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"o\",\n          \"access_type\": \"ALL\",\n          \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 1000,\n          \"r_rows\": 1000,\n          \"cost\": 0.1781288,\n          \"r_table_time_ms\": 0.054625,\n          \"r_other_time_ms\": 0.023541667,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 6\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 33.3,\n          \"attached_condition\": \"o.kind = 'buy'\",\n          \"r_filtered\": 33.3\n        }\n      },\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"eq_ref\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"seaquel_test.o.customer_id\"],\n          \"loops\": 1000,\n          \"r_loops\": 333,\n          \"rows\": 1,\n          \"r_rows\": 1,\n          \"cost\": 0.8968976,\n          \"r_table_time_ms\": 0.072875,\n          \"r_other_time_ms\": 0.009208333,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 669\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "o",
+              "filter": "o.kind = 'buy'",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Scan",
+              "relationName": "c",
+              "indexName": "PRIMARY",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: group by",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.028166667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.83256816,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.129666667,\n    \"filesort\": {\n      \"sort_key\": \"fx_orders.kind\",\n      \"r_loops\": 1,\n      \"r_total_time_ms\": 0.003125,\n      \"r_used_priority_queue\": false,\n      \"r_output_rows\": 3,\n      \"r_buffer_size\": \"256\",\n      \"r_sort_mode\": \"sort_key,rowid\",\n      \"temporary_table\": {\n        \"nested_loop\": [\n          {\n            \"table\": {\n              \"table_name\": \"fx_orders\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"r_loops\": 1,\n              \"rows\": 1000,\n              \"r_rows\": 1000,\n              \"cost\": 0.1781288,\n              \"r_table_time_ms\": 0.046875,\n              \"r_other_time_ms\": 0.076125,\n              \"r_engine_stats\": {\n                \"pages_accessed\": 6\n              },\n              \"filtered\": 100,\n              \"r_total_filtered\": 100,\n              \"r_filtered\": 100\n            }\n          }\n        ]\n      }\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: order by",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE note LIKE '%v%' ORDER BY note",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.020125\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.174799407,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.063625,\n    \"nested_loop\": [\n      {\n        \"read_sorted_file\": {\n          \"r_rows\": 66,\n          \"filesort\": {\n            \"sort_key\": \"fx_customers.note\",\n            \"r_loops\": 1,\n            \"r_total_time_ms\": 0.03925,\n            \"r_used_priority_queue\": false,\n            \"r_output_rows\": 66,\n            \"r_buffer_size\": \"809Kb\",\n            \"r_sort_mode\": \"sort_key,rowid\",\n            \"table\": {\n              \"table_name\": \"fx_customers\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"r_loops\": 1,\n              \"rows\": 200,\n              \"r_rows\": 200,\n              \"cost\": 0.0451644,\n              \"r_table_time_ms\": 0.037583333,\n              \"r_other_time_ms\": 0.019166667,\n              \"r_engine_stats\": {\n                \"pages_accessed\": 135\n              },\n              \"filtered\": 100,\n              \"r_total_filtered\": 33,\n              \"attached_condition\": \"fx_customers.note like '%v%'\",\n              \"r_filtered\": 33\n            }\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Query Block",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: distinct over a join",
+      "input": {
+        "sql": "SELECT DISTINCT o.kind FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE c.note = 'vip'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.042291667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 1.0750264,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.316125,\n    \"temporary_table\": {\n      \"nested_loop\": [\n        {\n          \"table\": {\n            \"table_name\": \"o\",\n            \"access_type\": \"ALL\",\n            \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n            \"loops\": 1,\n            \"r_loops\": 1,\n            \"rows\": 1000,\n            \"r_rows\": 1000,\n            \"cost\": 0.1781288,\n            \"r_table_time_ms\": 0.056083333,\n            \"r_other_time_ms\": 0.026916667,\n            \"r_engine_stats\": {\n              \"pages_accessed\": 6\n            },\n            \"filtered\": 100,\n            \"r_total_filtered\": 100,\n            \"r_filtered\": 100\n          }\n        },\n        {\n          \"table\": {\n            \"table_name\": \"c\",\n            \"access_type\": \"eq_ref\",\n            \"possible_keys\": [\"PRIMARY\"],\n            \"key\": \"PRIMARY\",\n            \"key_length\": \"4\",\n            \"used_key_parts\": [\"id\"],\n            \"ref\": [\"seaquel_test.o.customer_id\"],\n            \"loops\": 1000,\n            \"r_loops\": 1000,\n            \"rows\": 1,\n            \"r_rows\": 1,\n            \"cost\": 0.8968976,\n            \"r_table_time_ms\": 0.196416667,\n            \"r_other_time_ms\": 0.034958333,\n            \"r_engine_stats\": {\n              \"pages_accessed\": 2005\n            },\n            \"filtered\": 100,\n            \"r_total_filtered\": 33,\n            \"attached_condition\": \"c.note = 'vip'\",\n            \"r_filtered\": 33,\n            \"distinct\": true\n          }\n        }\n      ]\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: union",
+      "input": {
+        "sql": "SELECT id FROM fx_customers WHERE id < 5 UNION SELECT customer_id FROM fx_orders WHERE id < 5",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.046416667\n  },\n  \"query_block\": {\n    \"union_result\": {\n      \"table_name\": \"<union1,2>\",\n      \"access_type\": \"ALL\",\n      \"r_loops\": 1,\n      \"r_rows\": 5,\n      \"query_specifications\": [\n        {\n          \"query_block\": {\n            \"select_id\": 1,\n            \"cost\": 0.00320452,\n            \"r_loops\": 1,\n            \"r_total_time_ms\": 0.012875,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"fx_customers\",\n                  \"access_type\": \"range\",\n                  \"possible_keys\": [\"PRIMARY\"],\n                  \"key\": \"PRIMARY\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"id\"],\n                  \"loops\": 1,\n                  \"r_loops\": 1,\n                  \"rows\": 4,\n                  \"r_rows\": 4,\n                  \"cost\": 0.00320452,\n                  \"r_table_time_ms\": 0.004375,\n                  \"r_other_time_ms\": 0.004916667,\n                  \"r_engine_stats\": {\n                    \"pages_accessed\": 4\n                  },\n                  \"filtered\": 100,\n                  \"r_total_filtered\": 100,\n                  \"attached_condition\": \"fx_customers.`id` < 5\",\n                  \"r_filtered\": 100\n                }\n              }\n            ]\n          }\n        },\n        {\n          \"query_block\": {\n            \"select_id\": 2,\n            \"operation\": \"UNION\",\n            \"cost\": 0.00320452,\n            \"r_loops\": 1,\n            \"r_total_time_ms\": 0.002583333,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"fx_orders\",\n                  \"access_type\": \"range\",\n                  \"possible_keys\": [\"PRIMARY\"],\n                  \"key\": \"PRIMARY\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"id\"],\n                  \"loops\": 1,\n                  \"r_loops\": 1,\n                  \"rows\": 4,\n                  \"r_rows\": 4,\n                  \"cost\": 0.00320452,\n                  \"r_table_time_ms\": 0.001333333,\n                  \"r_other_time_ms\": 0.000875,\n                  \"r_engine_stats\": {\n                    \"pages_accessed\": 4\n                  },\n                  \"filtered\": 100,\n                  \"r_total_filtered\": 100,\n                  \"attached_condition\": \"fx_orders.`id` < 5\",\n                  \"r_filtered\": 100\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Union",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Nested Loop",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Range Scan",
+                  "relationName": "fx_customers",
+                  "indexName": "PRIMARY",
+                  "filter": "fx_customers.`id` < 5",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Nested Loop",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Range Scan",
+                  "relationName": "fx_orders",
+                  "indexName": "PRIMARY",
+                  "filter": "fx_orders.`id` < 5",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: subquery in WHERE",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE score > (SELECT AVG(total) FROM fx_orders)",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.019291667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0451644,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.108458333,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 200,\n          \"r_rows\": 200,\n          \"cost\": 0.0451644,\n          \"r_table_time_ms\": 0.023166667,\n          \"r_other_time_ms\": 0.0085,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 3\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 4,\n          \"attached_condition\": \"fx_customers.score > (subquery#2)\",\n          \"r_filtered\": 4\n        }\n      }\n    ],\n    \"subqueries\": [\n      {\n        \"query_block\": {\n          \"select_id\": 2,\n          \"cost\": 0.1781288,\n          \"r_loops\": 1,\n          \"r_total_time_ms\": 0.073875,\n          \"nested_loop\": [\n            {\n              \"table\": {\n                \"table_name\": \"fx_orders\",\n                \"access_type\": \"ALL\",\n                \"loops\": 1,\n                \"r_loops\": 1,\n                \"rows\": 1000,\n                \"r_rows\": 1000,\n                \"cost\": 0.1781288,\n                \"r_table_time_ms\": 0.040416667,\n                \"r_other_time_ms\": 0.033041667,\n                \"r_engine_stats\": {\n                  \"pages_accessed\": 6\n                },\n                \"filtered\": 100,\n                \"r_total_filtered\": 100,\n                \"r_filtered\": 100\n              }\n            }\n          ]\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.score > (subquery#2)",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: subquery in the select list",
+      "input": {
+        "sql": "SELECT id, (SELECT COUNT(*) FROM fx_orders o WHERE o.customer_id = c.id) AS n FROM fx_customers c WHERE c.id < 3",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.0365\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00282078,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.031875,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"range\",\n          \"possible_keys\": [\"PRIMARY\"],\n          \"key\": \"PRIMARY\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 2,\n          \"r_rows\": 2,\n          \"cost\": 0.00282078,\n          \"r_table_time_ms\": 0.002875,\n          \"r_other_time_ms\": 0.016625,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 4\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"c.`id` < 3\",\n          \"r_filtered\": 100\n        }\n      }\n    ],\n    \"subqueries\": [\n      {\n        \"subquery_cache\": {\n          \"r_loops\": 2,\n          \"r_hit_ratio\": 0,\n          \"query_block\": {\n            \"select_id\": 2,\n            \"cost\": 0.002379345,\n            \"r_loops\": 2,\n            \"r_total_time_ms\": 0.008041667,\n            \"nested_loop\": [\n              {\n                \"table\": {\n                  \"table_name\": \"o\",\n                  \"access_type\": \"ref\",\n                  \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n                  \"key\": \"fx_orders_customer_placed_idx\",\n                  \"key_length\": \"4\",\n                  \"used_key_parts\": [\"customer_id\"],\n                  \"ref\": [\"seaquel_test.c.id\"],\n                  \"loops\": 1,\n                  \"r_loops\": 2,\n                  \"rows\": 5,\n                  \"r_rows\": 5,\n                  \"cost\": 0.002379345,\n                  \"r_table_time_ms\": 0.004625,\n                  \"r_other_time_ms\": 0.001375,\n                  \"r_engine_stats\": {\n                    \"pages_accessed\": 4\n                  },\n                  \"filtered\": 100,\n                  \"r_total_filtered\": 100,\n                  \"r_filtered\": 100,\n                  \"using_index\": true\n                }\n              }\n            ]\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Range Scan",
+              "relationName": "c",
+              "indexName": "PRIMARY",
+              "filter": "c.`id` < 3",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: subquery in HAVING",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind HAVING COUNT(*) > (SELECT COUNT(*) FROM fx_customers WHERE note = 'vip')",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.031875\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.83256816,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.135833333,\n    \"having_condition\": \"count(0) > (subquery#2)\",\n    \"filesort\": {\n      \"sort_key\": \"fx_orders.kind\",\n      \"r_loops\": 1,\n      \"r_total_time_ms\": 0.02075,\n      \"r_used_priority_queue\": false,\n      \"r_output_rows\": 3,\n      \"r_buffer_size\": \"256\",\n      \"r_sort_mode\": \"sort_key,rowid\",\n      \"temporary_table\": {\n        \"nested_loop\": [\n          {\n            \"table\": {\n              \"table_name\": \"fx_orders\",\n              \"access_type\": \"ALL\",\n              \"loops\": 1,\n              \"r_loops\": 1,\n              \"rows\": 1000,\n              \"r_rows\": 1000,\n              \"cost\": 0.1781288,\n              \"r_table_time_ms\": 0.0425,\n              \"r_other_time_ms\": 0.069833333,\n              \"r_engine_stats\": {\n                \"pages_accessed\": 6\n              },\n              \"filtered\": 100,\n              \"r_total_filtered\": 100,\n              \"r_filtered\": 100\n            }\n          }\n        ],\n        \"subqueries\": [\n          {\n            \"query_block\": {\n              \"select_id\": 2,\n              \"cost\": 0.0451644,\n              \"r_loops\": 1,\n              \"r_total_time_ms\": 0.017166667,\n              \"nested_loop\": [\n                {\n                  \"table\": {\n                    \"table_name\": \"fx_customers\",\n                    \"access_type\": \"ALL\",\n                    \"loops\": 1,\n                    \"r_loops\": 1,\n                    \"rows\": 200,\n                    \"r_rows\": 200,\n                    \"cost\": 0.0451644,\n                    \"r_table_time_ms\": 0.012666667,\n                    \"r_other_time_ms\": 0.004041667,\n                    \"r_engine_stats\": {\n                      \"pages_accessed\": 3\n                    },\n                    \"filtered\": 100,\n                    \"r_total_filtered\": 33,\n                    \"attached_condition\": \"fx_customers.note = 'vip'\",\n                    \"r_filtered\": 33\n                  }\n                }\n              ]\n            }\n          }\n        ]\n      }\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: derived table",
+      "input": {
+        "sql": "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM fx_orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.030666667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.010223423,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.074,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"<derived2>\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 5,\n          \"r_rows\": 5,\n          \"cost\": 0.010223423,\n          \"r_table_time_ms\": 0.00025,\n          \"r_other_time_ms\": 0.003083333,\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"t.n > 1\",\n          \"r_filtered\": 100,\n          \"materialized\": {\n            \"query_block\": {\n              \"select_id\": 2,\n              \"cost\": 0.15418572,\n              \"r_loops\": 1,\n              \"r_total_time_ms\": 0.071375,\n              \"filesort\": {\n                \"sort_key\": \"count(0) desc\",\n                \"r_loops\": 1,\n                \"r_total_time_ms\": 0.005,\n                \"r_limit\": 5,\n                \"r_used_priority_queue\": true,\n                \"r_output_rows\": 6,\n                \"r_sort_mode\": \"sort_key,rowid\",\n                \"temporary_table\": {\n                  \"nested_loop\": [\n                    {\n                      \"table\": {\n                        \"table_name\": \"fx_orders\",\n                        \"access_type\": \"index\",\n                        \"key\": \"fx_orders_customer_placed_idx\",\n                        \"key_length\": \"9\",\n                        \"used_key_parts\": [\"customer_id\", \"placed_at\"],\n                        \"loops\": 1,\n                        \"r_loops\": 1,\n                        \"rows\": 1000,\n                        \"r_rows\": 1000,\n                        \"cost\": 0.15418572,\n                        \"r_table_time_ms\": 0.039833333,\n                        \"r_other_time_ms\": 0.021916667,\n                        \"r_engine_stats\": {\n                          \"pages_accessed\": 3\n                        },\n                        \"filtered\": 100,\n                        \"r_total_filtered\": 100,\n                        \"r_filtered\": 100,\n                        \"using_index\": true\n                      }\n                    }\n                  ]\n                }\n              }\n            }\n          }\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "<derived2>",
+              "filter": "t.n > 1",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.003291667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"table\": {\n      \"message\": \"No tables used\"\n    }\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Table Scan",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: fulltext",
+      "input": {
+        "sql": "SELECT id FROM fx_orders WHERE MATCH(memo) AGAINST ('gift')",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.227041667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.00009287,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.078166667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_orders\",\n          \"access_type\": \"fulltext\",\n          \"possible_keys\": [\"fx_orders_memo_ft\"],\n          \"key\": \"fx_orders_memo_ft\",\n          \"key_length\": \"0\",\n          \"used_key_parts\": [\"memo\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 1,\n          \"r_rows\": 100,\n          \"cost\": 0.00009287,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 400\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"(match fx_orders.memo against ('gift'))\",\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Fulltext Scan",
+              "relationName": "fx_orders",
+              "indexName": "fx_orders_memo_ft",
+              "filter": "(match fx_orders.memo against ('gift'))",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: index merge",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE id = 5 OR name = 'Customer 7'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.027208333\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.008482221,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.025208333,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_customers\",\n          \"access_type\": \"index_merge\",\n          \"possible_keys\": [\"PRIMARY\", \"fx_customers_name_idx\"],\n          \"key_length\": \"4,402\",\n          \"index_merge\": {\n            \"union\": [\n              {\n                \"range\": {\n                  \"key\": \"PRIMARY\",\n                  \"used_key_parts\": [\"id\"]\n                }\n              },\n              {\n                \"range\": {\n                  \"key\": \"fx_customers_name_idx\",\n                  \"used_key_parts\": [\"name\"]\n                }\n              }\n            ]\n          },\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 2,\n          \"r_rows\": 2,\n          \"cost\": 0.008482221,\n          \"r_table_time_ms\": 0.001208333,\n          \"r_other_time_ms\": 0.003708333,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 8\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"fx_customers.`id` = 5 or fx_customers.`name` = 'Customer 7'\",\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Merge",
+              "relationName": "fx_customers",
+              "filter": "fx_customers.`id` = 5 or fx_customers.`name` = 'Customer 7'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: hash index, trailing semicolon",
+      "input": {
+        "sql": "SELECT code FROM fx_mem WHERE id = 2;",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.033375\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.000384418,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.003291667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_mem\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_mem_id_hash\"],\n          \"key\": \"fx_mem_id_hash\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"id\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 2,\n          \"r_rows\": 1,\n          \"cost\": 0.000384418,\n          \"r_table_time_ms\": 0.001083333,\n          \"r_other_time_ms\": 0.0015,\n          \"r_engine_stats\": {},\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "fx_mem",
+              "indexName": "fx_mem_id_hash",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: table name with a space",
+      "input": {
+        "sql": "SELECT * FROM `fx order items` WHERE qty = 3",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.012958333\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0597548,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.028416667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx order items\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 300,\n          \"r_rows\": 300,\n          \"cost\": 0.0597548,\n          \"r_table_time_ms\": 0.020083333,\n          \"r_other_time_ms\": 0.007,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 1\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 20,\n          \"attached_condition\": \"`fx order items`.qty = 3\",\n          \"r_filtered\": 20\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx order items",
+              "filter": "`fx order items`.qty = 3",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: table name with a dot",
+      "input": {
+        "sql": "SELECT * FROM `fx.dotted`",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.004625\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.0111808,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.003666667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx.dotted\",\n          \"access_type\": \"ALL\",\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 2,\n          \"r_rows\": 2,\n          \"cost\": 0.0111808,\n          \"r_table_time_ms\": 0.002333333,\n          \"r_other_time_ms\": 5.416667e-4,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 1\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"r_filtered\": 100\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "fx.dotted",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: non-ASCII names",
+      "input": {
+        "sql": "SELECT * FROM `fx_café` WHERE `naïve` = 'é'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.02\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.001792605,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.002166667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"fx_café\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_café_naïve_idx\"],\n          \"key\": \"fx_café_naïve_idx\",\n          \"key_length\": \"43\",\n          \"used_key_parts\": [\"naïve\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 1,\n          \"r_rows\": 0,\n          \"cost\": 0.001792605,\n          \"r_table_time_ms\": 0.001041667,\n          \"r_other_time_ms\": 0.000375,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 2\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"attached_condition\": \"fx_café.naïve = 'é'\",\n          \"r_filtered\": 100,\n          \"using_index\": true\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "fx_café",
+              "indexName": "fx_café_naïve_idx",
+              "filter": "fx_café.naïve = 'é'",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "ANALYZE FORMAT=JSON: never executed",
+      "input": {
+        "sql": "SELECT * FROM fx_customers c JOIN fx_orders o ON o.customer_id = c.id WHERE c.name = 'nobody'",
+        "analyze": false,
+        "mariadbAnalyze": true,
+        "columns": ["ANALYZE"],
+        "rows": [
+          {
+            "ANALYZE": "{\n  \"query_optimization\": {\n    \"r_total_time_ms\": 0.024416667\n  },\n  \"query_block\": {\n    \"select_id\": 1,\n    \"cost\": 0.01416768,\n    \"r_loops\": 1,\n    \"r_total_time_ms\": 0.002916667,\n    \"nested_loop\": [\n      {\n        \"table\": {\n          \"table_name\": \"c\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"PRIMARY\", \"fx_customers_name_idx\"],\n          \"key\": \"fx_customers_name_idx\",\n          \"key_length\": \"402\",\n          \"used_key_parts\": [\"name\"],\n          \"ref\": [\"const\"],\n          \"loops\": 1,\n          \"r_loops\": 1,\n          \"rows\": 1,\n          \"r_index_rows\": 0,\n          \"r_rows\": 0,\n          \"cost\": 0.00345856,\n          \"r_table_time_ms\": 0.001291667,\n          \"r_other_time_ms\": 0.000375,\n          \"r_engine_stats\": {\n            \"pages_accessed\": 2\n          },\n          \"filtered\": 100,\n          \"r_total_filtered\": 100,\n          \"index_condition\": \"c.`name` = 'nobody'\",\n          \"r_icp_filtered\": 0,\n          \"r_filtered\": 100\n        }\n      },\n      {\n        \"table\": {\n          \"table_name\": \"o\",\n          \"access_type\": \"ref\",\n          \"possible_keys\": [\"fx_orders_customer_placed_idx\"],\n          \"key\": \"fx_orders_customer_placed_idx\",\n          \"key_length\": \"4\",\n          \"used_key_parts\": [\"customer_id\"],\n          \"ref\": [\"seaquel_test.c.id\"],\n          \"loops\": 1,\n          \"r_loops\": 0,\n          \"rows\": 5,\n          \"r_rows\": null,\n          \"cost\": 0.01070912,\n          \"r_engine_stats\": {},\n          \"filtered\": 100,\n          \"r_total_filtered\": null,\n          \"r_filtered\": null\n        }\n      }\n    ]\n  }\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "relationName": "c",
+              "indexName": "fx_customers_name_idx",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Scan",
+              "relationName": "o",
+              "indexName": "fx_orders_customer_placed_idx",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: v2 plan under query_plan",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_plan\":{\"operation\":\"Nested loop inner join\",\"join_type\":\"inner join\",\"estimated_rows\":12.5,\"estimated_total_cost\":40.25,\"inputs\":[{\"operation\":\"Table scan on o\",\"table_name\":\"orders\",\"alias\":\"o\",\"estimated_rows\":1000,\"estimated_total_cost\":101.5},{\"operation\":\"Single-row index lookup on c using PRIMARY (id=o.customer_id)\",\"table_name\":\"customers\",\"alias\":\"c\",\"index_name\":\"PRIMARY\",\"lookup_condition\":\"id=o.customer_id\",\"estimated_rows\":1,\"estimated_total_cost\":0.25},{\"operation\":\"Filter: (x > 2)\",\"condition\":\"(x > 2)\",\"estimated_rows\":2.5},{\"estimated_rows\":\"7\"}]}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested loop inner join",
+          "joinType": "inner join",
+          "planRows": 13,
+          "totalCost": 40.25,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table scan",
+              "relationName": "orders",
+              "alias": "o",
+              "planRows": 1000,
+              "totalCost": 101.5,
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Single-row index lookup",
+              "relationName": "customers",
+              "alias": "c",
+              "indexName": "PRIMARY",
+              "indexCond": "id=o.customer_id",
+              "planRows": 1,
+              "totalCost": 0.25,
+              "children": []
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Filter:",
+              "filter": "(x > 2)",
+              "planRows": 3,
+              "children": []
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Operator",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: query block with attached subqueries",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"select_id\":1,\"cost_info\":{\"query_cost\":\"3.50\"},\"attached_subqueries\":[{\"dependent\":false,\"query_block\":{\"select_id\":2,\"table\":{\"table_name\":\"a\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"1.00\",\"eval_cost\":\"0.50\"}}}},{\"dependent\":true,\"cacheable\":false},{\"query_block\":{\"select_id\":3,\"cost_info\":{\"query_cost\":\"1.25\"}}}]}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Block",
+          "totalCost": 3.5,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Table Scan",
+              "relationName": "a",
+              "planRows": 10,
+              "totalCost": 1.5,
+              "children": []
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Query Block",
+              "totalCost": 1.25,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: union spec without a query block",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"union_result\":{\"table_name\":\"<union1,2>\",\"query_specifications\":[{\"query_block\":{\"select_id\":1,\"table\":{\"table_name\":\"a\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"1.00\",\"eval_cost\":\"0.50\"}}}},{\"dependent\":false}]}}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Union",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "a",
+              "planRows": 10,
+              "totalCost": 1.5,
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Query Block",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: union without specifications",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"union_result\":{}}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Union",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: costs that are missing, empty or not numbers",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"cost_info\":{},\"nested_loop\":[{\"table\":{\"table_name\":\"a\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"x\",\"eval_cost\":\"1\"}}},{\"table\":{\"table_name\":\"b\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{}}},{\"table\":{\"table_name\":\"c\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"\",\"eval_cost\":\"2.5\"}}},{\"table\":{\"table_name\":\"d\",\"access_type\":\"\",\"rows_examined_per_scan\":10}},{\"table\":{\"table_name\":\"e\",\"access_type\":\"system\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":3,\"eval_cost\":\" 4 \"}}},{\"table\":{\"table_name\":\"f\",\"access_type\":\"custom_access\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"1.00\",\"eval_cost\":\"0.50\"}}}]}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested Loop",
+          "totalCost": null,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table Scan",
+              "relationName": "a",
+              "planRows": 10,
+              "totalCost": null,
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Table Scan",
+              "relationName": "b",
+              "planRows": 10,
+              "children": []
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Table Scan",
+              "relationName": "c",
+              "planRows": 10,
+              "totalCost": 2.5,
+              "children": []
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Table Scan",
+              "relationName": "d",
+              "planRows": 10,
+              "children": []
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Const",
+              "relationName": "e",
+              "planRows": 10,
+              "totalCost": 7,
+              "children": []
+            },
+            {
+              "id": "node-6",
+              "nodeType": "custom_access",
+              "relationName": "f",
+              "planRows": 10,
+              "totalCost": 1.5,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: grouping, ordering and duplicates removal nested",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"cost_info\":{\"query_cost\":\"9.00\"},\"ordering_operation\":{\"grouping_operation\":{\"duplicates_removal\":{\"nested_loop\":[{\"table\":{\"table_name\":\"a\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"1.00\",\"eval_cost\":\"0.50\"}}},{\"table\":{\"table_name\":\"b\",\"access_type\":\"ALL\",\"rows_examined_per_scan\":10,\"cost_info\":{\"read_cost\":\"1.00\",\"eval_cost\":\"0.50\"}}}]}}}}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Sort",
+          "totalCost": 9,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Group",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Distinct",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "Nested Loop",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "Table Scan",
+                          "relationName": "a",
+                          "planRows": 10,
+                          "totalCost": 1.5,
+                          "children": []
+                        },
+                        {
+                          "id": "node-5",
+                          "nodeType": "Table Scan",
+                          "relationName": "b",
+                          "planRows": 10,
+                          "totalCost": 1.5,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: no query block",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"something\":1}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: plan given as a JSON object cell",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\":{\"select_id\":1}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Block",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: analyze text: blank lines, lines without an arrow, several roots",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "\n-> Limit: 1 row(s)  (cost=1.5 rows=1) (actual time=0.1..0.2 rows=1 loops=1)\nnot an operator line\n\n-> Table scan on t  (cost=0.5 rows=3)\n"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Limit: 1 row",
+              "children": [],
+              "totalCost": 1.5,
+              "planRows": 1,
+              "actualStartupTime": 0.1,
+              "actualTotalTime": 0.2,
+              "actualRows": 1,
+              "actualLoops": 1
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "children": [],
+              "totalCost": 0.5,
+              "planRows": 3,
+              "relationName": "t"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "synthetic: analyze text: operators on the same level",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Nested loop inner join  (cost=2 rows=4)\n    -> Table scan on a  (cost=1 rows=2)\n    -> Index lookup on b using ix (id=a.id)  (cost=0.5 rows=2)\n        -> Deeper  (cost=0.1 rows=1)\n    -> Back up\n"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Nested loop inner join",
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "children": [],
+              "totalCost": 1,
+              "planRows": 2,
+              "relationName": "a"
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Index lookup",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Deeper",
+                  "children": [],
+                  "totalCost": 0.1,
+                  "planRows": 1
+                }
+              ],
+              "totalCost": 0.5,
+              "planRows": 2,
+              "relationName": "b",
+              "indexName": "ix"
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Back up",
+              "children": []
+            }
+          ],
+          "totalCost": 2,
+          "planRows": 4
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    }
+  ]
+}

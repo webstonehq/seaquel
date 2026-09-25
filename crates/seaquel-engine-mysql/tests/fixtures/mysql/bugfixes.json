@@ -1,0 +1,4086 @@
+{
+  "about": "Hand-written expectations for the intended changes from the TypeScript MySQL adapter (src/lib/db/mysql.ts); see 'Task 4' in docs/plans/2026-09-26-rust-core-phase-2-plan.md. The recorder never writes this file; its 'scratch' block is what record mode (and tests/smoke.rs, in a fresh database) builds, unqualified, in seaquel_test. Fix 1: catalog filters are bound, so tables named with a space, '-' or '.' load ('columns'/'indexes' cases, checked live by smoke.rs). Fix 2: the DDL quote doubles backticks. Fix 3: is_foreign_key comes from KEY_COLUMN_USAGE.REFERENCED_TABLE_NAME alone (a PRI or UNI column can be a foreign key), and the reference is three columns, not a CONCAT that a dotted name breaks. Fix 4: catalog text is UTF-8 (the TS decoded byte cells as Latin-1: 'é' became 'Ã©'), and table_type is aliased and decoded (MySQL named the bare column TABLE_TYPE, so views were listed as tables). Fix 5: EXPLAIN ANALYZE text with fractional or scientific numbers, cost ranges, '(never executed)' and relation names that aren't one ASCII word. Fix 6: DROP INDEX `i` ON `schema`.`table` (the original table), and ALTER TABLE ... DROP PRIMARY KEY for PRIMARY. Fix 7 (revised in review): a default-only change is ALTER TABLE ... ALTER COLUMN ... SET DEFAULT <expr> / DROP DEFAULT (the TS emitted nothing); MODIFY COLUMN only for a type or nullability change, as before, so ON UPDATE, COMMENT and collation aren't rebuilt from the editor's definition. Fix 8 (decided in review): SchemaColumn.defaultValue is the default as a SQL expression, as Postgres reports it, because the table editor copies it into DDL verbatim. MySQL reports literal defaults unquoted, so they are quoted (\\ and ' escaped) unless the column is numeric or BIT or EXTRA says DEFAULT_GENERATED (CURRENT_TIMESTAMP[(n)] kept, other expressions parenthesized); an empty string is ''. MariaDB already reports SQL, so only its bare word NULL becomes no default. The TS query's MySQL rows have no EXTRA and keep the TS value. Fix 9 (found while recording): the index usage query read TABLE_SCHEMA from mysql.innodb_index_stats, which only has database_name, so it failed on both servers and the whole Statistics view with it; the recorder records its rows with the fixed query. Fix 10 (found while recording): JSON plans the TS showed as empty: MySQL's schema v2 (explain_json_format_version = 2) puts the plan at the root, where the TS looked for a 'query_plan' key, and a v1 'windowing' block (window functions) had no branch. A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs). Re-recording changes timings and costs, so the 'replaces' cases of fixes 5 and 10 must be regenerated and reviewed with it.",
+  "scratch": {
+    "schema": "seaquel_test",
+    "setup": [
+      "CREATE TABLE fx_customers (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL, email VARCHAR(255) UNIQUE, status VARCHAR(20) DEFAULT 'active', quoted VARCHAR(20) DEFAULT 'it''s', literal_null VARCHAR(10) DEFAULT 'NULL', score DECIMAL(10,2) NOT NULL DEFAULT 0.00, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, note TEXT, KEY fx_customers_name_idx (name))",
+      "INSERT INTO fx_customers (name, email, score, note) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 200) SELECT CONCAT('Customer ', n), CONCAT('c', n, '@example.com'), n % 50, IF(n % 3 = 0, 'vip', NULL) FROM seq",
+      "CREATE INDEX fx_customers_lower_email_idx ON fx_customers ((lower(email)))",
+      "CREATE TABLE fx_orders (id INT PRIMARY KEY AUTO_INCREMENT, customer_id INT NOT NULL, kind ENUM('click', 'view', 'buy') NOT NULL, total DECIMAL(10,2), placed_at DATETIME NOT NULL, memo TEXT, KEY fx_orders_customer_placed_idx (customer_id, placed_at), FULLTEXT KEY fx_orders_memo_ft (memo), CONSTRAINT fx_orders_customer_fk FOREIGN KEY (customer_id) REFERENCES fx_customers (id))",
+      "INSERT INTO fx_orders (customer_id, kind, total, placed_at, memo) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 1000) SELECT n % 200 + 1, ELT(n % 3 + 1, 'click', 'view', 'buy'), n % 97, TIMESTAMP '2026-01-01 00:00:00' + INTERVAL n MINUTE, IF(n % 10 = 0, 'gift wrap', 'standard') FROM seq",
+      "CREATE TABLE fx_accounts (customer_id INT PRIMARY KEY, email VARCHAR(255) UNIQUE, referrer_id INT, plan VARCHAR(20) NOT NULL DEFAULT 'free', CONSTRAINT fx_accounts_customer_fk FOREIGN KEY (customer_id) REFERENCES fx_customers (id), CONSTRAINT fx_accounts_email_fk FOREIGN KEY (email) REFERENCES fx_customers (email), CONSTRAINT fx_accounts_referrer_fk FOREIGN KEY (referrer_id) REFERENCES fx_customers (id))",
+      "INSERT INTO fx_accounts (customer_id, email, referrer_id, plan) VALUES (1, 'c1@example.com', NULL, 'pro'), (2, 'c2@example.com', 1, 'free'), (3, NULL, 1, 'free')",
+      "CREATE TABLE `fx order items` (id INT PRIMARY KEY, `order id` INT NOT NULL, sku VARCHAR(32) NOT NULL, qty INT NOT NULL DEFAULT 1, UNIQUE KEY `fx order items order sku` (`order id`, sku), KEY `fx order items sku idx` (sku), CONSTRAINT `fx order items order fk` FOREIGN KEY (`order id`) REFERENCES fx_orders (id))",
+      "INSERT INTO `fx order items` (id, `order id`, sku, qty) WITH RECURSIVE seq (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 300) SELECT n, n % 1000 + 1, CONCAT('SKU-', n % 40), n % 5 + 1 FROM seq",
+      "CREATE TABLE `fx-my-table` (id INT PRIMARY KEY, value VARCHAR(20) DEFAULT 'n/a')",
+      "CREATE TABLE `fx.dotted` (id INT PRIMARY KEY, label VARCHAR(20))",
+      "INSERT INTO `fx.dotted` (id, label) VALUES (1, 'one'), (2, 'two')",
+      "CREATE TABLE fx_dotted_refs (id INT PRIMARY KEY, dotted_id INT, CONSTRAINT fx_dotted_refs_fk FOREIGN KEY (dotted_id) REFERENCES `fx.dotted` (id))",
+      "CREATE TABLE `fx_café` (id INT PRIMARY KEY, `naïve` VARCHAR(10) DEFAULT 'é', KEY `fx_café_naïve_idx` (`naïve`))",
+      "CREATE TABLE fx_mem (id INT NOT NULL, code CHAR(4), KEY fx_mem_id_hash USING HASH (id)) ENGINE=MEMORY",
+      "INSERT INTO fx_mem (id, code) VALUES (1, 'a'), (2, 'b'), (3, 'c')",
+      "CREATE VIEW fx_customer_names AS SELECT id, name FROM fx_customers"
+    ],
+    "teardown": [
+      "DROP VIEW IF EXISTS fx_customer_names",
+      "DROP TABLE IF EXISTS fx_dotted_refs, `fx.dotted`, `fx order items`, `fx-my-table`, fx_accounts, fx_orders, fx_mem, `fx_café`, fx_customers"
+    ]
+  },
+  "cases": [
+    {
+      "name": "fix 6: a dropped index names its table",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: drop an index (unqualified, invalid in MySQL)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "DROP INDEX `customers_name_idx` ON `shop`.`customers`;"
+    },
+    {
+      "name": "fix 6: a dropped PRIMARY index drops the primary key",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: drop the PRIMARY index",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i0",
+              "name": "PRIMARY",
+              "columns": ["id"],
+              "unique": true,
+              "type": "btree"
+            },
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` DROP PRIMARY KEY;"
+    },
+    {
+      "name": "fix 7: a default-only change emits SET DEFAULT",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: default-only change (dropped by the adapter)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ALTER COLUMN `status` SET DEFAULT 'new';"
+    },
+    {
+      "name": "fix 7: removing the default emits DROP DEFAULT",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: default removed only (dropped by the adapter)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ALTER COLUMN `status` DROP DEFAULT;"
+    },
+    {
+      "name": "fix 7: a default-only change on a NOT NULL column emits SET DEFAULT",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "5",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ALTER COLUMN `balance` SET DEFAULT 5;"
+    },
+    {
+      "name": "fix 7: an unsafe new default is left out, so the default is dropped",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'x'; DROP TABLE t",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ALTER COLUMN `status` DROP DEFAULT;"
+    },
+    {
+      "name": "fix 7: a type and default change together is one MODIFY COLUMN",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "50"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` MODIFY COLUMN `status` VARCHAR(50) DEFAULT 'new';"
+    },
+    {
+      "name": "fix 7: an unchanged default emits nothing",
+      "fix": 7,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "fix 6 + 7: statement order with a default change and a dropped index",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "shop",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "100"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "20"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i2",
+              "name": "customers_status_idx",
+              "columns": ["status"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "id",
+              "referencedSchema": "auth",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` RENAME COLUMN `name` TO `display_name`;\nALTER TABLE `shop`.`customers` ALTER COLUMN `status` SET DEFAULT 'new';\nDROP INDEX `customers_name_idx` ON `shop`.`customers`;\nCREATE INDEX `customers_status_idx` ON `shop`.`customers` (`status`);"
+    },
+    {
+      "name": "fix 6: the index is dropped from the table it lives on",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "old",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "ix",
+              "columns": ["a"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "u",
+          "schemaName": "new",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX `ix` ON `old`.`t`;"
+    },
+    {
+      "name": "fix 2: CREATE TABLE doubles backticks in identifiers (not in default literals)",
+      "fix": 2,
+      "kind": "ddl-create",
+      "input": {
+        "tableName": "we`ird",
+        "schemaName": "s`1",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "col`a",
+            "type": "INT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "b`",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "'`'",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "10"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "ix`b",
+            "columns": ["b`"],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "col`a",
+            "referencedSchema": "r`s",
+            "referencedTable": "r`t",
+            "referencedColumn": "r`c"
+          }
+        ]
+      },
+      "output": "CREATE TABLE `s``1`.`we``ird` (\n  `col``a` INT NOT NULL,\n  `b``` VARCHAR(10) DEFAULT '`',\n  PRIMARY KEY (`col``a`),\n  UNIQUE (`b```),\n  FOREIGN KEY (`col``a`) REFERENCES `r``s`.`r``t` (`r``c`)\n);\n\nCREATE UNIQUE INDEX `ix``b` ON `s``1`.`we``ird` (`b```);"
+    },
+    {
+      "name": "fix 2: ALTER TABLE doubles backticks in every identifier",
+      "fix": 2,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "we`ird",
+          "schemaName": "s`1",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a`b",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "keep",
+              "type": "INT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "old`ix",
+              "columns": ["a`b"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "we`ird",
+          "schemaName": "s`1",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "c`d",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "keep",
+              "type": "INT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "new`col",
+              "type": "INT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i2",
+              "name": "new`ix",
+              "columns": ["c`d"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "keep",
+              "referencedSchema": "o`s",
+              "referencedTable": "o`t",
+              "referencedColumn": "i`d"
+            },
+            {
+              "id": "f2",
+              "column": "c`d",
+              "referencedSchema": "",
+              "referencedTable": "no`schema",
+              "referencedColumn": "x"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE `s``1`.`we``ird` RENAME COLUMN `a``b` TO `c``d`;\nALTER TABLE `s``1`.`we``ird` ADD COLUMN `new``col` INT;\nALTER TABLE `s``1`.`we``ird` MODIFY COLUMN `keep` INT NOT NULL;\nDROP INDEX `old``ix` ON `s``1`.`we``ird`;\nCREATE INDEX `new``ix` ON `s``1`.`we``ird` (`c``d`);\nALTER TABLE `s``1`.`we``ird` ADD FOREIGN KEY (`keep`) REFERENCES `o``s`.`o``t` (`i``d`);\nALTER TABLE `s``1`.`we``ird` ADD FOREIGN KEY (`c``d`) REFERENCES `no``schema` (`x`);"
+    },
+    {
+      "name": "fix 2: ADD COLUMN doubles backticks",
+      "fix": 2,
+      "kind": "ddl-add-column",
+      "input": {
+        "schema": "s`1",
+        "table": "t`2",
+        "column": {
+          "id": "c9",
+          "name": "c`3",
+          "type": "INT",
+          "nullable": false,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE `s``1`.`t``2` ADD COLUMN `c``3` INT NOT NULL DEFAULT 0;"
+    },
+    {
+      "name": "fix 1: columns of a table with a space in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx order items"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "order id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_orders",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "sku",
+          "type": "varchar(32)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "qty",
+          "type": "int",
+          "nullable": false,
+          "defaultValue": "1",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx-my-table"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "value",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'n/a'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a dot in its name",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx.dotted"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "label",
+          "type": "varchar(20)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes of a table with a space in its name",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx order items"
+      },
+      "output": [
+        {
+          "name": "fx order items order sku",
+          "columns": ["order id", "sku"],
+          "unique": true,
+          "type": "btree"
+        },
+        {
+          "name": "fx order items sku idx",
+          "columns": ["sku"],
+          "unique": false,
+          "type": "btree"
+        },
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes of a table with a hyphen in its name",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx-my-table"
+      },
+      "output": [
+        {
+          "name": "PRIMARY",
+          "columns": ["id"],
+          "unique": true,
+          "type": "btree"
+        }
+      ]
+    },
+    {
+      "name": "fix 3: a PRI or UNI column that is also a foreign key shows as one",
+      "fix": 3,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_accounts"
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "email"
+          }
+        },
+        {
+          "name": "referrer_id",
+          "type": "int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "plan",
+          "type": "varchar(20)",
+          "nullable": false,
+          "defaultValue": "'free'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 3: a foreign key to a table with a dot in its name keeps its reference",
+      "fix": 3,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_dotted_refs"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "dotted_id",
+          "type": "int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "seaquel_test",
+            "referencedTable": "fx.dotted",
+            "referencedColumn": "id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fix 4: non-ASCII names and defaults decode as UTF-8",
+      "fix": 4,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_café"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "naïve",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "'é'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 8: defaults are SQL expressions",
+      "fix": 8,
+      "kind": "columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_customers"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(100)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'active'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "quoted",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'it''s'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "literal_null",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "'NULL'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal(10,2)",
+          "nullable": false,
+          "defaultValue": "0.00",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 9: index usage reads innodb_index_stats.database_name",
+      "fix": 9,
+      "kind": "sql",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tdatabase_name AS schema_name,\n\t\t\tTABLE_NAME AS table_name,\n\t\t\tINDEX_NAME AS index_name,\n\t\t\tCONCAT(ROUND(STAT_VALUE * @@innodb_page_size / 1024, 2), ' KB') AS size,\n\t\t\t0 AS scans,\n\t\t\t0 AS rows_read,\n\t\t\t0 AS unused\n\t\tFROM mysql.innodb_index_stats\n\t\tWHERE stat_name = 'size' AND database_name = DATABASE()\n\t\tORDER BY STAT_VALUE DESC"
+    },
+    {
+      "name": "fix 4: views are listed as views (table_type is read)",
+      "fix": 4,
+      "kind": "schema",
+      "input": {},
+      "output": [
+        {
+          "name": "fx order items",
+          "type": "table"
+        },
+        {
+          "name": "fx-my-table",
+          "type": "table"
+        },
+        {
+          "name": "fx.dotted",
+          "type": "table"
+        },
+        {
+          "name": "fx_accounts",
+          "type": "table"
+        },
+        {
+          "name": "fx_café",
+          "type": "table"
+        },
+        {
+          "name": "fx_customer_names",
+          "type": "view"
+        },
+        {
+          "name": "fx_customers",
+          "type": "table"
+        },
+        {
+          "name": "fx_dotted_refs",
+          "type": "table"
+        },
+        {
+          "name": "fx_mem",
+          "type": "table"
+        },
+        {
+          "name": "fx_orders",
+          "type": "table"
+        }
+      ]
+    },
+    {
+      "name": "fix 5: fractional and scientific rows, cost ranges",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (t.n > 1)  (cost=1.84..3.06 rows=1.67) (actual time=0.174..0.175 rows=0.5 loops=2)\n    -> Table scan on t  (cost=200e+6 rows=1e+9) (actual time=46.3..16499 rows=1e+9 loops=1)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "startupCost": 1.84,
+          "totalCost": 3.06,
+          "planRows": 1.67,
+          "actualStartupTime": 0.174,
+          "actualTotalTime": 0.175,
+          "actualRows": 0.5,
+          "actualLoops": 2,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "relationName": "t",
+              "totalCost": 200000000.0,
+              "planRows": 1000000000.0,
+              "actualStartupTime": 46.3,
+              "actualTotalTime": 16499,
+              "actualRows": 1000000000.0,
+              "actualLoops": 1,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 5: (never executed) reports zero rows and loops",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Nested loop inner join  (cost=2.1 rows=5) (actual time=0.016..0.016 rows=0 loops=1)\n    -> Index lookup on c using fx_customers_name_idx (name='nobody')  (cost=0.35 rows=1) (actual time=0.0138..0.0138 rows=0 loops=1)\n    -> Index lookup on o using fx_orders_customer_placed_idx (customer_id=c.id)  (cost=1.75 rows=5) (never executed)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Nested loop inner join",
+          "totalCost": 2.1,
+          "planRows": 5,
+          "actualStartupTime": 0.016,
+          "actualTotalTime": 0.016,
+          "actualRows": 0,
+          "actualLoops": 1,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "Index lookup",
+              "relationName": "c",
+              "indexName": "fx_customers_name_idx",
+              "totalCost": 0.35,
+              "planRows": 1,
+              "actualStartupTime": 0.0138,
+              "actualTotalTime": 0.0138,
+              "actualRows": 0,
+              "actualLoops": 1,
+              "children": []
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Index lookup",
+              "relationName": "o",
+              "indexName": "fx_orders_customer_placed_idx",
+              "totalCost": 1.75,
+              "planRows": 5,
+              "actualRows": 0,
+              "actualLoops": 0,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 5: temporary, quoted, spaced, dotted and non-ASCII relation names",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Table scan on <temporary>  (cost=40.1..45 rows=199) (actual time=0.106..0.106 rows=2 loops=1)\n    -> Temporary table with deduplication  (cost=40.1..40.1 rows=199) (actual time=0.105..0.105 rows=2 loops=1)\n        -> Table scan on `fx order items`  (cost=30.2 rows=300) (actual time=0.0164..0.0459 rows=300 loops=1)\n        -> Covering index lookup on fx_café using fx_café_naïve_idx (naïve='x')  (cost=0.35 rows=1) (actual time=0.00988..0.00988 rows=0 loops=1)\n        -> Index range scan on c using PRIMARY over (id < 5)  (cost=0.91 rows=4) (actual time=0.01..0.02 rows=4 loops=1)\n        -> Table scan on fx.dotted  (cost=0.35 rows=1) (never executed)\n        -> Index lookup on t using <auto_key0> (x=y)  (cost=0.35 rows=1)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Table scan",
+          "relationName": "<temporary>",
+          "startupCost": 40.1,
+          "totalCost": 45,
+          "planRows": 199,
+          "actualStartupTime": 0.106,
+          "actualTotalTime": 0.106,
+          "actualRows": 2,
+          "actualLoops": 1,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "Temporary table with deduplication",
+              "startupCost": 40.1,
+              "totalCost": 40.1,
+              "planRows": 199,
+              "actualStartupTime": 0.105,
+              "actualTotalTime": 0.105,
+              "actualRows": 2,
+              "actualLoops": 1,
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Table scan",
+                  "relationName": "fx order items",
+                  "totalCost": 30.2,
+                  "planRows": 300,
+                  "actualStartupTime": 0.0164,
+                  "actualTotalTime": 0.0459,
+                  "actualRows": 300,
+                  "actualLoops": 1,
+                  "children": []
+                },
+                {
+                  "id": "node-4",
+                  "nodeType": "Covering index lookup",
+                  "relationName": "fx_café",
+                  "indexName": "fx_café_naïve_idx",
+                  "totalCost": 0.35,
+                  "planRows": 1,
+                  "actualStartupTime": 0.00988,
+                  "actualTotalTime": 0.00988,
+                  "actualRows": 0,
+                  "actualLoops": 1,
+                  "children": []
+                },
+                {
+                  "id": "node-5",
+                  "nodeType": "Index range scan",
+                  "relationName": "c",
+                  "indexName": "PRIMARY",
+                  "totalCost": 0.91,
+                  "planRows": 4,
+                  "actualStartupTime": 0.01,
+                  "actualTotalTime": 0.02,
+                  "actualRows": 4,
+                  "actualLoops": 1,
+                  "children": []
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Table scan",
+                  "relationName": "fx.dotted",
+                  "totalCost": 0.35,
+                  "planRows": 1,
+                  "actualRows": 0,
+                  "actualLoops": 0,
+                  "children": []
+                },
+                {
+                  "id": "node-7",
+                  "nodeType": "Index lookup",
+                  "relationName": "t",
+                  "indexName": "<auto_key0>",
+                  "totalCost": 0.35,
+                  "planRows": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 5: \" on \" inside a condition is not a relation",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (c.note = 'hold on please')  (cost=20.1 rows=19.9)\n    -> Table scan on c  (cost=20.1 rows=199)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "totalCost": 20.1,
+          "planRows": 19.9,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "relationName": "c",
+              "totalCost": 20.1,
+              "planRows": 199,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root (MySQL 8.3+) is read",
+      "fix": 10,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query\": \"/* select#1 */ select ...\", \"operation\": \"Nested loop inner join\", \"join_type\": \"inner join\", \"access_type\": \"join\", \"estimated_rows\": 2.4, \"estimated_total_cost\": 3.5, \"inputs\": [{\"operation\": \"Table scan on o\", \"table_name\": \"orders\", \"alias\": \"o\", \"estimated_rows\": 10.0, \"estimated_total_cost\": 1.25}, {\"operation\": \"Single-row index lookup on c using PRIMARY (id=o.customer_id)\", \"table_name\": \"customers\", \"alias\": \"c\", \"index_name\": \"PRIMARY\", \"lookup_condition\": \"id=o.customer_id\", \"estimated_rows\": 1.0, \"estimated_total_cost\": 0.25}], \"json_schema_version\": \"2.0\"}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Nested loop inner join",
+          "joinType": "inner join",
+          "planRows": 2,
+          "totalCost": 3.5,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Table scan",
+              "relationName": "orders",
+              "alias": "o",
+              "planRows": 10,
+              "totalCost": 1.25,
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Single-row index lookup",
+              "relationName": "customers",
+              "alias": "c",
+              "indexName": "PRIMARY",
+              "indexCond": "id=o.customer_id",
+              "planRows": 1,
+              "totalCost": 0.25,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 4: a non-ASCII default read from bytes is UTF-8, not Latin-1",
+      "fix": 4,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: seaquel_test.fx_café",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "fx_café",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_ref"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          },
+          {
+            "column_name": "naïve",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 49, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [195, 169],
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_ref": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "naïve",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "é",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: table scan with a filter)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: table scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE note LIKE '%v%'",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (fx_customers.note like '%v%')  (cost=20.8 rows=22.2) (actual time=0.0205..0.0674 rows=66 loops=1)\n    -> Table scan on fx_customers  (cost=20.8 rows=200) (actual time=0.0159..0.061 rows=200 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 66,
+          "actualStartupTime": 0.0205,
+          "actualTotalTime": 0.0674,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 200,
+              "actualStartupTime": 0.0159,
+              "actualTotalTime": 0.061,
+              "children": [],
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "planRows": 200,
+              "relationName": "fx_customers",
+              "totalCost": 20.8
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "planRows": 22.2,
+          "totalCost": 20.8
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: const lookup)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: const lookup",
+      "input": {
+        "sql": "SELECT * FROM fx_customers WHERE id = 1",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Rows fetched before execution  (cost=0..0 rows=1) (actual time=0..0 rows=1 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 1,
+          "actualStartupTime": 0,
+          "actualTotalTime": 0,
+          "children": [],
+          "id": "node-1",
+          "nodeType": "Rows fetched before execution",
+          "planRows": 1,
+          "startupCost": 0,
+          "totalCost": 0
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: bound parameter)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: bound parameter",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE id = ?",
+        "analyze": true,
+        "params": [5],
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Rows fetched before execution  (cost=0..0 rows=1) (actual time=42e-6..84e-6 rows=1 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 1,
+          "actualStartupTime": 4.2e-5,
+          "actualTotalTime": 8.4e-5,
+          "children": [],
+          "id": "node-1",
+          "nodeType": "Rows fetched before execution",
+          "planRows": 1,
+          "startupCost": 0,
+          "totalCost": 0
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: join)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: join",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Nested loop inner join  (cost=218 rows=333) (actual time=0.0528..0.369 rows=333 loops=1)\n    -> Filter: (o.kind = 'buy')  (cost=102 rows=333) (actual time=0.0447..0.176 rows=333 loops=1)\n        -> Table scan on o  (cost=102 rows=1000) (actual time=0.0417..0.14 rows=1000 loops=1)\n    -> Single-row index lookup on c using PRIMARY (id=o.customer_id)  (cost=0.25 rows=1) (actual time=453e-6..467e-6 rows=1 loops=333)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 333,
+          "actualStartupTime": 0.0528,
+          "actualTotalTime": 0.369,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 333,
+              "actualStartupTime": 0.0447,
+              "actualTotalTime": 0.176,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 1000,
+                  "actualStartupTime": 0.0417,
+                  "actualTotalTime": 0.14,
+                  "children": [],
+                  "id": "node-3",
+                  "nodeType": "Table scan",
+                  "planRows": 1000,
+                  "relationName": "o",
+                  "totalCost": 102
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Filter:",
+              "planRows": 333,
+              "totalCost": 102
+            },
+            {
+              "actualLoops": 333,
+              "actualRows": 1,
+              "actualStartupTime": 0.000453,
+              "actualTotalTime": 0.000467,
+              "children": [],
+              "id": "node-4",
+              "indexName": "PRIMARY",
+              "nodeType": "Single-row index lookup",
+              "planRows": 1,
+              "relationName": "c",
+              "totalCost": 0.25
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Nested loop inner join",
+          "planRows": 333,
+          "totalCost": 218
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: group by)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: group by",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Table scan on <temporary>  (actual time=0.325..0.325 rows=3 loops=1)\n    -> Aggregate using temporary table  (actual time=0.325..0.325 rows=3 loops=1)\n        -> Table scan on fx_orders  (cost=102 rows=1000) (actual time=0.0454..0.121 rows=1000 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 3,
+          "actualStartupTime": 0.325,
+          "actualTotalTime": 0.325,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 3,
+              "actualStartupTime": 0.325,
+              "actualTotalTime": 0.325,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 1000,
+                  "actualStartupTime": 0.0454,
+                  "actualTotalTime": 0.121,
+                  "children": [],
+                  "id": "node-3",
+                  "nodeType": "Table scan",
+                  "planRows": 1000,
+                  "relationName": "fx_orders",
+                  "totalCost": 102
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Aggregate using temporary table"
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Table scan",
+          "relationName": "<temporary>"
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: distinct over a join)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: distinct over a join",
+      "input": {
+        "sql": "SELECT DISTINCT o.kind FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE c.note = 'vip'",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Table scan on <temporary>  (cost=65.8..69.5 rows=100) (actual time=0.352..0.352 rows=3 loops=1)\n    -> Temporary table with deduplication  (cost=65.8..65.8 rows=100) (actual time=0.351..0.351 rows=3 loops=1)\n        -> Nested loop inner join  (cost=55.8 rows=100) (actual time=0.0468..0.302 rows=330 loops=1)\n            -> Filter: (c.note = 'vip')  (cost=20.8 rows=20) (actual time=0.0267..0.0708 rows=66 loops=1)\n                -> Table scan on c  (cost=20.8 rows=200) (actual time=0.0228..0.062 rows=200 loops=1)\n            -> Index lookup on o using fx_orders_customer_placed_idx (customer_id=c.id)  (cost=1.27 rows=5) (actual time=0.00304..0.00329 rows=5 loops=66)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 3,
+          "actualStartupTime": 0.352,
+          "actualTotalTime": 0.352,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 3,
+              "actualStartupTime": 0.351,
+              "actualTotalTime": 0.351,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 330,
+                  "actualStartupTime": 0.0468,
+                  "actualTotalTime": 0.302,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 66,
+                      "actualStartupTime": 0.0267,
+                      "actualTotalTime": 0.0708,
+                      "children": [
+                        {
+                          "actualLoops": 1,
+                          "actualRows": 200,
+                          "actualStartupTime": 0.0228,
+                          "actualTotalTime": 0.062,
+                          "children": [],
+                          "id": "node-5",
+                          "nodeType": "Table scan",
+                          "planRows": 200,
+                          "relationName": "c",
+                          "totalCost": 20.8
+                        }
+                      ],
+                      "id": "node-4",
+                      "nodeType": "Filter:",
+                      "planRows": 20,
+                      "totalCost": 20.8
+                    },
+                    {
+                      "actualLoops": 66,
+                      "actualRows": 5,
+                      "actualStartupTime": 0.00304,
+                      "actualTotalTime": 0.00329,
+                      "children": [],
+                      "id": "node-6",
+                      "indexName": "fx_orders_customer_placed_idx",
+                      "nodeType": "Index lookup",
+                      "planRows": 5,
+                      "relationName": "o",
+                      "totalCost": 1.27
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "Nested loop inner join",
+                  "planRows": 100,
+                  "totalCost": 55.8
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Temporary table with deduplication",
+              "planRows": 100,
+              "startupCost": 65.8,
+              "totalCost": 65.8
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Table scan",
+          "planRows": 100,
+          "relationName": "<temporary>",
+          "startupCost": 65.8,
+          "totalCost": 69.5
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: union)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: union",
+      "input": {
+        "sql": "SELECT id FROM fx_customers WHERE id < 5 UNION SELECT customer_id FROM fx_orders WHERE id < 5",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Table scan on <union temporary>  (cost=3.25..5.52 rows=8) (actual time=0.0261..0.0264 rows=5 loops=1)\n    -> Union materialize with deduplication  (cost=2.92..2.92 rows=8) (actual time=0.025..0.025 rows=5 loops=1)\n        -> Filter: (fx_customers.id < 5)  (cost=1.06 rows=4) (actual time=0.0133..0.0145 rows=4 loops=1)\n            -> Covering index range scan on fx_customers using PRIMARY over (id < 5)  (cost=1.06 rows=4) (actual time=0.0117..0.0126 rows=4 loops=1)\n        -> Filter: (fx_orders.id < 5)  (cost=1.06 rows=4) (actual time=0.00229..0.00254 rows=4 loops=1)\n            -> Index range scan on fx_orders using PRIMARY over (id < 5)  (cost=1.06 rows=4) (actual time=0.00221..0.00242 rows=4 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 5,
+          "actualStartupTime": 0.0261,
+          "actualTotalTime": 0.0264,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 5,
+              "actualStartupTime": 0.025,
+              "actualTotalTime": 0.025,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 4,
+                  "actualStartupTime": 0.0133,
+                  "actualTotalTime": 0.0145,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 4,
+                      "actualStartupTime": 0.0117,
+                      "actualTotalTime": 0.0126,
+                      "children": [],
+                      "id": "node-4",
+                      "indexName": "PRIMARY",
+                      "nodeType": "Covering index range scan",
+                      "planRows": 4,
+                      "relationName": "fx_customers",
+                      "totalCost": 1.06
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "Filter:",
+                  "planRows": 4,
+                  "totalCost": 1.06
+                },
+                {
+                  "actualLoops": 1,
+                  "actualRows": 4,
+                  "actualStartupTime": 0.00229,
+                  "actualTotalTime": 0.00254,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 4,
+                      "actualStartupTime": 0.00221,
+                      "actualTotalTime": 0.00242,
+                      "children": [],
+                      "id": "node-6",
+                      "indexName": "PRIMARY",
+                      "nodeType": "Index range scan",
+                      "planRows": 4,
+                      "relationName": "fx_orders",
+                      "totalCost": 1.06
+                    }
+                  ],
+                  "id": "node-5",
+                  "nodeType": "Filter:",
+                  "planRows": 4,
+                  "totalCost": 1.06
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Union materialize with deduplication",
+              "planRows": 8,
+              "startupCost": 2.92,
+              "totalCost": 2.92
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Table scan",
+          "planRows": 8,
+          "relationName": "<union temporary>",
+          "startupCost": 3.25,
+          "totalCost": 5.52
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: subquery in WHERE)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: subquery in WHERE",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE score > (SELECT AVG(total) FROM fx_orders)",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (fx_customers.score > (select #2))  (cost=7.42 rows=66.7) (actual time=0.207..0.229 rows=8 loops=1)\n    -> Table scan on fx_customers  (cost=7.42 rows=200) (actual time=0.0237..0.0453 rows=200 loops=1)\n    -> Select #2 (subquery in condition; run only once)\n        -> Aggregate: avg(fx_orders.total)  (cost=202 rows=1) (actual time=0.166..0.166 rows=1 loops=1)\n            -> Table scan on fx_orders  (cost=102 rows=1000) (actual time=0.0366..0.134 rows=1000 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 8,
+          "actualStartupTime": 0.207,
+          "actualTotalTime": 0.229,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 200,
+              "actualStartupTime": 0.0237,
+              "actualTotalTime": 0.0453,
+              "children": [],
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "planRows": 200,
+              "relationName": "fx_customers",
+              "totalCost": 7.42
+            },
+            {
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 1,
+                  "actualStartupTime": 0.166,
+                  "actualTotalTime": 0.166,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 1000,
+                      "actualStartupTime": 0.0366,
+                      "actualTotalTime": 0.134,
+                      "children": [],
+                      "id": "node-5",
+                      "nodeType": "Table scan",
+                      "planRows": 1000,
+                      "relationName": "fx_orders",
+                      "totalCost": 102
+                    }
+                  ],
+                  "id": "node-4",
+                  "nodeType": "Aggregate: avg",
+                  "planRows": 1,
+                  "totalCost": 202
+                }
+              ],
+              "id": "node-3",
+              "nodeType": "Select #2"
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "planRows": 66.7,
+          "totalCost": 7.42
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: subquery in HAVING)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: subquery in HAVING",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind HAVING COUNT(*) > (SELECT COUNT(*) FROM fx_customers WHERE note = 'vip')",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (`count(0)` > (select #2))  (actual time=0.45..0.451 rows=3 loops=1)\n    -> Table scan on <temporary>  (actual time=0.393..0.393 rows=3 loops=1)\n        -> Aggregate using temporary table  (actual time=0.391..0.391 rows=3 loops=1)\n            -> Table scan on fx_orders  (cost=102 rows=1000) (actual time=0.0527..0.16 rows=1000 loops=1)\n    -> Select #2 (subquery in condition; run only once)\n        -> Aggregate: count(0)  (cost=22.8 rows=1) (actual time=0.05..0.05 rows=1 loops=1)\n            -> Filter: (fx_customers.note = 'vip')  (cost=20.8 rows=20) (actual time=0.00637..0.0451 rows=66 loops=1)\n                -> Table scan on fx_customers  (cost=20.8 rows=200) (actual time=0.00367..0.0382 rows=200 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 3,
+          "actualStartupTime": 0.45,
+          "actualTotalTime": 0.451,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 3,
+              "actualStartupTime": 0.393,
+              "actualTotalTime": 0.393,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 3,
+                  "actualStartupTime": 0.391,
+                  "actualTotalTime": 0.391,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 1000,
+                      "actualStartupTime": 0.0527,
+                      "actualTotalTime": 0.16,
+                      "children": [],
+                      "id": "node-4",
+                      "nodeType": "Table scan",
+                      "planRows": 1000,
+                      "relationName": "fx_orders",
+                      "totalCost": 102
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "Aggregate using temporary table"
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "relationName": "<temporary>"
+            },
+            {
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 1,
+                  "actualStartupTime": 0.05,
+                  "actualTotalTime": 0.05,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 66,
+                      "actualStartupTime": 0.00637,
+                      "actualTotalTime": 0.0451,
+                      "children": [
+                        {
+                          "actualLoops": 1,
+                          "actualRows": 200,
+                          "actualStartupTime": 0.00367,
+                          "actualTotalTime": 0.0382,
+                          "children": [],
+                          "id": "node-8",
+                          "nodeType": "Table scan",
+                          "planRows": 200,
+                          "relationName": "fx_customers",
+                          "totalCost": 20.8
+                        }
+                      ],
+                      "id": "node-7",
+                      "nodeType": "Filter:",
+                      "planRows": 20,
+                      "totalCost": 20.8
+                    }
+                  ],
+                  "id": "node-6",
+                  "nodeType": "Aggregate: count",
+                  "planRows": 1,
+                  "totalCost": 22.8
+                }
+              ],
+              "id": "node-5",
+              "nodeType": "Select #2"
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Filter:"
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: derived table)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: derived table",
+      "input": {
+        "sql": "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM fx_orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (t.n > 1)  (cost=1.84..3.06 rows=1.67) (actual time=0.174..0.175 rows=5 loops=1)\n    -> Table scan on t  (cost=2.5..2.5 rows=0) (actual time=0.173..0.173 rows=5 loops=1)\n        -> Materialize  (cost=0..0 rows=0) (actual time=0.172..0.172 rows=5 loops=1)\n            -> Limit: 5 row(s)  (actual time=0.165..0.165 rows=5 loops=1)\n                -> Sort: n DESC, limit input to 5 row(s) per chunk  (actual time=0.164..0.164 rows=5 loops=1)\n                    -> Stream results  (cost=202 rows=200) (actual time=0.0579..0.151 rows=200 loops=1)\n                        -> Group aggregate: count(0)  (cost=202 rows=200) (actual time=0.0556..0.139 rows=200 loops=1)\n                            -> Covering index scan on fx_orders using fx_orders_customer_placed_idx  (cost=102 rows=1000) (actual time=0.0526..0.112 rows=1000 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 5,
+          "actualStartupTime": 0.174,
+          "actualTotalTime": 0.175,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 5,
+              "actualStartupTime": 0.173,
+              "actualTotalTime": 0.173,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 5,
+                  "actualStartupTime": 0.172,
+                  "actualTotalTime": 0.172,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 5,
+                      "actualStartupTime": 0.165,
+                      "actualTotalTime": 0.165,
+                      "children": [
+                        {
+                          "actualLoops": 1,
+                          "actualRows": 5,
+                          "actualStartupTime": 0.164,
+                          "actualTotalTime": 0.164,
+                          "children": [
+                            {
+                              "actualLoops": 1,
+                              "actualRows": 200,
+                              "actualStartupTime": 0.0579,
+                              "actualTotalTime": 0.151,
+                              "children": [
+                                {
+                                  "actualLoops": 1,
+                                  "actualRows": 200,
+                                  "actualStartupTime": 0.0556,
+                                  "actualTotalTime": 0.139,
+                                  "children": [
+                                    {
+                                      "actualLoops": 1,
+                                      "actualRows": 1000,
+                                      "actualStartupTime": 0.0526,
+                                      "actualTotalTime": 0.112,
+                                      "children": [],
+                                      "id": "node-8",
+                                      "indexName": "fx_orders_customer_placed_idx",
+                                      "nodeType": "Covering index scan",
+                                      "planRows": 1000,
+                                      "relationName": "fx_orders",
+                                      "totalCost": 102
+                                    }
+                                  ],
+                                  "id": "node-7",
+                                  "nodeType": "Group aggregate: count",
+                                  "planRows": 200,
+                                  "totalCost": 202
+                                }
+                              ],
+                              "id": "node-6",
+                              "nodeType": "Stream results",
+                              "planRows": 200,
+                              "totalCost": 202
+                            }
+                          ],
+                          "id": "node-5",
+                          "nodeType": "Sort: n DESC, limit input to 5 row"
+                        }
+                      ],
+                      "id": "node-4",
+                      "nodeType": "Limit: 5 row"
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "Materialize",
+                  "planRows": 0,
+                  "startupCost": 0,
+                  "totalCost": 0
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "planRows": 0,
+              "relationName": "t",
+              "startupCost": 2.5,
+              "totalCost": 2.5
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "planRows": 1.67,
+          "startupCost": 1.84,
+          "totalCost": 3.06
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: no tables)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Rows fetched before execution  (cost=0..0 rows=1) (actual time=0..41e-6 rows=1 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 1,
+          "actualStartupTime": 0,
+          "actualTotalTime": 4.1e-5,
+          "children": [],
+          "id": "node-1",
+          "nodeType": "Rows fetched before execution",
+          "planRows": 1,
+          "startupCost": 0,
+          "totalCost": 0
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: table name with a space)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: table name with a space",
+      "input": {
+        "sql": "SELECT * FROM `fx order items` WHERE qty = 3",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Filter: (`fx order items`.qty = 3)  (cost=30.2 rows=30) (actual time=0.019..0.0666 rows=60 loops=1)\n    -> Table scan on fx order items  (cost=30.2 rows=300) (actual time=0.0167..0.0571 rows=300 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 60,
+          "actualStartupTime": 0.019,
+          "actualTotalTime": 0.0666,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 300,
+              "actualStartupTime": 0.0167,
+              "actualTotalTime": 0.0571,
+              "children": [],
+              "id": "node-2",
+              "nodeType": "Table scan",
+              "planRows": 300,
+              "relationName": "fx order items",
+              "totalCost": 30.2
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Filter:",
+          "planRows": 30,
+          "totalCost": 30.2
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: table name with a dot)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: table name with a dot",
+      "input": {
+        "sql": "SELECT * FROM `fx.dotted`",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Table scan on fx.dotted  (cost=0.45 rows=2) (actual time=0.0114..0.0126 rows=2 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 2,
+          "actualStartupTime": 0.0114,
+          "actualTotalTime": 0.0126,
+          "children": [],
+          "id": "node-1",
+          "nodeType": "Table scan",
+          "planRows": 2,
+          "relationName": "fx.dotted",
+          "totalCost": 0.45
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: non-ASCII names)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: non-ASCII names",
+      "input": {
+        "sql": "SELECT * FROM `fx_café` WHERE `naïve` = 'é'",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Covering index lookup on fx_café using fx_café_naïve_idx (naïve='é')  (cost=0.35 rows=1) (actual time=0.0108..0.0108 rows=0 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 0,
+          "actualStartupTime": 0.0108,
+          "actualTotalTime": 0.0108,
+          "children": [],
+          "id": "node-1",
+          "indexName": "fx_café_naïve_idx",
+          "nodeType": "Covering index lookup",
+          "planRows": 1,
+          "relationName": "fx_café",
+          "totalCost": 0.35
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: never executed)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: never executed",
+      "input": {
+        "sql": "SELECT * FROM fx_customers c JOIN fx_orders o ON o.customer_id = c.id WHERE c.name = 'nobody'",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Nested loop inner join  (cost=2.1 rows=5) (actual time=0.0112..0.0112 rows=0 loops=1)\n    -> Index lookup on c using fx_customers_name_idx (name='nobody')  (cost=0.35 rows=1) (actual time=0.00962..0.00962 rows=0 loops=1)\n    -> Index lookup on o using fx_orders_customer_placed_idx (customer_id=c.id)  (cost=1.75 rows=5) (never executed)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 0,
+          "actualStartupTime": 0.0112,
+          "actualTotalTime": 0.0112,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 0,
+              "actualStartupTime": 0.00962,
+              "actualTotalTime": 0.00962,
+              "children": [],
+              "id": "node-2",
+              "indexName": "fx_customers_name_idx",
+              "nodeType": "Index lookup",
+              "planRows": 1,
+              "relationName": "c",
+              "totalCost": 0.35
+            },
+            {
+              "actualLoops": 0,
+              "actualRows": 0,
+              "children": [],
+              "id": "node-3",
+              "indexName": "fx_orders_customer_placed_idx",
+              "nodeType": "Index lookup",
+              "planRows": 5,
+              "relationName": "o",
+              "totalCost": 1.75
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Nested loop inner join",
+          "planRows": 5,
+          "totalCost": 2.1
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 5: EXPLAIN ANALYZE numbers and names are read (EXPLAIN ANALYZE: large estimates)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: large estimates",
+      "input": {
+        "sql": "SELECT COUNT(*) FROM fx_orders a JOIN fx_orders b WHERE a.total + b.total = 3",
+        "analyze": true,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "-> Aggregate: count(0)  (cost=200103 rows=1) (actual time=67.8..67.8 rows=1 loops=1)\n    -> Filter: ((a.total + b.total) = 3)  (cost=100103 rows=1e+6) (actual time=0.259..67.8 rows=462 loops=1)\n        -> Inner hash join (no condition)  (cost=100103 rows=1e+6) (actual time=0.251..18.3 rows=1e+6 loops=1)\n            -> Table scan on b  (cost=0.102 rows=1000) (actual time=0.0387..0.258 rows=1000 loops=1)\n            -> Hash\n                -> Table scan on a  (cost=102 rows=1000) (actual time=0.0433..0.173 rows=1000 loops=1)\n"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": true,
+        "plan": {
+          "actualLoops": 1,
+          "actualRows": 1,
+          "actualStartupTime": 67.8,
+          "actualTotalTime": 67.8,
+          "children": [
+            {
+              "actualLoops": 1,
+              "actualRows": 462,
+              "actualStartupTime": 0.259,
+              "actualTotalTime": 67.8,
+              "children": [
+                {
+                  "actualLoops": 1,
+                  "actualRows": 1000000,
+                  "actualStartupTime": 0.251,
+                  "actualTotalTime": 18.3,
+                  "children": [
+                    {
+                      "actualLoops": 1,
+                      "actualRows": 1000,
+                      "actualStartupTime": 0.0387,
+                      "actualTotalTime": 0.258,
+                      "children": [],
+                      "id": "node-4",
+                      "nodeType": "Table scan",
+                      "planRows": 1000,
+                      "relationName": "b",
+                      "totalCost": 0.102
+                    },
+                    {
+                      "children": [
+                        {
+                          "actualLoops": 1,
+                          "actualRows": 1000,
+                          "actualStartupTime": 0.0433,
+                          "actualTotalTime": 0.173,
+                          "children": [],
+                          "id": "node-6",
+                          "nodeType": "Table scan",
+                          "planRows": 1000,
+                          "relationName": "a",
+                          "totalCost": 102
+                        }
+                      ],
+                      "id": "node-5",
+                      "nodeType": "Hash"
+                    }
+                  ],
+                  "id": "node-3",
+                  "nodeType": "Inner hash join",
+                  "planRows": 1000000,
+                  "totalCost": 100103
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Filter:",
+              "planRows": 1000000,
+              "totalCost": 100103
+            }
+          ],
+          "id": "node-1",
+          "nodeType": "Aggregate: count",
+          "planRows": 1,
+          "totalCost": 200103
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): bound parameter)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): bound parameter",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE id = ?",
+        "analyze": false,
+        "params": [5],
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select 'Customer 5' AS `name` from `seaquel_test`.`fx_customers` where true\",\n  \"operation\": \"Rows fetched before execution\",\n  \"query_type\": \"select\",\n  \"access_type\": \"rows_fetched_before_execution\",\n  \"estimated_rows\": 1.0,\n  \"estimated_total_cost\": 0.0,\n  \"estimated_first_row_cost\": 0.0\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Rows fetched before execution",
+          "planRows": 1,
+          "totalCost": 0
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): join)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): join",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM fx_orders o JOIN fx_customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select `c`.`name` AS `name`,`o`.`total` AS `total` from `seaquel_test`.`fx_orders` `o` join `seaquel_test`.`fx_customers` `c` where ((`c`.`id` = `o`.`customer_id`) and (`o`.`kind` = 'buy'))\",\n  \"inputs\": [\n    {\n      \"inputs\": [\n        {\n          \"alias\": \"o\",\n          \"operation\": \"Table scan on o\",\n          \"table_name\": \"fx_orders\",\n          \"access_type\": \"table\",\n          \"schema_name\": \"seaquel_test\",\n          \"used_columns\": [\n            \"customer_id\",\n            \"kind\",\n            \"total\"\n          ],\n          \"estimated_rows\": 1000.0,\n          \"estimated_total_cost\": 101.5\n        }\n      ],\n      \"condition\": \"(o.kind = 'buy')\",\n      \"operation\": \"Filter: (o.kind = 'buy')\",\n      \"access_type\": \"filter\",\n      \"estimated_rows\": 333.3333432674408,\n      \"estimated_total_cost\": 101.5\n    },\n    {\n      \"alias\": \"c\",\n      \"covering\": false,\n      \"operation\": \"Single-row index lookup on c using PRIMARY (id=o.customer_id)\",\n      \"index_name\": \"PRIMARY\",\n      \"table_name\": \"fx_customers\",\n      \"access_type\": \"index\",\n      \"schema_name\": \"seaquel_test\",\n      \"used_columns\": [\n        \"id\",\n        \"name\"\n      ],\n      \"estimated_rows\": 1.0,\n      \"lookup_condition\": \"id=o.customer_id\",\n      \"index_access_type\": \"index_lookup\",\n      \"estimated_total_cost\": 0.2502999999910593\n    }\n  ],\n  \"join_type\": \"inner join\",\n  \"operation\": \"Nested loop inner join\",\n  \"query_type\": \"select\",\n  \"access_type\": \"join\",\n  \"estimated_rows\": 333.3333432674408,\n  \"join_algorithm\": \"nested_loop\",\n  \"estimated_total_cost\": 218.16667014360428\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "alias": "o",
+                  "children": [],
+                  "id": "node-2",
+                  "nodeType": "Table scan",
+                  "planRows": 1000,
+                  "relationName": "fx_orders",
+                  "totalCost": 101.5
+                }
+              ],
+              "filter": "(o.kind = 'buy')",
+              "id": "node-1",
+              "nodeType": "Filter:",
+              "planRows": 333,
+              "totalCost": 101.5
+            },
+            {
+              "alias": "c",
+              "children": [],
+              "id": "node-3",
+              "indexCond": "id=o.customer_id",
+              "indexName": "PRIMARY",
+              "nodeType": "Single-row index lookup",
+              "planRows": 1,
+              "relationName": "fx_customers",
+              "totalCost": 0.2502999999910593
+            }
+          ],
+          "id": "node-0",
+          "joinType": "inner join",
+          "nodeType": "Nested loop inner join",
+          "planRows": 333,
+          "totalCost": 218.16667014360428
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): group by)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): group by",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM fx_orders GROUP BY kind",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select `seaquel_test`.`fx_orders`.`kind` AS `kind`,count(0) AS `COUNT(*)` from `seaquel_test`.`fx_orders` group by `seaquel_test`.`fx_orders`.`kind`\",\n  \"inputs\": [\n    {\n      \"inputs\": [\n        {\n          \"operation\": \"Table scan on fx_orders\",\n          \"table_name\": \"fx_orders\",\n          \"access_type\": \"table\",\n          \"schema_name\": \"seaquel_test\",\n          \"used_columns\": [\n            \"id\",\n            \"kind\"\n          ],\n          \"estimated_rows\": 1000.0,\n          \"estimated_total_cost\": 101.5\n        }\n      ],\n      \"operation\": \"Aggregate using temporary table\",\n      \"access_type\": \"temp_table_aggregate\"\n    }\n  ],\n  \"operation\": \"Table scan on <temporary>\",\n  \"query_type\": \"select\",\n  \"table_name\": \"<temporary>\",\n  \"access_type\": \"table\"\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-2",
+                  "nodeType": "Table scan",
+                  "planRows": 1000,
+                  "relationName": "fx_orders",
+                  "totalCost": 101.5
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Aggregate using temporary table"
+            }
+          ],
+          "id": "node-0",
+          "nodeType": "Table scan",
+          "relationName": "<temporary>"
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): union)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): union",
+      "input": {
+        "sql": "SELECT id FROM fx_customers WHERE id < 5 UNION SELECT customer_id FROM fx_orders WHERE id < 5",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select `seaquel_test`.`fx_customers`.`id` AS `id` from `seaquel_test`.`fx_customers` where (`seaquel_test`.`fx_customers`.`id` < 5) union /* select#2 */ select `seaquel_test`.`fx_orders`.`customer_id` AS `customer_id` from `seaquel_test`.`fx_orders` where (`seaquel_test`.`fx_orders`.`id` < 5)\",\n  \"inputs\": [\n    {\n      \"union\": true,\n      \"inputs\": [\n        {\n          \"inputs\": [\n            {\n              \"ranges\": [\n                \"(id < 5)\"\n              ],\n              \"covering\": true,\n              \"operation\": \"Covering index range scan on fx_customers using PRIMARY over (id < 5)\",\n              \"index_name\": \"PRIMARY\",\n              \"table_name\": \"fx_customers\",\n              \"access_type\": \"index\",\n              \"schema_name\": \"seaquel_test\",\n              \"used_columns\": [\n                \"id\"\n              ],\n              \"estimated_rows\": 4.0,\n              \"index_access_type\": \"index_range_scan\",\n              \"estimated_total_cost\": 1.0618773466833544\n            }\n          ],\n          \"condition\": \"(fx_customers.id < 5)\",\n          \"operation\": \"Filter: (fx_customers.id < 5)\",\n          \"access_type\": \"filter\",\n          \"estimated_rows\": 4.0,\n          \"estimated_total_cost\": 1.0618773466833544\n        },\n        {\n          \"inputs\": [\n            {\n              \"ranges\": [\n                \"(id < 5)\"\n              ],\n              \"covering\": false,\n              \"operation\": \"Index range scan on fx_orders using PRIMARY over (id < 5)\",\n              \"index_name\": \"PRIMARY\",\n              \"table_name\": \"fx_orders\",\n              \"access_type\": \"index\",\n              \"schema_name\": \"seaquel_test\",\n              \"used_columns\": [\n                \"id\",\n                \"customer_id\"\n              ],\n              \"estimated_rows\": 4.0,\n              \"index_access_type\": \"index_range_scan\",\n              \"estimated_total_cost\": 1.0617216642754663\n            }\n          ],\n          \"condition\": \"(fx_orders.id < 5)\",\n          \"operation\": \"Filter: (fx_orders.id < 5)\",\n          \"access_type\": \"filter\",\n          \"estimated_rows\": 4.0,\n          \"estimated_total_cost\": 1.0617216642754663\n        }\n      ],\n      \"operation\": \"Union materialize with deduplication\",\n      \"access_type\": \"materialize\",\n      \"deduplication\": true,\n      \"estimated_rows\": 8.0,\n      \"estimated_total_cost\": 2.923599010958821,\n      \"estimated_first_row_cost\": 2.923599010958821\n    }\n  ],\n  \"operation\": \"Table scan on <union temporary>\",\n  \"query_type\": \"select\",\n  \"table_name\": \"<union temporary>\",\n  \"access_type\": \"table\",\n  \"used_columns\": [\n    \"id\"\n  ],\n  \"estimated_rows\": 8.0,\n  \"estimated_total_cost\": 5.523599010958821,\n  \"estimated_first_row_cost\": 3.248599010958821\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "node-3",
+                      "indexName": "PRIMARY",
+                      "nodeType": "Covering index range scan",
+                      "planRows": 4,
+                      "relationName": "fx_customers",
+                      "totalCost": 1.0618773466833544
+                    }
+                  ],
+                  "filter": "(fx_customers.id < 5)",
+                  "id": "node-2",
+                  "nodeType": "Filter:",
+                  "planRows": 4,
+                  "totalCost": 1.0618773466833544
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "node-5",
+                      "indexName": "PRIMARY",
+                      "nodeType": "Index range scan",
+                      "planRows": 4,
+                      "relationName": "fx_orders",
+                      "totalCost": 1.0617216642754663
+                    }
+                  ],
+                  "filter": "(fx_orders.id < 5)",
+                  "id": "node-4",
+                  "nodeType": "Filter:",
+                  "planRows": 4,
+                  "totalCost": 1.0617216642754663
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Union materialize with deduplication",
+              "planRows": 8,
+              "totalCost": 2.923599010958821
+            }
+          ],
+          "id": "node-0",
+          "nodeType": "Table scan",
+          "planRows": 8,
+          "relationName": "<union temporary>",
+          "totalCost": 5.523599010958821
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): subquery in WHERE)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): subquery in WHERE",
+      "input": {
+        "sql": "SELECT name FROM fx_customers WHERE score > (SELECT AVG(total) FROM fx_orders)",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select `seaquel_test`.`fx_customers`.`name` AS `name` from `seaquel_test`.`fx_customers` where (`seaquel_test`.`fx_customers`.`score` > (/* select#2 */ select avg(`seaquel_test`.`fx_orders`.`total`) from `seaquel_test`.`fx_orders`))\",\n  \"inputs\": [\n    {\n      \"operation\": \"Table scan on fx_customers\",\n      \"table_name\": \"fx_customers\",\n      \"access_type\": \"table\",\n      \"schema_name\": \"seaquel_test\",\n      \"used_columns\": [\n        \"name\",\n        \"score\"\n      ],\n      \"estimated_rows\": 200.0,\n      \"estimated_total_cost\": 7.415999889373779\n    },\n    {\n      \"inputs\": [\n        {\n          \"operation\": \"Table scan on fx_orders\",\n          \"table_name\": \"fx_orders\",\n          \"access_type\": \"table\",\n          \"schema_name\": \"seaquel_test\",\n          \"used_columns\": [\n            \"total\"\n          ],\n          \"estimated_rows\": 1000.0,\n          \"estimated_total_cost\": 101.5\n        }\n      ],\n      \"heading\": \"Select #2 (subquery in condition; run only once)\",\n      \"subquery\": true,\n      \"cacheable\": true,\n      \"functions\": [\n        \"avg(fx_orders.total)\"\n      ],\n      \"operation\": \"Aggregate: avg(fx_orders.total)\",\n      \"access_type\": \"aggregate\",\n      \"estimated_rows\": 1.0,\n      \"subquery_location\": \"condition\",\n      \"estimated_total_cost\": 201.5\n    }\n  ],\n  \"condition\": \"(fx_customers.score > (select #2))\",\n  \"operation\": \"Filter: (fx_customers.score > (select #2))\",\n  \"query_type\": \"select\",\n  \"access_type\": \"filter\",\n  \"estimated_rows\": 66.6599988937378,\n  \"estimated_total_cost\": 7.415999889373779\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [],
+              "id": "node-1",
+              "nodeType": "Table scan",
+              "planRows": 200,
+              "relationName": "fx_customers",
+              "totalCost": 7.415999889373779
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "node-3",
+                  "nodeType": "Table scan",
+                  "planRows": 1000,
+                  "relationName": "fx_orders",
+                  "totalCost": 101.5
+                }
+              ],
+              "id": "node-2",
+              "nodeType": "Aggregate: avg",
+              "planRows": 1,
+              "totalCost": 201.5
+            }
+          ],
+          "filter": "(fx_customers.score > (select #2))",
+          "id": "node-0",
+          "nodeType": "Filter:",
+          "planRows": 67,
+          "totalCost": 7.415999889373779
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): derived table)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): derived table",
+      "input": {
+        "sql": "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM fx_orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select `t`.`customer_id` AS `customer_id`,`t`.`n` AS `n` from (/* select#2 */ select `seaquel_test`.`fx_orders`.`customer_id` AS `customer_id`,count(0) AS `n` from `seaquel_test`.`fx_orders` group by `seaquel_test`.`fx_orders`.`customer_id` order by `n` desc limit 5) `t` where (`t`.`n` > 1)\",\n  \"inputs\": [\n    {\n      \"inputs\": [\n        {\n          \"inputs\": [\n            {\n              \"limit\": 5,\n              \"inputs\": [\n                {\n                  \"inputs\": [\n                    {\n                      \"inputs\": [\n                        {\n                          \"inputs\": [\n                            {\n                              \"covering\": true,\n                              \"operation\": \"Covering index scan on fx_orders using fx_orders_customer_placed_idx\",\n                              \"index_name\": \"fx_orders_customer_placed_idx\",\n                              \"table_name\": \"fx_orders\",\n                              \"access_type\": \"index\",\n                              \"schema_name\": \"seaquel_test\",\n                              \"used_columns\": [\n                                \"id\",\n                                \"customer_id\"\n                              ],\n                              \"estimated_rows\": 1000.0,\n                              \"index_access_type\": \"index_scan\",\n                              \"estimated_total_cost\": 101.5\n                            }\n                          ],\n                          \"group_by\": true,\n                          \"functions\": [\n                            \"count(0)\"\n                          ],\n                          \"operation\": \"Group aggregate: count(0)\",\n                          \"access_type\": \"aggregate\",\n                          \"estimated_rows\": 200.0,\n                          \"estimated_total_cost\": 201.5\n                        }\n                      ],\n                      \"operation\": \"Stream results\",\n                      \"access_type\": \"stream\",\n                      \"estimated_rows\": 200.0,\n                      \"estimated_total_cost\": 201.5\n                    }\n                  ],\n                  \"operation\": \"Sort: n DESC, limit input to 5 row(s) per chunk\",\n                  \"access_type\": \"sort\",\n                  \"sort_fields\": [\n                    \"n DESC\"\n                  ],\n                  \"per_chunk_limit\": 5\n                }\n              ],\n              \"operation\": \"Limit: 5 row(s)\",\n              \"access_type\": \"limit\",\n              \"limit_offset\": 0\n            }\n          ],\n          \"operation\": \"Materialize\",\n          \"access_type\": \"materialize\",\n          \"estimated_rows\": 0.0,\n          \"estimated_total_cost\": 0.0,\n          \"estimated_first_row_cost\": 0.0\n        }\n      ],\n      \"operation\": \"Table scan on t\",\n      \"table_name\": \"t\",\n      \"access_type\": \"table\",\n      \"used_columns\": [\n        \"customer_id\",\n        \"n\"\n      ],\n      \"estimated_rows\": 0.0,\n      \"estimated_total_cost\": 2.5,\n      \"estimated_first_row_cost\": 2.5\n    }\n  ],\n  \"condition\": \"(t.n > 1)\",\n  \"operation\": \"Filter: (t.n > 1)\",\n  \"query_type\": \"select\",\n  \"access_type\": \"filter\",\n  \"estimated_rows\": 1.6664999723434448,\n  \"estimated_total_cost\": 3.0625,\n  \"estimated_first_row_cost\": 1.8376837988742896\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "children": [
+                            {
+                              "children": [
+                                {
+                                  "children": [
+                                    {
+                                      "children": [],
+                                      "id": "node-7",
+                                      "indexName": "fx_orders_customer_placed_idx",
+                                      "nodeType": "Covering index scan",
+                                      "planRows": 1000,
+                                      "relationName": "fx_orders",
+                                      "totalCost": 101.5
+                                    }
+                                  ],
+                                  "id": "node-6",
+                                  "nodeType": "Group aggregate: count",
+                                  "planRows": 200,
+                                  "totalCost": 201.5
+                                }
+                              ],
+                              "id": "node-5",
+                              "nodeType": "Stream results",
+                              "planRows": 200,
+                              "totalCost": 201.5
+                            }
+                          ],
+                          "id": "node-4",
+                          "nodeType": "Sort: n DESC, limit input to 5 row"
+                        }
+                      ],
+                      "id": "node-3",
+                      "nodeType": "Limit: 5 row"
+                    }
+                  ],
+                  "id": "node-2",
+                  "nodeType": "Materialize",
+                  "planRows": 0,
+                  "totalCost": 0
+                }
+              ],
+              "id": "node-1",
+              "nodeType": "Table scan",
+              "planRows": 0,
+              "relationName": "t",
+              "totalCost": 2.5
+            }
+          ],
+          "filter": "(t.n > 1)",
+          "id": "node-0",
+          "nodeType": "Filter:",
+          "planRows": 2,
+          "totalCost": 3.0625
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 10: a JSON v2 plan at the root is read (EXPLAIN (JSON v2): no tables)",
+      "fix": 10,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN (JSON v2): no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": false,
+        "jsonFormatVersion": 2,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\n  \"query\": \"/* select#1 */ select 1 AS `1`\",\n  \"operation\": \"Rows fetched before execution\",\n  \"query_type\": \"select\",\n  \"access_type\": \"rows_fetched_before_execution\",\n  \"estimated_rows\": 1.0,\n  \"estimated_total_cost\": 0.0,\n  \"estimated_first_row_cost\": 0.0\n}"
+          }
+        ]
+      },
+      "output": {
+        "isAnalyze": false,
+        "plan": {
+          "children": [],
+          "id": "node-0",
+          "nodeType": "Rows fetched before execution",
+          "planRows": 1,
+          "totalCost": 0
+        },
+        "planningTime": 0
+      }
+    },
+    {
+      "name": "fix 8: MySQL defaults become SQL expressions (literals quoted, expressions kept or parenthesized)",
+      "fix": 8,
+      "kind": "parse-columns",
+      "input": {
+        "schema": "seaquel_test",
+        "table": "(synthetic)",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "extra",
+          "is_primary_key",
+          "is_foreign_key",
+          "foreign_key_schema",
+          "foreign_key_table",
+          "foreign_key_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": [105, 110, 116],
+            "is_nullable": "NO",
+            "column_default": null,
+            "extra": "auto_increment",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "status",
+            "data_type": [118, 97, 114, 99, 104, 97, 114, 40, 50, 48, 41],
+            "is_nullable": "YES",
+            "column_default": [97, 99, 116, 105, 118, 101],
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "quoted",
+            "data_type": "varchar(20)",
+            "is_nullable": "YES",
+            "column_default": "it's",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "path",
+            "data_type": "varchar(20)",
+            "is_nullable": "YES",
+            "column_default": "a\\b",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "empty",
+            "data_type": "varchar(5)",
+            "is_nullable": "YES",
+            "column_default": "",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "blank_bytes",
+            "data_type": "text",
+            "is_nullable": "YES",
+            "column_default": [],
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "kind",
+            "data_type": "enum('p','q')",
+            "is_nullable": "YES",
+            "column_default": "q",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "score",
+            "data_type": "decimal(10,2)",
+            "is_nullable": "NO",
+            "column_default": "0.00",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "flag",
+            "data_type": "bit(1)",
+            "is_nullable": "YES",
+            "column_default": "b'1'",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "datetime",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "extra": "DEFAULT_GENERATED",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "touched",
+            "data_type": "timestamp(3)",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP(3)",
+            "extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP(3)",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "doc",
+            "data_type": "json",
+            "is_nullable": "YES",
+            "column_default": "json_array()",
+            "extra": "DEFAULT_GENERATED",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "tag",
+            "data_type": "varchar(10)",
+            "is_nullable": "YES",
+            "column_default": "concat(_utf8mb4\\'a\\',_utf8mb4\\'b\\')",
+            "extra": "DEFAULT_GENERATED",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          },
+          {
+            "column_name": "day",
+            "data_type": "date",
+            "is_nullable": "YES",
+            "column_default": "2024-01-02",
+            "extra": "",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "foreign_key_schema": null,
+            "foreign_key_table": null,
+            "foreign_key_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'active'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "quoted",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'it''s'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "path",
+          "type": "varchar(20)",
+          "nullable": true,
+          "defaultValue": "'a\\\\b'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "empty",
+          "type": "varchar(5)",
+          "nullable": true,
+          "defaultValue": "''",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "blank_bytes",
+          "type": "text",
+          "nullable": true,
+          "defaultValue": "''",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "kind",
+          "type": "enum('p','q')",
+          "nullable": true,
+          "defaultValue": "'q'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal(10,2)",
+          "nullable": false,
+          "defaultValue": "0.00",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "flag",
+          "type": "bit(1)",
+          "nullable": true,
+          "defaultValue": "b'1'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "touched",
+          "type": "timestamp(3)",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP(3)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "doc",
+          "type": "json",
+          "nullable": true,
+          "defaultValue": "(json_array())",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "tag",
+          "type": "varchar(10)",
+          "nullable": true,
+          "defaultValue": "(concat(_utf8mb4'a',_utf8mb4'b'))",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": true,
+          "defaultValue": "'2024-01-02'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 10: a v1 plan with window functions keeps its tables",
+      "fix": 10,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["EXPLAIN"],
+        "rows": [
+          {
+            "EXPLAIN": "{\"query_block\": {\"select_id\": 1, \"cost_info\": {\"query_cost\": \"51.25\"}, \"windowing\": {\"windows\": [{\"name\": \"<unnamed window>\", \"using_filesort\": true, \"filesort_key\": [\"`SUM(total)`\"], \"functions\": [\"row_number\"]}], \"cost_info\": {\"sort_cost\": \"500.00\"}, \"grouping_operation\": {\"using_temporary_table\": true, \"using_filesort\": false, \"table\": {\"table_name\": \"orders\", \"access_type\": \"ALL\", \"rows_examined_per_scan\": 500, \"cost_info\": {\"read_cost\": \"1.25\", \"eval_cost\": \"50.00\"}}}}}}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Window",
+          "totalCost": 51.25,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Group",
+              "totalCost": null,
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Table Scan",
+                  "relationName": "orders",
+                  "planRows": 500,
+                  "totalCost": 51.25,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    }
+  ]
+}

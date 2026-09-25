@@ -13,7 +13,7 @@ vi.mock("$lib/db", async (importOriginal) => {
   return { ...actual, getAdapter: vi.fn(actual.getAdapter) };
 });
 
-import { getEngineClient, RustEngineClient, TsEngineClient } from "./index";
+import { getEngineClient, RustEngineClient, TsEngineClient, usesRustEngine } from "./index";
 import { invoke } from "@tauri-apps/api/core";
 import { getAdapter } from "$lib/db";
 
@@ -33,47 +33,72 @@ describe("getEngineClient", () => {
   });
 
   it.each([
-    ["desktop", { tauri: true, web: false }],
-    ["web", { tauri: false, web: true }],
-  ])("uses Rust for Postgres on %s", (_mode, flags) => {
+    ["postgres", "desktop", { tauri: true, web: false }],
+    ["postgres", "web", { tauri: false, web: true }],
+    ["mysql", "desktop", { tauri: true, web: false }],
+    ["mysql", "web", { tauri: false, web: true }],
+    ["mariadb", "desktop", { tauri: true, web: false }],
+    ["mariadb", "web", { tauri: false, web: true }],
+    ["sqlite", "desktop", { tauri: true, web: false }],
+    ["sqlite", "web", { tauri: false, web: true }],
+    ["mssql", "desktop", { tauri: true, web: false }],
+    ["mssql", "web", { tauri: false, web: true }],
+    ["duckdb", "desktop", { tauri: true, web: false }],
+    ["duckdb", "web", { tauri: false, web: true }],
+  ] as const)("uses Rust for %s on %s", (type, _mode, flags) => {
     Object.assign(env, flags);
-    expect(getEngineClient(conn("postgres"))).toBeInstanceOf(RustEngineClient);
+    expect(getEngineClient(conn(type))).toBeInstanceOf(RustEngineClient);
+    expect(usesRustEngine(conn(type))).toBe(true);
   });
 
-  it("uses TypeScript for Postgres in the demo", () => {
-    expect(getEngineClient(conn("postgres"))).toBeInstanceOf(TsEngineClient);
-  });
-
-  it.each(["mysql", "mariadb", "sqlite", "mssql", "duckdb"] as const)(
-    "uses TypeScript for %s on desktop and web",
+  // The demo has no Rust core; its DuckDB-WASM keeps duckdb.ts.
+  it.each(["postgres", "mysql", "mariadb", "sqlite", "mssql", "duckdb"] as const)(
+    "uses TypeScript for %s in the demo",
     (type) => {
-      env.tauri = true;
       expect(getEngineClient(conn(type))).toBeInstanceOf(TsEngineClient);
-      env.tauri = false;
-      env.web = true;
-      expect(getEngineClient(conn(type))).toBeInstanceOf(TsEngineClient);
+      expect(usesRustEngine(conn(type))).toBe(false);
     },
   );
 });
 
-describe("getEngineClient and the TypeScript Postgres adapter", () => {
+describe("getEngineClient and the TypeScript adapters", () => {
   afterEach(() => {
     env.tauri = false;
     env.web = false;
     vi.mocked(getAdapter).mockClear();
   });
 
-  it("has no Postgres adapter any more", () => {
-    expect(() => getAdapter("postgres")).toThrow('Database type "postgres" is not supported yet');
+  // Only the demo's DuckDB keeps a TypeScript adapter.
+  it.each(["postgres", "mysql", "mariadb", "sqlite", "mssql"] as const)(
+    "has no %s adapter any more",
+    (type) => {
+      expect(() => getAdapter(type)).toThrow(`Database type "${type}" is not supported yet`);
+    },
+  );
+
+  it("keeps the DuckDB adapter for the demo", () => {
+    expect(getAdapter("duckdb").paginateQuery("SELECT 1", 10, 0)).toBe(
+      "SELECT 1 LIMIT 10 OFFSET 0",
+    );
   });
 
-  // Desktop and web only. In the demo a Postgres connection still gets a
-  // TsEngineClient (whose adapter lookup would throw on first use), which is
-  // fine: the demo has no Rust core and can't create Postgres connections.
+  // Desktop and web only. In the demo any connection still gets a
+  // TsEngineClient (whose adapter lookup throws on first use for anything
+  // but DuckDB), which is fine: the demo can only create DuckDB connections.
   it.each([
-    ["desktop", { tauri: true, web: false }],
-    ["web", { tauri: false, web: true }],
-  ])("never asks getAdapter for postgres on %s", async (_mode, flags) => {
+    ["postgres", "desktop", { tauri: true, web: false }],
+    ["postgres", "web", { tauri: false, web: true }],
+    ["mysql", "desktop", { tauri: true, web: false }],
+    ["mysql", "web", { tauri: false, web: true }],
+    ["mariadb", "desktop", { tauri: true, web: false }],
+    ["mariadb", "web", { tauri: false, web: true }],
+    ["sqlite", "desktop", { tauri: true, web: false }],
+    ["sqlite", "web", { tauri: false, web: true }],
+    ["mssql", "desktop", { tauri: true, web: false }],
+    ["mssql", "web", { tauri: false, web: true }],
+    ["duckdb", "desktop", { tauri: true, web: false }],
+    ["duckdb", "web", { tauri: false, web: true }],
+  ] as const)("never asks getAdapter for %s on %s", async (type, _mode, flags) => {
     Object.assign(env, flags);
     const reply = { kind: "schemas", data: ["public"] };
     vi.mocked(invoke).mockResolvedValue(reply);
@@ -82,9 +107,10 @@ describe("getEngineClient and the TypeScript Postgres adapter", () => {
       vi.fn(() => Promise.resolve(new Response(JSON.stringify(reply)))),
     );
     try {
-      const client = getEngineClient(conn("postgres"));
+      const client = getEngineClient(conn(type));
+      expect(client).not.toBeInstanceOf(TsEngineClient);
       expect(await client.listSchemas()).toEqual(["public"]);
-      expect(vi.mocked(getAdapter)).not.toHaveBeenCalledWith("postgres");
+      expect(vi.mocked(getAdapter)).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
       vi.mocked(invoke).mockReset();

@@ -36,10 +36,7 @@ async fn post_json(app: axum::Router, uri: &str, body: Value) -> (StatusCode, Va
 
 #[tokio::test]
 async fn connect_and_query_sqlite_roundtrip() {
-    let tmp = std::env::temp_dir().join(format!(
-        "seaquel-test-{}.sqlite",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = std::env::temp_dir().join(format!("seaquel-test-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
 
     let app = build_router(AppState::default());

@@ -43,10 +43,7 @@ pub async fn post_json(app: axum::Router, uri: &str, body: Value) -> (StatusCode
 /// Create a unique tempfile-backed SQLite connection string. Returns
 /// `(conn_str, path_to_cleanup)`.
 pub fn temp_sqlite() -> (String, std::path::PathBuf) {
-    let tmp = std::env::temp_dir().join(format!(
-        "seaquel-test-{}.sqlite",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = std::env::temp_dir().join(format!("seaquel-test-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
     (conn_str, tmp)
 }

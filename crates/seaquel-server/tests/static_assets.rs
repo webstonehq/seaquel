@@ -42,7 +42,10 @@ async fn root_serves_index_html() {
     let (status, content_type, body) = get(app, "/").await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        content_type.as_deref().unwrap_or("").starts_with("text/html"),
+        content_type
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("text/html"),
         "unexpected content-type: {content_type:?}"
     );
     assert!(
@@ -60,7 +63,10 @@ async fn unknown_path_falls_back_to_index_html() {
     let (status, content_type, body) = get(app, "/dashboard/some/deep/route").await;
     assert_eq!(status, StatusCode::OK, "SPA fallback must return 200");
     assert!(
-        content_type.as_deref().unwrap_or("").starts_with("text/html"),
+        content_type
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("text/html"),
         "SPA fallback must return HTML, got {content_type:?}"
     );
     assert!(looks_like_html(&body));
@@ -72,7 +78,11 @@ async fn api_routes_take_precedence_over_static_fallback() {
     let app = build_router(AppState::default());
     let (status, _content_type, body) = get(app, "/health").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(&body[..], b"ok", "API route must not be shadowed by SPA fallback");
+    assert_eq!(
+        &body[..],
+        b"ok",
+        "API route must not be shadowed by SPA fallback"
+    );
 }
 
 #[tokio::test]

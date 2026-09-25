@@ -1,0 +1,936 @@
+{
+  "cases": [
+    {
+      "name": "dbo.fx_customers",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_customers",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "name",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "email",
+            "data_type": "nvarchar",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "status",
+            "data_type": "varchar",
+            "is_nullable": "NO",
+            "column_default": "('active')",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "score",
+            "data_type": "decimal",
+            "is_nullable": "NO",
+            "column_default": "((0))",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "balance",
+            "data_type": "money",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "datetime2",
+            "is_nullable": "NO",
+            "column_default": "(sysutcdatetime())",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "external_id",
+            "data_type": "uniqueidentifier",
+            "is_nullable": "NO",
+            "column_default": "(newid())",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "avatar",
+            "data_type": "varbinary",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "is_active",
+            "data_type": "bit",
+            "is_nullable": "NO",
+            "column_default": "((1))",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "profile",
+            "data_type": "xml",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "display_name",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "nvarchar",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "varchar",
+          "nullable": false,
+          "defaultValue": "('active')",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "decimal",
+          "nullable": false,
+          "defaultValue": "((0))",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "balance",
+          "type": "money",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "datetime2",
+          "nullable": false,
+          "defaultValue": "(sysutcdatetime())",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "external_id",
+          "type": "uniqueidentifier",
+          "nullable": false,
+          "defaultValue": "(newid())",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "avatar",
+          "type": "varbinary",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "is_active",
+          "type": "bit",
+          "nullable": false,
+          "defaultValue": "((1))",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "profile",
+          "type": "xml",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "display_name",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_orders",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_orders",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "customer_id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_customers",
+            "referenced_column": "id"
+          },
+          {
+            "column_name": "placed_at",
+            "data_type": "datetime2",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "total",
+            "data_type": "decimal",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "kind",
+            "data_type": "varchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "memo",
+            "data_type": "nvarchar",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "placed_at",
+          "type": "datetime2",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "decimal",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "kind",
+          "type": "varchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "memo",
+          "type": "nvarchar",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_accounts",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_accounts",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "customer_id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_customers",
+            "referenced_column": "id"
+          },
+          {
+            "column_name": "region",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "balance",
+            "data_type": "money",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "region",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "balance",
+          "type": "money",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_ledger",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_ledger",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "account_id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_accounts",
+            "referenced_column": "customer_id"
+          },
+          {
+            "column_name": "account_id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_customers",
+            "referenced_column": "id"
+          },
+          {
+            "column_name": "account_region",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_accounts",
+            "referenced_column": "region"
+          },
+          {
+            "column_name": "amount",
+            "data_type": "decimal",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "account_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_accounts",
+            "referencedColumn": "customer_id"
+          }
+        },
+        {
+          "name": "account_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "account_region",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_accounts",
+            "referencedColumn": "region"
+          }
+        },
+        {
+          "name": "amount",
+          "type": "decimal",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fx_sales.fx_invoices",
+      "input": {
+        "schema": "fx_sales",
+        "table": "fx_invoices",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "customer_id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 1,
+            "referenced_schema": "dbo",
+            "referenced_table": "fx_customers",
+            "referenced_column": "id"
+          },
+          {
+            "column_name": "number",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "issued_on",
+            "data_type": "date",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "amount",
+            "data_type": "smallmoney",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "dbo",
+            "referencedTable": "fx_customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "number",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "issued_on",
+          "type": "date",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "amount",
+          "type": "smallmoney",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_events",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_events",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "bigint",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 1,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "occurred_at",
+            "data_type": "datetime2",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "payload",
+            "data_type": "nvarchar",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "occurred_at",
+          "type": "datetime2",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "payload",
+          "type": "nvarchar",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_heap",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_heap",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "v",
+            "data_type": "int",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "label",
+            "data_type": "nvarchar",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "v",
+          "type": "int",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "label",
+          "type": "nvarchar",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_café",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_café",
+        "columns": [
+          "column_name",
+          "data_type",
+          "is_nullable",
+          "column_default",
+          "is_primary_key",
+          "is_foreign_key",
+          "referenced_schema",
+          "referenced_table",
+          "referenced_column"
+        ],
+        "rows": [
+          {
+            "column_name": "naïve",
+            "data_type": "nvarchar",
+            "is_nullable": "YES",
+            "column_default": "(N'é')",
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "名前",
+            "data_type": "nvarchar",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          },
+          {
+            "column_name": "v",
+            "data_type": "int",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": 0,
+            "is_foreign_key": 0,
+            "referenced_schema": null,
+            "referenced_table": null,
+            "referenced_column": null
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "naïve",
+          "type": "nvarchar",
+          "nullable": true,
+          "defaultValue": "(N'é')",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "名前",
+          "type": "nvarchar",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "v",
+          "type": "int",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    }
+  ]
+}

@@ -22,7 +22,11 @@ async fn disconnect_drops_connection() {
         json!({ "connection_id": connection_id, "sql": "SELECT 1", "values": [] }),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "pre-disconnect query should succeed");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "pre-disconnect query should succeed"
+    );
 
     // Disconnect.
     let (status, body) = post_json(

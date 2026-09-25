@@ -12,6 +12,9 @@ import type { ProviderRegistry } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+import { splitDdlScript } from "$lib/utils/ddl-script";
+import { splitColumnType } from "$lib/utils/column-type";
+import { m } from "$lib/paraglide/messages.js";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -90,21 +93,10 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
       tableName: table.name,
       schemaName: table.schema,
       columns: table.columns.map((col) => {
-        // Split type and length/precision: "varchar(255)" → type="varchar", length="255"
-        const typeMatch = col.type.match(/^([^(]+)\(([^)]+)\)/);
-        let type = col.type;
-        let length: string | undefined;
-        let precision: string | undefined;
-
-        if (typeMatch) {
-          type = typeMatch[1].trim();
-          const params = typeMatch[2].trim();
-          if (params.includes(",")) {
-            precision = params;
-          } else {
-            length = params;
-          }
-        }
+        // "varchar(255)" → type "varchar", length "255"; types the editor
+        // can't rebuild from type + length (suffixes, enums, nested types)
+        // stay whole.
+        const { type, length, precision } = splitColumnType(col.type);
 
         return {
           id: crypto.randomUUID(),
@@ -115,7 +107,14 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
           nullable: col.nullable,
           defaultValue: col.defaultValue ?? "",
           isPrimaryKey: col.isPrimaryKey,
-          isUnique: false,
+          // UNIQUE constraints as the engine reports them (DuckDB): the
+          // column's own (the checkbox) and membership in any, composite
+          // too, which DuckDB's ALTER TABLE notes read.
+          isUnique: col.isUnique === true,
+          ...(col.inUniqueConstraint ? { inUniqueConstraint: true } : {}),
+          // A collation that isn't the database default (MSSQL), so ALTER
+          // COLUMN restates it instead of resetting the column to the default.
+          ...(col.collation ? { collation: col.collation } : {}),
         };
       }),
       indexes: table.indexes.map((idx) => ({
@@ -203,22 +202,29 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
 
     if (!sql) return false;
 
-    // Split into individual statements
-    const statements = sql
-      .split(";\n")
-      .map((s) => s.trim())
-      .filter((s) => s && !s.startsWith("--"));
+    // Edits the engine can't make come back as `-- …` notes, not statements.
+    const { statements, notes } = splitDdlScript(sql);
+    const showNotes = (title: string) =>
+      toast.warning(title, {
+        description: notes.join("\n"),
+        descriptionClass: "whitespace-pre-line",
+      });
+    if (statements.length === 0) {
+      if (notes.length > 0) showNotes(m.table_editor_nothing_applied());
+      return false;
+    }
 
     // Queue statements when pending changes is enabled
     const pendingChanges = this.getPendingChanges();
     if (pendingChanges.isEnabled()) {
       const origin = tab.isEditMode ? ("alter-table" as const) : ("create-table" as const);
       for (const stmt of statements) {
-        pendingChanges.add(connection.id, stmt.endsWith(";") ? stmt : stmt + ";", "other", origin);
+        pendingChanges.add(connection.id, stmt, "other", origin);
       }
       toast.info(
         `${statements.length} statement${statements.length > 1 ? "s" : ""} added to pending changes`,
       );
+      if (notes.length > 0) showNotes(m.table_editor_changes_skipped());
       pendingChanges.openSheet();
       return true;
     }
@@ -226,16 +232,14 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
     try {
       const provider = await this.providers.getForType(connection.type);
       for (const stmt of statements) {
-        await provider.execute(
-          connection.providerConnectionId,
-          stmt.endsWith(";") ? stmt : stmt + ";",
-        );
+        await provider.execute(connection.providerConnectionId, stmt);
       }
       toast.success(
         tab.isEditMode
           ? `Table "${tab.tableDefinition.tableName}" updated successfully`
           : `Table "${tab.tableDefinition.tableName}" created successfully`,
       );
+      if (notes.length > 0) showNotes(m.table_editor_changes_skipped());
       await this.refreshSchemaFn(connection.id);
       return true;
     } catch (error) {

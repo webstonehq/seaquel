@@ -1,0 +1,91 @@
+{
+  "cases": [
+    {
+      "name": "with a default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": " 'x' ",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "length": "8"
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"code\" VARCHAR(8) DEFAULT 'x';"
+    },
+    {
+      "name": "NOT NULL with a default",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaultValue": "'x'",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"code\" VARCHAR NOT NULL DEFAULT 'x';"
+    },
+    {
+      "name": "nullable, precision",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "rate",
+          "type": "DECIMAL",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "precision": "5,2"
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"rate\" DECIMAL(5,2);"
+    },
+    {
+      "name": "names with spaces and non-ASCII",
+      "input": {
+        "schema": "my schema",
+        "table": "order items",
+        "column": {
+          "id": "c9",
+          "name": "gift note naïve",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"my schema\".\"order items\" ADD COLUMN \"gift note naïve\" VARCHAR;"
+    },
+    {
+      "name": "names with double quotes (unescaped by the adapter)",
+      "input": {
+        "schema": "sch\"x",
+        "table": "odd\"table",
+        "column": {
+          "id": "c9",
+          "name": "a\"b",
+          "type": "INTEGER",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"sch\"x\".\"odd\"table\" ADD COLUMN \"a\"b\" INTEGER DEFAULT 0;"
+    }
+  ]
+}

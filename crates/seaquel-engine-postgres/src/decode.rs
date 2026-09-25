@@ -313,7 +313,9 @@ fn pg_clock(us: i64) -> String {
 }
 
 fn be_i64(b: &[u8]) -> Result<i64, BoxDynError> {
-    Ok(i64::from_be_bytes(b.try_into().map_err(|_| format!("expected 8 bytes, got {}", b.len()))?))
+    Ok(i64::from_be_bytes(b.try_into().map_err(|_| {
+        format!("expected 8 bytes, got {}", b.len())
+    })?))
 }
 
 fn time_of_day(us: i64) -> Result<Time, BoxDynError> {
@@ -330,7 +332,10 @@ fn time_of_day(us: i64) -> Result<Time, BoxDynError> {
 }
 
 fn decode_date(b: &[u8]) -> Result<String, BoxDynError> {
-    let days = i32::from_be_bytes(b.try_into().map_err(|_| format!("expected 4 bytes, got {}", b.len()))?);
+    let days = i32::from_be_bytes(
+        b.try_into()
+            .map_err(|_| format!("expected 4 bytes, got {}", b.len()))?,
+    );
     match days {
         i32::MAX => return Ok("infinity".into()),
         i32::MIN => return Ok("-infinity".into()),
@@ -357,7 +362,11 @@ fn decode_timestamp(b: &[u8], utc: bool) -> Result<String, BoxDynError> {
     let (y, m, d) = civil_from_days(us.div_euclid(DAY_US) + PG_EPOCH_UNIX_DAYS);
     if let Some(date) = time_date(y, m, d) {
         let t = PrimitiveDateTime::new(date, time_of_day(of_day)?);
-        return Ok(if utc { t.assume_utc().to_string() } else { t.to_string() });
+        return Ok(if utc {
+            t.assume_utc().to_string()
+        } else {
+            t.to_string()
+        });
     }
     let (date, bc) = pg_date(y, m, d);
     Ok(format!(
@@ -370,7 +379,11 @@ fn decode_timestamp(b: &[u8], utc: bool) -> Result<String, BoxDynError> {
 
 fn decode_time(b: &[u8]) -> Result<String, BoxDynError> {
     let us = be_i64(b)?;
-    Ok(if us == DAY_US { "24:00:00".into() } else { time_of_day(us)?.to_string() })
+    Ok(if us == DAY_US {
+        "24:00:00".into()
+    } else {
+        time_of_day(us)?.to_string()
+    })
 }
 
 fn decode_timetz(b: &[u8]) -> Result<String, BoxDynError> {
@@ -381,7 +394,11 @@ fn decode_timetz(b: &[u8]) -> Result<String, BoxDynError> {
     // Stored as seconds west of UTC.
     let west = i32::from_be_bytes(b[8..].try_into()?);
     let offset = -UtcOffset::from_whole_seconds(west)?;
-    let time = if us == DAY_US { "24:00:00".into() } else { time_of_day(us)?.to_string() };
+    let time = if us == DAY_US {
+        "24:00:00".into()
+    } else {
+        time_of_day(us)?.to_string()
+    };
     Ok(format!("{time}{offset}"))
 }
 
@@ -426,8 +443,12 @@ macro_rules! temporal {
 temporal!(PgDate, "DATE", 1082, 1182, decode_date);
 temporal!(PgTime, "TIME", 1083, 1183, decode_time);
 temporal!(PgTimeTzText, "TIMETZ", 1266, 1270, decode_timetz);
-temporal!(PgTimestamp, "TIMESTAMP", 1114, 1115, |b| decode_timestamp(b, false));
-temporal!(PgTimestampTz, "TIMESTAMPTZ", 1184, 1185, |b| decode_timestamp(b, true));
+temporal!(PgTimestamp, "TIMESTAMP", 1114, 1115, |b| decode_timestamp(
+    b, false
+));
+temporal!(PgTimestampTz, "TIMESTAMPTZ", 1184, 1185, |b| {
+    decode_timestamp(b, true)
+});
 
 #[cfg(test)]
 mod tests {

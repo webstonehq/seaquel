@@ -20,8 +20,18 @@
 	let viewMode = $state<PendingChangeViewMode>("visual");
 	let isExecuting = $state(false);
 	let showConfirmDialog = $state(false);
+	/** The change the last Execute All stopped at, and why; it stays pending. */
+	let failure = $state<{ change: PendingChange; error: string } | null>(null);
 
 	const changes = $derived(db.state.activePendingChanges);
+	/**
+	 * The failure to show, while its change is still pending as it was:
+	 * editing the change replaces its object and removing it drops it, and
+	 * either makes the error stale.
+	 */
+	const shownFailure = $derived(
+		failure && changes.includes(failure.change) ? failure : null,
+	);
 	const connectionName = $derived(db.state.activeConnection?.name ?? "Unknown");
 
 	function getIcon(change: PendingChange) {
@@ -111,11 +121,18 @@
 
 		isExecuting = true;
 		try {
+			failure = null;
 			const result = await db.pendingChanges.executeAll(connectionId);
 			if (result.failed > 0) {
 				errorToast(`Failed at statement ${(result.failedAt ?? 0) + 1}: ${result.error}`);
 				if (result.executed > 0) {
 					toast.info(`${result.executed} statement${result.executed > 1 ? "s" : ""} executed before failure`);
+				}
+				// The failed change and the ones after it stay pending (see
+				// `executeAll`); keep the sheet open on the failed one.
+				const failed = db.state.activePendingChanges.find((c) => c.id === result.failedChangeId);
+				if (failed) {
+					failure = { change: failed, error: result.error ?? "" };
 				}
 			} else {
 				toast.success(`${result.executed} statement${result.executed > 1 ? "s" : ""} executed successfully`);
@@ -126,8 +143,10 @@
 			if (result.hasDdl || result.executed > 0) {
 				await db.dataTabs.refreshAllForConnection(connectionId);
 			}
-			db.pendingChanges.clear(connectionId);
-			db.pendingChanges.closeSheet();
+			if (result.failed === 0) {
+				db.pendingChanges.clear(connectionId);
+				db.pendingChanges.closeSheet();
+			}
 		} catch (error) {
 			db.pendingChanges.closeSheet();
 			errorToast(error instanceof Error ? error.message : String(error));
@@ -186,7 +205,10 @@
 			<div class="space-y-2">
 				{#each changes as change (change.id)}
 					{@const Icon = getIcon(change)}
-					<div class="group relative rounded-md border px-3 py-2.5 text-sm">
+					{@const failed = shownFailure?.change === change}
+					<div
+						class={["group relative rounded-md border px-3 py-2.5 text-sm", failed && "border-destructive bg-destructive/5"]}
+					>
 						<div class="flex items-start gap-2">
 							<Icon class="size-4 mt-0.5 shrink-0 text-muted-foreground" />
 							<div class="flex-1 min-w-0">
@@ -202,6 +224,9 @@
 									<code class="mt-1 block text-xs text-muted-foreground break-all whitespace-pre-wrap">
 										{truncateSql(change.sql, 200, change.bindValues)}
 									</code>
+								{/if}
+								{#if failed && shownFailure}
+									<p class="mt-1 text-xs text-destructive break-words">{shownFailure.error}</p>
 								{/if}
 							</div>
 							<button

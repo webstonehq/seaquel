@@ -10,6 +10,7 @@ import {
   fromStorable,
   jsonReplacer,
   toHex,
+  fromHex,
   toNumber,
   toStorable,
 } from "./values";
@@ -243,5 +244,18 @@ describe("toStorable / fromStorable", () => {
     expect(fromStorable(plain)).toEqual(plain);
     const d = new Date(0);
     expect(JSON.stringify(toStorable({ d }))).toBe(JSON.stringify({ d }));
+  });
+});
+
+describe("fromHex", () => {
+  it("reads what toHex writes", () => {
+    const bytes = new Uint8Array([0, 1, 0xab, 255]);
+    expect(fromHex(toHex(bytes))).toEqual(bytes);
+    expect(fromHex("\\xABcd")).toEqual(new Uint8Array([0xab, 0xcd]));
+    expect(fromHex("\\x")).toEqual(new Uint8Array([]));
+  });
+
+  it.each(["", "abcd", "\\xabc", "\\xzz", "0xab", " \\xab", "\\xab "])("rejects %j", (text) => {
+    expect(fromHex(text)).toBeNull();
   });
 });

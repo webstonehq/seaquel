@@ -711,7 +711,6 @@ export class ConnectionManager {
     // Load schema
     const client = new TsEngineClient({
       type: "duckdb",
-      connectionName: newConnection.name,
       getConnectionId: () =>
         this.state.connections.find((c) => c.id === connectionId)?.providerConnectionId,
       getProvider: () => this.providers.getOrCreateDuckDB(),

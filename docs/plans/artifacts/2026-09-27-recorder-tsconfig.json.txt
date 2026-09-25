@@ -1,0 +1,17 @@
+{
+  // Lets type-aware oxlint resolve `$lib` for the fixture recorder, which the
+  // root tsconfig (via .svelte-kit/tsconfig.json) doesn't include.
+  "extends": "../../.svelte-kit/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "moduleResolution": "bundler",
+    "types": ["node", "vite/client"]
+  },
+  "include": ["./**/*.ts", "./**/*.mjs", "../../.svelte-kit/ambient.d.ts", "../../src/app.d.ts"]
+}

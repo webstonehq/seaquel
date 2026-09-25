@@ -21,6 +21,7 @@ import type { SchemaTable } from "$lib/types/generated/SchemaTable";
 import type { SqlWithBindings } from "$lib/types/generated/SqlWithBindings";
 import { isTauri } from "$lib/utils/environment";
 import { decodeCell, encodeParam, encodeParams } from "$lib/values";
+import { duckdbQualifiedTable, plainQualifiedTable, quoteIdent } from "./qualified-table";
 import type { CastMap, EngineClient, RowRecord, TableMetadata } from "./types";
 
 /** Sends one call and returns the raw response; rejects with a `"CODE: message"` Error. */
@@ -68,8 +69,13 @@ function decodeBindings(data: SqlWithBindings): SqlWithBindings {
   return data;
 }
 
-/** Engines whose dialect runs in Rust. Each needs a local `paginate` in `PAGINATE`. */
-export type RustEngine = "postgres";
+/**
+ * Connection types whose dialect runs in Rust. Each needs a local `paginate`
+ * in `PAGINATE` and a `qualifiedTable` in `QUALIFIED_TABLE`. MariaDB connects
+ * through the MySQL engine (driver `"mysql"`, see `toRustConfig`) and shares
+ * its dialect.
+ */
+export type RustEngine = "postgres" | "mysql" | "mariadb" | "sqlite" | "mssql" | "duckdb";
 
 function checkRowCount(name: string, n: number): void {
   // The Rust params are u64; stop at 2^53 so the number prints the same.
@@ -81,13 +87,123 @@ function checkRowCount(name: string, n: number): void {
 /**
  * Pagination runs here, not in the core, to save a round trip per page (on
  * web: browser → Node → Rust). Each mirrors its Rust dialect's `paginate`
- * byte for byte, checked against the same parity fixture; for Postgres see
- * `PostgresDialect::paginate` in crates/seaquel-engine-postgres/src/dialect.rs
- * and tests/fixtures/paginate.json. Phase 2 should replace this with the Rust
- * dialect compiled to wasm (seaquel-wasm).
+ * byte for byte, checked against the same parity fixture: `paginate` in
+ * crates/seaquel-engine-postgres/src/dialect.rs (tests/fixtures/paginate.json),
+ * crates/seaquel-engine-mysql/src/dialect.rs (tests/fixtures/mysql/paginate.json),
+ * crates/seaquel-engine-sqlite/src/dialect.rs (tests/fixtures/paginate.json),
+ * crates/seaquel-engine-mssql/src/dialect.rs (tests/fixtures/paginate.json
+ * with the `paginate` cases of bugfixes.json)
+ * and crates/seaquel-engine-duckdb/src/dialect.rs (tests/fixtures/paginate.json).
+ * A later phase should replace this with
+ * the Rust dialect compiled to wasm (seaquel-wasm).
  */
+const limitOffset = (sql: string, limit: number, offset: number) =>
+  `${sql} LIMIT ${limit} OFFSET ${offset}`;
+
+/** `char::is_whitespace` in Rust: Unicode White_Space (JS `\s` differs at U+0085 and U+FEFF). */
+function isRustWhitespace(c: string): boolean {
+  return /^[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$/.test(c);
+}
+
+/** A T-SQL word character: identifier, keyword, number or `@variable`. */
+function isTsqlWordChar(c: string): boolean {
+  return /^[A-Za-z0-9_@#$]$/.test(c);
+}
+
+/**
+ * `MssqlDialect::paginate`: `OFFSET … ROWS FETCH NEXT … ROWS ONLY` after
+ * `sql`, with `ORDER BY (SELECT NULL)` first unless the query has its own
+ * top-level ORDER BY (outside parentheses, strings, quoted names and
+ * comments). Whatever follows the last token that isn't `;` is dropped.
+ * Works on code points, as the Rust works on chars.
+ */
+function mssqlPaginate(sql: string, limit: number, offset: number): string {
+  const s = Array.from(sql);
+  const n = s.length;
+  const starts = (i: number, pat: string) => s[i] === pat[0] && s[i + 1] === pat[1];
+  let i = 0;
+  let depth = 0;
+  // Top-level words, ASCII upper-cased; `null` for any other top-level token.
+  const words: Array<string | null> = [];
+  // End (in code points) of the last significant token that isn't `;`.
+  let cut = 0;
+  while (i < n) {
+    const ch = s[i];
+    if (isRustWhitespace(ch)) {
+      i += 1;
+    } else if (starts(i, "--")) {
+      const j = s.indexOf("\n", i);
+      i = j === -1 ? n : j + 1;
+    } else if (starts(i, "/*")) {
+      let level = 1;
+      i += 2;
+      while (i < n && level > 0) {
+        if (starts(i, "/*")) {
+          level += 1;
+          i += 2;
+        } else if (starts(i, "*/")) {
+          level -= 1;
+          i += 2;
+        } else {
+          i += 1;
+        }
+      }
+    } else if (ch === "'" || ch === '"' || ch === "[") {
+      const close = ch === "[" ? "]" : ch;
+      i += 1;
+      while (i < n) {
+        if (s[i] === close) {
+          if (i + 1 < n && s[i + 1] === close) {
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      cut = i;
+      if (depth === 0) words.push(null);
+    } else if (isTsqlWordChar(ch)) {
+      let j = i;
+      while (j < n && isTsqlWordChar(s[j])) j += 1;
+      if (depth === 0) words.push(s.slice(i, j).join("").toUpperCase());
+      i = j;
+      cut = j;
+    } else {
+      if (ch === "(") depth += 1;
+      else if (ch === ")") depth -= 1;
+      if (ch !== ";") cut = i + 1;
+      if (depth === 0 && ch !== "(" && ch !== ")") words.push(null);
+      i += 1;
+    }
+  }
+  const hasOrder = words.some((w, k) => w === "ORDER" && words[k + 1] === "BY");
+  const body = s.slice(0, cut).join("");
+  const order = hasOrder ? "" : " ORDER BY (SELECT NULL)";
+  return `${body}${order} OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`;
+}
+
 const PAGINATE: Record<RustEngine, (sql: string, limit: number, offset: number) => string> = {
-  postgres: (sql, limit, offset) => `${sql} LIMIT ${limit} OFFSET ${offset}`,
+  postgres: limitOffset,
+  mysql: limitOffset,
+  mariadb: limitOffset,
+  sqlite: limitOffset,
+  mssql: mssqlPaginate,
+  duckdb: limitOffset,
+};
+
+/**
+ * `qualifiedTable`, also local. DuckDB splits its listed `catalog.schema`
+ * (see `./qualified-table`); the other engines quote the schema as one name.
+ */
+const QUALIFIED_TABLE: Record<RustEngine, (schema: string, table: string) => string> = {
+  postgres: (s, t) => plainQualifiedTable("postgres", s, t),
+  mysql: (s, t) => plainQualifiedTable("mysql", s, t),
+  mariadb: (s, t) => plainQualifiedTable("mariadb", s, t),
+  sqlite: (s, t) => plainQualifiedTable("sqlite", s, t),
+  mssql: (s, t) => plainQualifiedTable("mssql", s, t),
+  duckdb: duckdbQualifiedTable,
 };
 
 export class RustEngineClient implements EngineClient {
@@ -152,6 +268,14 @@ export class RustEngineClient implements EngineClient {
     return PAGINATE[this.engine](sql, limit, offset);
   }
 
+  quoteIdent(name: string): string {
+    return quoteIdent(this.engine, name);
+  }
+
+  qualifiedTable(schema: string, table: string): string {
+    return QUALIFIED_TABLE[this.engine](schema, table);
+  }
+
   buildUpdate(
     schema: string,
     table: string,
@@ -183,6 +307,7 @@ export class RustEngineClient implements EngineClient {
     primaryKeys: string[],
     row: RowRecord,
     casts?: CastMap,
+    columnDefault?: string,
   ): Promise<SqlWithBindings> {
     return this.sqlWithBindings({
       method: "buildSetDefault",
@@ -190,6 +315,7 @@ export class RustEngineClient implements EngineClient {
         schema,
         table,
         column,
+        ...(columnDefault !== undefined ? { column_default: columnDefault } : {}),
         primary_keys: primaryKeys,
         row: toRowValues(row, primaryKeys),
         ...(casts ? { casts } : {}),

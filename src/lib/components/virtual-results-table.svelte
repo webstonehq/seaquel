@@ -4,7 +4,7 @@
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import { CopyIcon, CircleOffIcon, RotateCcwIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, XIcon, KeyRoundIcon, ArrowUpRightIcon } from "@lucide/svelte";
 	import { m } from "$lib/paraglide/messages.js";
-	import { detectColumnTypes, getFormattedCellText } from "$lib/utils/cell-type";
+	import { detectColumnTypes, getFormattedCellText, type BinaryStringEncoding } from "$lib/utils/cell-type";
 	import { cellText } from "$lib/values";
 	import type { ForeignKeyRef, SchemaTable } from "$lib/types";
 
@@ -48,6 +48,8 @@
 		onForeignKeyClick?: (ref: ForeignKeyRef, table: SchemaTable, value: string) => void;
 		/** Map of column name → declared SQL type (e.g. "BOOLEAN", "varchar(255)"). Used to classify cells even when value sampling would misidentify them. */
 		declaredColumnTypes?: Record<string, string>;
+		/** How string cells in binary columns hold their bytes (`binaryStringEncoding(connection type)`). */
+		binaryStrings?: BinaryStringEncoding;
 	}
 
 	let {
@@ -76,9 +78,14 @@
 		foreignKeyColumns,
 		onForeignKeyClick,
 		declaredColumnTypes,
+		binaryStrings = "text",
 	}: Props = $props();
 
-	// Column type detection for formatted cells
+	// Column type detection for formatted cells. The query editor passes no
+	// declared types, so there a VARBINARY value that is clean UTF-8 (MySQL
+	// sends those as text) is classified by its value and shows as text; only
+	// real bytes (Uint8Array) show as binary. The data viewer passes the table's
+	// declared types and shows it as bytes.
 	const columnTypes = $derived(detectColumnTypes(columns, rows, declaredColumnTypes));
 
 	// Virtual scrolling state
@@ -116,7 +123,7 @@
 		let maxLen = col.length;
 		const sampleRows = rows.slice(0, 100);
 		for (const row of sampleRows) {
-			const text = getFormattedCellText(row[colIdx], type);
+			const text = getFormattedCellText(row[colIdx], type, binaryStrings);
 			if (text.length > maxLen) maxLen = text.length;
 		}
 
@@ -343,6 +350,7 @@
 										onSave={(newValue) => onCellSave(rowIndex, column, newValue)}
 										onTextareaToggle={(active) => { textareaCell = active ? cellKey : null; }}
 										pendingDisplay
+										{binaryStrings}
 									/>
 								{:else}
 									<EditableCell
@@ -351,6 +359,7 @@
 										columnType={columnTypes[column]}
 										onSave={(newValue) => onCellSave(rowIndex, column, newValue)}
 										onTextareaToggle={(active) => { textareaCell = active ? cellKey : null; }}
+										{binaryStrings}
 									/>
 								{/if}
 								{#if showFkIcon}

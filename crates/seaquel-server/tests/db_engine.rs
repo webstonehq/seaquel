@@ -104,11 +104,38 @@ async fn engine_with_unknown_connection_id_returns_404() {
     assert_eq!(body["code"], "CONNECTION_NOT_FOUND");
 }
 
+/// An engine without a Rust dialect or introspection, over [`NoDatabase`].
+/// It takes the "duckdb" id only because `ConnectConfig.driver` is a closed
+/// enum (a made-up id can't connect); this Core has no real DuckDB engine, so
+/// DuckDB's own dialect (Task 17) doesn't change the test.
+struct NoDialectEngine;
+
+#[seaquel_runtime::async_trait]
+impl Engine for NoDialectEngine {
+    fn id(&self) -> &'static str {
+        "duckdb"
+    }
+    async fn open(&self, _config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError> {
+        Ok(Arc::new(NoDatabase))
+    }
+}
+
 #[tokio::test]
 async fn engine_without_a_rust_dialect_returns_501() {
-    let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
-    let connection_id = connect_sqlite(app.clone(), &conn_str).await;
+    let core = seaquel_core::Core::builder()
+        .engine(Arc::new(NoDialectEngine))
+        .build();
+    let app = build_router(AppState {
+        core: Arc::new(core),
+    });
+    let (status, body) = post_json(
+        app.clone(),
+        "/api/db/connect",
+        json!({ "driver": "duckdb" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "connect failed: {body}");
+    let connection_id = body["connection_id"].as_str().unwrap().to_string();
 
     for request in [
         json!({ "method": "schemaTables" }),
@@ -123,6 +150,32 @@ async fn engine_without_a_rust_dialect_returns_501() {
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "body={body}");
         assert_eq!(body["code"], "NOT_SUPPORTED");
     }
+}
+
+/// SQLite's dialect and introspection are in Rust (phase 2, Task 9).
+#[tokio::test]
+async fn engine_serves_sqlite() {
+    let (conn_str, tmp) = temp_sqlite();
+    let app = build_router(AppState::default());
+    let connection_id = connect_sqlite(app.clone(), &conn_str).await;
+
+    let (status, body) = post_json(
+        app.clone(),
+        "/api/db/engine",
+        json!({ "connection_id": connection_id, "request": { "method": "listSchemas" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body, json!({ "kind": "schemas", "data": ["main"] }));
+
+    let (status, body) = post_json(
+        app,
+        "/api/db/engine",
+        json!({ "connection_id": connection_id, "request": { "method": "paginate", "params": { "sql": "SELECT 1", "limit": 10, "offset": 0 } } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["data"], "SELECT 1 LIMIT 10 OFFSET 0");
 
     let _ = std::fs::remove_file(&tmp);
 }

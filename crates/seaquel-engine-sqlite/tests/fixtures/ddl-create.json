@@ -1,0 +1,451 @@
+{
+  "cases": [
+    {
+      "name": "everything together",
+      "input": {
+        "tableName": "customers",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "name",
+            "type": "TEXT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "email",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "255"
+          },
+          {
+            "id": "c4",
+            "name": "status",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'active'",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c5",
+            "name": "balance",
+            "type": "NUMERIC",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "10,2"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "customers_name_idx",
+            "columns": ["name"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "status",
+            "referencedSchema": "main",
+            "referencedTable": "statuses",
+            "referencedColumn": "code"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"customers\" (\n  \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"name\" TEXT NOT NULL,\n  \"email\" VARCHAR(255) UNIQUE,\n  \"status\" TEXT DEFAULT 'active',\n  \"balance\" NUMERIC(10,2) NOT NULL DEFAULT 0,\n  FOREIGN KEY (\"status\") REFERENCES \"statuses\" (\"code\")\n);\n\nCREATE INDEX \"customers_name_idx\" ON \"customers\" (\"name\");"
+    },
+    {
+      "name": "single INTEGER primary key gets AUTOINCREMENT",
+      "input": {
+        "tableName": "events",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "at",
+            "type": "DATETIME",
+            "nullable": false,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"events\" (\n  \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"at\" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+    {
+      "name": "lower-case integer primary key, nullable",
+      "input": {
+        "tableName": "lower",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "integer",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": true
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"lower\" (\n  \"id\" integer PRIMARY KEY AUTOINCREMENT\n);"
+    },
+    {
+      "name": "single TEXT primary key has no AUTOINCREMENT",
+      "input": {
+        "tableName": "kv",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "k",
+            "type": "TEXT",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": true
+          },
+          {
+            "id": "c2",
+            "name": "v",
+            "type": "BLOB",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"kv\" (\n  \"k\" TEXT PRIMARY KEY NOT NULL,\n  \"v\" BLOB\n);"
+    },
+    {
+      "name": "composite primary key, unique and several indexes",
+      "input": {
+        "tableName": "order_lines",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "order_id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "line_no",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "sku",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "64"
+          },
+          {
+            "id": "c4",
+            "name": "qty",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "1",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order_lines_sku_qty_idx",
+            "columns": ["sku", "qty"],
+            "unique": false,
+            "type": "btree"
+          },
+          {
+            "id": "i2",
+            "name": "order_lines_qty_key",
+            "columns": ["qty"],
+            "unique": true,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "order_id",
+            "referencedSchema": "main",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          },
+          {
+            "id": "f2",
+            "column": "sku",
+            "referencedSchema": "",
+            "referencedTable": "products",
+            "referencedColumn": "sku"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"order_lines\" (\n  \"order_id\" INTEGER NOT NULL,\n  \"line_no\" INTEGER NOT NULL,\n  \"sku\" VARCHAR(64) UNIQUE,\n  \"qty\" INTEGER NOT NULL DEFAULT 1,\n  PRIMARY KEY (\"order_id\", \"line_no\"),\n  FOREIGN KEY (\"order_id\") REFERENCES \"orders\" (\"id\"),\n  FOREIGN KEY (\"sku\") REFERENCES \"products\" (\"sku\")\n);\n\nCREATE INDEX \"order_lines_sku_qty_idx\" ON \"order_lines\" (\"sku\", \"qty\");\n\nCREATE UNIQUE INDEX \"order_lines_qty_key\" ON \"order_lines\" (\"qty\");"
+    },
+    {
+      "name": "defaults: functions, padding and rejected values",
+      "input": {
+        "tableName": "defaults_demo",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "created_at",
+            "type": "DATETIME",
+            "nullable": false,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "padded",
+            "type": "INTEGER",
+            "nullable": true,
+            "defaultValue": "  42  ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c3",
+            "name": "injected",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'x'; DROP TABLE users",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c4",
+            "name": "commented",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "1 -- sneaky",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c5",
+            "name": "blank",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "   ",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c6",
+            "name": "flag",
+            "type": "BOOLEAN",
+            "nullable": false,
+            "defaultValue": "0",
+            "isPrimaryKey": false,
+            "isUnique": false
+          },
+          {
+            "id": "c7",
+            "name": "expr",
+            "type": "REAL",
+            "nullable": true,
+            "defaultValue": "(random() / 2)",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"defaults_demo\" (\n  \"created_at\" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  \"padded\" INTEGER DEFAULT 42,\n  \"injected\" TEXT,\n  \"commented\" TEXT,\n  \"blank\" TEXT,\n  \"flag\" BOOLEAN NOT NULL DEFAULT 0,\n  \"expr\" REAL DEFAULT (random() / 2)\n);"
+    },
+    {
+      "name": "precision wins over length",
+      "input": {
+        "tableName": "prices",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "amount",
+            "type": "NUMERIC",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "precision": "12,4",
+            "length": "8"
+          },
+          {
+            "id": "c2",
+            "name": "code",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false,
+            "length": "3"
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"prices\" (\n  \"amount\" NUMERIC(12,4),\n  \"code\" VARCHAR(3)\n);"
+    },
+    {
+      "name": "names with spaces, dots and non-ASCII",
+      "input": {
+        "tableName": "order items",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "line.id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "naïve",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true,
+            "length": "10"
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "order items naïve idx",
+            "columns": ["naïve"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "line.id",
+            "referencedSchema": "main",
+            "referencedTable": "lines",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"order items\" (\n  \"line.id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"naïve\" VARCHAR(10) UNIQUE,\n  FOREIGN KEY (\"line.id\") REFERENCES \"lines\" (\"id\")\n);\n\nCREATE INDEX \"order items naïve idx\" ON \"order items\" (\"naïve\");"
+    },
+    {
+      "name": "names with double quotes (unescaped by the adapter)",
+      "input": {
+        "tableName": "say \"hi\"",
+        "schemaName": "main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id\"",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "a\"b",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": true
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "idx\"1",
+            "columns": ["a\"b"],
+            "unique": false,
+            "type": "btree"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "a\"b",
+            "referencedSchema": "main",
+            "referencedTable": "other\"t",
+            "referencedColumn": "c\"d"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"say \"hi\"\" (\n  \"id\"\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n  \"a\"b\" TEXT UNIQUE,\n  FOREIGN KEY (\"a\"b\") REFERENCES \"other\"t\" (\"c\"d\")\n);\n\nCREATE INDEX \"idx\"1\" ON \"say \"hi\"\" (\"a\"b\");"
+    },
+    {
+      "name": "no columns",
+      "input": {
+        "tableName": "empty",
+        "schemaName": "main",
+        "columns": [],
+        "indexes": [],
+        "foreignKeys": []
+      },
+      "output": "CREATE TABLE \"empty\" (\n\n);"
+    }
+  ]
+}

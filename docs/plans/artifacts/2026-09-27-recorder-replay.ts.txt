@@ -1,0 +1,118 @@
+/**
+ * Replay: fixture input → what the TypeScript adapter outputs for it. Used
+ * to compute outputs in record mode and to compare them in check mode.
+ */
+import type { DatabaseAdapter } from "$lib/db";
+import type { CreateTableColumn, CreateTableDefinition } from "$lib/types";
+import { decodeRows } from "$lib/values";
+import type { FixtureFileName } from "./corpus";
+
+type Obj = Record<string, unknown>;
+
+/**
+ * Stored rows (wire-format cells) → the objects a parser received at
+ * runtime: `HttpProvider.select` runs `decodeRows` over the columnar cells.
+ * Works on a copy, since `decodeRows` decodes in place.
+ */
+export function decodeStoredRows(rows: unknown): Obj[] {
+  if (!Array.isArray(rows)) throw new Error("fixture input has no rows array");
+  const objects = structuredClone(rows) as Obj[];
+  const columns = objects.map((r) => Object.keys(r));
+  const decoded = decodeRows(objects.map((r) => Object.values(r)));
+  return decoded.map((cells, i) => {
+    const out: Obj = {};
+    columns[i].forEach((name, j) => (out[name] = cells[j]));
+    return out;
+  });
+}
+
+function replayCrud(a: DatabaseAdapter, input: Obj): unknown {
+  const schema = input.schema as string;
+  const table = input.table as string;
+  const primaryKeys = input.primaryKeys as string[];
+  const row = input.row as Obj;
+  switch (input.fn) {
+    case "update":
+      return a.buildUpdateSql(schema, table, input.column as string, input.value, primaryKeys, row);
+    case "setDefault":
+      return a.buildSetDefaultSql(schema, table, input.column as string, primaryKeys, row);
+    case "insert":
+      return a.buildInsertSql(schema, table, input.values as Obj);
+    case "delete":
+      return a.buildDeleteSql(schema, table, primaryKeys, row);
+    default:
+      throw new Error(`unknown crud fn ${String(input.fn)}`);
+  }
+}
+
+function replaySql(a: DatabaseAdapter, input: Obj): unknown {
+  const table = input.table as string;
+  const schema = input.schema as string;
+  switch (input.query) {
+    case "getSchemaQuery":
+      return a.getSchemaQuery();
+    case "getColumnsQuery":
+      return a.getColumnsQuery(table, schema);
+    case "getIndexesQuery":
+      return a.getIndexesQuery(table, schema);
+    case "getForeignKeysQuery":
+      return a.getForeignKeysQuery(table, schema);
+    case "getTableSizesQuery":
+      return a.getTableSizesQuery();
+    case "getIndexUsageQuery":
+      return a.getIndexUsageQuery();
+    case "getDatabaseOverviewQuery":
+      return a.getDatabaseOverviewQuery();
+    case "getTableRowCountQuery":
+      return a.getTableRowCountQuery(table, schema);
+    case "getSchemasQuery":
+      return a.getSchemasQuery();
+    case "getExplainQuery":
+      return a.getExplainQuery(input.sql as string, input.analyze as boolean);
+    default:
+      throw new Error(`unknown query ${String(input.query)}`);
+  }
+}
+
+function replayStats(a: DatabaseAdapter, input: Obj): unknown {
+  const rows = decodeStoredRows(input.rows);
+  switch (input.kind) {
+    case "tableSizes":
+      return a.parseTableSizesResult(rows);
+    case "indexUsage":
+      return a.parseIndexUsageResult(rows);
+    case "overview":
+      return a.parseDatabaseOverviewResult(rows);
+    case "rowCount":
+      // What TsEngineClient.statistics does with a per-table count.
+      return Number((rows[0] as { row_count?: unknown } | undefined)?.row_count) || 0;
+    default:
+      throw new Error(`unknown stats kind ${String(input.kind)}`);
+  }
+}
+
+type Replay = (adapter: DatabaseAdapter, input: Obj) => unknown;
+
+export const replay: Record<FixtureFileName, Replay> = {
+  "quote.json": (a, i) => a.quoteIdentifier(i.id as string),
+  "paginate.json": (a, i) =>
+    a.paginateQuery(i.sql as string, i.limit as number, i.offset as number),
+  "crud.json": replayCrud,
+  "ddl-create.json": (a, i) => a.generateCreateTableSql(i as unknown as CreateTableDefinition),
+  "ddl-alter.json": (a, i) =>
+    a.generateAlterTableSql(i.from as CreateTableDefinition, i.to as CreateTableDefinition),
+  "ddl-add-column.json": (a, i) =>
+    a.generateAddColumnSql(i.schema as string, i.table as string, i.column as CreateTableColumn),
+  "column-types.json": (a) => a.getColumnTypes(),
+  "sql.json": replaySql,
+  "parse-schema.json": (a, i) => a.parseSchemaResult(decodeStoredRows(i.rows)),
+  "parse-columns.json": (a, i) =>
+    a.parseColumnsResult(
+      decodeStoredRows(i.rows),
+      i.foreignKeys === undefined ? undefined : decodeStoredRows(i.foreignKeys),
+    ),
+  "parse-indexes.json": (a, i) => a.parseIndexesResult(decodeStoredRows(i.rows)),
+  "parse-explain.json": (a, i) =>
+    a.parseExplainResult(decodeStoredRows(i.rows), i.analyze as boolean),
+  "parse-stats.json": replayStats,
+};

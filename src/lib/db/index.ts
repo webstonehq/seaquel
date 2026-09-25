@@ -1,4 +1,14 @@
+/**
+ * The TypeScript dialect adapter, for the browser demo only: its DuckDB-WASM
+ * has no Rust core, so `TsEngineClient` runs `duckdb.ts` against it. Every
+ * other engine, and DuckDB on desktop and web, runs in Rust
+ * (`crates/seaquel-engine-*`).
+ */
+
 import type {
+  ColumnTypeInfo,
+  CreateTableColumn,
+  CreateTableDefinition,
   DatabaseType,
   SchemaTable,
   SchemaColumn,
@@ -8,12 +18,10 @@ import type {
   DatabaseOverview,
   ExplainResult,
 } from "$lib/types";
-import { MssqlAdapter } from "./mssql";
-import { MysqlAdapter } from "./mysql";
-import { SqliteAdapter } from "./sqlite";
 import { DuckDBAdapter } from "./duckdb";
+import type { SqlWithBindings } from "./crud-helpers";
 
-export type { SqlWithBindings, CastLookup } from "./crud-helpers";
+export type { SqlWithBindings } from "./crud-helpers";
 
 export interface DatabaseAdapter {
   /** SQL query to list all tables in the database */
@@ -25,10 +33,10 @@ export interface DatabaseAdapter {
   /** SQL query to get index information for a table */
   getIndexesQuery(table: string, schema: string): string;
 
-  /** SQL query to get foreign key information for a table (optional, some DBs include in columns query) */
-  getForeignKeysQuery?(table: string, schema: string): string;
+  /** SQL query to get foreign key information for a table */
+  getForeignKeysQuery(table: string, schema: string): string;
 
-  /** Build the EXPLAIN query for this database type */
+  /** Build the EXPLAIN query (it inlines its literals and takes no bind values) */
   getExplainQuery(query: string, analyze: boolean): string;
 
   /** Parse EXPLAIN results into the renderer-ready ExplainResult */
@@ -43,62 +51,52 @@ export interface DatabaseAdapter {
   /** Transform raw indexes query results to SchemaIndex[] */
   parseIndexesResult(rows: unknown[]): SchemaIndex[];
 
-  // === STATISTICS METHODS (optional) ===
+  // === STATISTICS ===
 
-  /** SQL query to get table sizes */
-  getTableSizesQuery?(): string;
+  /** SQL query listing the tables whose sizes the statistics tab shows */
+  getTableSizesQuery(): string;
 
   /** SQL query to get index usage statistics */
-  getIndexUsageQuery?(): string;
+  getIndexUsageQuery(): string;
 
   /** SQL query to get database overview statistics */
-  getDatabaseOverviewQuery?(): string;
+  getDatabaseOverviewQuery(): string;
 
-  /** Parse table sizes query results */
-  parseTableSizesResult?(rows: unknown[]): TableSizeInfo[];
+  /** Parse table sizes query results (row counts are filled in per table) */
+  parseTableSizesResult(rows: unknown[]): TableSizeInfo[];
 
   /** Parse index usage query results */
-  parseIndexUsageResult?(rows: unknown[]): IndexUsageInfo[];
+  parseIndexUsageResult(rows: unknown[]): IndexUsageInfo[];
 
   /** Parse database overview query results */
-  parseDatabaseOverviewResult?(rows: unknown[]): DatabaseOverview;
+  parseDatabaseOverviewResult(rows: unknown[]): DatabaseOverview;
 
-  /** SQL query to get row count for a specific table (for DBs that need per-table queries) */
-  getTableRowCountQuery?(table: string, schema: string): string;
+  /** SQL query to get the row count of one table */
+  getTableRowCountQuery(table: string, schema: string): string;
 
-  /** Get available column types for this database engine */
-  getColumnTypes?(): import("$lib/types").ColumnTypeInfo[];
+  // === DDL ===
+
+  /** Available column types */
+  getColumnTypes(): ColumnTypeInfo[];
 
   /** Generate CREATE TABLE DDL from a table definition */
-  generateCreateTableSql?(definition: import("$lib/types").CreateTableDefinition): string;
+  generateCreateTableSql(definition: CreateTableDefinition): string;
 
-  /** Generate ALTER TABLE ADD COLUMN DDL */
-  generateAddColumnSql?(
-    schema: string,
-    table: string,
-    column: import("$lib/types").CreateTableColumn,
-  ): string;
+  /** Generate ALTER TABLE ADD COLUMN DDL (only the fixture recorder calls it) */
+  generateAddColumnSql(schema: string, table: string, column: CreateTableColumn): string;
 
   /** SQL query to list available schemas */
-  getSchemasQuery?(): string;
+  getSchemasQuery(): string;
 
   /** Generate ALTER TABLE statements to transform originalDef into newDef */
-  generateAlterTableSql?(
-    originalDef: import("$lib/types").CreateTableDefinition,
-    newDef: import("$lib/types").CreateTableDefinition,
-  ): string;
+  generateAlterTableSql(originalDef: CreateTableDefinition, newDef: CreateTableDefinition): string;
 
-  // === CRUD SQL GENERATION ===
+  // === CRUD SQL GENERATION (values are inlined, so there are no casts) ===
 
-  /** Quote a SQL identifier (table name, column name, schema name) for this engine. */
+  /** Quote a SQL identifier (only the fixture recorder calls it) */
   quoteIdentifier(id: string): string;
 
-  /**
-   * Generate a paginated SELECT query.
-   * @param baseQuery - The base SELECT query without LIMIT/OFFSET
-   * @param limit - Number of rows to fetch
-   * @param offset - Number of rows to skip
-   */
+  /** Append LIMIT/OFFSET to a base SELECT query */
   paginateQuery(baseQuery: string, limit: number, offset: number): string;
 
   /** Build an UPDATE SET column = value WHERE pk = pk_value statement. */
@@ -109,8 +107,7 @@ export interface DatabaseAdapter {
     newValue: unknown,
     primaryKeys: string[],
     row: Record<string, unknown>,
-    castLookup?: import("./crud-helpers").CastLookup,
-  ): import("./crud-helpers").SqlWithBindings;
+  ): SqlWithBindings;
 
   /** Build an UPDATE SET column = DEFAULT WHERE pk = pk_value statement. */
   buildSetDefaultSql(
@@ -119,15 +116,10 @@ export interface DatabaseAdapter {
     column: string,
     primaryKeys: string[],
     row: Record<string, unknown>,
-  ): import("./crud-helpers").SqlWithBindings;
+  ): SqlWithBindings;
 
   /** Build an INSERT INTO statement. */
-  buildInsertSql(
-    schema: string,
-    table: string,
-    values: Record<string, unknown>,
-    castLookup?: import("./crud-helpers").CastLookup,
-  ): import("./crud-helpers").SqlWithBindings;
+  buildInsertSql(schema: string, table: string, values: Record<string, unknown>): SqlWithBindings;
 
   /** Build a DELETE FROM WHERE pk = pk_value statement. */
   buildDeleteSql(
@@ -135,7 +127,7 @@ export interface DatabaseAdapter {
     table: string,
     primaryKeys: string[],
     row: Record<string, unknown>,
-  ): import("./crud-helpers").SqlWithBindings;
+  ): SqlWithBindings;
 }
 
 /**
@@ -152,19 +144,12 @@ export function validateIdentifier(name: string): string {
   return name;
 }
 
-const mysqlAdapter = new MysqlAdapter();
-const adapters: Partial<Record<DatabaseType, DatabaseAdapter>> = {
-  mssql: new MssqlAdapter(),
-  mysql: mysqlAdapter,
-  mariadb: mysqlAdapter,
-  sqlite: new SqliteAdapter(),
-  duckdb: new DuckDBAdapter(),
-};
+const duckdbAdapter = new DuckDBAdapter();
 
+/** The demo's DuckDB adapter. Every other type throws: it has no TypeScript adapter. */
 export function getAdapter(type: DatabaseType): DatabaseAdapter {
-  const adapter = adapters[type];
-  if (!adapter) {
+  if (type !== "duckdb") {
     throw new Error(`Database type "${type}" is not supported yet`);
   }
-  return adapter;
+  return duckdbAdapter;
 }

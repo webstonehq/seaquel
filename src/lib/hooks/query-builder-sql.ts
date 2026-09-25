@@ -17,6 +17,16 @@ import type {
 } from "$lib/types";
 
 /**
+ * How FROM and JOIN name a schema table (`schema.table`, quoted where
+ * needed; see `schemaToQueryBuilder`). Column references keep the bare
+ * table name, which a qualified FROM still exposes. The default leaves the
+ * name as it is (the tutorial's tables have no schema).
+ */
+export type TableRef = (tableName: string) => string;
+
+const bareTableRef: TableRef = (tableName) => tableName;
+
+/**
  * Check if a value is a template variable like {{my_var}}.
  */
 function isTemplateVariable(value: string): boolean {
@@ -38,6 +48,7 @@ export function buildSql(
   selectAggregates: SelectAggregate[],
   subqueries: CanvasSubquery[],
   ctes: CanvasCTE[],
+  tableRef: TableRef = bareTableRef,
 ): string {
   let sql = "";
 
@@ -46,7 +57,7 @@ export function buildSql(
     const cteParts = ctes
       .filter((cte) => cte.name && cte.innerQuery.tables.length > 0)
       .map((cte) => {
-        const innerSql = buildSubquerySql(cte.innerQuery);
+        const innerSql = buildSubquerySql(cte.innerQuery, tableRef);
         // Indent each line of the inner SQL
         const indentedInnerSql = innerSql
           .split("\n")
@@ -71,6 +82,7 @@ export function buildSql(
     limit,
     selectAggregates,
     subqueries,
+    tableRef,
   );
 
   return sql;
@@ -89,7 +101,12 @@ export function buildQuerySql(
   limit: string | number | null,
   selectAggregates: SelectAggregate[],
   subqueries: CanvasSubquery[],
+  tableRef: TableRef = bareTableRef,
 ): string {
+  // CTE references are named as they are, never qualified.
+  const cteNames = new Set(tables.filter((t) => t.cteId).map((t) => t.tableName));
+  const fromRef = (name: string) => (cteNames.has(name) ? name : tableRef(name));
+
   // No tables and no FROM subqueries = empty query
   const fromSubqueries = subqueries.filter((s) => s.role === "from");
   if (tables.length === 0 && fromSubqueries.length === 0) {
@@ -122,7 +139,7 @@ export function buildQuerySql(
   // Add SELECT subqueries (scalar subqueries)
   const selectSubqueries = subqueries.filter((s) => s.role === "select");
   for (const sq of selectSubqueries) {
-    const subquerySql = buildSubquerySql(sq.innerQuery);
+    const subquerySql = buildSubquerySql(sq.innerQuery, tableRef);
     if (subquerySql) {
       const expr = `(${subquerySql})`;
       selectParts.push(sq.alias ? `${expr} AS "${sq.alias}"` : expr);
@@ -144,10 +161,10 @@ export function buildQuerySql(
   // Build FROM clause - start with first table or FROM subquery
   let fromClause: string;
   if (tables.length > 0) {
-    fromClause = tables[0].tableName;
+    fromClause = fromRef(tables[0].tableName);
   } else if (fromSubqueries.length > 0) {
     const firstFromSq = fromSubqueries[0];
-    const subquerySql = buildSubquerySql(firstFromSq.innerQuery);
+    const subquerySql = buildSubquerySql(firstFromSq.innerQuery, tableRef);
     fromClause = `(${subquerySql}) AS ${firstFromSq.alias || "subquery"}`;
   } else {
     fromClause = "";
@@ -155,13 +172,13 @@ export function buildQuerySql(
 
   // Add JOINs
   for (const join of joins) {
-    fromClause += `\n  ${join.joinType} JOIN ${join.targetTable} ON ${join.sourceTable}.${join.sourceColumn} = ${join.targetTable}.${join.targetColumn}`;
+    fromClause += `\n  ${join.joinType} JOIN ${fromRef(join.targetTable)} ON ${join.sourceTable}.${join.sourceColumn} = ${join.targetTable}.${join.targetColumn}`;
   }
 
   // Add additional FROM subqueries (after the first one)
   for (let i = tables.length > 0 ? 0 : 1; i < fromSubqueries.length; i++) {
     const sq = fromSubqueries[i];
-    const subquerySql = buildSubquerySql(sq.innerQuery);
+    const subquerySql = buildSubquerySql(sq.innerQuery, tableRef);
     if (subquerySql) {
       // For simplicity, add as CROSS JOIN or the user can manually adjust
       fromClause += `,\n  (${subquerySql}) AS ${sq.alias || `subquery_${i}`}`;
@@ -172,7 +189,7 @@ export function buildQuerySql(
   let whereClause = "";
   if (filters.length > 0) {
     const filterConditions = filters.map((f, index) => {
-      const condition = buildFilterCondition(f, subqueries);
+      const condition = buildFilterCondition(f, subqueries, tableRef);
       // Don't add connector before the first condition
       if (index === 0) {
         return condition;
@@ -226,7 +243,7 @@ export function buildQuerySql(
 /**
  * Build SQL for a subquery's inner state (recursive).
  */
-export function buildSubquerySql(inner: SubqueryInnerState): string {
+export function buildSubquerySql(inner: SubqueryInnerState, tableRef?: TableRef): string {
   return buildQuerySql(
     inner.tables,
     inner.joins,
@@ -237,6 +254,7 @@ export function buildSubquerySql(inner: SubqueryInnerState): string {
     inner.limit,
     inner.selectAggregates,
     inner.subqueries,
+    tableRef,
   );
 }
 
@@ -247,6 +265,7 @@ export function buildSubquerySql(inner: SubqueryInnerState): string {
 export function buildFilterCondition(
   filter: FilterCondition,
   subqueries: CanvasSubquery[] = [],
+  tableRef?: TableRef,
 ): string {
   const { column, operator, value, subqueryId } = filter;
 
@@ -254,7 +273,7 @@ export function buildFilterCondition(
   if (subqueryId) {
     const subquery = subqueries.find((s) => s.id === subqueryId);
     if (subquery && subquery.innerQuery.tables.length > 0) {
-      const subquerySql = buildSubquerySql(subquery.innerQuery);
+      const subquerySql = buildSubquerySql(subquery.innerQuery, tableRef);
       if (operator === "IN") {
         return `${column} IN (${subquerySql})`;
       } else if (operator === "NOT IN") {

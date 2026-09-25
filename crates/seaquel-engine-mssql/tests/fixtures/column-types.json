@@ -1,0 +1,130 @@
+{
+  "cases": [
+    {
+      "name": "getColumnTypes",
+      "input": {},
+      "output": [
+        {
+          "name": "VARCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "NVARCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "CHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "NCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "TEXT",
+          "category": "String"
+        },
+        {
+          "name": "NTEXT",
+          "category": "String"
+        },
+        {
+          "name": "INT",
+          "category": "Numeric"
+        },
+        {
+          "name": "BIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "SMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "TINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DECIMAL",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "NUMERIC",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "MONEY",
+          "category": "Numeric"
+        },
+        {
+          "name": "SMALLMONEY",
+          "category": "Numeric"
+        },
+        {
+          "name": "FLOAT",
+          "category": "Numeric"
+        },
+        {
+          "name": "REAL",
+          "category": "Numeric"
+        },
+        {
+          "name": "BIT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DATE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "DATETIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "DATETIME2",
+          "category": "Date/Time"
+        },
+        {
+          "name": "SMALLDATETIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "DATETIMEOFFSET",
+          "category": "Date/Time"
+        },
+        {
+          "name": "BINARY",
+          "category": "Binary",
+          "hasLength": true
+        },
+        {
+          "name": "VARBINARY",
+          "category": "Binary",
+          "hasLength": true
+        },
+        {
+          "name": "IMAGE",
+          "category": "Binary"
+        },
+        {
+          "name": "UNIQUEIDENTIFIER",
+          "category": "UUID"
+        },
+        {
+          "name": "XML",
+          "category": "Other"
+        }
+      ]
+    }
+  ]
+}

@@ -1,19 +1,15 @@
+/**
+ * CREATE/ALTER TABLE DDL for the demo's DuckDB adapter (`duckdb.ts`).
+ * Demo-only; desktop and web generate DDL in Rust
+ * (`crates/seaquel-engine/src/ddl.rs`).
+ */
+
 import type { CreateTableDefinition, CreateTableColumn, CreateTableForeignKey } from "$lib/types";
 
-export type QuoteFn = (name: string) => string;
-
-interface AlterTableOptions {
-  quote: QuoteFn;
-  /** Some DBs (SQLite) don't support DROP COLUMN */
-  supportsDropColumn?: boolean;
-  /** Some DBs (SQLite) don't support ALTER COLUMN */
-  supportsAlterColumn?: boolean;
-  /** Some DBs use MODIFY COLUMN instead of ALTER COLUMN (MySQL) */
-  useModifyColumn?: boolean;
-}
+type QuoteFn = (name: string) => string;
 
 /** Build the full type expression for a column (e.g. "VARCHAR(255)", "DECIMAL(10,2)"). */
-export function buildColumnType(col: CreateTableColumn): string {
+function buildColumnType(col: CreateTableColumn): string {
   if (col.precision) return `${col.type}(${col.precision})`;
   if (col.length) return `${col.type}(${col.length})`;
   return col.type;
@@ -25,7 +21,7 @@ export function buildColumnType(col: CreateTableColumn): string {
  * CURRENT_TIMESTAMP and similar built-in defaults, and simple function calls.
  * Rejects anything that looks like it contains multiple statements or SQL injection.
  */
-export function sanitizeDefaultValue(value: string): string {
+function sanitizeDefaultValue(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
 
@@ -46,10 +42,7 @@ function buildColumnLine(col: CreateTableColumn, q: QuoteFn): string {
   return line;
 }
 
-/**
- * Generate CREATE TABLE DDL from a definition.
- * Works for databases that use schema-qualified names (most except SQLite).
- */
+/** Generate CREATE TABLE DDL from a definition. */
 export function generateCreateTableDdl(definition: CreateTableDefinition, q: QuoteFn): string {
   const { tableName, schemaName, columns, indexes, foreignKeys } = definition;
   const lines: string[] = [];
@@ -94,10 +87,8 @@ export function generateAddColumnDdl(
   table: string,
   column: CreateTableColumn,
   q: QuoteFn,
-  includeColumnKeyword = true,
 ): string {
-  const colKeyword = includeColumnKeyword ? "COLUMN " : "";
-  let sql = `ALTER TABLE ${q(schema)}.${q(table)} ADD ${colKeyword}${q(column.name)} ${buildColumnType(column)}`;
+  let sql = `ALTER TABLE ${q(schema)}.${q(table)} ADD COLUMN ${q(column.name)} ${buildColumnType(column)}`;
   if (!column.nullable) sql += " NOT NULL";
   if (column.defaultValue) {
     const safe = sanitizeDefaultValue(column.defaultValue);
@@ -113,14 +104,8 @@ export function generateAddColumnDdl(
 export function generateAlterTableSql(
   original: CreateTableDefinition,
   updated: CreateTableDefinition,
-  opts: AlterTableOptions,
+  q: QuoteFn,
 ): string {
-  const {
-    quote: q,
-    supportsDropColumn = true,
-    supportsAlterColumn = true,
-    useModifyColumn = false,
-  } = opts;
   const table = `${q(updated.schemaName)}.${q(updated.tableName)}`;
   const stmts: string[] = [];
 
@@ -151,54 +136,38 @@ export function generateAlterTableSql(
   }
 
   // Dropped columns (id not in updated)
-  if (supportsDropColumn) {
-    for (const col of original.columns) {
-      if (!newColsById.has(col.id)) {
-        stmts.push(`ALTER TABLE ${table} DROP COLUMN ${q(col.name)};`);
-      }
+  for (const col of original.columns) {
+    if (!newColsById.has(col.id)) {
+      stmts.push(`ALTER TABLE ${table} DROP COLUMN ${q(col.name)};`);
     }
   }
 
   // Modified columns (type, nullable, default changed — same id, same or renamed name)
-  if (supportsAlterColumn) {
-    for (const newCol of updated.columns) {
-      const origCol = origColsById.get(newCol.id);
-      if (!origCol) continue;
+  for (const newCol of updated.columns) {
+    const origCol = origColsById.get(newCol.id);
+    if (!origCol) continue;
 
-      // Use the new name (rename was already emitted above)
-      const colName = newCol.name;
-      const origType = buildColumnType(origCol);
-      const newType = buildColumnType(newCol);
+    // Use the new name (rename was already emitted above)
+    const colName = newCol.name;
+    const origType = buildColumnType(origCol);
+    const newType = buildColumnType(newCol);
 
-      if (origType !== newType || origCol.nullable !== newCol.nullable) {
-        if (useModifyColumn) {
-          let stmt = `ALTER TABLE ${table} MODIFY COLUMN ${q(colName)} ${newType}`;
-          if (!newCol.nullable) stmt += " NOT NULL";
-          if (newCol.defaultValue) {
-            const safe = sanitizeDefaultValue(newCol.defaultValue);
-            if (safe) stmt += ` DEFAULT ${safe}`;
-          }
-          stmts.push(stmt + ";");
-        } else {
-          if (origType !== newType) {
-            stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} TYPE ${newType};`);
-          }
-          if (origCol.nullable && !newCol.nullable) {
-            stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} SET NOT NULL;`);
-          } else if (!origCol.nullable && newCol.nullable) {
-            stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} DROP NOT NULL;`);
-          }
-        }
-      }
+    if (origType !== newType) {
+      stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} TYPE ${newType};`);
+    }
+    if (origCol.nullable && !newCol.nullable) {
+      stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} SET NOT NULL;`);
+    } else if (!origCol.nullable && newCol.nullable) {
+      stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} DROP NOT NULL;`);
+    }
 
-      // Default value changes
-      if (origCol.defaultValue !== newCol.defaultValue && !useModifyColumn) {
-        const safe = sanitizeDefaultValue(newCol.defaultValue);
-        if (safe) {
-          stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} SET DEFAULT ${safe};`);
-        } else {
-          stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} DROP DEFAULT;`);
-        }
+    // Default value changes
+    if (origCol.defaultValue !== newCol.defaultValue) {
+      const safe = sanitizeDefaultValue(newCol.defaultValue);
+      if (safe) {
+        stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} SET DEFAULT ${safe};`);
+      } else {
+        stmts.push(`ALTER TABLE ${table} ALTER COLUMN ${q(colName)} DROP DEFAULT;`);
       }
     }
   }

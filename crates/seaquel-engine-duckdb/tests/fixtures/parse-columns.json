@@ -1,0 +1,1700 @@
+{
+  "cases": [
+    {
+      "name": "main.users",
+      "input": {
+        "schema": "main",
+        "table": "users",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "nextval('users_id_seq')",
+            "is_primary_key": true
+          },
+          {
+            "column_name": "nickname",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "name",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "email",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "role",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": "'customer'",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('users_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "nickname",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "role",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "'customer'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.orders",
+      "input": {
+        "schema": "main",
+        "table": "orders",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "nextval('orders_id_seq')",
+            "is_primary_key": true
+          },
+          {
+            "column_name": "user_id",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "total",
+            "data_type": "DECIMAL(10,2)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "status",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": "'pending'",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "shipping_address",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": [
+          {
+            "schema_name": "main",
+            "referenced_table": "users",
+            "source_column": "user_id",
+            "referenced_column": "id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('orders_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "users",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "total",
+          "type": "DECIMAL(10,2)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "'pending'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "shipping_address",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.products",
+      "input": {
+        "schema": "main",
+        "table": "products",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "nextval('products_id_seq')",
+            "is_primary_key": true
+          },
+          {
+            "column_name": "name",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "price",
+            "data_type": "DECIMAL(10,2)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "category_id",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "stock_quantity",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": "0",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "description",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": [
+          {
+            "schema_name": "main",
+            "referenced_table": "categories",
+            "source_column": "category_id",
+            "referenced_column": "id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('products_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "price",
+          "type": "DECIMAL(10,2)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "categories",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "stock_quantity",
+          "type": "INTEGER",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.order_items",
+      "input": {
+        "schema": "main",
+        "table": "order_items",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "nextval('order_items_id_seq')",
+            "is_primary_key": true
+          },
+          {
+            "column_name": "order_id",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "product_id",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "quantity",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "unit_price",
+            "data_type": "DECIMAL(10,2)",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": [
+          {
+            "schema_name": "main",
+            "referenced_table": "orders",
+            "source_column": "order_id",
+            "referenced_column": "id"
+          },
+          {
+            "schema_name": "main",
+            "referenced_table": "products",
+            "source_column": "product_id",
+            "referenced_column": "id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('order_items_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "orders",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "product_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "products",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "unit_price",
+          "type": "DECIMAL(10,2)",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.all_types",
+      "input": {
+        "schema": "main",
+        "table": "all_types",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "col_tinyint",
+            "data_type": "TINYINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_smallint",
+            "data_type": "SMALLINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_integer",
+            "data_type": "INTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_bigint",
+            "data_type": "BIGINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_hugeint",
+            "data_type": "HUGEINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_utinyint",
+            "data_type": "UTINYINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_usmallint",
+            "data_type": "USMALLINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_uinteger",
+            "data_type": "UINTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_ubigint",
+            "data_type": "UBIGINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_float",
+            "data_type": "FLOAT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_double",
+            "data_type": "DOUBLE",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_decimal",
+            "data_type": "DECIMAL(10,2)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_boolean",
+            "data_type": "BOOLEAN",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_varchar",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_blob",
+            "data_type": "BLOB",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_date",
+            "data_type": "DATE",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_time",
+            "data_type": "TIME",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_timestamp",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_timestamp_tz",
+            "data_type": "TIMESTAMP WITH TIME ZONE",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_interval",
+            "data_type": "INTERVAL",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_uuid",
+            "data_type": "UUID",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_json",
+            "data_type": "JSON",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_int_array",
+            "data_type": "INTEGER[]",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_varchar_array",
+            "data_type": "VARCHAR[]",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_map",
+            "data_type": "MAP(VARCHAR, INTEGER)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "col_struct",
+            "data_type": "STRUCT(\"name\" VARCHAR, age INTEGER)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_tinyint",
+          "type": "TINYINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_smallint",
+          "type": "SMALLINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_integer",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_bigint",
+          "type": "BIGINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_hugeint",
+          "type": "HUGEINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_utinyint",
+          "type": "UTINYINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_usmallint",
+          "type": "USMALLINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_uinteger",
+          "type": "UINTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_ubigint",
+          "type": "UBIGINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_float",
+          "type": "FLOAT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_double",
+          "type": "DOUBLE",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_decimal",
+          "type": "DECIMAL(10,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_boolean",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_varchar",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_blob",
+          "type": "BLOB",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_date",
+          "type": "DATE",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_time",
+          "type": "TIME",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_timestamp",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_timestamp_tz",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_interval",
+          "type": "INTERVAL",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_uuid",
+          "type": "UUID",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_json",
+          "type": "JSON",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_int_array",
+          "type": "INTEGER[]",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_varchar_array",
+          "type": "VARCHAR[]",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_map",
+          "type": "MAP(VARCHAR, INTEGER)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "col_struct",
+          "type": "STRUCT(\"name\" VARCHAR, age INTEGER)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.fx_types",
+      "input": {
+        "schema": "main",
+        "table": "fx_types",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "c_tinyint",
+            "data_type": "TINYINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_smallint",
+            "data_type": "SMALLINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_integer",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "42",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_bigint",
+            "data_type": "BIGINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_hugeint",
+            "data_type": "HUGEINT",
+            "is_nullable": "YES",
+            "column_default": "170141183460469231731687303715884105727",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_utinyint",
+            "data_type": "UTINYINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_usmallint",
+            "data_type": "USMALLINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_uinteger",
+            "data_type": "UINTEGER",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_ubigint",
+            "data_type": "UBIGINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_uhugeint",
+            "data_type": "UHUGEINT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_float",
+            "data_type": "FLOAT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_double",
+            "data_type": "DOUBLE",
+            "is_nullable": "YES",
+            "column_default": "2.5",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_decimal",
+            "data_type": "DECIMAL(18,4)",
+            "is_nullable": "YES",
+            "column_default": "1.5",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_decimal_wide",
+            "data_type": "DECIMAL(38,10)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_bool",
+            "data_type": "BOOLEAN",
+            "is_nullable": "YES",
+            "column_default": "CAST('t' AS BOOLEAN)",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_varchar",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_varchar_n",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_text",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_blob",
+            "data_type": "BLOB",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_bit",
+            "data_type": "BIT",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_bignum",
+            "data_type": "BIGNUM",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_date",
+            "data_type": "DATE",
+            "is_nullable": "YES",
+            "column_default": "CAST('2024-01-01' AS \"DATE\")",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_time",
+            "data_type": "TIME",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timetz",
+            "data_type": "TIME WITH TIME ZONE",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timestamp",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": "current_timestamp",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timestamp_s",
+            "data_type": "TIMESTAMP_S",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timestamp_ms",
+            "data_type": "TIMESTAMP_MS",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timestamp_ns",
+            "data_type": "TIMESTAMP_NS",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_timestamptz",
+            "data_type": "TIMESTAMP WITH TIME ZONE",
+            "is_nullable": "YES",
+            "column_default": "CAST('2024-01-01 00:00:00+00' AS \"TIMESTAMP WITH TIME ZONE\")",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_interval",
+            "data_type": "INTERVAL",
+            "is_nullable": "YES",
+            "column_default": "to_days(CAST(trunc(CAST(1 AS DOUBLE)) AS INTEGER))",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_uuid",
+            "data_type": "UUID",
+            "is_nullable": "YES",
+            "column_default": "gen_random_uuid()",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_json",
+            "data_type": "JSON",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_enum",
+            "data_type": "ENUM('sad', 'ok', 'happy')",
+            "is_nullable": "YES",
+            "column_default": "'ok'",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_enum_inline",
+            "data_type": "ENUM('x', 'y')",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_list",
+            "data_type": "INTEGER[]",
+            "is_nullable": "YES",
+            "column_default": "main.list_value(1, 2)",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_nested",
+            "data_type": "VARCHAR[][]",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_array",
+            "data_type": "INTEGER[3]",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_struct",
+            "data_type": "STRUCT(\"name\" VARCHAR, age INTEGER)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_map",
+            "data_type": "MAP(VARCHAR, INTEGER)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "c_union",
+            "data_type": "UNION(num INTEGER, str VARCHAR)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_tinyint",
+          "type": "TINYINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_smallint",
+          "type": "SMALLINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_integer",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "42",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_bigint",
+          "type": "BIGINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_hugeint",
+          "type": "HUGEINT",
+          "nullable": true,
+          "defaultValue": "170141183460469231731687303715884105727",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_utinyint",
+          "type": "UTINYINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_usmallint",
+          "type": "USMALLINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_uinteger",
+          "type": "UINTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_ubigint",
+          "type": "UBIGINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_uhugeint",
+          "type": "UHUGEINT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_float",
+          "type": "FLOAT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_double",
+          "type": "DOUBLE",
+          "nullable": true,
+          "defaultValue": "2.5",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_decimal",
+          "type": "DECIMAL(18,4)",
+          "nullable": true,
+          "defaultValue": "1.5",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_decimal_wide",
+          "type": "DECIMAL(38,10)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_bool",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "defaultValue": "CAST('t' AS BOOLEAN)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_varchar",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_varchar_n",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_text",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_blob",
+          "type": "BLOB",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_bit",
+          "type": "BIT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_bignum",
+          "type": "BIGNUM",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_date",
+          "type": "DATE",
+          "nullable": true,
+          "defaultValue": "CAST('2024-01-01' AS \"DATE\")",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_time",
+          "type": "TIME",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timetz",
+          "type": "TIME WITH TIME ZONE",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timestamp",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "current_timestamp",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timestamp_s",
+          "type": "TIMESTAMP_S",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timestamp_ms",
+          "type": "TIMESTAMP_MS",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timestamp_ns",
+          "type": "TIMESTAMP_NS",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_timestamptz",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": true,
+          "defaultValue": "CAST('2024-01-01 00:00:00+00' AS \"TIMESTAMP WITH TIME ZONE\")",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_interval",
+          "type": "INTERVAL",
+          "nullable": true,
+          "defaultValue": "to_days(CAST(trunc(CAST(1 AS DOUBLE)) AS INTEGER))",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_uuid",
+          "type": "UUID",
+          "nullable": true,
+          "defaultValue": "gen_random_uuid()",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_json",
+          "type": "JSON",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_enum",
+          "type": "ENUM('sad', 'ok', 'happy')",
+          "nullable": true,
+          "defaultValue": "'ok'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_enum_inline",
+          "type": "ENUM('x', 'y')",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_list",
+          "type": "INTEGER[]",
+          "nullable": true,
+          "defaultValue": "main.list_value(1, 2)",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_nested",
+          "type": "VARCHAR[][]",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_array",
+          "type": "INTEGER[3]",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_struct",
+          "type": "STRUCT(\"name\" VARCHAR, age INTEGER)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_map",
+          "type": "MAP(VARCHAR, INTEGER)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "c_union",
+          "type": "UNION(num INTEGER, str VARCHAR)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fx_sales.regions",
+      "input": {
+        "schema": "fx_sales",
+        "table": "regions",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "code",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "code",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "note",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "name",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fx_sales.orders",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "region_code",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "order_no",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "placed_on",
+            "data_type": "DATE",
+            "is_nullable": "YES",
+            "column_default": "CAST('2024-01-01' AS \"DATE\")",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "total",
+            "data_type": "DECIMAL(12,2)",
+            "is_nullable": "YES",
+            "column_default": "0",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": [
+          {
+            "schema_name": "fx_sales",
+            "referenced_table": "regions",
+            "source_column": "region_code",
+            "referenced_column": "code"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "region_code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "fx_sales",
+            "referencedTable": "regions",
+            "referencedColumn": "code"
+          }
+        },
+        {
+          "name": "order_no",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_on",
+          "type": "DATE",
+          "nullable": true,
+          "defaultValue": "CAST('2024-01-01' AS \"DATE\")",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "DECIMAL(12,2)",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fx_sales.fx_region_totals",
+      "input": {
+        "schema": "fx_sales",
+        "table": "fx_region_totals",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "region_code",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "total",
+            "data_type": "DECIMAL(38,2)",
+            "is_nullable": "YES",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "region_code",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "DECIMAL(38,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    }
+  ]
+}

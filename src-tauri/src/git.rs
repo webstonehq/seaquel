@@ -1,6 +1,6 @@
 use git2::{
-    build::RepoBuilder, Cred, CredentialType, FetchOptions, PushOptions,
-    RemoteCallbacks, Repository, Signature, StatusOptions,
+    build::RepoBuilder, Cred, CredentialType, FetchOptions, PushOptions, RemoteCallbacks,
+    Repository, Signature, StatusOptions,
 };
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -133,26 +133,27 @@ pub fn git_clone_repo(
 #[tauri::command]
 pub fn git_init_repo(path: String) -> Result<(), GitError> {
     info!(activity = "git.init"; "Initializing repository");
-    Repository::init(Path::new(&path))
-        .map_err(|e| {
-            error!(activity = "git.init", error_code = "INIT_ERROR"; "Init failed");
-            GitError {
-                message: format!("Failed to initialize repository: {}", e),
-                code: "INIT_ERROR".to_string(),
-            }
-        })?;
+    Repository::init(Path::new(&path)).map_err(|e| {
+        error!(activity = "git.init", error_code = "INIT_ERROR"; "Init failed");
+        GitError {
+            message: format!("Failed to initialize repository: {}", e),
+            code: "INIT_ERROR".to_string(),
+        }
+    })?;
     info!(activity = "git.init"; "Repository initialized");
     Ok(())
 }
 
 #[tauri::command]
-pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Result<SyncResult, GitError> {
+pub fn git_pull_repo(
+    path: String,
+    credentials: Option<GitCredentials>,
+) -> Result<SyncResult, GitError> {
     debug!(activity = "git.pull"; "Pulling changes");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Get the current branch name - handle unborn branch
     let head = match repo.head() {
@@ -166,10 +167,12 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
                 files_changed: vec![],
             });
         }
-        Err(e) => return Err(GitError {
-            message: format!("Failed to get HEAD: {}", e),
-            code: "REPO_ERROR".to_string(),
-        }),
+        Err(e) => {
+            return Err(GitError {
+                message: format!("Failed to get HEAD: {}", e),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     };
     let branch_name = head
         .shorthand()
@@ -180,12 +183,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
         .to_string();
 
     // Fetch from remote
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| GitError {
-            message: format!("Failed to find remote 'origin': {}", e),
-            code: "REMOTE_ERROR".to_string(),
-        })?;
+    let mut remote = repo.find_remote("origin").map_err(|e| GitError {
+        message: format!("Failed to find remote 'origin': {}", e),
+        code: "REMOTE_ERROR".to_string(),
+    })?;
 
     let callbacks = create_callbacks(credentials);
     let mut fetch_opts = FetchOptions::new();
@@ -210,12 +211,16 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
             // FETCH_HEAD may not exist or be corrupted - try using remote tracking branch
             let remote_ref = format!("refs/remotes/origin/{}", branch_name);
             match repo.find_reference(&remote_ref) {
-                Ok(remote_branch) => repo
-                    .reference_to_annotated_commit(&remote_branch)
-                    .map_err(|e| GitError {
-                        message: format!("Failed to get annotated commit from remote branch: {}", e),
-                        code: "PULL_ERROR".to_string(),
-                    })?,
+                Ok(remote_branch) => {
+                    repo.reference_to_annotated_commit(&remote_branch)
+                        .map_err(|e| GitError {
+                            message: format!(
+                                "Failed to get annotated commit from remote branch: {}",
+                                e
+                            ),
+                            code: "PULL_ERROR".to_string(),
+                        })?
+                }
                 Err(_) => {
                     // No remote tracking branch either - nothing to pull
                     return Ok(SyncResult {
@@ -250,12 +255,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
     if analysis.is_fast_forward() {
         // Fast-forward merge
         let refname = format!("refs/heads/{}", branch_name);
-        let mut reference = repo
-            .find_reference(&refname)
-            .map_err(|e| GitError {
-                message: format!("Failed to find reference: {}", e),
-                code: "PULL_ERROR".to_string(),
-            })?;
+        let mut reference = repo.find_reference(&refname).map_err(|e| GitError {
+            message: format!("Failed to find reference: {}", e),
+            code: "PULL_ERROR".to_string(),
+        })?;
 
         reference
             .set_target(fetch_commit.id(), "Fast-forward pull")
@@ -264,11 +267,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
                 code: "PULL_ERROR".to_string(),
             })?;
 
-        repo.set_head(&refname)
-            .map_err(|e| GitError {
-                message: format!("Failed to set HEAD: {}", e),
-                code: "PULL_ERROR".to_string(),
-            })?;
+        repo.set_head(&refname).map_err(|e| GitError {
+            message: format!("Failed to set HEAD: {}", e),
+            code: "PULL_ERROR".to_string(),
+        })?;
 
         repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
             .map_err(|e| GitError {
@@ -287,12 +289,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
 
     if analysis.is_normal() {
         // Perform merge
-        let fetch_commit_obj = repo
-            .find_commit(fetch_commit.id())
-            .map_err(|e| GitError {
-                message: format!("Failed to find commit: {}", e),
-                code: "MERGE_ERROR".to_string(),
-            })?;
+        let fetch_commit_obj = repo.find_commit(fetch_commit.id()).map_err(|e| GitError {
+            message: format!("Failed to find commit: {}", e),
+            code: "MERGE_ERROR".to_string(),
+        })?;
 
         repo.merge(&[&fetch_commit], None, None)
             .map_err(|e| GitError {
@@ -314,7 +314,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
                     code: "CONFLICT_ERROR".to_string(),
                 })?
                 .filter_map(|c| c.ok())
-                .filter_map(|c| c.our.map(|entry| String::from_utf8_lossy(&entry.path).to_string()))
+                .filter_map(|c| {
+                    c.our
+                        .map(|entry| String::from_utf8_lossy(&entry.path).to_string())
+                })
                 .collect();
 
             info!(activity = "git.pull", result = "conflicts"; "Merge conflicts detected");
@@ -340,19 +343,15 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
                 code: "REPO_ERROR".to_string(),
             })?;
 
-        let tree_id = index
-            .write_tree()
-            .map_err(|e| GitError {
-                message: format!("Failed to write tree: {}", e),
-                code: "COMMIT_ERROR".to_string(),
-            })?;
+        let tree_id = index.write_tree().map_err(|e| GitError {
+            message: format!("Failed to write tree: {}", e),
+            code: "COMMIT_ERROR".to_string(),
+        })?;
 
-        let tree = repo
-            .find_tree(tree_id)
-            .map_err(|e| GitError {
-                message: format!("Failed to find tree: {}", e),
-                code: "COMMIT_ERROR".to_string(),
-            })?;
+        let tree = repo.find_tree(tree_id).map_err(|e| GitError {
+            message: format!("Failed to find tree: {}", e),
+            code: "COMMIT_ERROR".to_string(),
+        })?;
 
         repo.commit(
             Some("HEAD"),
@@ -367,11 +366,10 @@ pub fn git_pull_repo(path: String, credentials: Option<GitCredentials>) -> Resul
             code: "COMMIT_ERROR".to_string(),
         })?;
 
-        repo.cleanup_state()
-            .map_err(|e| GitError {
-                message: format!("Failed to cleanup state: {}", e),
-                code: "REPO_ERROR".to_string(),
-            })?;
+        repo.cleanup_state().map_err(|e| GitError {
+            message: format!("Failed to cleanup state: {}", e),
+            code: "REPO_ERROR".to_string(),
+        })?;
 
         info!(activity = "git.pull", result = "merge"; "Merge successful");
         return Ok(SyncResult {
@@ -395,11 +393,10 @@ pub fn git_push_repo(
     credentials: Option<GitCredentials>,
 ) -> Result<SyncResult, GitError> {
     debug!(activity = "git.push"; "Pushing changes");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Handle unborn branch (no commits yet)
     let head = match repo.head() {
@@ -408,15 +405,18 @@ pub fn git_push_repo(
             warn!(activity = "git.push"; "Push on unborn branch");
             return Ok(SyncResult {
                 success: false,
-                message: "Repository has no commits yet. Create a commit first before pushing.".to_string(),
+                message: "Repository has no commits yet. Create a commit first before pushing."
+                    .to_string(),
                 conflicts: vec![],
                 files_changed: vec![],
             });
         }
-        Err(e) => return Err(GitError {
-            message: format!("Failed to get HEAD: {}", e),
-            code: "REPO_ERROR".to_string(),
-        }),
+        Err(e) => {
+            return Err(GitError {
+                message: format!("Failed to get HEAD: {}", e),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     };
     let branch_name = head
         .shorthand()
@@ -426,12 +426,10 @@ pub fn git_push_repo(
         })?
         .to_string();
 
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| GitError {
-            message: format!("Failed to find remote 'origin': {}", e),
-            code: "REMOTE_ERROR".to_string(),
-        })?;
+    let mut remote = repo.find_remote("origin").map_err(|e| GitError {
+        message: format!("Failed to find remote 'origin': {}", e),
+        code: "REMOTE_ERROR".to_string(),
+    })?;
 
     let callbacks = create_callbacks(credentials);
     let mut push_opts = PushOptions::new();
@@ -460,11 +458,10 @@ pub fn git_push_repo(
 #[tauri::command]
 pub fn git_get_repo_status(path: String) -> Result<RepoStatus, GitError> {
     debug!(activity = "git.status"; "Getting repository status");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Get current branch - handle unborn branch (no commits yet)
     let (current_branch, is_unborn) = match repo.head() {
@@ -478,10 +475,12 @@ pub fn git_get_repo_status(path: String) -> Result<RepoStatus, GitError> {
                 .unwrap_or_else(|| "main".to_string());
             (branch_name, true)
         }
-        Err(e) => return Err(GitError {
-            message: format!("Failed to get HEAD: {}", e),
-            code: "REPO_ERROR".to_string(),
-        }),
+        Err(e) => {
+            return Err(GitError {
+                message: format!("Failed to get HEAD: {}", e),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     };
 
     // Get file status
@@ -489,12 +488,10 @@ pub fn git_get_repo_status(path: String) -> Result<RepoStatus, GitError> {
     opts.include_untracked(true);
     opts.include_ignored(false);
 
-    let statuses = repo
-        .statuses(Some(&mut opts))
-        .map_err(|e| GitError {
-            message: format!("Failed to get status: {}", e),
-            code: "REPO_ERROR".to_string(),
-        })?;
+    let statuses = repo.statuses(Some(&mut opts)).map_err(|e| GitError {
+        message: format!("Failed to get status: {}", e),
+        code: "REPO_ERROR".to_string(),
+    })?;
 
     let mut modified_files = Vec::new();
     let mut untracked_files = Vec::new();
@@ -546,11 +543,10 @@ pub fn git_get_repo_status(path: String) -> Result<RepoStatus, GitError> {
 #[tauri::command]
 pub fn git_commit_changes(path: String, message: String) -> Result<String, GitError> {
     debug!(activity = "git.commit"; "Creating commit");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     let mut index = repo.index().map_err(|e| GitError {
         message: format!("Failed to get index: {}", e),
@@ -570,19 +566,15 @@ pub fn git_commit_changes(path: String, message: String) -> Result<String, GitEr
         code: "INDEX_ERROR".to_string(),
     })?;
 
-    let tree_id = index
-        .write_tree()
-        .map_err(|e| GitError {
-            message: format!("Failed to write tree: {}", e),
-            code: "COMMIT_ERROR".to_string(),
-        })?;
+    let tree_id = index.write_tree().map_err(|e| GitError {
+        message: format!("Failed to write tree: {}", e),
+        code: "COMMIT_ERROR".to_string(),
+    })?;
 
-    let tree = repo
-        .find_tree(tree_id)
-        .map_err(|e| GitError {
-            message: format!("Failed to find tree: {}", e),
-            code: "COMMIT_ERROR".to_string(),
-        })?;
+    let tree = repo.find_tree(tree_id).map_err(|e| GitError {
+        message: format!("Failed to find tree: {}", e),
+        code: "COMMIT_ERROR".to_string(),
+    })?;
 
     let sig = get_signature(&repo)?;
 
@@ -605,11 +597,10 @@ pub fn git_commit_changes(path: String, message: String) -> Result<String, GitEr
 #[tauri::command]
 pub fn git_stage_file(path: String, file_path: String) -> Result<(), GitError> {
     debug!(activity = "git.stage"; "Staging file");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     let mut index = repo.index().map_err(|e| GitError {
         message: format!("Failed to get index: {}", e),
@@ -634,11 +625,10 @@ pub fn git_stage_file(path: String, file_path: String) -> Result<(), GitError> {
 #[tauri::command]
 pub fn git_discard_file(path: String, file_path: String) -> Result<(), GitError> {
     debug!(activity = "git.discard"; "Discarding file changes");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Handle unborn branch - can't discard if no commits exist
     let head = match repo.head() {
@@ -656,25 +646,23 @@ pub fn git_discard_file(path: String, file_path: String) -> Result<(), GitError>
             })?;
             return Ok(());
         }
-        Err(e) => return Err(GitError {
-            message: format!("Failed to get HEAD: {}", e),
-            code: "REPO_ERROR".to_string(),
-        }),
+        Err(e) => {
+            return Err(GitError {
+                message: format!("Failed to get HEAD: {}", e),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     };
 
-    let head_commit = head
-        .peel_to_commit()
-        .map_err(|e| GitError {
-            message: format!("Failed to get HEAD commit: {}", e),
-            code: "REPO_ERROR".to_string(),
-        })?;
+    let head_commit = head.peel_to_commit().map_err(|e| GitError {
+        message: format!("Failed to get HEAD commit: {}", e),
+        code: "REPO_ERROR".to_string(),
+    })?;
 
-    let head_tree = head_commit
-        .tree()
-        .map_err(|e| GitError {
-            message: format!("Failed to get tree: {}", e),
-            code: "REPO_ERROR".to_string(),
-        })?;
+    let head_tree = head_commit.tree().map_err(|e| GitError {
+        message: format!("Failed to get tree: {}", e),
+        code: "REPO_ERROR".to_string(),
+    })?;
 
     let mut checkout_opts = git2::build::CheckoutBuilder::new();
     checkout_opts.path(&file_path);
@@ -690,21 +678,23 @@ pub fn git_discard_file(path: String, file_path: String) -> Result<(), GitError>
 }
 
 #[tauri::command]
-pub fn git_resolve_conflict(path: String, file_path: String, resolution: String) -> Result<(), GitError> {
+pub fn git_resolve_conflict(
+    path: String,
+    file_path: String,
+    resolution: String,
+) -> Result<(), GitError> {
     debug!(activity = "git.resolve"; "Resolving conflict");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Write the resolved content
     let full_path = Path::new(&path).join(&file_path);
-    std::fs::write(&full_path, &resolution)
-        .map_err(|e| GitError {
-            message: format!("Failed to write resolved file: {}", e),
-            code: "CONFLICT_ERROR".to_string(),
-        })?;
+    std::fs::write(&full_path, &resolution).map_err(|e| GitError {
+        message: format!("Failed to write resolved file: {}", e),
+        code: "CONFLICT_ERROR".to_string(),
+    })?;
 
     // Stage the resolved file
     let mut index = repo.index().map_err(|e| GitError {
@@ -720,9 +710,7 @@ pub fn git_resolve_conflict(path: String, file_path: String, resolution: String)
         })?;
 
     // Remove conflict markers from index
-    index
-        .remove_path(Path::new(&file_path))
-        .ok(); // Ignore if not present
+    index.remove_path(Path::new(&file_path)).ok(); // Ignore if not present
 
     index
         .add_path(Path::new(&file_path))
@@ -740,12 +728,14 @@ pub fn git_resolve_conflict(path: String, file_path: String, resolution: String)
 }
 
 #[tauri::command]
-pub fn git_get_conflict_content(path: String, file_path: String) -> Result<ConflictContent, GitError> {
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+pub fn git_get_conflict_content(
+    path: String,
+    file_path: String,
+) -> Result<ConflictContent, GitError> {
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     let index = repo.index().map_err(|e| GitError {
         message: format!("Failed to get index: {}", e),
@@ -813,32 +803,29 @@ pub struct ConflictContent {
 #[tauri::command]
 pub fn git_set_remote(path: String, url: String) -> Result<(), GitError> {
     debug!(activity = "git.remote"; "Setting remote");
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     // Remove existing origin if present
     repo.remote_delete("origin").ok();
 
     // Add new origin
-    repo.remote("origin", &url)
-        .map_err(|e| GitError {
-            message: format!("Failed to set remote: {}", e),
-            code: "REMOTE_ERROR".to_string(),
-        })?;
+    repo.remote("origin", &url).map_err(|e| GitError {
+        message: format!("Failed to set remote: {}", e),
+        code: "REMOTE_ERROR".to_string(),
+    })?;
 
     Ok(())
 }
 
 #[tauri::command]
 pub fn git_get_remote_url(path: String) -> Result<Option<String>, GitError> {
-    let repo = Repository::open(Path::new(&path))
-        .map_err(|e| GitError {
-            message: format!("Failed to open repository: {}", e),
-            code: "REPO_OPEN_ERROR".to_string(),
-        })?;
+    let repo = Repository::open(Path::new(&path)).map_err(|e| GitError {
+        message: format!("Failed to open repository: {}", e),
+        code: "REPO_OPEN_ERROR".to_string(),
+    })?;
 
     let result = match repo.find_remote("origin") {
         Ok(remote) => remote.url().map(|s| s.to_string()),
@@ -854,11 +841,10 @@ fn get_signature(repo: &Repository) -> Result<Signature<'_>, GitError> {
     }
 
     // Fallback to default values
-    Signature::now("Seaquel User", "seaquel@local")
-        .map_err(|e| GitError {
-            message: format!("Failed to create signature: {}", e),
-            code: "COMMIT_ERROR".to_string(),
-        })
+    Signature::now("Seaquel User", "seaquel@local").map_err(|e| GitError {
+        message: format!("Failed to create signature: {}", e),
+        code: "COMMIT_ERROR".to_string(),
+    })
 }
 
 fn calculate_ahead_behind(repo: &Repository, branch: &str) -> Option<(usize, usize)> {

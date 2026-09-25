@@ -8,11 +8,14 @@ import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-setting
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
 import { cellKey } from "$lib/values";
+import { expectsRow, noRowMatchedMessage } from "./stale-edit.js";
 
 export interface ExecuteAllResult {
   executed: number;
   failed: number;
   failedAt?: number;
+  /** The id of the change that failed; it and the ones after it stay pending. */
+  failedChangeId?: string;
   error?: string;
   hasDdl?: boolean;
 }
@@ -141,7 +144,17 @@ export class PendingChangesManager {
     for (let i = 0; i < changes.length; i++) {
       const change = changes[i];
       try {
-        await provider.execute(connection.providerConnectionId, change.sql, change.bindValues);
+        const { rowsAffected } = await provider.execute(
+          connection.providerConnectionId,
+          change.sql,
+          change.bindValues,
+        );
+        // A keyed edit that matched no row changed nothing (a stale key):
+        // fail here, so it stays pending with the ones after it.
+        if (rowsAffected === 0 && expectsRow(change)) {
+          const t = change.target!;
+          throw new Error(noRowMatchedMessage(t.schema, t.table, t.primaryKeyValues!));
+        }
         executed++;
 
         if (change.queryType === "other") {
@@ -169,7 +182,14 @@ export class PendingChangesManager {
           [connectionId]: changes.slice(i),
         };
 
-        return { executed, failed: 1, failedAt: i, error: errorMsg };
+        return {
+          executed,
+          failed: 1,
+          failedAt: i,
+          failedChangeId: change.id,
+          error: errorMsg,
+          hasDdl,
+        };
       }
     }
 

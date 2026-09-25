@@ -1,0 +1,37 @@
+/**
+ * The slice of the `mssql` package (no bundled types) that
+ * `mssql-showplan.ts` uses.
+ */
+declare module "mssql" {
+  export interface config {
+    server: string;
+    port?: number;
+    user?: string;
+    password?: string;
+    database?: string;
+    options?: { encrypt?: boolean; trustServerCertificate?: boolean };
+    pool?: { max?: number; min?: number };
+  }
+
+  export interface IResult {
+    recordsets: Record<string, unknown>[][];
+  }
+
+  export class Request {
+    input(name: string, value: unknown): Request;
+    /** A plain batch (not `sp_executesql`). */
+    batch(command: string): Promise<IResult>;
+    /** `sp_executesql` when inputs are bound. */
+    query(command: string): Promise<IResult>;
+  }
+
+  export class ConnectionPool {
+    constructor(config: config);
+    connect(): Promise<ConnectionPool>;
+    request(): Request;
+    close(): Promise<void>;
+  }
+
+  const sql: { ConnectionPool: typeof ConnectionPool };
+  export default sql;
+}

@@ -76,7 +76,6 @@ export class ExplainTabManager extends BaseTabManager<ExplainTab> {
     analyze: boolean,
     bindValues?: unknown[],
   ): Promise<ExplainResult> {
-    // SQLite timing and the MSSQL/DuckDB bind skipping live in TsEngineClient.explain.
     const client = getEngineClient(this.state.activeConnection!, this.state);
     return client.explain(queryToExplain, bindValues, analyze);
   }

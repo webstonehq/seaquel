@@ -1,0 +1,394 @@
+{
+  "cases": [
+    {
+      "name": "table sizes",
+      "input": {
+        "kind": "tableSizes",
+        "columns": ["table_name", "schema_name"],
+        "rows": [
+          {
+            "table_name": "a",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "accounts",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "b",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "café",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "customers",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "it's",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "kv",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "ledger",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "my-table",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "order items",
+            "schema_name": "main"
+          },
+          {
+            "table_name": "orders",
+            "schema_name": "main"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "main",
+          "name": "a",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "accounts",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "b",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "café",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "customers",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "it's",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "kv",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "ledger",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "my-table",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "order items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "orders",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        }
+      ]
+    },
+    {
+      "name": "index usage",
+      "input": {
+        "kind": "indexUsage",
+        "columns": ["index_name", "table_name", "schema_name"],
+        "rows": [
+          {
+            "index_name": "café_naïve_idx",
+            "table_name": "café",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "customers_lower_email_idx",
+            "table_name": "customers",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "customers_name_idx",
+            "table_name": "customers",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "customers_status_email_idx",
+            "table_name": "customers",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "customers_vip_idx",
+            "table_name": "customers",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "order items sku idx",
+            "table_name": "order items",
+            "schema_name": "main"
+          },
+          {
+            "index_name": "orders_customer_kind_idx",
+            "table_name": "orders",
+            "schema_name": "main"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "café",
+          "indexName": "café_naïve_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "customers",
+          "indexName": "customers_lower_email_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "customers",
+          "indexName": "customers_name_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "customers",
+          "indexName": "customers_status_email_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "customers",
+          "indexName": "customers_vip_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "order items",
+          "indexName": "order items sku idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "orders",
+          "indexName": "orders_customer_kind_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        }
+      ]
+    },
+    {
+      "name": "database overview",
+      "input": {
+        "kind": "overview",
+        "columns": ["table_count", "index_count", "total_size_bytes"],
+        "rows": [
+          {
+            "table_count": 11,
+            "index_count": 7,
+            "total_size_bytes": 217088
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "SQLite Database",
+        "totalSize": "212 KB",
+        "totalSizeBytes": 217088,
+        "tableCount": 11,
+        "indexCount": 7
+      }
+    },
+    {
+      "name": "database overview, no rows (fallbacks)",
+      "input": {
+        "kind": "overview",
+        "columns": [],
+        "rows": []
+      },
+      "output": {
+        "databaseName": "SQLite Database",
+        "totalSize": "0 bytes",
+        "totalSizeBytes": 0,
+        "tableCount": 0,
+        "indexCount": 0
+      }
+    },
+    {
+      "name": "row count main.a",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "a",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 3
+          }
+        ]
+      },
+      "output": 3
+    },
+    {
+      "name": "row count main.accounts",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "accounts",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 0
+          }
+        ]
+      },
+      "output": 0
+    },
+    {
+      "name": "row count main.b",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "b",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 3
+          }
+        ]
+      },
+      "output": 3
+    },
+    {
+      "name": "row count main.café",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "café",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 0
+          }
+        ]
+      },
+      "output": 0
+    },
+    {
+      "name": "row count main.customers",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "customers",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 200
+          }
+        ]
+      },
+      "output": 200
+    },
+    {
+      "name": "row count main.kv",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "kv",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 0
+          }
+        ]
+      },
+      "output": 0
+    },
+    {
+      "name": "row count main.ledger",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "ledger",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 0
+          }
+        ]
+      },
+      "output": 0
+    },
+    {
+      "name": "row count main.orders",
+      "input": {
+        "kind": "rowCount",
+        "schema": "main",
+        "table": "orders",
+        "columns": ["row_count"],
+        "rows": [
+          {
+            "row_count": 1000
+          }
+        ]
+      },
+      "output": 1000
+    }
+  ]
+}

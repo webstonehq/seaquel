@@ -19,7 +19,8 @@ The recorder was `scripts/fixtures/postgres-dialect.fixtures.test.ts`, run with
 `npm run fixtures:postgres`. It was removed together with the TypeScript adapter
 it imported. A reference copy is kept at
 `docs/plans/artifacts/2026-09-25-postgres-fixture-recorder.ts.txt` (renamed so
-no tooling runs it) as a starting point for recording the other dialects.
+no tooling runs it). Phase 2 replaced it with one recorder for every engine,
+kept at `docs/plans/artifacts/2026-09-27-recorder-*.txt`.
 
 Change a fixture only when the Rust behaviour is meant to change, and say why
 in the same change.

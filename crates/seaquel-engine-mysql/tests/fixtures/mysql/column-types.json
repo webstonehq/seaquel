@@ -1,0 +1,131 @@
+{
+  "cases": [
+    {
+      "name": "getColumnTypes",
+      "input": {},
+      "output": [
+        {
+          "name": "VARCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "CHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "TEXT",
+          "category": "String"
+        },
+        {
+          "name": "TINYTEXT",
+          "category": "String"
+        },
+        {
+          "name": "MEDIUMTEXT",
+          "category": "String"
+        },
+        {
+          "name": "LONGTEXT",
+          "category": "String"
+        },
+        {
+          "name": "ENUM",
+          "category": "String"
+        },
+        {
+          "name": "SET",
+          "category": "String"
+        },
+        {
+          "name": "INT",
+          "category": "Numeric"
+        },
+        {
+          "name": "TINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "SMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "MEDIUMINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "BIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "FLOAT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DOUBLE",
+          "category": "Numeric"
+        },
+        {
+          "name": "DECIMAL",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "DATE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "DATETIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIMESTAMP",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "YEAR",
+          "category": "Date/Time"
+        },
+        {
+          "name": "BOOLEAN",
+          "category": "Boolean"
+        },
+        {
+          "name": "JSON",
+          "category": "JSON"
+        },
+        {
+          "name": "BINARY",
+          "category": "Binary",
+          "hasLength": true
+        },
+        {
+          "name": "VARBINARY",
+          "category": "Binary",
+          "hasLength": true
+        },
+        {
+          "name": "BLOB",
+          "category": "Binary"
+        },
+        {
+          "name": "TINYBLOB",
+          "category": "Binary"
+        },
+        {
+          "name": "MEDIUMBLOB",
+          "category": "Binary"
+        },
+        {
+          "name": "LONGBLOB",
+          "category": "Binary"
+        }
+      ]
+    }
+  ]
+}

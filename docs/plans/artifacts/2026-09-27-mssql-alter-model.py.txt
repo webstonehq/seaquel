@@ -1,0 +1,710 @@
+"""Reference copy (Rust Core Phase 2, Task 12) of the script that wrote the
+hand-written cases in crates/seaquel-engine-mssql/tests/fixtures/bugfixes.json.
+Not run by anything in the repo. It read the recorded fixtures, `live-out.json`
+(the rows and parsed output of the fixed catalog queries, now the 'sql' cases
+in bugfixes.json, run live against the scratch objects) and `queries.json` (the
+same query text). `create_sql` and `alter_sql` model the fixed CREATE and ALTER generators (fixes 2, 7,
+10, 12, 13, 15) and `paginate_sql` models the fixed pagination (fixes 8, 14).
+Task 13 ports them to ddl.rs and the MSSQL dialect.
+"""
+import copy
+import json
+import os
+
+FX = "/Users/m/projects/github/webstonehq/seaquel/crates/seaquel-engine-mssql/tests/fixtures/"
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load(name):
+    return {c["name"]: c for c in json.load(open(FX + name))["cases"]}
+
+
+alter = load("ddl-alter.json")
+create = load("ddl-create.json")
+addcol = load("ddl-add-column.json")
+indexes = load("parse-indexes.json")
+columns_rec = load("parse-columns.json")
+explain = load("parse-explain.json")
+paginate = load("paginate.json")
+live = json.load(open(os.path.join(HERE, "live-out.json")))
+RECORDED = {
+    "ddl-alter.json": alter, "ddl-create.json": create, "ddl-add-column.json": addcol,
+    "parse-indexes.json": indexes, "parse-columns.json": columns_rec, "parse-explain.json": explain,
+    "paginate.json": paginate, "sql.json": load("sql.json"),
+}
+
+
+def q(name):
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def lit(text):
+    return "N'" + text.replace("'", "''") + "'"
+
+
+def table(schema, name):
+    return f"{q(schema)}.{q(name)}"
+
+
+# ─── Model of the fixed ALTER generator ─────────────────────────────
+
+def col_type(c):
+    if c.get("precision"):
+        return f"{c['type']}({c['precision']})"
+    if c.get("length"):
+        return f"{c['type']}({c['length']})"
+    return c["type"]
+
+
+def sanitize(v):
+    t = (v or "").strip()
+    if not t or ";" in t or "--" in t:
+        return ""
+    return t
+
+
+def drop_default(n, t, column):
+    return (
+        f"DECLARE @df{n} nvarchar(max) = (SELECT {lit('ALTER TABLE ' + t + ' DROP CONSTRAINT ')} + QUOTENAME(d.name) "
+        f"FROM sys.default_constraints d INNER JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id "
+        f"WHERE d.parent_object_id = OBJECT_ID({lit(t)}) AND c.name = {lit(column)}); "
+        f"IF @df{n} IS NOT NULL EXEC (@df{n});"
+    )
+
+
+def drop_index(t, name):
+    return (
+        f"IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID({lit(t)}) AND name = {lit(name)}) "
+        f"ALTER TABLE {t} DROP CONSTRAINT {q(name)} ELSE DROP INDEX {q(name)} ON {t};"
+    )
+
+
+def alter_sql(frm, to):
+    t = table(to["schemaName"], to["tableName"])
+    orig_t = table(frm["schemaName"], frm["tableName"])
+    stmts = []
+    n = [0]
+
+    def var():
+        n[0] += 1
+        return n[0]
+
+    orig = {c["id"]: c for c in frm["columns"]}
+    new = {c["id"]: c for c in to["columns"]}
+    new_idx = {i["name"] for i in to["indexes"]}
+    orig_idx = {i["name"] for i in frm["indexes"]}
+    # Fix 13: dropped indexes first, before the column changes they'd block.
+    for i in frm["indexes"]:
+        if i["name"] and i["name"] not in new_idx:
+            stmts.append(drop_index(orig_t, i["name"]))  # fix 12
+    for c in to["columns"]:
+        o = orig.get(c["id"])
+        if o and o["name"] != c["name"]:
+            stmts.append(f"EXEC sp_rename {lit(t + '.' + q(o['name']))}, {lit(c['name'])}, N'COLUMN';")
+    for c in to["columns"]:
+        if c["id"] not in orig:
+            s = f"ALTER TABLE {t} ADD {q(c['name'])} {col_type(c)}"
+            s += " NULL" if c["nullable"] else " NOT NULL"  # fix 7: explicit, whatever ANSI_NULL_DFLT says
+            if sanitize(c["defaultValue"]):
+                s += f" DEFAULT {sanitize(c['defaultValue'])}"
+            stmts.append(s + ";")
+    for c in frm["columns"]:
+        if c["id"] not in new:
+            # Fix 13: the default constraint goes first, whatever the definition
+            # says about a default (the lookup is guarded by IS NOT NULL).
+            stmts.append(drop_default(var(), t, c["name"]) + f" ALTER TABLE {t} DROP COLUMN {q(c['name'])};")
+    for c in to["columns"]:
+        o = orig.get(c["id"])
+        if not o:
+            continue
+        if col_type(o) != col_type(c) or o["nullable"] != c["nullable"]:
+            coll = f" COLLATE {c['collation']}" if c.get("collation") else ""  # fix 15
+            stmts.append(f"ALTER TABLE {t} ALTER COLUMN {q(c['name'])} {col_type(c)}{coll} {'NULL' if c['nullable'] else 'NOT NULL'};")
+        if o["defaultValue"] != c["defaultValue"]:
+            s = drop_default(var(), t, c["name"])
+            if sanitize(c["defaultValue"]):
+                s += f" ALTER TABLE {t} ADD DEFAULT {sanitize(c['defaultValue'])} FOR {q(c['name'])};"
+            stmts.append(s)
+    for i in to["indexes"]:
+        if i["name"] and i["name"] not in orig_idx:
+            u = "UNIQUE " if i["unique"] else ""
+            stmts.append(f"CREATE {u}INDEX {q(i['name'])} ON {t} ({', '.join(q(x) for x in i['columns'])});")
+    key = lambda f: f"{f['column']}->{f['referencedTable']}.{f['referencedColumn']}"
+    orig_fks = {key(f) for f in frm["foreignKeys"]}
+    for f in to["foreignKeys"]:
+        if key(f) not in orig_fks:
+            ref = table(f["referencedSchema"], f["referencedTable"]) if f["referencedSchema"] else q(f["referencedTable"])
+            stmts.append(f"ALTER TABLE {t} ADD FOREIGN KEY ({q(f['column'])}) REFERENCES {ref} ({q(f['referencedColumn'])});")
+    return "\n".join(stmts) if stmts else "-- No changes detected"
+
+
+# ─── Cases ───────────────────────────────────────────────────────────
+
+cases = []
+
+
+def case(name, fix, kind, output, replaces=None, input=None):
+    c = {"name": name, "fix": fix, "kind": kind}
+    if replaces:
+        file, rec = replaces.split(": ", 1)
+        assert rec in RECORDED[file], replaces
+        c["replaces"] = replaces
+    c["input"] = input
+    c["output"] = output
+    cases.append(c)
+
+
+def col(cid, name, typ, **extra):
+    c = {"id": cid, "name": name, "type": typ, "nullable": True, "defaultValue": "",
+         "isPrimaryKey": False, "isUnique": False}
+    c.update(extra)
+    return c
+
+
+def customers_def():
+    return copy.deepcopy(alter["no changes"]["input"]["from"])
+
+
+def alter_input(change, base=customers_def):
+    frm = base()
+    to = base()
+    change(to)
+    return {"from": frm, "to": to}
+
+
+def by_id(d):
+    return {c["id"]: c for c in d["columns"]}
+
+
+def alter_case(name, fix, change, base=customers_def, replaces=None):
+    if replaces:
+        rec = alter[replaces.split(": ", 1)[1]]["input"]
+        inp = rec
+        case(name, fix, "ddl-alter", alter_sql(rec["from"], rec["to"]), replaces=replaces)
+    else:
+        inp = alter_input(change, base)
+        case(name, fix, "ddl-alter", alter_sql(inp["from"], inp["to"]), input=inp)
+
+
+# Fix 1: bound catalog filters (live).
+for key, why in [
+    ("dbo.fx order items", "spaces in the table and column names, a composite primary key, a foreign key and a default"),
+    ("dbo.fx]odd name", "] in the table and column names, a quote in a default"),
+]:
+    schema, tbl = key.split(".", 1)
+    case(f"fix 1: columns of a table with {why}", 1, "columns", live["columns"][key],
+         input={"schema": schema, "table": tbl})
+case("fix 1 + 6: indexes of a table with spaces in its names (the INCLUDE column qty is left out)", 1, "indexes",
+     live["indexes"]["dbo.fx order items"], input={"schema": "dbo", "table": "fx order items"})
+case("fix 1 + 5: indexes of a table with ] in its names", 1, "indexes",
+     live["indexes"]["dbo.fx]odd name"], input={"schema": "dbo", "table": "fx]odd name"})
+
+# CREATE TABLE model: fix 2 (]] quoting) and an explicit NULL for nullable
+# columns (fix 7's rule for ADD, applied to CREATE: nullability otherwise
+# depends on the session's ANSI_NULL_DFLT settings).
+def create_sql(d, explicit_null=True):
+    lines = []
+    for c in d["columns"]:
+        line = f"  {q(c['name'])} {col_type(c)}" + ((" NULL" if explicit_null else "") if c["nullable"] else " NOT NULL")
+        if sanitize(c["defaultValue"]):
+            line += f" DEFAULT {sanitize(c['defaultValue'])}"
+        lines.append(line)
+    pk = [q(c["name"]) for c in d["columns"] if c["isPrimaryKey"]]
+    if pk:
+        lines.append(f"  PRIMARY KEY ({', '.join(pk)})")
+    for c in d["columns"]:
+        if c["isUnique"] and not c["isPrimaryKey"]:
+            lines.append(f"  UNIQUE ({q(c['name'])})")
+    for f in d["foreignKeys"]:
+        lines.append(f"  FOREIGN KEY ({q(f['column'])}) REFERENCES {table(f['referencedSchema'], f['referencedTable'])} ({q(f['referencedColumn'])})")
+    t = table(d["schemaName"], d["tableName"])
+    out = f"CREATE TABLE {t} (\n" + ",\n".join(lines) + "\n);"
+    for i in d["indexes"]:
+        u = "UNIQUE " if i["unique"] else ""
+        out += f"\n\nCREATE {u}INDEX {q(i['name'])} ON {t} ({', '.join(q(x) for x in i['columns'])});"
+    return out
+
+
+# The model without the NULL change reproduces every recorded CREATE that fix 2 leaves alone.
+for name, c in create.items():
+    if "]" in name:
+        continue
+    assert create_sql(c["input"], explicit_null=False) == c["output"], name
+
+# Fix 2: escaped DDL quote.
+create_odd = ("CREATE TABLE [dbo].[odd]]table] (\n"
+              "  [id]]] INT NOT NULL,\n"
+              "  [a]]b] NVARCHAR(20),\n"
+              "  [note] NVARCHAR(50) DEFAULT N'x]y',\n"
+              "  PRIMARY KEY ([id]]]),\n"
+              "  UNIQUE ([a]]b]),\n"
+              "  FOREIGN KEY ([a]]b]) REFERENCES [sch]]x].[other]]t] ([c]]d])\n"
+              ");\n\n"
+              "CREATE INDEX [idx]]1] ON [dbo].[odd]]table] ([a]]b]);")
+create_odd = create_sql(create["names with ] (unescaped by the adapter)"]["input"])
+case("fix 2: CREATE TABLE doubles ] in every identifier (not in default literals)", 2, "ddl-create", create_odd,
+     replaces="ddl-create.json: names with ] (unescaped by the adapter)")
+case("fix 2: ADD doubles ]", 2, "ddl-add-column",
+     "ALTER TABLE [sch]]x].[odd]]table] ADD [a]]b] INT NOT NULL DEFAULT 0;",
+     replaces="ddl-add-column.json: names with ] (unescaped by the adapter)")
+alter_case("fix 2 + 7: ALTER TABLE doubles ] (sp_rename, ADD, the default lookup, the index drop)", 2, None,
+           replaces="ddl-alter.json: names with ] (unescaped, invalid T-SQL)")
+
+# Fix 3: view columns (live).
+case("fix 3: columns of a view", 3, "columns", live["columns"]["dbo.fx_customer_names"],
+     input={"schema": "dbo", "table": "fx_customer_names"})
+case("fix 3: columns of a view in another schema", 3, "columns", live["columns"]["fx_sales.fx_invoice_totals"],
+     input={"schema": "fx_sales", "table": "fx_invoice_totals"})
+
+# Fix 4: one row per column (live).
+case("fix 4: a column in two foreign keys is listed once, with the foreign key whose name sorts first "
+     "(fx_ledger_account_fk, composite, before fx_ledger_customer_fk)", 4, "columns",
+     live["columns"]["dbo.fx_ledger"], input={"schema": "dbo", "table": "fx_ledger"})
+case("fix 4: a primary key column that is also a foreign key", 4, "columns", live["columns"]["dbo.fx_accounts"],
+     input={"schema": "dbo", "table": "fx_accounts"})
+
+# Fix 5: index unique (parser).
+for name, c in indexes.items():
+    unique = {r["index_name"]: bool(r["is_unique"]) for r in c["input"]["rows"]}
+    if not any(unique.values()):
+        continue
+    out = copy.deepcopy(c["output"])
+    for ix in out:
+        ix["unique"] = unique[ix["name"]]
+    case(f"fix 5: is_unique arrives as a bool and is read ({name})", 5, "parse-indexes", out,
+         replaces=f"parse-indexes.json: {name}")
+
+# Fix 6: INCLUDE columns left out (live).
+case("fix 6: index columns exclude INCLUDE columns (fx_customers_name_idx keys name, status; includes email, score)",
+     6, "indexes", live["indexes"]["dbo.fx_customers"], input={"schema": "dbo", "table": "fx_customers"})
+
+# Fix 7: valid T-SQL ALTER (with fixes 12 and 13 where an index or column is dropped).
+for name in [
+    "rename a column (invalid T-SQL)",
+    "add columns (invalid T-SQL)",
+    "drop an index (invalid T-SQL)",
+    "change a type (invalid T-SQL)",
+    "make a column NOT NULL (invalid T-SQL)",
+    "make a column nullable (invalid T-SQL)",
+    "change a type and make it NOT NULL (invalid T-SQL)",
+    "change a default (invalid T-SQL)",
+    "remove a default (invalid T-SQL)",
+    "add a default (invalid T-SQL)",
+    "rename and change a type (invalid T-SQL)",
+    "statement order: every branch (invalid T-SQL)",
+]:
+    label = name.replace(" (invalid T-SQL)", "")
+    if label == "drop an index":
+        label += ", which may be a constraint's (fix 12)"
+    if label.startswith("statement order"):
+        label += " (fixes 12 and 13: the index goes first, the dropped column's default is looked up)"
+    alter_case(f"fix 7: valid T-SQL ({label})", 7, None, replaces=f"ddl-alter.json: {name}")
+
+
+def two_defaults(to):
+    by_id(to)["c4"]["defaultValue"] = "'x'"
+    by_id(to)["c5"]["defaultValue"] = "1"
+
+
+alter_case("fix 7: each default change gets its own variable, so the script also runs as one batch", 7, two_defaults)
+
+
+def rename_and_default(to):
+    by_id(to)["c4"]["name"] = "state"
+    by_id(to)["c4"]["defaultValue"] = "'on'"
+
+
+alter_case("fix 7: a default change on a renamed column looks up the new name", 7, rename_and_default)
+
+
+def unsafe_default(to):
+    by_id(to)["c4"]["defaultValue"] = "'x'; DROP TABLE users"
+
+
+alter_case("fix 7: an unsafe new default is left out, so the old one is only dropped", 7, unsafe_default)
+
+
+def quoted_base():
+    d = customers_def()
+    d["tableName"] = "it's"
+    d["schemaName"] = "o'neil"
+    return d
+
+
+def quote_in_names(to):
+    by_id(to)["c2"]["name"] = "full'name"
+    by_id(to)["c4"]["defaultValue"] = "'y'"
+    to["indexes"] = []
+
+
+alter_case("fix 7: quotes in names are doubled inside the N'…' literals", 7, quote_in_names, base=quoted_base)
+
+# Fix 8/14: the pagination model: a small T-SQL tokenizer.
+WORD = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@#$")
+
+
+def paginate_sql(sql, limit, offset):
+    """Fix 8: ORDER BY counts only at depth 0, outside strings ('..' with '', N'..'),
+    [..] (]] escaped) and ".." ("" escaped) names and -- / nested /* */ comments.
+    Fix 14: whatever follows the last token that isn't ';' (whitespace, ';', comments)
+    is dropped before the clause is appended."""
+    i, n, depth = 0, len(sql), 0
+    words = []  # top-level words, uppercased
+    cut = 0  # end of the last significant token that isn't ';'
+    while i < n:
+        ch = sql[i]
+        if ch.isspace():
+            i += 1
+        elif sql.startswith("--", i):
+            j = sql.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif sql.startswith("/*", i):
+            level, i = 1, i + 2
+            while i < n and level:
+                if sql.startswith("/*", i):
+                    level, i = level + 1, i + 2
+                elif sql.startswith("*/", i):
+                    level, i = level - 1, i + 2
+                else:
+                    i += 1
+        elif ch in "'\"[":
+            close = "]" if ch == "[" else ch
+            i += 1
+            while i < n:
+                if sql[i] == close:
+                    if i + 1 < n and sql[i + 1] == close:
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            cut = i
+            if depth == 0:
+                words.append(None)
+        elif ch in WORD:
+            j = i
+            while j < n and sql[j] in WORD:
+                j += 1
+            if depth == 0:
+                words.append(sql[i:j].upper())
+            i = cut = j
+        else:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if ch != ";":
+                cut = i + 1
+            if depth == 0 and ch not in "()":
+                words.append(None)
+            i += 1
+    has_order = any(a == "ORDER" and b == "BY" for a, b in zip(words, words[1:]))
+    body = sql[:cut]
+    order = "" if has_order else " ORDER BY (SELECT NULL)"
+    return f"{body}{order} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+
+
+# Fix 8: pagination ignores nested ORDER BY.
+for name in [n for n in paginate if n.endswith("(read as the query's)")]:
+    i = paginate[name]["input"]
+    out = paginate_sql(i["sql"], i["limit"], i["offset"])
+    assert out == f"{i['sql']} ORDER BY (SELECT NULL) OFFSET {i['offset']} ROWS FETCH NEXT {i['limit']} ROWS ONLY"
+    case(f"fix 8: {name.replace(' (read as the query' + chr(39) + 's)', '')} is not the query's ORDER BY", 8,
+         "paginate", out, replaces=f"paginate.json: {name}")
+# The recorded cases the fixes leave alone must come out the same.
+for name, c in paginate.items():
+    if "(read as the query's)" in name or name == "keeps a trailing semicolon":
+        continue
+    i = c["input"]
+    assert paginate_sql(i["sql"], i["limit"], i["offset"]) == c["output"], name
+for name, sql in [
+    ("an OVER() and a top-level ORDER BY",
+     "SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users ORDER BY id"),
+    ("an escaped quote before a top-level ORDER BY", "SELECT * FROM notes WHERE body = N'it''s' ORDER BY id"),
+    ("an ORDER BY after a line comment's end", "SELECT id FROM t -- note\nORDER BY id"),
+    ("an ORDER BY inside a line comment", "SELECT id FROM t -- ORDER BY id\nWHERE id > 1"),
+    ("an ORDER BY inside a double-quoted name", "SELECT \"order by\" FROM t"),
+    ("an ORDER BY split by a comment", "SELECT id FROM t ORDER /* x */ BY id"),
+    ("an ORDER BY inside nested block comments", "SELECT id FROM t /* x /* y */ ORDER BY a */ WHERE id > 1"),
+    ("an ORDER BY after nested block comments", "SELECT id FROM t /* x /* y */ z */ ORDER BY id"),
+    ("an ORDER BY inside a bracketed name with ]]", "SELECT [a]]ORDER BY] FROM t"),
+    ("an ORDER BY inside a double-quoted name with \"\"", "SELECT \"a\"\"ORDER BY\" FROM t"),
+]:
+    case(f"fix 8: {name}", 8, "paginate", paginate_sql(sql, 10, 0), input={"sql": sql, "limit": 10, "offset": 0})
+
+
+# Fix 9: EXPLAIN works (live).
+def shape(node, analyze):
+    out = {"nodeType": node["nodeType"]}
+    for k in ("relationName", "indexName", "filter"):
+        if k in node:
+            out[k] = node[k].replace("]]", "]") if k != "filter" else node[k]
+    if analyze:
+        for k in ("actualRows", "actualLoops"):
+            if k in node:
+                out[k] = node[k]
+    out["children"] = [shape(c, analyze) for c in node["children"]]
+    return out
+
+
+for rec, extra in [
+    ("EXPLAIN: nested loops", {}),
+    ("EXPLAIN ANALYZE: nested loops", {}),
+    ("EXPLAIN: clustered index seek", {"sql": "SELECT * FROM dbo.fx_customers WHERE id = 42;"}),
+    ("EXPLAIN ANALYZE: bound parameter", {}),
+    ("EXPLAIN ANALYZE: update (rolled back)", {}),
+    ("EXPLAIN ANALYZE: table and column names with spaces", {}),
+    ("EXPLAIN ANALYZE: table name with ]", {}),
+    ("EXPLAIN ANALYZE: constant select", {}),
+]:
+    c = explain[rec]
+    analyze = c["input"]["analyze"]
+    inp = {"sql": c["input"]["sql"], "analyze": analyze}
+    if "params" in c["input"]:
+        inp["params"] = c["input"]["params"]
+    inp.update(extra)
+    label = rec.split(": ", 1)[1]
+    if "sql" in extra:
+        label += ", trailing semicolon"
+    fix = 11 if "]" in label else 9
+    out = {"isAnalyze": analyze, "plan": shape(c["output"]["plan"], analyze)}
+    name = f"fix 9: {'EXPLAIN ANALYZE' if analyze else 'EXPLAIN'} runs through the driver ({label})"
+    if fix == 11:
+        name = f"fix 9 + 11: {'EXPLAIN ANALYZE' if analyze else 'EXPLAIN'} runs through the driver and un-escapes ]] ({label})"
+    case(name, fix, "explain", out, input=inp)
+
+
+# Fix 10: column types keep length, precision and scale.
+def parse_columns(rows):
+    out = []
+    for c in rows:
+        o = {"name": c["column_name"], "type": c["data_type"], "nullable": c["is_nullable"] == "YES"}
+        if c["column_default"]:
+            o["defaultValue"] = c["column_default"]
+        o["isPrimaryKey"] = c["is_primary_key"] == 1
+        o["isForeignKey"] = c["is_foreign_key"] == 1
+        if c["is_foreign_key"] and c["referenced_table"]:
+            o["foreignKeyRef"] = {"referencedSchema": c["referenced_schema"] or "dbo",
+                                  "referencedTable": c["referenced_table"],
+                                  "referencedColumn": c["referenced_column"] or ""}
+        out.append(o)
+    return out
+
+
+for name, rec in columns_rec.items():
+    rows = live["rows"][name]
+    note = " (and fix 4: account_id once)" if name == "dbo.fx_ledger" else ""
+    case(f"fix 10: the fixed query's rows carry the full type ({name}){note}", 10, "parse-columns",
+         parse_columns(rows),
+         replaces=f"parse-columns.json: {name}",
+         input={"schema": rec["input"]["schema"], "table": rec["input"]["table"],
+                "columns": list(rows[0].keys()), "rows": rows})
+case("fix 10 + 15: columns of a table with every sized type, and collations that aren't the database default", 10, "columns", live["columns"]["dbo.fx_types"],
+     input={"schema": "dbo", "table": "fx_types"})
+
+
+def editor_def(schema, tbl, cols):
+    """A definition as the table editor builds it from SchemaColumn (create-table-tabs addFromTable)."""
+    out = []
+    for i, c in enumerate(cols):
+        typ, length, precision = c["type"], None, None
+        if "(" in typ:
+            typ, params = typ[:-1].split("(", 1)
+            if "," in params:
+                precision = params
+            else:
+                length = params
+        d = {"id": f"c{i + 1}", "name": c["name"], "type": typ, "nullable": c["nullable"],
+             "defaultValue": c.get("defaultValue", ""), "isPrimaryKey": c["isPrimaryKey"], "isUnique": False}
+        if length:
+            d["length"] = length
+        if c.get("collation"):
+            d["collation"] = c["collation"]
+        if precision:
+            d["precision"] = precision
+        out.append(d)
+    return {"tableName": tbl, "schemaName": schema, "columns": out, "indexes": [], "foreignKeys": []}
+
+
+def nullability_case(key, column, fix_name):
+    schema, tbl = key.split(".", 1)
+    base = lambda: editor_def(schema, tbl, live["columns"][key])
+    def change(to):
+        c = next(c for c in to["columns"] if c["name"] == column)
+        c["nullable"] = not c["nullable"]
+    alter_case(fix_name, 10, change, base=base)
+
+
+nullability_case("dbo.fx_events", "payload",
+                 "fix 10: a nullability-only edit restates nvarchar(400), not nvarchar (which is nvarchar(1))")
+nullability_case("dbo.fx_ledger", "amount", "fix 10: a nullability-only edit restates decimal(12,2)")
+nullability_case("dbo.fx_types", "c_nvmax", "fix 10: a nullability-only edit restates nvarchar(max)")
+nullability_case("dbo.fx_types", "c_time", "fix 10: a nullability-only edit restates time(0)")
+
+# Fix 11: ]] un-escaped in plan names (parser).
+for name, c in explain.items():
+    text = json.dumps(c["output"])
+    if "]]" not in text:
+        continue
+    out = copy.deepcopy(c["output"])
+
+    def unescape(n):
+        for k in ("relationName", "indexName"):
+            if k in n:
+                n[k] = n[k].replace("]]", "]")
+        for ch in n["children"]:
+            unescape(ch)
+
+    unescape(out["plan"])
+    if out == c["output"]:
+        continue
+    case(f"fix 11: ]] in plan names is un-escaped ({name})", 11, "parse-explain", out,
+         replaces=f"parse-explain.json: {name}")
+
+
+# Fix 12: dropping a constraint's index.
+def ledger_base():
+    return editor_def("dbo", "fx_ledger", live["columns"]["dbo.fx_ledger"]) | {
+        "indexes": [{"id": "i1", "name": "fx_ledger_pk", "columns": ["id"], "unique": True, "type": "clustered"}]}
+
+
+def invoices_base():
+    return editor_def("fx_sales", "fx_invoices", live["columns"]["fx_sales.fx_invoices"]) | {
+        "indexes": [{"id": "i1", "name": "fx_invoices_number_uq", "columns": ["number"], "unique": True,
+                     "type": "nonclustered"},
+                    {"id": "i2", "name": "fx_invoices_pk", "columns": ["id"], "unique": True, "type": "clustered"}]}
+
+
+alter_case("fix 12: removing the primary key's index drops the PRIMARY KEY constraint", 12,
+           lambda to: to.__setitem__("indexes", []), base=ledger_base)
+alter_case("fix 12: removing a UNIQUE constraint's index drops the constraint", 12,
+           lambda to: to.__setitem__("indexes", [i for i in to["indexes"] if i["name"] != "fx_invoices_number_uq"]),
+           base=invoices_base)
+
+
+# Fix 13: indexes dropped first; DROP COLUMN drops the default first.
+def drop_default_column(to):
+    to["columns"] = [c for c in to["columns"] if c["id"] != "c4"]
+
+
+alter_case("fix 13: dropping a column with a default drops its default constraint first", 13, drop_default_column)
+
+
+def retype_indexed(to):
+    by_id(to)["c2"]["length"] = "150"
+    to["indexes"] = []
+
+
+alter_case("fix 13: an index is dropped before the ALTER COLUMN it would block", 13, retype_indexed)
+
+
+def drop_indexed_column(to):
+    to["columns"] = [c for c in to["columns"] if c["id"] != "c2"]
+    to["indexes"] = []
+
+
+alter_case("fix 13: an index is dropped before the DROP COLUMN it would block", 13, drop_indexed_column)
+
+# Fix 14: pagination tolerates a trailing ; and comments.
+rec = paginate["keeps a trailing semicolon"]["input"]
+case("fix 14: a trailing semicolon is dropped", 14, "paginate", paginate_sql(rec["sql"], rec["limit"], rec["offset"]),
+     replaces="paginate.json: keeps a trailing semicolon")
+for name, sql in [
+    ("a trailing line comment is dropped", "SELECT id FROM t -- note"),
+    ("a trailing ORDER BY, semicolon and line comment", "SELECT id FROM t ORDER BY id; -- done"),
+    ("trailing semicolons, whitespace and a block comment", "SELECT 1;;\n /* end */ \n"),
+    ("a trailing nested block comment", "SELECT 1 /* a /* b */ c */"),
+    ("a quote in a trailing line comment doesn't open a string", "SELECT id FROM t -- don't"),
+    ("a semicolon inside a trailing string literal stays", "SELECT ';' AS s"),
+    ("a line comment inside a string literal stays", "SELECT id FROM t WHERE s = '--x'"),
+    ("a line comment inside a trailing bracketed name stays", "SELECT 1 AS [x -- y]"),
+]:
+    case(f"fix 14: {name}", 14, "paginate", paginate_sql(sql, 10, 0), input={"sql": sql, "limit": 10, "offset": 0})
+
+
+# ─── Review follow-ups ──────────────────────────────────────────────
+
+# sql.json: the adapter's SQL text, superseded.
+queries = json.load(open(os.path.join(HERE, "queries.json")))
+sqlrec = load("sql.json")
+case("fix 1 + 3 + 4 + 10 + 15: the columns query (bound @P1 table, @P2 schema)", 1, "sql", queries["columns"],
+     replaces="sql.json: getColumnsQuery")
+case("fix 1 + 6: the indexes query (bound @P1 table, @P2 schema)", 1, "sql", queries["indexes"],
+     replaces="sql.json: getIndexesQuery")
+for name, c in sqlrec.items():
+    if c["input"]["query"] != "getExplainQuery":
+        continue
+    option = "STATISTICS XML" if c["input"]["analyze"] else "SHOWPLAN_XML"
+    case(f"fix 9: EXPLAIN runs as separate batches on the held client ({name})", 9, "explain-batches",
+         {"batches": [f"SET {option} ON", c["input"]["sql"], f"SET {option} OFF"]},
+         replaces=f"sql.json: {name}")
+
+case("fix 9: malformed plan XML becomes one Query Plan node with the parser's error as its filter", 9,
+     "parse-explain-error",
+     {"nodeType": "Query Plan", "children": 0, "filter": "non-empty; the parser's own message isn't pinned"},
+     input={"sql": "(synthetic)", "analyze": False, "columns": ["Microsoft SQL Server 2005 XML Showplan"],
+            "rows": [{"Microsoft SQL Server 2005 XML Showplan": "<ShowPlanXML xmlns=\"http://schemas.microsoft.com/sqlserver/2004/07/showplan\"><BatchSequence>"}]})
+
+# ADD with an explicit NULL (fix 7), in generateAddColumnSql too.
+for name, c in addcol.items():
+    col = c["input"]["column"]
+    if not col["nullable"]:
+        continue
+    out = f"ALTER TABLE {table(c['input']['schema'], c['input']['table'])} ADD {q(col['name'])} {col_type(col)} NULL"
+    if sanitize(col["defaultValue"]):
+        out += f" DEFAULT {sanitize(col['defaultValue'])}"
+    case(f"fix 7: ADD says NULL for a nullable column ({name})", 7, "ddl-add-column", out + ";",
+         replaces=f"ddl-add-column.json: {name}")
+
+# DROP COLUMN always drops the default first (fix 13), and shares @dfN with default changes.
+alter_case("fix 13: DROP COLUMN drops the column's default constraint first, even without a defaultValue", 13,
+           None, replaces="ddl-alter.json: drop a column")
+
+
+def drop_and_default(to):
+    to["columns"] = [c for c in to["columns"] if c["id"] != "c4"]
+    by_id(to)["c5"]["defaultValue"] = "100"
+    by_id(to)["c3"]["defaultValue"] = "N'none'"
+
+
+alter_case("fix 13: a dropped column's lookup and two default changes share the @dfN numbering", 13, drop_and_default)
+
+
+# Fix 15: ALTER COLUMN keeps a non-default collation.
+
+
+def types_base():
+    return editor_def("dbo", "fx_types", live["columns"]["dbo.fx_types"])
+
+
+def toggle(name):
+    def change(to):
+        c = next(c for c in to["columns"] if c["name"] == name)
+        c["nullable"] = not c["nullable"]
+    return change
+
+
+alter_case("fix 15: a nullability-only edit keeps COLLATE Latin1_General_BIN", 15, toggle("c_bin"), base=types_base)
+alter_case("fix 15: a nullability-only edit keeps COLLATE Latin1_General_CS_AS", 15, toggle("c_ncs"), base=types_base)
+alter_case("fix 15: a column in the database's collation gets no COLLATE", 15, toggle("c_dbdefault"),
+           base=types_base)
+
+
+def retype_collated(to):
+    c = next(c for c in to["columns"] if c["name"] == "c_bin")
+    c["length"] = "40"
+
+
+alter_case("fix 15: a type change keeps the collation too", 15, retype_collated, base=types_base)
+
+# CREATE TABLE says NULL for nullable columns.
+for name, c in create.items():
+    if "]" in name:
+        continue
+    out = create_sql(c["input"])
+    if out != c["output"]:
+        case(f"fix 7: CREATE TABLE says NULL for a nullable column ({name})", 7, "ddl-create", out,
+             replaces=f"ddl-create.json: {name}")
+
+json.dump(cases, open(os.path.join(HERE, "cases.json"), "w"), indent=2, ensure_ascii=False)
+print(len(cases), "cases", sum(1 for c in cases if c.get("replaces")), "replaces")

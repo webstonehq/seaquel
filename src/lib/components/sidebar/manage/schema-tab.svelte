@@ -11,6 +11,7 @@
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import { m } from "$lib/paraglide/messages.js";
+	import { getEngineClient } from "$lib/engine";
 
 	const db = useDatabase();
 
@@ -24,12 +25,12 @@
 	let truncateTableTarget = $state<{ schema: string; name: string } | null>(null);
 	let showTruncateDialog = $state(false);
 
-	const quoteId = $derived.by(() => {
-		const t = db.state.activeConnection?.type;
-		if (t === "mysql" || t === "mariadb") return (n: string) => `\`${n}\``;
-		if (t === "mssql") return (n: string) => `[${n}]`;
-		return (n: string) => `"${n}"`;
-	});
+	/** The table as the engine quotes it (DuckDB's `catalog.schema` is two names). */
+	const qualifiedTable = (schema: string, name: string): string => {
+		const connection = db.state.activeConnection;
+		if (!connection) throw new Error("No active connection");
+		return getEngineClient(connection, db.state).qualifiedTable(schema, name);
+	};
 
 	const dropKeyword = (type: "table" | "view" | "materialized-view") =>
 		type === "materialized-view" ? "MATERIALIZED VIEW" : type === "view" ? "VIEW" : "TABLE";
@@ -45,7 +46,7 @@
 		dropTableTarget = null;
 		try {
 			const result = await db.queries.executeRawDdl(
-				`DROP ${keyword} ${quoteId(schema)}.${quoteId(name)}`,
+				`DROP ${keyword} ${qualifiedTable(schema, name)}`,
 			);
 			if (result.queued) {
 				const { toast } = await import("svelte-sonner");
@@ -84,10 +85,9 @@
 		showTruncateDialog = false;
 		truncateTableTarget = null;
 		const isSqlite = db.state.activeConnection?.type === "sqlite";
-		const sql = isSqlite
-			? `DELETE FROM ${quoteId(schema)}.${quoteId(name)}`
-			: `TRUNCATE TABLE ${quoteId(schema)}.${quoteId(name)}`;
 		try {
+			const from = qualifiedTable(schema, name);
+			const sql = isSqlite ? `DELETE FROM ${from}` : `TRUNCATE TABLE ${from}`;
 			const result = await db.queries.executeRawDdl(sql);
 			if (result.queued) {
 				const { toast } = await import("svelte-sonner");

@@ -1,0 +1,576 @@
+{
+  "cases": [
+    {
+      "name": "main.customers",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "id",
+            "type": "INTEGER",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "name",
+            "type": "TEXT",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 2,
+            "name": "email",
+            "type": "TEXT",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 3,
+            "name": "status",
+            "type": "TEXT",
+            "notnull": 0,
+            "dflt_value": "'active'",
+            "pk": 0
+          },
+          {
+            "cid": 4,
+            "name": "score",
+            "type": "REAL",
+            "notnull": 1,
+            "dflt_value": "0",
+            "pk": 0
+          },
+          {
+            "cid": 5,
+            "name": "created_at",
+            "type": "DATETIME",
+            "notnull": 0,
+            "dflt_value": "CURRENT_TIMESTAMP",
+            "pk": 0
+          },
+          {
+            "cid": 6,
+            "name": "note",
+            "type": "TEXT",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "TEXT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "nullable": true,
+          "defaultValue": "'active'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "score",
+          "type": "REAL",
+          "nullable": false,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "TEXT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.orders",
+      "input": {
+        "schema": "main",
+        "table": "orders",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "id",
+            "type": "INTEGER",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "customer_id",
+            "type": "INTEGER",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 2,
+            "name": "kind",
+            "type": "TEXT",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 3,
+            "name": "total",
+            "type": "NUMERIC(10,2)",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 4,
+            "name": "placed_at",
+            "type": "TEXT",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 5,
+            "name": "memo",
+            "type": "BLOB",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [
+          "id",
+          "seq",
+          "table",
+          "from",
+          "to",
+          "on_update",
+          "on_delete",
+          "match"
+        ],
+        "foreignKeys": [
+          {
+            "id": 0,
+            "seq": 0,
+            "table": "customers",
+            "from": "customer_id",
+            "to": "id",
+            "on_update": "NO ACTION",
+            "on_delete": "CASCADE",
+            "match": "NONE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "customers",
+            "referencedColumn": "id"
+          }
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "NUMERIC(10,2)",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_at",
+          "type": "TEXT",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "memo",
+          "type": "BLOB",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.accounts",
+      "input": {
+        "schema": "main",
+        "table": "accounts",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "customer_id",
+            "type": "INTEGER",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "region",
+            "type": "TEXT",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 2
+          },
+          {
+            "cid": 2,
+            "name": "balance",
+            "type": "REAL",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [
+          "id",
+          "seq",
+          "table",
+          "from",
+          "to",
+          "on_update",
+          "on_delete",
+          "match"
+        ],
+        "foreignKeys": [
+          {
+            "id": 0,
+            "seq": 0,
+            "table": "customers",
+            "from": "customer_id",
+            "to": null,
+            "on_update": "NO ACTION",
+            "on_delete": "NO ACTION",
+            "match": "NONE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "customer_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "customers",
+            "referencedColumn": null
+          }
+        },
+        {
+          "name": "region",
+          "type": "TEXT",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "balance",
+          "type": "REAL",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.kv",
+      "input": {
+        "schema": "main",
+        "table": "kv",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "k",
+            "type": "TEXT",
+            "notnull": 1,
+            "dflt_value": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "v",
+            "type": "",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "k",
+          "type": "TEXT",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "v",
+          "type": "BLOB",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.café",
+      "input": {
+        "schema": "main",
+        "table": "café",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "naïve",
+            "type": "TEXT",
+            "notnull": 0,
+            "dflt_value": "'é'",
+            "pk": 0
+          },
+          {
+            "cid": 1,
+            "name": "v",
+            "type": "INTEGER",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "naïve",
+          "type": "TEXT",
+          "nullable": true,
+          "defaultValue": "'é'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "v",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.ledger",
+      "input": {
+        "schema": "main",
+        "table": "ledger",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "account_id",
+            "type": "INTEGER",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 1,
+            "name": "account_region",
+            "type": "TEXT",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          },
+          {
+            "cid": 2,
+            "name": "amount",
+            "type": "REAL",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [
+          "id",
+          "seq",
+          "table",
+          "from",
+          "to",
+          "on_update",
+          "on_delete",
+          "match"
+        ],
+        "foreignKeys": [
+          {
+            "id": 0,
+            "seq": 0,
+            "table": "accounts",
+            "from": "account_id",
+            "to": null,
+            "on_update": "NO ACTION",
+            "on_delete": "NO ACTION",
+            "match": "NONE"
+          },
+          {
+            "id": 0,
+            "seq": 1,
+            "table": "accounts",
+            "from": "account_region",
+            "to": null,
+            "on_update": "NO ACTION",
+            "on_delete": "NO ACTION",
+            "match": "NONE"
+          },
+          {
+            "id": 1,
+            "seq": 0,
+            "table": "accounts",
+            "from": "account_id",
+            "to": "customer_id",
+            "on_update": "NO ACTION",
+            "on_delete": "NO ACTION",
+            "match": "NONE"
+          },
+          {
+            "id": 1,
+            "seq": 1,
+            "table": "accounts",
+            "from": "account_region",
+            "to": "region",
+            "on_update": "NO ACTION",
+            "on_delete": "NO ACTION",
+            "match": "NONE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "account_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "accounts",
+            "referencedColumn": "customer_id"
+          }
+        },
+        {
+          "name": "account_region",
+          "type": "TEXT",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "main",
+            "referencedTable": "accounts",
+            "referencedColumn": "region"
+          }
+        },
+        {
+          "name": "amount",
+          "type": "REAL",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "main.sqlitex",
+      "input": {
+        "schema": "main",
+        "table": "sqlitex",
+        "columns": ["cid", "name", "type", "notnull", "dflt_value", "pk"],
+        "rows": [
+          {
+            "cid": 0,
+            "name": "id",
+            "type": "INTEGER",
+            "notnull": 0,
+            "dflt_value": null,
+            "pk": 0
+          }
+        ],
+        "foreignKeyColumns": [],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    }
+  ]
+}

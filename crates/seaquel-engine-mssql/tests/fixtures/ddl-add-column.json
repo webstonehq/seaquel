@@ -1,0 +1,75 @@
+{
+  "cases": [
+    {
+      "name": "NOT NULL with a default",
+      "input": {
+        "schema": "dbo",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaultValue": " 'x' ",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "length": "8"
+        }
+      },
+      "output": "ALTER TABLE [dbo].[customers] ADD [code] VARCHAR(8) NOT NULL DEFAULT 'x';"
+    },
+    {
+      "name": "nullable, precision",
+      "input": {
+        "schema": "dbo",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "rate",
+          "type": "DECIMAL",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "precision": "5,2"
+        }
+      },
+      "output": "ALTER TABLE [dbo].[customers] ADD [rate] DECIMAL(5,2);"
+    },
+    {
+      "name": "names with spaces and non-ASCII",
+      "input": {
+        "schema": "my schema",
+        "table": "order items",
+        "column": {
+          "id": "c9",
+          "name": "gift note 名前",
+          "type": "NVARCHAR",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "length": "MAX"
+        }
+      },
+      "output": "ALTER TABLE [my schema].[order items] ADD [gift note 名前] NVARCHAR(MAX);"
+    },
+    {
+      "name": "names with ] (unescaped by the adapter)",
+      "input": {
+        "schema": "sch]x",
+        "table": "odd]table",
+        "column": {
+          "id": "c9",
+          "name": "a]b",
+          "type": "INT",
+          "nullable": false,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE [sch]x].[odd]table] ADD [a]b] INT NOT NULL DEFAULT 0;"
+    }
+  ]
+}

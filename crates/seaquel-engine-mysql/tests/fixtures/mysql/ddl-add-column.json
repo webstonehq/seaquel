@@ -1,0 +1,57 @@
+{
+  "cases": [
+    {
+      "name": "NOT NULL with a default",
+      "input": {
+        "schema": "shop",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaultValue": " 'x' ",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "length": "8"
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ADD COLUMN `code` VARCHAR(8) NOT NULL DEFAULT 'x';"
+    },
+    {
+      "name": "nullable, precision",
+      "input": {
+        "schema": "shop",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "rate",
+          "type": "DECIMAL",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false,
+          "precision": "5,2"
+        }
+      },
+      "output": "ALTER TABLE `shop`.`customers` ADD COLUMN `rate` DECIMAL(5,2);"
+    },
+    {
+      "name": "names with spaces",
+      "input": {
+        "schema": "my db",
+        "table": "order items",
+        "column": {
+          "id": "c9",
+          "name": "gift note",
+          "type": "TEXT",
+          "nullable": true,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE `my db`.`order items` ADD COLUMN `gift note` TEXT;"
+    }
+  ]
+}

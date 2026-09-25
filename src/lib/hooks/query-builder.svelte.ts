@@ -920,6 +920,7 @@ export class QueryBuilderState {
       this.selectAggregates,
       this.subqueries,
       this.ctes,
+      (name) => this.getSchemaTable(name)?.sqlName ?? name,
     );
   }
 

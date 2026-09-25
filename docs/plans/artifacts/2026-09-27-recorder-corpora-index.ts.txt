@@ -1,0 +1,14 @@
+/**
+ * Registered corpora, keyed by the `ENGINE` value. Only DuckDB is left: its
+ * TypeScript adapter (`src/lib/db/duckdb.ts`) stays for the browser demo, so
+ * its fixtures can still be checked. The Postgres, MySQL/MariaDB, SQLite and
+ * MSSQL adapters are deleted and their fixtures frozen (see each crate's
+ * `tests/fixtures/README.md`); their corpora are kept for reference in
+ * `docs/plans/artifacts/`.
+ */
+import type { EngineCorpus } from "../corpus";
+import { duckdb } from "./duckdb";
+
+export const corpora: Record<string, EngineCorpus> = {
+  [duckdb.id]: duckdb,
+};

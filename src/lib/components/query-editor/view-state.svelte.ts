@@ -3,6 +3,7 @@ import { createDefaultChartConfig } from "$lib/components/charts/index.js";
 import { DEFAULT_LAYOUT_OPTIONS, type QueryLayoutOptions } from "$lib/utils/query-visual-layout";
 import { splitSqlStatements } from "$lib/db/sql-parser.js";
 import { schemaToQueryBuilder } from "$lib/utils/schema-adapter";
+import { editorQualifiedTable, getEngineClient } from "$lib/engine";
 import { sampleQueries } from "$lib/config/sample-queries.js";
 import type { QueryEditorContext } from "./types.js";
 import { cellKey } from "$lib/values";
@@ -134,9 +135,17 @@ export function createViewState(ctx: QueryEditorContext, onCloseDiff?: () => voi
     return deletes.size > 0 ? deletes : undefined;
   });
 
-  const queryBuilderSchema = $derived(
-    db.state.activeSchema ? schemaToQueryBuilder(db.state.activeSchema) : [],
-  );
+  const queryBuilderSchema = $derived.by(() => {
+    const connection = db.state.activeConnection;
+    if (!db.state.activeSchema) return [];
+    // FROM and JOIN name tables `schema.table`, quoted where needed.
+    if (!connection) return schemaToQueryBuilder(db.state.activeSchema);
+    const client = getEngineClient(connection, db.state);
+    const quoted = (s: string, t: string) => client.qualifiedTable(s, t);
+    return schemaToQueryBuilder(db.state.activeSchema, (schema, table) =>
+      editorQualifiedTable(connection.type, quoted, schema, table),
+    );
+  });
 
   const activeSampleQueries = $derived(
     sampleQueries[db.state.activeConnection?.type ?? "postgres"]?.slice(0, 2) ?? [],

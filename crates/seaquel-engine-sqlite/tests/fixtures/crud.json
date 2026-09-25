@@ -1,0 +1,222 @@
+{
+  "cases": [
+    {
+      "name": "update, single pk",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "users",
+        "column": "name",
+        "value": "Ada L.",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 1,
+          "name": "Ada"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"users\" SET \"name\" = $1 WHERE \"id\" = $2",
+        "bindValues": ["Ada L.", 1]
+      }
+    },
+    {
+      "name": "update, composite pk, NULL value",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "order_lines",
+        "column": "note",
+        "value": null,
+        "primaryKeys": ["order_id", "line_no"],
+        "row": {
+          "line_no": 2,
+          "order_id": 10,
+          "note": "gift"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"order_lines\" SET \"note\" = $1 WHERE \"order_id\" = $2 AND \"line_no\" = $3",
+        "bindValues": [null, 10, 2]
+      }
+    },
+    {
+      "name": "update with a JSON value",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "settings",
+        "column": "doc",
+        "value": {
+          "theme": "dark",
+          "n": [1, 2]
+        },
+        "primaryKeys": ["key"],
+        "row": {
+          "key": "ui"
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"settings\" SET \"doc\" = $1 WHERE \"key\" = $2",
+        "bindValues": [
+          {
+            "theme": "dark",
+            "n": [1, 2]
+          },
+          "ui"
+        ]
+      }
+    },
+    {
+      "name": "update with a boolean and a float key",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "flags",
+        "column": "enabled",
+        "value": true,
+        "primaryKeys": ["weight"],
+        "row": {
+          "weight": 1.5
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"flags\" SET \"enabled\" = $1 WHERE \"weight\" = $2",
+        "bindValues": [true, 1.5]
+      }
+    },
+    {
+      "name": "update, key missing from the row binds NULL",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "t",
+        "column": "a",
+        "value": 1,
+        "primaryKeys": ["id"],
+        "row": {
+          "other": 1
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"t\" SET \"a\" = $1 WHERE \"id\" = $2",
+        "bindValues": [1, null]
+      }
+    },
+    {
+      "name": "update, identifiers with double quotes, spaces and dots",
+      "input": {
+        "fn": "update",
+        "schema": "main",
+        "table": "order \"items\"",
+        "column": "unit.price",
+        "value": "12.50",
+        "primaryKeys": ["line \"id\""],
+        "row": {
+          "line \"id\"": 3
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"order \"\"items\"\"\" SET \"unit.price\" = $1 WHERE \"line \"\"id\"\"\" = $2",
+        "bindValues": ["12.50", 3]
+      }
+    },
+    {
+      "name": "setDefault, composite pk",
+      "input": {
+        "fn": "setDefault",
+        "schema": "main",
+        "table": "order_lines",
+        "column": "qty",
+        "primaryKeys": ["order_id", "line_no"],
+        "row": {
+          "order_id": 10,
+          "line_no": 2
+        }
+      },
+      "output": {
+        "sql": "UPDATE \"main\".\"order_lines\" SET \"qty\" = DEFAULT WHERE \"order_id\" = $1 AND \"line_no\" = $2",
+        "bindValues": [10, 2]
+      }
+    },
+    {
+      "name": "insert, several values in row order",
+      "input": {
+        "fn": "insert",
+        "schema": "main",
+        "table": "users",
+        "values": {
+          "name": "Grace",
+          "email": "grace@example.com",
+          "role": null,
+          "age": 36
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"main\".\"users\" (\"name\", \"email\", \"role\", \"age\") VALUES ($1, $2, $3, $4)",
+        "bindValues": ["Grace", "grace@example.com", null, 36]
+      }
+    },
+    {
+      "name": "insert, no values",
+      "input": {
+        "fn": "insert",
+        "schema": "main",
+        "table": "counters",
+        "values": {}
+      },
+      "output": {
+        "sql": "INSERT INTO \"main\".\"counters\" () VALUES ()",
+        "bindValues": []
+      }
+    },
+    {
+      "name": "insert, double quote in a column name",
+      "input": {
+        "fn": "insert",
+        "schema": "main",
+        "table": "t",
+        "values": {
+          "we\"ird": "x"
+        }
+      },
+      "output": {
+        "sql": "INSERT INTO \"main\".\"t\" (\"we\"\"ird\") VALUES ($1)",
+        "bindValues": ["x"]
+      }
+    },
+    {
+      "name": "delete, single pk",
+      "input": {
+        "fn": "delete",
+        "schema": "main",
+        "table": "users",
+        "primaryKeys": ["id"],
+        "row": {
+          "id": 42
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"main\".\"users\" WHERE \"id\" = $1",
+        "bindValues": [42]
+      }
+    },
+    {
+      "name": "delete, composite pk with a string key",
+      "input": {
+        "fn": "delete",
+        "schema": "main",
+        "table": "stock",
+        "primaryKeys": ["region", "sku"],
+        "row": {
+          "sku": "A-1",
+          "region": "eu",
+          "qty": 3
+        }
+      },
+      "output": {
+        "sql": "DELETE FROM \"main\".\"stock\" WHERE \"region\" = $1 AND \"sku\" = $2",
+        "bindValues": ["eu", "A-1"]
+      }
+    }
+  ]
+}

@@ -1,6 +1,12 @@
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
-import type { DatabaseConnection, QueryResult, StatementResult, ParameterValue } from "$lib/types";
+import type {
+  DatabaseConnection,
+  DatabaseType,
+  QueryResult,
+  StatementResult,
+  ParameterValue,
+} from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import { detectQueryType, isSelectQuery, extractTableFromSelect } from "$lib/db/query-utils";
@@ -16,6 +22,7 @@ import { resolveQuery } from "./resolve-query.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import type { PendingChangeOrigin } from "$lib/types";
 import { getEngineClient } from "$lib/engine";
+import { countQuery, hasRowLimit } from "$lib/engine/sql-scan";
 import { QueryCrudManager } from "./query-crud.svelte.js";
 import { dedupeColumnNames, rowToObject } from "$lib/utils/row-access";
 
@@ -89,13 +96,9 @@ export class QueryExecutionManager {
    * because the query carries its own LIMIT/OFFSET/TOP so the paginator
    * would leave it untouched.
    */
-  private shouldStream(baseQuery: string, connectionType: string, pageSize: number): boolean {
+  private shouldStream(baseQuery: string, connectionType: DatabaseType, pageSize: number): boolean {
     if (pageSize === 0) return true;
-    const hasLimit = /\bLIMIT\b/i.test(baseQuery);
-    const hasOffset = /\bOFFSET\b/i.test(baseQuery);
-    const hasTop = /\bTOP\b/i.test(baseQuery);
-    const isMssql = connectionType === "mssql";
-    return hasLimit || (isMssql && (hasOffset || hasTop));
+    return hasRowLimit(baseQuery, connectionType);
   }
 
   /**
@@ -415,12 +418,9 @@ export class QueryExecutionManager {
     }
 
     // Handle SELECT queries
-    // Check if query already has LIMIT/OFFSET clause - if so, skip pagination
-    const hasLimit = /\bLIMIT\b/i.test(baseQuery);
-    const hasOffset = /\bOFFSET\b/i.test(baseQuery);
-    const hasTop = /\bTOP\b/i.test(baseQuery);
-    const isMssql = connection.type === "mssql";
-    const hasPagination = hasLimit || (isMssql && (hasOffset || hasTop));
+    // A query with its own top-level LIMIT/OFFSET/FETCH (TOP on SQL Server)
+    // isn't paged.
+    const hasPagination = hasRowLimit(baseQuery, connection.type);
 
     let totalRows = 0;
     let paginatedQuery = baseQuery;
@@ -461,11 +461,10 @@ export class QueryExecutionManager {
       } else {
         // More rows exist — trim the extra probe row and run COUNT
         dbResult = dbResult.slice(0, pageSize);
-        const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_query`;
         try {
           const countResult = await provider.select<{ total: string | number }>(
             providerConnectionId,
-            countQuery,
+            countQuery(baseQuery, connection.type),
             bindValues,
           );
           totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
@@ -568,9 +567,14 @@ export class QueryExecutionManager {
     let query = originalSql;
     let bindValues: unknown[] | undefined;
     if (parameterValues) {
-      const substituted = substituteParameters(originalSql, parameterValues, dbType);
-      query = substituted.sql;
-      bindValues = substituted.bindValues;
+      try {
+        const substituted = substituteParameters(originalSql, parameterValues, dbType);
+        query = substituted.sql;
+        bindValues = substituted.bindValues;
+      } catch (error) {
+        errorToast(extractErrorMessage(error));
+        return;
+      }
     }
 
     // Cancel any in-flight stream for this tab before starting a new query.

@@ -6,7 +6,13 @@ import type { CreateTableDefinition } from "./CreateTableDefinition";
  * without fields have no `params`. Field names are the Rust ones
  * (`primary_keys`), like `connection_id`.
  */
-export type EngineRequest = { "method": "listSchemas" } | { "method": "schemaTables" } | { "method": "tableMetadata", "params": { schema: string, table: string, } } | { "method": "statistics" } | { "method": "explain", "params": { sql: string, params: unknown[], analyze: boolean, } } | { "method": "columnTypes" } | { "method": "paginate", "params": { sql: string, limit: number, offset: number, } } | { "method": "buildUpdate", "params": { schema: string, table: string, column: string, value: unknown, primary_keys: Array<string>, row: Array<[string, unknown]>, casts?: { [key in string]: string }, } } | { "method": "buildSetDefault", "params": { schema: string, table: string, column: string, primary_keys: Array<string>, row: Array<[string, unknown]>, 
+export type EngineRequest = { "method": "listSchemas" } | { "method": "schemaTables" } | { "method": "tableMetadata", "params": { schema: string, table: string, } } | { "method": "statistics" } | { "method": "explain", "params": { sql: string, params: unknown[], analyze: boolean, } } | { "method": "columnTypes" } | { "method": "paginate", "params": { sql: string, limit: number, offset: number, } } | { "method": "buildUpdate", "params": { schema: string, table: string, column: string, value: unknown, primary_keys: Array<string>, row: Array<[string, unknown]>, casts?: { [key in string]: string }, } } | { "method": "buildSetDefault", "params": { schema: string, table: string, column: string, 
+/**
+ * The column's default expression from its metadata (`defaultValue`,
+ * or `NULL` when it has none). SQLite, which has no `DEFAULT` in
+ * `UPDATE`, assigns it; other engines ignore it.
+ */
+column_default?: string, primary_keys: Array<string>, row: Array<[string, unknown]>, 
 /**
  * Casts for the primary-key placeholders (bug fix 6).
  */

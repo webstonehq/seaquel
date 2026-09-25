@@ -64,7 +64,6 @@ impl TunnelManager {
             next_id: Arc::new(Mutex::new(1)),
         }
     }
-
 }
 
 impl Default for TunnelManager {
@@ -122,9 +121,11 @@ impl client::Handler for ClientHandler {
                     warn!(activity = "ssh.tunnel.hostkey", error_code = "UNKNOWN_HOST_KEY"; "SSH host key is not in known_hosts");
                     return self.reject("UNKNOWN_HOST_KEY", fingerprint);
                 }
-                if let Err(e) =
-                    russh_keys::known_hosts::learn_known_hosts(&self.host, self.port, server_public_key)
-                {
+                if let Err(e) = russh_keys::known_hosts::learn_known_hosts(
+                    &self.host,
+                    self.port,
+                    server_public_key,
+                ) {
                     error!(activity = "ssh.tunnel.hostkey", error_code = "HOST_KEY_STORE_ERROR"; "Failed to record SSH host key: {}", e);
                     return self.reject("HOST_KEY_STORE_ERROR", fingerprint);
                 }

@@ -4,6 +4,7 @@ import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
 import type { QueryExecutionManager } from "./query-execution.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
+import { getEngineClient } from "$lib/engine";
 
 // Dialect-specific placeholder syntax and CAST-to-string type for filter
 // conditions. MySQL/MariaDB reject `$N` placeholders and `CAST(... AS TEXT)`;
@@ -120,8 +121,18 @@ export class DataTabManager extends BaseTabManager<DataTab> {
     this.updateTab(tabId, (t) => ({ ...t, isLoading: true }));
 
     try {
-      const { sql, params } = this.buildQuery(tab, connection.type);
-      const { sql: countSql, params: countParams } = this.buildCountQuery(tab, connection.type);
+      // DuckDB lists an attached catalog's schemas as `catalog.schema`: the
+      // engine client quotes that as two identifiers.
+      const client = getEngineClient(connection, this.state);
+      const from = client.qualifiedTable(tab.schemaName, tab.tableName);
+      const q = (name: string) => client.quoteIdent(name);
+      const { sql, params } = this.buildQuery(tab, connection.type, from, q);
+      const { sql: countSql, params: countParams } = this.buildCountQuery(
+        tab,
+        connection.type,
+        from,
+        q,
+      );
 
       if (!this.providers) return;
       const provider = await this.providers.getForType(connection.type);
@@ -318,12 +329,18 @@ export class DataTabManager extends BaseTabManager<DataTab> {
   }
 
   /**
-   * Build a SELECT query from the tab's current state.
+   * Build a SELECT query from the tab's current state. `from` is the quoted
+   * table (`EngineClient.qualifiedTable`), `q` quotes a column
+   * (`EngineClient.quoteIdent`).
    */
-  buildQuery(tab: DataTab, dbType: string): { sql: string; params: unknown[] } {
-    const q = this.quoteIdentifier(dbType);
+  buildQuery(
+    tab: DataTab,
+    dbType: string,
+    from: string,
+    q: (name: string) => string,
+  ): { sql: string; params: unknown[] } {
     const selectClause = this.buildSelectClause(tab, dbType, q);
-    const base = `SELECT ${selectClause} FROM ${q(tab.schemaName)}.${q(tab.tableName)}`;
+    const base = `SELECT ${selectClause} FROM ${from}`;
     const params: unknown[] = [];
 
     // WHERE clause from enabled filters
@@ -364,9 +381,13 @@ export class DataTabManager extends BaseTabManager<DataTab> {
   /**
    * Build a COUNT query for the current filters.
    */
-  private buildCountQuery(tab: DataTab, dbType: string): { sql: string; params: unknown[] } {
-    const q = this.quoteIdentifier(dbType);
-    const base = `SELECT COUNT(*) FROM ${q(tab.schemaName)}.${q(tab.tableName)}`;
+  private buildCountQuery(
+    tab: DataTab,
+    dbType: string,
+    from: string,
+    q: (name: string) => string,
+  ): { sql: string; params: unknown[] } {
+    const base = `SELECT COUNT(*) FROM ${from}`;
     const params: unknown[] = [];
 
     const activeFilters = tab.filters.filter((f) => f.enabled && f.column);
@@ -432,18 +453,5 @@ export class DataTabManager extends BaseTabManager<DataTab> {
     const schemas = this.state.schemas[tab.connectionId] ?? [];
     const table = schemas.find((t) => t.name === tab.tableName && t.schema === tab.schemaName);
     return table?.columns.filter((c) => c.isPrimaryKey).map((c) => c.name) ?? [];
-  }
-
-  /**
-   * Returns a quoting function for the given database type.
-   */
-  private quoteIdentifier(dbType: string): (name: string) => string {
-    if (dbType === "mysql" || dbType === "mariadb") {
-      return (name: string) => `\`${name}\``;
-    }
-    if (dbType === "mssql") {
-      return (name: string) => `[${name}]`;
-    }
-    return (name: string) => `"${name}"`;
   }
 }

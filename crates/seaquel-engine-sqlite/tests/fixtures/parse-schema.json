@@ -1,0 +1,146 @@
+{
+  "cases": [
+    {
+      "name": "schema",
+      "input": {
+        "columns": ["name", "type"],
+        "rows": [
+          {
+            "name": "a",
+            "type": "table"
+          },
+          {
+            "name": "accounts",
+            "type": "table"
+          },
+          {
+            "name": "b",
+            "type": "table"
+          },
+          {
+            "name": "café",
+            "type": "table"
+          },
+          {
+            "name": "customer_names",
+            "type": "view"
+          },
+          {
+            "name": "customers",
+            "type": "table"
+          },
+          {
+            "name": "it's",
+            "type": "table"
+          },
+          {
+            "name": "kv",
+            "type": "table"
+          },
+          {
+            "name": "ledger",
+            "type": "table"
+          },
+          {
+            "name": "my-table",
+            "type": "table"
+          },
+          {
+            "name": "order items",
+            "type": "table"
+          },
+          {
+            "name": "orders",
+            "type": "table"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "a",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "accounts",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "b",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "café",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "customer_names",
+          "schema": "main",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "customers",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "it's",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "kv",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "ledger",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "my-table",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "order items",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    }
+  ]
+}

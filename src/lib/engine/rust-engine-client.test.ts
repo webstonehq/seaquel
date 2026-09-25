@@ -4,6 +4,12 @@ import type { EngineResponse } from "$lib/types/generated/EngineResponse";
 import type { CreateTableDefinition } from "$lib/types";
 import { SqlDecimal } from "$lib/values";
 import paginateFixture from "../../../crates/seaquel-engine-postgres/tests/fixtures/paginate.json";
+import mysqlPaginateFixture from "../../../crates/seaquel-engine-mysql/tests/fixtures/mysql/paginate.json";
+import sqlitePaginateFixture from "../../../crates/seaquel-engine-sqlite/tests/fixtures/paginate.json";
+import mssqlPaginateFixture from "../../../crates/seaquel-engine-mssql/tests/fixtures/paginate.json";
+import mssqlBugfixes from "../../../crates/seaquel-engine-mssql/tests/fixtures/bugfixes.json";
+import duckdbPaginateFixture from "../../../crates/seaquel-engine-duckdb/tests/fixtures/paginate.json";
+import duckdbBugfixes from "../../../crates/seaquel-engine-duckdb/tests/fixtures/bugfixes.json";
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -191,6 +197,19 @@ describe("RustEngineClient request shapes and unwrapping", () => {
     expect((calls[1].request as { params: { casts: unknown } }).params.casts).toEqual({
       id: "uuid",
     });
+    // SQLite: the column's default expression goes along as column_default.
+    await client.buildSetDefault("s", "t", "c", ["id"], { id: 2 }, undefined, "CURRENT_TIMESTAMP");
+    expect(calls[2].request).toEqual({
+      method: "buildSetDefault",
+      params: {
+        schema: "s",
+        table: "t",
+        column: "c",
+        column_default: "CURRENT_TIMESTAMP",
+        primary_keys: ["id"],
+        row: [["id", 2]],
+      },
+    });
   });
 
   it("buildInsert sends every value in order", async () => {
@@ -275,6 +294,126 @@ describe("RustEngineClient.paginate (computed locally)", () => {
     },
   );
 
+  // MariaDB connections use the MySQL engine, so both follow MysqlDialect::paginate.
+  it.each(
+    (["mysql", "mariadb"] as const).flatMap((engine) =>
+      mysqlPaginateFixture.cases.map((c) => ({ engine, ...c })),
+    ),
+  )("matches MysqlDialect::paginate for $engine: $name", async ({ engine, input, output }) => {
+    const transport = vi.fn();
+    const client = new RustEngineClient(engine, () => "pc-1", transport);
+    expect(await client.paginate(input.sql, input.limit, input.offset)).toBe(output);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it.each(sqlitePaginateFixture.cases)(
+    "matches SqliteDialect::paginate: $name",
+    async ({ input, output }) => {
+      const transport = vi.fn();
+      const client = new RustEngineClient("sqlite", () => "pc-1", transport);
+      expect(await client.paginate(input.sql, input.limit, input.offset)).toBe(output);
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+
+  // As tests/dialect_parity.rs reads them: the recorded cases, with the
+  // bug-fix outputs of fixes 8 and 14 swapped in, plus the hand-written ones.
+  const mssqlPaginateCases = (() => {
+    const fixes = mssqlBugfixes.cases.filter((c) => c.kind === "paginate");
+    const replaced = new Map(
+      fixes.flatMap((c) =>
+        c.replaces?.startsWith("paginate.json: ")
+          ? [[c.replaces.slice("paginate.json: ".length), c.output as string] as const]
+          : [],
+      ),
+    );
+    const recorded = mssqlPaginateFixture.cases.map((c) => ({
+      name: c.name,
+      input: c.input,
+      output: replaced.get(c.name) ?? c.output,
+      recorded: c.output,
+    }));
+    const handWritten = fixes
+      .filter((c) => !c.replaces)
+      .map((c) => ({
+        name: `[fix ${c.fix}] ${c.name}`,
+        input: c.input as unknown as { sql: string; limit: number; offset: number },
+        output: c.output as string,
+        recorded: undefined as string | undefined,
+      }));
+    return { recorded, handWritten, replacedCount: replaced.size };
+  })();
+
+  it("reads every MSSQL pagination case", () => {
+    const { recorded, handWritten, replacedCount } = mssqlPaginateCases;
+    expect(recorded).toHaveLength(14);
+    expect(replacedCount).toBe(7);
+    expect(recorded.filter((c) => c.output !== c.recorded)).toHaveLength(7);
+    expect(handWritten).toHaveLength(18);
+  });
+
+  it.each([...mssqlPaginateCases.recorded, ...mssqlPaginateCases.handWritten])(
+    "matches MssqlDialect::paginate: $name",
+    async ({ input, output }) => {
+      const transport = vi.fn();
+      const client = new RustEngineClient("mssql", () => "pc-1", transport);
+      expect(await client.paginate(input.sql, input.limit, input.offset)).toBe(output);
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+
+  // dialect.rs unit tests: code points, not UTF-16 units; unclosed strings and comments.
+  it.each([
+    [
+      "SELECT [名前] FROM t; -- é",
+      5,
+      0,
+      "SELECT [名前] FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY",
+    ],
+    [
+      "SELECT 名 FROM t ORDER BY 名",
+      5,
+      10,
+      "SELECT 名 FROM t ORDER BY 名 OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+    ],
+    [
+      "SELECT '🚀' AS [x🚀]\u0085;\u00a0",
+      1,
+      0,
+      "SELECT '🚀' AS [x🚀] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY",
+    ],
+    [
+      "SELECT 'ORDER BY",
+      1,
+      0,
+      "SELECT 'ORDER BY ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY",
+    ],
+    [
+      "SELECT 1 /* ORDER BY",
+      1,
+      0,
+      "SELECT 1 ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY",
+    ],
+  ])("MSSQL pagination of %j", async (sql, limit, offset, output) => {
+    const client = new RustEngineClient("mssql", () => "pc-1", vi.fn());
+    expect(await client.paginate(sql, limit, offset)).toBe(output);
+  });
+
+  // DuckDB has no paginate bug fixes.
+  it("has no DuckDB paginate bug fixes", () => {
+    expect(duckdbBugfixes.cases.filter((c) => c.kind === "paginate")).toHaveLength(0);
+  });
+
+  it.each(duckdbPaginateFixture.cases)(
+    "matches DuckdbDialect::paginate: $name",
+    async ({ input, output }) => {
+      const transport = vi.fn();
+      const client = new RustEngineClient("duckdb", () => "pc-1", transport);
+      expect(await client.paginate(input.sql, input.limit, input.offset)).toBe(output);
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+
   it("needs no connection", async () => {
     const { client, transport } = recording({ kind: "sql", data: "x" }, null);
     expect(await client.paginate("SELECT 1", 11, 20)).toBe("SELECT 1 LIMIT 11 OFFSET 20");
@@ -297,6 +436,36 @@ describe("RustEngineClient.paginate (computed locally)", () => {
     await client.paginate("SELECT 1", 1, 0);
     expect(await client.createTable(def)).toBe("CREATE");
     expect(transport).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RustEngineClient.qualifiedTable (computed locally)", () => {
+  // DuckDB: `quote_schema`/`qualified_table` in crates/seaquel-engine-duckdb/src/dialect.rs.
+  it.each([
+    ["main", "users", '"main"."users"'],
+    ['"a.b"', "t", '"a.b"."t"'],
+    ["fx_aux.main", "users", '"fx_aux"."main"."users"'],
+    ['"fx.we""ird".main', "items", '"fx.we""ird"."main"."items"'],
+    ['"fx_aux.main"', "users", '"fx_aux.main"."users"'],
+    ["main", 'it\'s "x"', '"main"."it\'s ""x"""'],
+    ["a.b.c", "t", '"a.b.c"."t"'],
+  ])("DuckDB: %s . %s", (schema, table, expected) => {
+    const transport = vi.fn();
+    const client = new RustEngineClient("duckdb", () => undefined, transport);
+    expect(client.qualifiedTable(schema, table)).toBe(expected);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  // The other engines keep the data tab's quoting as it was.
+  it.each([
+    ["postgres", '"public"."order items"'],
+    ["sqlite", '"public"."order items"'],
+    ["mysql", "`public`.`order items`"],
+    ["mariadb", "`public`.`order items`"],
+    ["mssql", "[public].[order items]"],
+  ] as const)("%s keeps its quoting", (engine, expected) => {
+    const client = new RustEngineClient(engine, () => undefined, vi.fn());
+    expect(client.qualifiedTable("public", "order items")).toBe(expected);
   });
 });
 

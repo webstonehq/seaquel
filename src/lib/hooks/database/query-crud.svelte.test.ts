@@ -261,6 +261,34 @@ describe("QueryCrudManager.buildCastMap", () => {
     expect(state.schemas["conn-1"]).toEqual([users, refreshed]);
   });
 
+  // Task 1 (phase 2): SQLite's CAST(? AS DATETIME/JSON/BOOLEAN/…) applies
+  // numeric affinity and corrupts the value, and the other engines ignore
+  // casts, so only Postgres gets a cast map.
+  it.each(["sqlite", "mysql", "mariadb", "mssql", "duckdb"])(
+    "has no cast map for %s, even with the table's columns cached",
+    async (type) => {
+      const { manager } = makeManager({ type });
+      expect(await manager.buildCastMap("public", "users")).toBe(undefined);
+      expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
+      expect(client.tableMetadata).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["sqlite", "mysql", "mariadb", "mssql", "duckdb"])(
+    "doesn't load columns for %s once it runs on the Rust engine",
+    async (type) => {
+      usesRustEngine.mockReturnValue(true);
+      try {
+        const { manager } = makeManager({ type });
+        expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
+        expect(client.tableMetadata).not.toHaveBeenCalled();
+      } finally {
+        usesRustEngine.mockReset();
+        usesRustEngine.mockImplementation((c) => c.type === "postgres");
+      }
+    },
+  );
+
   it("doesn't load columns for TypeScript engines", async () => {
     const { manager } = makeManager({ type: "sqlite" });
     expect(await manager.buildCastMap("main", "nope")).toBe(undefined);
@@ -361,6 +389,101 @@ describe("QueryCrudManager via EngineClient", () => {
     expect(client.buildSetDefault.mock.calls[0]?.[5]).toEqual(casts);
     expect(client.buildInsert.mock.calls[0]?.[3]).toEqual(casts);
     expect(client.buildDelete.mock.calls[0]?.[4]).toEqual(casts);
+  });
+
+  it("builds SQLite edits without casts", async () => {
+    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: ["2024-01-01 10:00", 1] });
+    client.buildInsert.mockResolvedValue({ sql: "INSERT", bindValues: ['{"a":1}'] });
+    const { manager } = makeManager({ type: "sqlite" });
+
+    await manager.updateCellDirect(source, row, "balance", "2024-01-01 10:00");
+    await manager.insertRow(source, { meta: '{"a":1}' });
+
+    expect(client.buildUpdate.mock.calls[0]?.[6]).toBe(undefined);
+    expect(client.buildInsert.mock.calls[0]?.[3]).toBe(undefined);
+  });
+
+  it("sends SQLite's Set to default the column's default expression from fresh metadata", async () => {
+    usesRustEngine.mockImplementation((c) => c.type === "postgres" || c.type === "sqlite");
+    try {
+      client.tableMetadata.mockResolvedValue({
+        columns: [
+          { ...column("status", "TEXT"), defaultValue: "'active'" },
+          { ...column("at", "DATETIME"), defaultValue: "CURRENT_TIMESTAMP" },
+          column("note", "TEXT"),
+        ],
+        indexes: [],
+      });
+      client.buildSetDefault.mockResolvedValue({ sql: "UPDATE", bindValues: [row.id] });
+      const { manager, provider } = makeManager({ type: "sqlite" });
+
+      for (const c of ["status", "at", "note"]) {
+        expect(await manager.setCellDefaultDirect(source, row, c)).toEqual({ success: true });
+      }
+      // No casts for SQLite; the default expression is the 7th argument, NULL without one.
+      expect(client.buildSetDefault.mock.calls.map((c) => [c[2], c[5], c[6]])).toEqual([
+        ["status", undefined, "'active'"],
+        ["at", undefined, "CURRENT_TIMESTAMP"],
+        ["note", undefined, "NULL"],
+      ]);
+      expect(client.tableMetadata).toHaveBeenCalledTimes(3);
+      expect(client.tableMetadata).toHaveBeenCalledWith("public", "users");
+      expect(provider.execute).toHaveBeenCalledTimes(3);
+
+      // A column the metadata doesn't list fails instead of setting NULL.
+      const missing = await manager.setCellDefaultDirect(source, row, "gone");
+      expect(missing.success).toBe(false);
+      expect(missing.error).toContain('Column "gone" not found');
+      expect(client.buildSetDefault).toHaveBeenCalledTimes(3);
+    } finally {
+      usesRustEngine.mockImplementation((c) => c.type === "postgres");
+    }
+  });
+
+  it("sends no default expression for other engines", async () => {
+    client.buildSetDefault.mockResolvedValue({ sql: "UPDATE", bindValues: [row.id] });
+    const { manager } = makeManager();
+    await manager.setCellDefaultDirect(source, row, "name");
+    expect(client.buildSetDefault.mock.calls[0]).toHaveLength(6);
+    expect(client.tableMetadata).not.toHaveBeenCalled();
+  });
+
+  it("fails a keyed edit that matched no row, naming the table and key", async () => {
+    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: ["b", row.id] });
+    client.buildSetDefault.mockResolvedValue({ sql: "SET DEFAULT", bindValues: [row.id] });
+    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [row.id] });
+    const { manager, provider } = makeManager();
+    provider.execute.mockResolvedValue({ rowsAffected: 0, lastInsertId: 7 });
+
+    for (const result of [
+      await manager.updateCellDirect(source, row, "name", "b"),
+      await manager.setCellDefaultDirect(source, row, "name"),
+      await manager.deleteRow(source, row),
+    ]) {
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("public.users");
+      expect(result.error).toContain("id = 9007199254740993");
+    }
+    expect(provider.execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("names every key column, quoting text keys", async () => {
+    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [] });
+    const { manager, provider } = makeManager();
+    provider.execute.mockResolvedValue({ rowsAffected: 0, lastInsertId: 7 });
+
+    const result = await manager.deleteRow(
+      { schema: "public", name: "users", primaryKeys: ["org", "name"] },
+      { org: 3, name: "O'Brien" },
+    );
+
+    expect(result.error).toContain("org = 3, name = 'O''Brien'");
+  });
+
+  it("succeeds when a keyed edit affected its row", async () => {
+    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [row.id] });
+    const { manager } = makeManager();
+    expect(await manager.deleteRow(source, row)).toEqual({ success: true });
   });
 
   it("returns the builder's error instead of throwing", async () => {

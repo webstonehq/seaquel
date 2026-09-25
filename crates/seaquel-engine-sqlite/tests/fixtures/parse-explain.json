@@ -1,0 +1,3571 @@
+{
+  "cases": [
+    {
+      "name": "EXPLAIN: table scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE note LIKE '%v%'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "children": [],
+          "relationName": "customers"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: table scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE note LIKE '%v%'",
+        "analyze": true,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "children": [],
+          "relationName": "customers"
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN: scan with an alias",
+      "input": {
+        "sql": "SELECT * FROM customers c WHERE c.note LIKE '%v%'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "children": [],
+          "relationName": "c"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: scan using a covering index",
+      "input": {
+        "sql": "SELECT name FROM customers ORDER BY name",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers USING COVERING INDEX customers_name_idx"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Only Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "customers_name_idx"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: scan using an index",
+      "input": {
+        "sql": "SELECT * FROM customers ORDER BY name",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers USING INDEX customers_name_idx"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "customers_name_idx"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: integer primary key lookup",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id = 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: integer primary key range",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id > 150",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid>?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid>?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: unique constraint lookup",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE email = 'c1@example.com'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INDEX sqlite_autoindex_customers_1 (email=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "sqlite_autoindex_customers_1",
+          "indexCond": "email=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: covering index lookup",
+      "input": {
+        "sql": "SELECT name FROM customers WHERE name = 'Customer 7'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING COVERING INDEX customers_name_idx (name=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Only Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "customers_name_idx",
+          "indexCond": "name=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: expression index lookup",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE lower(email) = 'c1@example.com'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INDEX customers_lower_email_idx (<expr>=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "customers_lower_email_idx",
+          "indexCond": "<expr>=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: partial index lookup",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE note = 'vip' AND name > 'C'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INDEX customers_vip_idx (note=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "customers_vip_idx",
+          "indexCond": "note=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: WITHOUT ROWID primary key",
+      "input": {
+        "sql": "SELECT * FROM kv WHERE k = 'a'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH kv USING PRIMARY KEY (k=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "kv",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "k=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: bound parameter",
+      "input": {
+        "sql": "SELECT name FROM customers WHERE id = ?",
+        "analyze": false,
+        "params": [5],
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: bound parameter",
+      "input": {
+        "sql": "SELECT name FROM customers WHERE id = ?",
+        "analyze": true,
+        "params": [5],
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN: trailing semicolon",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id = 2;",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: join through a primary key",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c USING COVERING INDEX customers_name_idx"
+          },
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH o USING INDEX orders_customer_kind_idx (customer_id=? AND kind=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "c",
+              "indexName": "customers_name_idx"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "o",
+              "indexName": "orders_customer_kind_idx",
+              "indexCond": "customer_id=? AND kind=?"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: join through a primary key",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.kind = 'buy'",
+        "analyze": true,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c USING COVERING INDEX customers_name_idx"
+          },
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH o USING INDEX orders_customer_kind_idx (customer_id=? AND kind=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "c",
+              "indexName": "customers_name_idx"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "o",
+              "indexName": "orders_customer_kind_idx",
+              "indexCond": "customer_id=? AND kind=?"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN: join through an automatic index and a bloom filter",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM customers c JOIN orders o ON o.total = c.score",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN o"
+          },
+          {
+            "id": 7,
+            "parent": 0,
+            "notused": 0,
+            "detail": "BLOOM FILTER ON c (score=?)"
+          },
+          {
+            "id": 18,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH c USING AUTOMATIC COVERING INDEX (score=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "o"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "BLOOM",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "c",
+              "indexName": "<automatic>",
+              "indexCond": "score=?"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: left join",
+      "input": {
+        "sql": "SELECT c.name, o.total FROM customers c LEFT JOIN orders o ON o.total = c.score",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c"
+          },
+          {
+            "id": 7,
+            "parent": 0,
+            "notused": 0,
+            "detail": "BLOOM FILTER ON o (total=?)"
+          },
+          {
+            "id": 16,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH o USING AUTOMATIC COVERING INDEX (total=?) LEFT-JOIN"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "c"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "BLOOM",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEARCH",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: right join",
+      "input": {
+        "sql": "SELECT * FROM a RIGHT JOIN b ON a.x = b.x",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 8,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 28,
+            "parent": 0,
+            "notused": 0,
+            "detail": "RIGHT-JOIN b"
+          },
+          {
+            "id": 31,
+            "parent": 28,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "b"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "RIGHT-JOIN",
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: full join",
+      "input": {
+        "sql": "SELECT * FROM a FULL JOIN b ON a.x = b.x",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 8,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN b LEFT-JOIN"
+          },
+          {
+            "id": 33,
+            "parent": 0,
+            "notused": 0,
+            "detail": "RIGHT-JOIN b"
+          },
+          {
+            "id": 36,
+            "parent": 33,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "SCAN",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "RIGHT-JOIN",
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: cross join of two scans",
+      "input": {
+        "sql": "SELECT * FROM a, b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "b"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: group by",
+      "input": {
+        "sql": "SELECT kind, COUNT(*) FROM orders GROUP BY kind",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN orders USING COVERING INDEX orders_customer_kind_idx"
+          },
+          {
+            "id": 8,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR GROUP BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Group",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: distinct",
+      "input": {
+        "sql": "SELECT DISTINCT kind FROM orders",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN orders USING COVERING INDEX orders_customer_kind_idx"
+          },
+          {
+            "id": 11,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR DISTINCT"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Distinct",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: count distinct",
+      "input": {
+        "sql": "SELECT count(DISTINCT kind) FROM orders",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR count(DISTINCT)"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN orders USING COVERING INDEX orders_customer_kind_idx"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "USE",
+              "children": []
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: order by",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE note LIKE '%v%' ORDER BY note",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers"
+          },
+          {
+            "id": 19,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "customers"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Sort",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: order by the last term",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE customer_id = 1 ORDER BY kind, total",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH orders USING INDEX orders_customer_kind_idx (customer_id=?)"
+          },
+          {
+            "id": 25,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx",
+              "indexCond": "customer_id=?"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "USE",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: order by the last terms",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE customer_id = 1 ORDER BY kind, total, placed_at",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH orders USING INDEX orders_customer_kind_idx (customer_id=?)"
+          },
+          {
+            "id": 25,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx",
+              "indexCond": "customer_id=?"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "USE",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: multi-index OR",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id = 5 OR name = 'Customer 7'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MULTI-INDEX OR"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "INDEX 1"
+          },
+          {
+            "id": 8,
+            "parent": 5,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          },
+          {
+            "id": 12,
+            "parent": 4,
+            "notused": 0,
+            "detail": "INDEX 2"
+          },
+          {
+            "id": 18,
+            "parent": 12,
+            "notused": 0,
+            "detail": "SEARCH customers USING INDEX customers_name_idx (name=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "BitmapOr",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "INDEX",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Index Scan",
+                  "children": [],
+                  "relationName": "customers",
+                  "indexName": "PRIMARY KEY",
+                  "indexCond": "rowid=?"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "INDEX",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Index Scan",
+                  "children": [],
+                  "relationName": "customers",
+                  "indexName": "customers_name_idx",
+                  "indexCond": "name=?"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: IN subquery",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders WHERE kind = 'buy')",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          },
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "LIST SUBQUERY 1"
+          },
+          {
+            "id": 8,
+            "parent": 6,
+            "notused": 0,
+            "detail": "SCAN orders USING COVERING INDEX orders_customer_kind_idx"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "customers",
+              "indexName": "PRIMARY KEY",
+              "indexCond": "rowid=?"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "LIST",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Index Only Scan",
+                  "children": [],
+                  "relationName": "orders",
+                  "indexName": "orders_customer_kind_idx"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: correlated IN subquery",
+      "input": {
+        "sql": "SELECT * FROM customers c WHERE c.id IN (SELECT o.customer_id FROM orders o WHERE o.total > c.score)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED LIST SUBQUERY 1"
+          },
+          {
+            "id": 7,
+            "parent": 5,
+            "notused": 0,
+            "detail": "SCAN o"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "c"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "CORRELATED",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "o"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: EXISTS subquery",
+      "input": {
+        "sql": "SELECT * FROM customers c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.total > 90)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 10,
+            "parent": 5,
+            "notused": 0,
+            "detail": "SEARCH o USING INDEX orders_customer_kind_idx (customer_id=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "c"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "CORRELATED",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Index Scan",
+                  "children": [],
+                  "relationName": "o",
+                  "indexName": "orders_customer_kind_idx",
+                  "indexCond": "customer_id=?"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: scalar subquery",
+      "input": {
+        "sql": "SELECT name FROM customers WHERE score > (SELECT AVG(total) FROM orders)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN customers"
+          },
+          {
+            "id": 8,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 13,
+            "parent": 8,
+            "notused": 0,
+            "detail": "SCAN orders"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "customers"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "SCALAR",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "orders"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: correlated scalar subquery in the select list",
+      "input": {
+        "sql": "SELECT id, (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS n FROM customers c WHERE c.id < 3",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH c USING INTEGER PRIMARY KEY (rowid<?)"
+          },
+          {
+            "id": 9,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 14,
+            "parent": 9,
+            "notused": 0,
+            "detail": "SEARCH o USING COVERING INDEX orders_customer_kind_idx (customer_id=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "c",
+              "indexName": "PRIMARY KEY",
+              "indexCond": "rowid<?"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "CORRELATED",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Index Only Scan",
+                  "children": [],
+                  "relationName": "o",
+                  "indexName": "orders_customer_kind_idx",
+                  "indexCond": "customer_id=?"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: derived table (co-routine)",
+      "input": {
+        "sql": "SELECT * FROM (SELECT customer_id, COUNT(*) AS n FROM orders GROUP BY customer_id ORDER BY n DESC LIMIT 5) t WHERE n > 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CO-ROUTINE t"
+          },
+          {
+            "id": 10,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN orders USING COVERING INDEX orders_customer_kind_idx"
+          },
+          {
+            "id": 44,
+            "parent": 2,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 51,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN t"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Index Only Scan",
+                  "children": [],
+                  "relationName": "orders",
+                  "indexName": "orders_customer_kind_idx"
+                },
+                {
+                  "id": "node-2",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ],
+              "relationName": "t"
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "t"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: materialized CTE",
+      "input": {
+        "sql": "WITH x AS MATERIALIZED (SELECT * FROM orders) SELECT * FROM x a, x b WHERE a.id = b.id",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MATERIALIZE x"
+          },
+          {
+            "id": 6,
+            "parent": 3,
+            "notused": 0,
+            "detail": "SCAN orders"
+          },
+          {
+            "id": 23,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 27,
+            "parent": 0,
+            "notused": 0,
+            "detail": "BLOOM FILTER ON b (id=?)"
+          },
+          {
+            "id": 41,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH b USING AUTOMATIC COVERING INDEX (id=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Materialize",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "orders"
+                }
+              ],
+              "relationName": "x"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-3",
+              "nodeType": "BLOOM",
+              "children": []
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "b",
+              "indexName": "<automatic>",
+              "indexCond": "id=?"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: co-routine and materialize together",
+      "input": {
+        "sql": "SELECT * FROM (SELECT * FROM a LIMIT 2) s JOIN (SELECT * FROM b LIMIT 2) t ON s.x = t.x",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CO-ROUTINE s"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 15,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MATERIALIZE t"
+          },
+          {
+            "id": 19,
+            "parent": 15,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN s"
+          },
+          {
+            "id": 34,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN t"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-6",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ],
+              "relationName": "s"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Materialize",
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ],
+              "relationName": "t"
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "s"
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "t"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: window function (unnamed subquery)",
+      "input": {
+        "sql": "SELECT x, row_number() OVER (ORDER BY y) FROM a",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CO-ROUTINE (subquery-2)"
+          },
+          {
+            "id": 6,
+            "parent": 3,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 13,
+            "parent": 3,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 27,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN (subquery-2)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-4",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "CO-ROUTINE",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                },
+                {
+                  "id": "node-2",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "SCAN",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: recursive CTE",
+      "input": {
+        "sql": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CO-ROUTINE r"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SETUP"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "SCAN CONSTANT ROW"
+          },
+          {
+            "id": 17,
+            "parent": 2,
+            "notused": 0,
+            "detail": "RECURSIVE STEP"
+          },
+          {
+            "id": 18,
+            "parent": 17,
+            "notused": 0,
+            "detail": "SCAN r"
+          },
+          {
+            "id": 28,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN r"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-6",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "SETUP",
+                  "children": [
+                    {
+                      "id": "node-2",
+                      "nodeType": "SCAN",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "RECURSIVE",
+                  "children": [
+                    {
+                      "id": "node-4",
+                      "nodeType": "Seq Scan",
+                      "children": [],
+                      "relationName": "r"
+                    }
+                  ]
+                }
+              ],
+              "relationName": "r"
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "r"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: union",
+      "input": {
+        "sql": "SELECT x FROM a UNION SELECT x FROM b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 11,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION USING TEMP B-TREE"
+          },
+          {
+            "id": 13,
+            "parent": 11,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Compound",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Union",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: union all",
+      "input": {
+        "sql": "SELECT x FROM a UNION ALL SELECT x FROM b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 4,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 9,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 11,
+            "parent": 9,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Compound",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Union All",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: intersect",
+      "input": {
+        "sql": "SELECT x FROM a INTERSECT SELECT x FROM b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 12,
+            "parent": 1,
+            "notused": 0,
+            "detail": "INTERSECT USING TEMP B-TREE"
+          },
+          {
+            "id": 14,
+            "parent": 12,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Compound",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Intersect",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: except",
+      "input": {
+        "sql": "SELECT x FROM a EXCEPT SELECT x FROM b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 11,
+            "parent": 1,
+            "notused": 0,
+            "detail": "EXCEPT USING TEMP B-TREE"
+          },
+          {
+            "id": 13,
+            "parent": 11,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Compound",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Except",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: three-way compound",
+      "input": {
+        "sql": "SELECT x FROM a UNION SELECT x FROM b UNION ALL SELECT x FROM a",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 11,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION USING TEMP B-TREE"
+          },
+          {
+            "id": 13,
+            "parent": 11,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 24,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 26,
+            "parent": 24,
+            "notused": 0,
+            "detail": "SCAN a"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Compound",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Union",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                }
+              ]
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Union All",
+              "children": [
+                {
+                  "id": "node-6",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: merge union",
+      "input": {
+        "sql": "SELECT x FROM a UNION SELECT x FROM b ORDER BY 1 DESC",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MERGE (UNION)"
+          },
+          {
+            "id": 4,
+            "parent": 2,
+            "notused": 0,
+            "detail": "LEFT"
+          },
+          {
+            "id": 7,
+            "parent": 4,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 13,
+            "parent": 4,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 22,
+            "parent": 2,
+            "notused": 0,
+            "detail": "RIGHT"
+          },
+          {
+            "id": 25,
+            "parent": 22,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 31,
+            "parent": 22,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Merge (UNION)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Left Input",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Right Input",
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: merge union all",
+      "input": {
+        "sql": "SELECT x FROM a UNION ALL SELECT x FROM b ORDER BY 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MERGE (UNION ALL)"
+          },
+          {
+            "id": 3,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT"
+          },
+          {
+            "id": 6,
+            "parent": 3,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 12,
+            "parent": 3,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 21,
+            "parent": 1,
+            "notused": 0,
+            "detail": "RIGHT"
+          },
+          {
+            "id": 24,
+            "parent": 21,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 30,
+            "parent": 21,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Merge (UNION ALL)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Left Input",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Right Input",
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: merge intersect",
+      "input": {
+        "sql": "SELECT x FROM a INTERSECT SELECT x FROM b ORDER BY 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MERGE (INTERSECT)"
+          },
+          {
+            "id": 4,
+            "parent": 2,
+            "notused": 0,
+            "detail": "LEFT"
+          },
+          {
+            "id": 7,
+            "parent": 4,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 13,
+            "parent": 4,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 22,
+            "parent": 2,
+            "notused": 0,
+            "detail": "RIGHT"
+          },
+          {
+            "id": 25,
+            "parent": 22,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 31,
+            "parent": 22,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Merge (INTERSECT)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Left Input",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Right Input",
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: merge except",
+      "input": {
+        "sql": "SELECT x FROM a EXCEPT SELECT x FROM b ORDER BY 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MERGE (EXCEPT)"
+          },
+          {
+            "id": 4,
+            "parent": 2,
+            "notused": 0,
+            "detail": "LEFT"
+          },
+          {
+            "id": 7,
+            "parent": 4,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 13,
+            "parent": 4,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 22,
+            "parent": 2,
+            "notused": 0,
+            "detail": "RIGHT"
+          },
+          {
+            "id": 25,
+            "parent": 22,
+            "notused": 0,
+            "detail": "SCAN b"
+          },
+          {
+            "id": 31,
+            "parent": 22,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Merge (EXCEPT)",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "Left Input",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "a"
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Right Input",
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "b"
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Sort",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN CONSTANT ROW"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SCAN",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: max through the rowid",
+      "input": {
+        "sql": "SELECT max(id) FROM customers",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEARCH",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: virtual table",
+      "input": {
+        "sql": "SELECT * FROM pragma_table_info('customers')",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN pragma_table_info VIRTUAL TABLE INDEX 0:"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SCAN",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: table name with a space",
+      "input": {
+        "sql": "SELECT * FROM \"order items\" WHERE qty = 3",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN order items"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SCAN",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: table name with a hyphen",
+      "input": {
+        "sql": "SELECT * FROM \"my-table\" WHERE value = 'x'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN my-table"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SCAN",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: index name with spaces",
+      "input": {
+        "sql": "SELECT sku FROM \"order items\" WHERE sku = 'A'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH order items USING COVERING INDEX order items sku idx (sku=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEARCH",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: non-ASCII names",
+      "input": {
+        "sql": "SELECT * FROM \"café\" WHERE \"naïve\" = 'é'",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH café USING INDEX café_naïve_idx (naïve=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEARCH",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: update",
+      "input": {
+        "sql": "UPDATE customers SET note = 'x' WHERE id = 1",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH customers USING INTEGER PRIMARY KEY (rowid=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Index Scan",
+          "children": [],
+          "relationName": "customers",
+          "indexName": "PRIMARY KEY",
+          "indexCond": "rowid=?"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: delete",
+      "input": {
+        "sql": "DELETE FROM orders WHERE customer_id = 3",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH orders USING COVERING INDEX orders_customer_kind_idx (customer_id=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH order items USING COVERING INDEX sqlite_autoindex_order items_1 (order id=?)"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "orders",
+              "indexName": "orders_customer_kind_idx",
+              "indexCond": "customer_id=?"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "SEARCH",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: insert values (empty plan)",
+      "input": {
+        "sql": "INSERT INTO a VALUES (9, 9)",
+        "analyze": false,
+        "columns": [],
+        "rows": []
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: insert values (empty plan)",
+      "input": {
+        "sql": "INSERT INTO a VALUES (9, 9)",
+        "analyze": true,
+        "columns": [],
+        "rows": []
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN: insert select",
+      "input": {
+        "sql": "INSERT INTO a SELECT x, y FROM b",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Seq Scan",
+          "children": [],
+          "relationName": "b"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: pre-3.36 aliases and unnumbered subqueries",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN t AS a USING COVERING INDEX t_idx"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH u AS b USING INDEX u_idx (x=?)"
+          },
+          {
+            "id": 8,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH v AS v USING INTEGER PRIMARY KEY (rowid=?)"
+          },
+          {
+            "id": 11,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH w AS c USING AUTOMATIC INDEX (y=?)"
+          },
+          {
+            "id": 14,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCALAR SUBQUERY"
+          },
+          {
+            "id": 17,
+            "parent": 14,
+            "notused": 0,
+            "detail": "SCAN s AS s"
+          },
+          {
+            "id": 20,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY"
+          },
+          {
+            "id": 23,
+            "parent": 20,
+            "notused": 0,
+            "detail": "SEARCH p USING PRIMARY KEY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-8",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "t",
+              "alias": "a",
+              "indexName": "t_idx"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "u",
+              "alias": "b",
+              "indexName": "u_idx",
+              "indexCond": "x=?"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "v",
+              "indexName": "PRIMARY KEY",
+              "indexCond": "rowid=?"
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "w",
+              "alias": "c",
+              "indexName": "<automatic>",
+              "indexCond": "y=?"
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "s"
+                }
+              ]
+            },
+            {
+              "id": "node-6",
+              "nodeType": "Correlated Subquery",
+              "children": [
+                {
+                  "id": "node-7",
+                  "nodeType": "Index Scan",
+                  "children": [],
+                  "relationName": "p",
+                  "indexName": "PRIMARY KEY"
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: bare MATERIALIZE and CO-ROUTINE",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MATERIALIZE"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "SCAN t"
+          },
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CO-ROUTINE"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "SCAN u"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MATERIALIZE 1"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Materialize",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "t"
+                }
+              ]
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Subquery",
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "Seq Scan",
+                  "children": [],
+                  "relationName": "u"
+                }
+              ]
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Materialize",
+              "children": [],
+              "relationName": "1"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: every temp b-tree",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN t"
+          },
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          },
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR GROUP BY"
+          },
+          {
+            "id": 4,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR DISTINCT"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR RIGHT PART OF ORDER BY"
+          },
+          {
+            "id": 6,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR LEFT PART OF ORDER BY"
+          },
+          {
+            "id": 7,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR LAST 3 TERMS OF ORDER BY"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-7",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "t"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Sort",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Group",
+              "children": []
+            },
+            {
+              "id": "node-3",
+              "nodeType": "Distinct",
+              "children": []
+            },
+            {
+              "id": "node-4",
+              "nodeType": "Sort",
+              "children": []
+            },
+            {
+              "id": "node-5",
+              "nodeType": "Sort",
+              "children": []
+            },
+            {
+              "id": "node-6",
+              "nodeType": "USE",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: every compound operator",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 4,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 5,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION"
+          },
+          {
+            "id": 6,
+            "parent": 1,
+            "notused": 0,
+            "detail": "UNION USING TEMP B-TREE"
+          },
+          {
+            "id": 7,
+            "parent": 1,
+            "notused": 0,
+            "detail": "EXCEPT"
+          },
+          {
+            "id": 8,
+            "parent": 1,
+            "notused": 0,
+            "detail": "EXCEPT USING TEMP B-TREE"
+          },
+          {
+            "id": 9,
+            "parent": 1,
+            "notused": 0,
+            "detail": "INTERSECT"
+          },
+          {
+            "id": 10,
+            "parent": 1,
+            "notused": 0,
+            "detail": "INTERSECT USING TEMP B-TREE"
+          },
+          {
+            "id": 11,
+            "parent": 0,
+            "notused": 0,
+            "detail": "MERGE (UNION ALL)"
+          },
+          {
+            "id": 12,
+            "parent": 11,
+            "notused": 0,
+            "detail": "LEFT"
+          },
+          {
+            "id": 13,
+            "parent": 11,
+            "notused": 0,
+            "detail": "RIGHT"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-13",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Compound",
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "Subquery",
+                  "children": [
+                    {
+                      "id": "node-2",
+                      "nodeType": "Seq Scan",
+                      "children": [],
+                      "relationName": "a"
+                    }
+                  ]
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "Union All",
+                  "children": []
+                },
+                {
+                  "id": "node-4",
+                  "nodeType": "Union",
+                  "children": []
+                },
+                {
+                  "id": "node-5",
+                  "nodeType": "Union",
+                  "children": []
+                },
+                {
+                  "id": "node-6",
+                  "nodeType": "Except",
+                  "children": []
+                },
+                {
+                  "id": "node-7",
+                  "nodeType": "Except",
+                  "children": []
+                },
+                {
+                  "id": "node-8",
+                  "nodeType": "Intersect",
+                  "children": []
+                },
+                {
+                  "id": "node-9",
+                  "nodeType": "Intersect",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "node-10",
+              "nodeType": "Merge (UNION ALL)",
+              "children": [
+                {
+                  "id": "node-11",
+                  "nodeType": "Left Input",
+                  "children": []
+                },
+                {
+                  "id": "node-12",
+                  "nodeType": "Right Input",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: a parent that isn't in the plan becomes a root",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 2,
+            "parent": 99,
+            "notused": 0,
+            "detail": "SCAN b"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-2",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "b"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: two scans are a nested loop",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN a"
+          },
+          {
+            "id": 5,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SEARCH b USING INDEX b_idx (x=?)"
+          },
+          {
+            "id": 7,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN c USING COVERING INDEX c_idx"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Nested Loop",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "Seq Scan",
+              "children": [],
+              "relationName": "a"
+            },
+            {
+              "id": "node-1",
+              "nodeType": "Index Scan",
+              "children": [],
+              "relationName": "b",
+              "indexName": "b_idx",
+              "indexCond": "x=?"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "Index Only Scan",
+              "children": [],
+              "relationName": "c",
+              "indexName": "c_idx"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: unknown details keep their first word",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SOMETHING NEW t"
+          },
+          {
+            "id": 2,
+            "parent": 0,
+            "notused": 0,
+            "detail": ""
+          },
+          {
+            "id": 3,
+            "parent": 0,
+            "notused": 0,
+            "detail": "SCAN"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "Query Plan",
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SOMETHING",
+              "children": []
+            },
+            {
+              "id": "node-1",
+              "nodeType": "",
+              "children": []
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SCAN",
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: an empty plan, analyzed",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["id", "parent", "notused", "detail"],
+        "rows": []
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    }
+  ]
+}

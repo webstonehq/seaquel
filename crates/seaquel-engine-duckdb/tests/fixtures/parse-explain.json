@@ -1,0 +1,2431 @@
+{
+  "cases": [
+    {
+      "name": "EXPLAIN: scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE total > 100",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"total\",\n                        \"id\",\n                        \"user_id\",\n                        \"status\",\n                        \"shipping_address\",\n                        \"created_at\"\n                    ],\n                    \"Filters\": \"total>100.00\",\n                    \"Estimated Cardinality\": \"100\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"user_id\",\n                \"total\",\n                \"status\",\n                \"shipping_address\",\n                \"created_at\"\n            ],\n            \"Estimated Cardinality\": \"100\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 100,
+              "filter": "total>100.00"
+            }
+          ],
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: equality on an indexed column",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE status = 'shipped'",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"status\",\n                        \"id\",\n                        \"user_id\",\n                        \"total\",\n                        \"shipping_address\",\n                        \"created_at\"\n                    ],\n                    \"Filters\": \"status='shipped'\",\n                    \"Estimated Cardinality\": \"125\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"user_id\",\n                \"total\",\n                \"status\",\n                \"shipping_address\",\n                \"created_at\"\n            ],\n            \"Estimated Cardinality\": \"125\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 125,
+              "filter": "status='shipped'"
+            }
+          ],
+          "planRows": 125
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: two filters on one scan",
+      "input": {
+        "sql": "SELECT id FROM orders WHERE status = 'shipped' AND total > 50",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.main.orders\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": \"id\",\n            \"Filters\": [\n                \"status='shipped'\",\n                \"total>50.00\"\n            ],\n            \"Estimated Cardinality\": \"125\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "seaquel_test.main.orders",
+          "planRows": 125,
+          "filter": "status='shipped', total>50.00"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: primary key lookup",
+      "input": {
+        "sql": "SELECT * FROM users WHERE id = 3",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.main.users\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": [\n                \"id\",\n                \"name\",\n                \"email\",\n                \"role\",\n                \"created_at\"\n            ],\n            \"Filters\": \"id=3\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "seaquel_test.main.users",
+          "planRows": 1,
+          "filter": "id=3"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: two-column filter",
+      "input": {
+        "sql": "SELECT * FROM fx_sales.orders WHERE order_no = 5 AND region_code = 'ap'",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.fx_sales.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"order_no\",\n                        \"region_code\",\n                        \"placed_on\",\n                        \"total\"\n                    ],\n                    \"Filters\": [\n                        \"order_no=5\",\n                        \"region_code='ap'\"\n                    ],\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"region_code\",\n                \"order_no\",\n                \"placed_on\",\n                \"total\"\n            ],\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.fx_sales.orders",
+              "planRows": 1,
+              "filter": "order_no=5, region_code='ap'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: hash join",
+      "input": {
+        "sql": "SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"HASH_JOIN\",\n                \"children\": [\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.orders\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"user_id\",\n                                \"total\"\n                            ],\n                            \"Estimated Cardinality\": \"500\"\n                        }\n                    },\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.users\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"id\",\n                                \"name\"\n                            ],\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Join Type\": \"INNER\",\n                    \"Conditions\": \"user_id = id\",\n                    \"Estimated Cardinality\": \"441\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"name\",\n                \"total\"\n            ],\n            \"Estimated Cardinality\": \"441\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 441,
+              "joinType": "INNER",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 441
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: join, group by, top n",
+      "input": {
+        "sql": "SELECT u.name, count(*) FROM users u JOIN orders o ON o.user_id = u.id WHERE o.status = 'shipped' GROUP BY u.name ORDER BY 2 DESC LIMIT 5",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"TOP_N\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"HASH_GROUP_BY\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"PROJECTION\",\n                                        \"children\": [\n                                            {\n                                                \"name\": \"HASH_JOIN\",\n                                                \"children\": [\n                                                    {\n                                                        \"name\": \"SEQ_SCAN\",\n                                                        \"children\": [],\n                                                        \"extra_info\": {\n                                                            \"Table\": \"seaquel_test.main.orders\",\n                                                            \"Type\": \"Sequential Scan\",\n                                                            \"Projections\": \"user_id\",\n                                                            \"Filters\": \"status='shipped'\",\n                                                            \"Estimated Cardinality\": \"125\"\n                                                        }\n                                                    },\n                                                    {\n                                                        \"name\": \"SEQ_SCAN\",\n                                                        \"children\": [],\n                                                        \"extra_info\": {\n                                                            \"Table\": \"seaquel_test.main.users\",\n                                                            \"Type\": \"Sequential Scan\",\n                                                            \"Projections\": [\n                                                                \"id\",\n                                                                \"name\"\n                                                            ],\n                                                            \"Estimated Cardinality\": \"15\"\n                                                        }\n                                                    }\n                                                ],\n                                                \"extra_info\": {\n                                                    \"Join Type\": \"INNER\",\n                                                    \"Conditions\": \"user_id = id\",\n                                                    \"Estimated Cardinality\": \"110\"\n                                                }\n                                            }\n                                        ],\n                                        \"extra_info\": {\n                                            \"Projections\": [\n                                                \"__internal_compress_integral_utinyint(#0, 1)\",\n                                                \"__internal_compress_string_uhugeint(#1)\"\n                                            ],\n                                            \"Estimated Cardinality\": \"110\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": \"name\",\n                                    \"Estimated Cardinality\": \"110\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Groups\": \"#0\",\n                            \"Aggregates\": \"count_star()\",\n                            \"Estimated Cardinality\": \"14\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"__internal_decompress_string(#0)\",\n                        \"#1\"\n                    ],\n                    \"Estimated Cardinality\": \"14\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Top\": \"5\",\n            \"Order By\": \"count_star() DESC\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "TOP_N",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "HASH_GROUP_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "PROJECTION",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "HASH_JOIN",
+                              "children": [
+                                {
+                                  "id": "node-6",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.orders",
+                                  "planRows": 125,
+                                  "filter": "status='shipped'"
+                                },
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.users",
+                                  "planRows": 15
+                                }
+                              ],
+                              "planRows": 110,
+                              "joinType": "INNER",
+                              "hashCond": "user_id = id"
+                            }
+                          ],
+                          "planRows": 110
+                        }
+                      ],
+                      "planRows": 110
+                    }
+                  ],
+                  "planRows": 14
+                }
+              ],
+              "planRows": 14
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: left join",
+      "input": {
+        "sql": "SELECT u.name, o.id FROM users u LEFT JOIN orders o ON o.user_id = u.id",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"HASH_JOIN\",\n                \"children\": [\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.orders\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"user_id\",\n                                \"id\"\n                            ],\n                            \"Estimated Cardinality\": \"500\"\n                        }\n                    },\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.users\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"id\",\n                                \"name\"\n                            ],\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Join Type\": \"RIGHT\",\n                    \"Conditions\": \"user_id = id\",\n                    \"Estimated Cardinality\": \"500\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"name\",\n                \"id\"\n            ],\n            \"Estimated Cardinality\": \"500\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 500,
+              "joinType": "RIGHT",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: IN subquery (semi join)",
+      "input": {
+        "sql": "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 500)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"HASH_JOIN\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"user_id\",\n                    \"Filters\": \"total>500.00\",\n                    \"Estimated Cardinality\": \"100\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"id\",\n                        \"name\",\n                        \"email\",\n                        \"role\",\n                        \"created_at\"\n                    ],\n                    \"Estimated Cardinality\": \"15\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Join Type\": \"RIGHT_SEMI\",\n            \"Conditions\": \"#0 = id\",\n            \"Estimated Cardinality\": \"3\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "HASH_JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 100,
+              "filter": "total>500.00"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.users",
+              "planRows": 15
+            }
+          ],
+          "planRows": 3,
+          "joinType": "RIGHT_SEMI",
+          "hashCond": "#0 = id"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: NOT EXISTS (anti join)",
+      "input": {
+        "sql": "SELECT * FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"HASH_JOIN\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"user_id\",\n                    \"Estimated Cardinality\": \"100\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"id\",\n                        \"name\",\n                        \"email\",\n                        \"role\",\n                        \"created_at\"\n                    ],\n                    \"Estimated Cardinality\": \"15\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Join Type\": \"RIGHT_ANTI\",\n            \"Conditions\": \"id IS NOT DISTINCT FROM id\",\n            \"Estimated Cardinality\": \"3\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "HASH_JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 100
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.users",
+              "planRows": 15
+            }
+          ],
+          "planRows": 3,
+          "joinType": "RIGHT_ANTI",
+          "hashCond": "id IS NOT DISTINCT FROM id"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: inequality join",
+      "input": {
+        "sql": "SELECT o.id, u.id FROM orders o JOIN users u ON o.total > u.id * 10",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"PIECEWISE_MERGE_JOIN\",\n                \"children\": [\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.orders\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"total\",\n                                \"id\"\n                            ],\n                            \"Estimated Cardinality\": \"500\"\n                        }\n                    },\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.users\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": \"id\",\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Join Type\": \"INNER\",\n                    \"Conditions\": \"CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))\",\n                    \"Estimated Cardinality\": \"158\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"id\"\n            ],\n            \"Estimated Cardinality\": \"158\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PIECEWISE_MERGE_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 158,
+              "joinType": "INNER",
+              "filter": "CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))"
+            }
+          ],
+          "planRows": 158
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: cross product",
+      "input": {
+        "sql": "SELECT * FROM users, categories",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"CROSS_PRODUCT\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"id\",\n                        \"name\",\n                        \"email\",\n                        \"role\",\n                        \"created_at\"\n                    ],\n                    \"Estimated Cardinality\": \"15\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.categories\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"id\",\n                        \"name\",\n                        \"description\",\n                        \"created_at\"\n                    ],\n                    \"Estimated Cardinality\": \"5\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "CROSS_PRODUCT",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.users",
+              "planRows": 15
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.categories",
+              "planRows": 5
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: union",
+      "input": {
+        "sql": "SELECT name FROM users UNION SELECT name FROM categories",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"HASH_GROUP_BY\",\n                \"children\": [\n                    {\n                        \"name\": \"PROJECTION\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"HASH_GROUP_BY\",\n                                        \"children\": [\n                                            {\n                                                \"name\": \"UNION\",\n                                                \"children\": [\n                                                    {\n                                                        \"name\": \"SEQ_SCAN\",\n                                                        \"children\": [],\n                                                        \"extra_info\": {\n                                                            \"Table\": \"seaquel_test.main.users\",\n                                                            \"Type\": \"Sequential Scan\",\n                                                            \"Projections\": \"name\",\n                                                            \"Estimated Cardinality\": \"15\"\n                                                        }\n                                                    },\n                                                    {\n                                                        \"name\": \"SEQ_SCAN\",\n                                                        \"children\": [],\n                                                        \"extra_info\": {\n                                                            \"Table\": \"seaquel_test.main.categories\",\n                                                            \"Type\": \"Sequential Scan\",\n                                                            \"Projections\": \"name\",\n                                                            \"Estimated Cardinality\": \"5\"\n                                                        }\n                                                    }\n                                                ],\n                                                \"extra_info\": {}\n                                            }\n                                        ],\n                                        \"extra_info\": {\n                                            \"Groups\": \"#0\",\n                                            \"Aggregates\": \"\",\n                                            \"Estimated Cardinality\": \"15\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": \"__internal_compress_string_uhugeint(#0)\",\n                                    \"Estimated Cardinality\": \"15\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Projections\": \"name\",\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Groups\": \"#0\",\n                    \"Aggregates\": \"\",\n                    \"Estimated Cardinality\": \"15\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": \"__internal_decompress_string(#0)\",\n            \"Estimated Cardinality\": \"0\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "HASH_GROUP_BY",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "UNION",
+                              "children": [
+                                {
+                                  "id": "node-6",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.users",
+                                  "planRows": 15
+                                },
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.categories",
+                                  "planRows": 5
+                                }
+                              ]
+                            }
+                          ],
+                          "planRows": 15
+                        }
+                      ],
+                      "planRows": 15
+                    }
+                  ],
+                  "planRows": 15
+                }
+              ],
+              "planRows": 15
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: union all",
+      "input": {
+        "sql": "SELECT name FROM users UNION ALL SELECT name FROM categories",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"UNION\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"name\",\n                    \"Estimated Cardinality\": \"15\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.categories\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"name\",\n                    \"Estimated Cardinality\": \"5\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "UNION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.users",
+              "planRows": 15
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.categories",
+              "planRows": 5
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: distinct",
+      "input": {
+        "sql": "SELECT DISTINCT status FROM orders",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"HASH_GROUP_BY\",\n                \"children\": [\n                    {\n                        \"name\": \"PROJECTION\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"SEQ_SCAN\",\n                                        \"children\": [],\n                                        \"extra_info\": {\n                                            \"Table\": \"seaquel_test.main.orders\",\n                                            \"Type\": \"Sequential Scan\",\n                                            \"Projections\": \"status\",\n                                            \"Estimated Cardinality\": \"500\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": \"__internal_compress_string_uhugeint(#0)\",\n                                    \"Estimated Cardinality\": \"500\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Projections\": \"status\",\n                            \"Estimated Cardinality\": \"500\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Groups\": \"#0\",\n                    \"Aggregates\": \"\",\n                    \"Estimated Cardinality\": \"500\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": \"__internal_decompress_string(#0)\",\n            \"Estimated Cardinality\": \"0\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "SEQ_SCAN",
+                          "children": [],
+                          "relationName": "seaquel_test.main.orders",
+                          "planRows": 500
+                        }
+                      ],
+                      "planRows": 500
+                    }
+                  ],
+                  "planRows": 500
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: window function",
+      "input": {
+        "sql": "SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY total) FROM orders",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"WINDOW\",\n                        \"children\": [\n                            {\n                                \"name\": \"SEQ_SCAN\",\n                                \"children\": [],\n                                \"extra_info\": {\n                                    \"Table\": \"seaquel_test.main.orders\",\n                                    \"Type\": \"Sequential Scan\",\n                                    \"Projections\": [\n                                        \"id\",\n                                        \"user_id\",\n                                        \"total\"\n                                    ],\n                                    \"Estimated Cardinality\": \"500\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Projections\": \"ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY total ASC NULLS LAST)\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"#0\",\n                        \"#1\",\n                        \"#2\",\n                        \"#3\"\n                    ],\n                    \"Estimated Cardinality\": \"500\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"#3\"\n            ],\n            \"Estimated Cardinality\": \"500\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "WINDOW",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "SEQ_SCAN",
+                      "children": [],
+                      "relationName": "seaquel_test.main.orders",
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: materialized CTE",
+      "input": {
+        "sql": "WITH t AS MATERIALIZED (SELECT user_id, sum(total) AS s FROM orders GROUP BY user_id) SELECT * FROM t a JOIN t b ON a.user_id = b.user_id",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"CTE\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"PERFECT_HASH_GROUP_BY\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"PROJECTION\",\n                                        \"children\": [\n                                            {\n                                                \"name\": \"SEQ_SCAN\",\n                                                \"children\": [],\n                                                \"extra_info\": {\n                                                    \"Table\": \"seaquel_test.main.orders\",\n                                                    \"Type\": \"Sequential Scan\",\n                                                    \"Projections\": [\n                                                        \"user_id\",\n                                                        \"total\"\n                                                    ],\n                                                    \"Estimated Cardinality\": \"500\"\n                                                }\n                                            }\n                                        ],\n                                        \"extra_info\": {\n                                            \"Projections\": [\n                                                \"__internal_compress_integral_utinyint(#0, 1)\",\n                                                \"#1\"\n                                            ],\n                                            \"Estimated Cardinality\": \"500\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": [\n                                        \"user_id\",\n                                        \"total\"\n                                    ],\n                                    \"Estimated Cardinality\": \"500\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Groups\": \"#0\",\n                            \"Aggregates\": \"sum_no_overflow(#1)\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"__internal_decompress_integral_integer(#0, 1)\",\n                        \"#1\"\n                    ],\n                    \"Estimated Cardinality\": \"16\"\n                }\n            },\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"HASH_JOIN\",\n                        \"children\": [\n                            {\n                                \"name\": \"CTE_SCAN\",\n                                \"children\": [],\n                                \"extra_info\": {\n                                    \"CTE Index\": \"0\",\n                                    \"Estimated Cardinality\": \"16\"\n                                }\n                            },\n                            {\n                                \"name\": \"CTE_SCAN\",\n                                \"children\": [],\n                                \"extra_info\": {\n                                    \"CTE Index\": \"0\",\n                                    \"Estimated Cardinality\": \"16\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Join Type\": \"INNER\",\n                            \"Conditions\": \"user_id = user_id\",\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"user_id\",\n                        \"s\",\n                        \"user_id\",\n                        \"s\"\n                    ],\n                    \"Estimated Cardinality\": \"15\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"CTE Name\": \"t\",\n            \"Table Index\": \"0\",\n            \"Estimated Cardinality\": \"15\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "CTE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PERFECT_HASH_GROUP_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "PROJECTION",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "SEQ_SCAN",
+                              "children": [],
+                              "relationName": "seaquel_test.main.orders",
+                              "planRows": 500
+                            }
+                          ],
+                          "planRows": 500
+                        }
+                      ],
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 16
+            },
+            {
+              "id": "node-6",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-7",
+                  "nodeType": "HASH_JOIN",
+                  "children": [
+                    {
+                      "id": "node-8",
+                      "nodeType": "CTE_SCAN",
+                      "children": [],
+                      "planRows": 16
+                    },
+                    {
+                      "id": "node-9",
+                      "nodeType": "CTE_SCAN",
+                      "children": [],
+                      "planRows": 16
+                    }
+                  ],
+                  "planRows": 15,
+                  "joinType": "INNER",
+                  "hashCond": "user_id = user_id"
+                }
+              ],
+              "planRows": 15
+            }
+          ],
+          "planRows": 15
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: recursive CTE",
+      "input": {
+        "sql": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"REC_CTE\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"DUMMY_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {}\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": \"1\",\n                    \"Estimated Cardinality\": \"1\"\n                }\n            },\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"FILTER\",\n                        \"children\": [\n                            {\n                                \"name\": \"REC_CTE_SCAN\",\n                                \"children\": [],\n                                \"extra_info\": {\n                                    \"CTE Index\": \"1\",\n                                    \"Estimated Cardinality\": \"1\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Expression\": \"(n < 3)\",\n                            \"Estimated Cardinality\": \"1\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": \"(n + 1)\",\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"CTE Name\": \"r\",\n            \"Table Index\": \"1\",\n            \"Estimated Cardinality\": \"1001\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "REC_CTE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "DUMMY_SCAN",
+                  "children": []
+                }
+              ],
+              "planRows": 1
+            },
+            {
+              "id": "node-3",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "FILTER",
+                  "children": [
+                    {
+                      "id": "node-5",
+                      "nodeType": "REC_CTE_SCAN",
+                      "children": [],
+                      "planRows": 1
+                    }
+                  ],
+                  "planRows": 1
+                }
+              ],
+              "planRows": 1
+            }
+          ],
+          "planRows": 1001
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: filter over a table function",
+      "input": {
+        "sql": "SELECT * FROM range(1000) t(x) WHERE x % 7 = 0",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"FILTER\",\n        \"children\": [\n            {\n                \"name\": \"RANGE\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Function\": \"RANGE\",\n                    \"Estimated Cardinality\": \"1000\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Expression\": \"((x % 7) = 0)\",\n            \"Estimated Cardinality\": \"200\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "FILTER",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "RANGE",
+              "children": [],
+              "planRows": 1000
+            }
+          ],
+          "planRows": 200
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: catalog table function",
+      "input": {
+        "sql": "SELECT table_name FROM duckdb_tables()",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"DUCKDB_TABLES\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Function\": \"DUCKDB_TABLES\",\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": \"#4\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "DUCKDB_TABLES",
+              "children": [],
+              "planRows": 1
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"DUMMY_SCAN\",\n                \"children\": [],\n                \"extra_info\": {}\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": \"1\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "DUMMY_SCAN",
+              "children": []
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: ungrouped aggregate",
+      "input": {
+        "sql": "SELECT count(*), max(total) FROM orders",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"COLUMN_DATA_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "COLUMN_DATA_SCAN",
+          "children": [],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: order by",
+      "input": {
+        "sql": "SELECT * FROM users ORDER BY name",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"ORDER_BY\",\n                \"children\": [\n                    {\n                        \"name\": \"PROJECTION\",\n                        \"children\": [\n                            {\n                                \"name\": \"SEQ_SCAN\",\n                                \"children\": [],\n                                \"extra_info\": {\n                                    \"Table\": \"seaquel_test.main.users\",\n                                    \"Type\": \"Sequential Scan\",\n                                    \"Projections\": [\n                                        \"id\",\n                                        \"name\",\n                                        \"email\",\n                                        \"role\",\n                                        \"created_at\"\n                                    ],\n                                    \"Estimated Cardinality\": \"15\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Projections\": [\n                                \"__internal_compress_integral_utinyint(#0, 1)\",\n                                \"__internal_compress_string_uhugeint(#1)\",\n                                \"#2\",\n                                \"__internal_compress_string_uhugeint(#3)\",\n                                \"#4\"\n                            ],\n                            \"Estimated Cardinality\": \"15\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Order By\": \"seaquel_test.main.users.\\\"name\\\" ASC\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"__internal_decompress_integral_integer(#0, 1)\",\n                \"__internal_decompress_string(#1)\",\n                \"#2\",\n                \"__internal_decompress_string(#3)\",\n                \"#4\"\n            ],\n            \"Estimated Cardinality\": \"0\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "ORDER_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "SEQ_SCAN",
+                      "children": [],
+                      "relationName": "seaquel_test.main.users",
+                      "planRows": 15
+                    }
+                  ],
+                  "planRows": 15
+                }
+              ]
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: limit and offset",
+      "input": {
+        "sql": "SELECT * FROM users LIMIT 5 OFFSET 2",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"ORDER_BY\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"HASH_JOIN\",\n                                        \"children\": [\n                                            {\n                                                \"name\": \"SEQ_SCAN\",\n                                                \"children\": [],\n                                                \"extra_info\": {\n                                                    \"Table\": \"seaquel_test.main.users\",\n                                                    \"Type\": \"Sequential Scan\",\n                                                    \"Projections\": [\n                                                        \"id\",\n                                                        \"name\",\n                                                        \"email\",\n                                                        \"role\",\n                                                        \"created_at\"\n                                                    ],\n                                                    \"Estimated Cardinality\": \"15\"\n                                                }\n                                            },\n                                            {\n                                                \"name\": \"STREAMING_LIMIT\",\n                                                \"children\": [\n                                                    {\n                                                        \"name\": \"SEQ_SCAN\",\n                                                        \"children\": [],\n                                                        \"extra_info\": {\n                                                            \"Table\": \"seaquel_test.main.users\",\n                                                            \"Type\": \"Sequential Scan\",\n                                                            \"Projections\": \"\",\n                                                            \"Estimated Cardinality\": \"15\"\n                                                        }\n                                                    }\n                                                ],\n                                                \"extra_info\": {}\n                                            }\n                                        ],\n                                        \"extra_info\": {\n                                            \"Join Type\": \"SEMI\",\n                                            \"Conditions\": \"rowid = rowid\",\n                                            \"Estimated Cardinality\": \"0\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": [\n                                        \"__internal_compress_integral_utinyint(#0, 1)\",\n                                        \"__internal_compress_string_uhugeint(#1)\",\n                                        \"#2\",\n                                        \"__internal_compress_string_uhugeint(#3)\",\n                                        \"#4\",\n                                        \"#5\"\n                                    ],\n                                    \"Estimated Cardinality\": \"0\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Order By\": \"rowid ASC\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"__internal_decompress_integral_integer(#0, 1)\",\n                        \"__internal_decompress_string(#1)\",\n                        \"#2\",\n                        \"__internal_decompress_string(#3)\",\n                        \"#4\",\n                        \"#5\"\n                    ],\n                    \"Estimated Cardinality\": \"0\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"name\",\n                \"email\",\n                \"role\",\n                \"created_at\"\n            ],\n            \"Estimated Cardinality\": \"0\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "ORDER_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "HASH_JOIN",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "SEQ_SCAN",
+                              "children": [],
+                              "relationName": "seaquel_test.main.users",
+                              "planRows": 15
+                            },
+                            {
+                              "id": "node-6",
+                              "nodeType": "STREAMING_LIMIT",
+                              "children": [
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.users",
+                                  "planRows": 15
+                                }
+                              ]
+                            }
+                          ],
+                          "planRows": 0,
+                          "joinType": "SEMI",
+                          "hashCond": "rowid = rowid"
+                        }
+                      ],
+                      "planRows": 0
+                    }
+                  ]
+                }
+              ],
+              "planRows": 0
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: trailing semicolon",
+      "input": {
+        "sql": "SELECT * FROM users;",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.main.users\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": [\n                \"id\",\n                \"name\",\n                \"email\",\n                \"role\",\n                \"created_at\"\n            ],\n            \"Estimated Cardinality\": \"15\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "seaquel_test.main.users",
+          "planRows": 15
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: non-main schema, names with spaces and quotes",
+      "input": {
+        "sql": "SELECT \"line no\" FROM fx_sales.\"fx order lines\" WHERE \"it's\" LIKE 'Line 1%'",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.fx_sales.\\\"fx order lines\\\"\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": \"line no\",\n            \"Filters\": \"it's>='Line 1' AND it's<'Line 2'\",\n            \"Estimated Cardinality\": \"60\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "seaquel_test.fx_sales.\"fx order lines\"",
+          "planRows": 60,
+          "filter": "it's>='Line 1' AND it's<'Line 2'"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: view",
+      "input": {
+        "sql": "SELECT * FROM fx_sales.fx_region_totals",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"HASH_GROUP_BY\",\n                \"children\": [\n                    {\n                        \"name\": \"PROJECTION\",\n                        \"children\": [\n                            {\n                                \"name\": \"PROJECTION\",\n                                \"children\": [\n                                    {\n                                        \"name\": \"SEQ_SCAN\",\n                                        \"children\": [],\n                                        \"extra_info\": {\n                                            \"Table\": \"seaquel_test.fx_sales.orders\",\n                                            \"Type\": \"Sequential Scan\",\n                                            \"Projections\": [\n                                                \"region_code\",\n                                                \"total\"\n                                            ],\n                                            \"Estimated Cardinality\": \"300\"\n                                        }\n                                    }\n                                ],\n                                \"extra_info\": {\n                                    \"Projections\": [\n                                        \"__internal_compress_string_uinteger(#0)\",\n                                        \"#1\"\n                                    ],\n                                    \"Estimated Cardinality\": \"300\"\n                                }\n                            }\n                        ],\n                        \"extra_info\": {\n                            \"Projections\": [\n                                \"region_code\",\n                                \"total\"\n                            ],\n                            \"Estimated Cardinality\": \"300\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Groups\": \"#0\",\n                    \"Aggregates\": \"sum_no_overflow(#1)\",\n                    \"Estimated Cardinality\": \"3\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"__internal_decompress_string(#0)\",\n                \"#1\"\n            ],\n            \"Estimated Cardinality\": \"3\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "SEQ_SCAN",
+                          "children": [],
+                          "relationName": "seaquel_test.fx_sales.orders",
+                          "planRows": 300
+                        }
+                      ],
+                      "planRows": 300
+                    }
+                  ],
+                  "planRows": 300
+                }
+              ],
+              "planRows": 3
+            }
+          ],
+          "planRows": 3
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: attached catalog",
+      "input": {
+        "sql": "SELECT * FROM fx_aux.main.users WHERE nickname = 'ada'",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"fx_aux.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": [\n                        \"nickname\",\n                        \"id\"\n                    ],\n                    \"Filters\": \"nickname='ada'\",\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": [\n                \"id\",\n                \"nickname\"\n            ],\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "fx_aux.main.users",
+              "planRows": 1,
+              "filter": "nickname='ada'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: types table",
+      "input": {
+        "sql": "SELECT c_list, c_struct FROM fx_types WHERE c_date > DATE '1900-01-01'",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.main.fx_types\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": [\n                \"c_list\",\n                \"c_struct\"\n            ],\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "seaquel_test.main.fx_types",
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: unnest a list",
+      "input": {
+        "sql": "SELECT unnest(c_list) FROM fx_types",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PROJECTION\",\n        \"children\": [\n            {\n                \"name\": \"UNNEST\",\n                \"children\": [\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.fx_types\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": \"c_list\",\n                            \"Estimated Cardinality\": \"1\"\n                        }\n                    }\n                ],\n                \"extra_info\": {}\n            }\n        ],\n        \"extra_info\": {\n            \"Projections\": \"UNNEST(c_list)\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "UNNEST",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.fx_types",
+                  "planRows": 1
+                }
+              ]
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: update",
+      "input": {
+        "sql": "UPDATE orders SET status = 'x' WHERE id = 1",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"UPDATE\",\n        \"children\": [\n            {\n                \"name\": \"PROJECTION\",\n                \"children\": [\n                    {\n                        \"name\": \"SEQ_SCAN\",\n                        \"children\": [],\n                        \"extra_info\": {\n                            \"Table\": \"seaquel_test.main.orders\",\n                            \"Type\": \"Sequential Scan\",\n                            \"Projections\": [\n                                \"created_at\",\n                                \"shipping_address\",\n                                \"total\",\n                                \"user_id\",\n                                \"id\"\n                            ],\n                            \"Filters\": \"id=1\",\n                            \"Estimated Cardinality\": \"1\"\n                        }\n                    }\n                ],\n                \"extra_info\": {\n                    \"Projections\": [\n                        \"'x'\",\n                        \"#0\",\n                        \"#1\",\n                        \"#2\",\n                        \"#3\",\n                        \"#4\",\n                        \"rowid\"\n                    ],\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "UPDATE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 1,
+                  "filter": "id=1"
+                }
+              ],
+              "planRows": 1
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: delete",
+      "input": {
+        "sql": "DELETE FROM orders WHERE id = 1",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"DELETE\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.orders\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"\",\n                    \"Filters\": \"id=1\",\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "DELETE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 1,
+              "filter": "id=1"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: insert values",
+      "input": {
+        "sql": "INSERT INTO fx_temp VALUES (1)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"INSERT\",\n        \"children\": [\n            {\n                \"name\": \"COLUMN_DATA_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Estimated Cardinality\": \"1\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "INSERT",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "COLUMN_DATA_SCAN",
+              "children": [],
+              "planRows": 1
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN: insert select",
+      "input": {
+        "sql": "INSERT INTO fx_temp SELECT id FROM users",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"BATCH_INSERT\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN\",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"seaquel_test.main.users\",\n                    \"Type\": \"Sequential Scan\",\n                    \"Projections\": \"id\",\n                    \"Estimated Cardinality\": \"15\"\n                }\n            }\n        ],\n        \"extra_info\": {}\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "BATCH_INSERT",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "seaquel_test.main.users",
+              "planRows": 15
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: scan with a filter",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE total > 100",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 445,\n                            \"cumulative_rows_scanned\": 500,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"100\",\n                                \"Filters\": \"total>100.00\",\n                                \"Projections\": [\n                                    \"total\",\n                                    \"id\",\n                                    \"user_id\",\n                                    \"status\",\n                                    \"shipping_address\",\n                                    \"created_at\"\n                                ],\n                                \"Table\": \"seaquel_test.main.orders\",\n                                \"Type\": \"Sequential Scan\"\n                            },\n                            \"operator_cardinality\": 445,\n                            \"operator_name\": \"SEQ_SCAN\",\n                            \"operator_rows_scanned\": 500,\n                            \"operator_timing\": 0.0005,\n                            \"operator_type\": \"TABLE_SCAN\",\n                            \"result_set_size\": 24920,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 890,\n                    \"cumulative_rows_scanned\": 500,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"100\",\n                        \"Projections\": [\n                            \"id\",\n                            \"user_id\",\n                            \"total\",\n                            \"status\",\n                            \"shipping_address\",\n                            \"created_at\"\n                        ]\n                    },\n                    \"operator_cardinality\": 445,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.00025,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 24920,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 890,\n            \"cumulative_rows_scanned\": 500,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 890,\n    \"cumulative_rows_scanned\": 500,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM orders WHERE total > 100\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 0.75,
+          "actualRows": 445,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SEQ_SCAN",
+              "actualTotalTime": 0.5,
+              "actualRows": 445,
+              "children": [],
+              "relationName": "seaquel_test.main.orders",
+              "planRows": 100,
+              "filter": "total>100.00"
+            }
+          ],
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: two filters on one scan",
+      "input": {
+        "sql": "SELECT id FROM orders WHERE status = 'shipped' AND total > 50",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 104,\n                    \"cumulative_rows_scanned\": 500,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"125\",\n                        \"Filters\": [\n                            \"status='shipped'\",\n                            \"total>50.00\"\n                        ],\n                        \"Projections\": \"id\",\n                        \"Table\": \"seaquel_test.main.orders\",\n                        \"Type\": \"Sequential Scan\"\n                    },\n                    \"operator_cardinality\": 104,\n                    \"operator_name\": \"SEQ_SCAN\",\n                    \"operator_rows_scanned\": 500,\n                    \"operator_timing\": 0.0005,\n                    \"operator_type\": \"TABLE_SCAN\",\n                    \"result_set_size\": 416,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 104,\n            \"cumulative_rows_scanned\": 500,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.00025,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 104,\n    \"cumulative_rows_scanned\": 500,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT id FROM orders WHERE status = 'shipped' AND total > 50\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 0.5,
+          "actualRows": 104,
+          "children": [],
+          "relationName": "seaquel_test.main.orders",
+          "planRows": 125,
+          "filter": "status='shipped', total>50.00"
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: hash join",
+      "input": {
+        "sql": "SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 500,\n                                    \"cumulative_rows_scanned\": 500,\n                                    \"extra_info\": {\n                                        \"Dynamic Filters\": \"optional: user_id>=1 AND optional: user_id<=15\",\n                                        \"Estimated Cardinality\": \"500\",\n                                        \"Projections\": [\n                                            \"user_id\",\n                                            \"total\"\n                                        ],\n                                        \"Table\": \"seaquel_test.main.orders\",\n                                        \"Type\": \"Sequential Scan\"\n                                    },\n                                    \"operator_cardinality\": 500,\n                                    \"operator_name\": \"SEQ_SCAN\",\n                                    \"operator_rows_scanned\": 500,\n                                    \"operator_timing\": 0.0005,\n                                    \"operator_type\": \"TABLE_SCAN\",\n                                    \"result_set_size\": 6000,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                },\n                                {\n                                    \"children\": [],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 15,\n                                    \"cumulative_rows_scanned\": 15,\n                                    \"extra_info\": {\n                                        \"Estimated Cardinality\": \"15\",\n                                        \"Projections\": [\n                                            \"id\",\n                                            \"name\"\n                                        ],\n                                        \"Table\": \"seaquel_test.main.users\",\n                                        \"Type\": \"Sequential Scan\"\n                                    },\n                                    \"operator_cardinality\": 15,\n                                    \"operator_name\": \"SEQ_SCAN\",\n                                    \"operator_rows_scanned\": 15,\n                                    \"operator_timing\": 0.00025,\n                                    \"operator_type\": \"TABLE_SCAN\",\n                                    \"result_set_size\": 300,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 1015,\n                            \"cumulative_rows_scanned\": 515,\n                            \"extra_info\": {\n                                \"Conditions\": \"user_id = id\",\n                                \"Estimated Cardinality\": \"441\",\n                                \"Join Type\": \"INNER\"\n                            },\n                            \"operator_cardinality\": 500,\n                            \"operator_name\": \"HASH_JOIN\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0,\n                            \"operator_type\": \"HASH_JOIN\",\n                            \"result_set_size\": 12000,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 1515,\n                    \"cumulative_rows_scanned\": 515,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"441\",\n                        \"Projections\": [\n                            \"name\",\n                            \"total\"\n                        ]\n                    },\n                    \"operator_cardinality\": 500,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.001,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 12000,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 1515,\n            \"cumulative_rows_scanned\": 515,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.0002,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 1515,\n    \"cumulative_rows_scanned\": 515,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT u.name, o.total FROM users u JOIN orders o ON o.user_id = u.id\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 500,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "HASH_JOIN",
+              "actualTotalTime": 0.75,
+              "actualRows": 500,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 500,
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-1",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.25,
+                  "actualRows": 15,
+                  "children": [],
+                  "relationName": "seaquel_test.main.users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 441,
+              "joinType": "INNER",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 441
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: join, group by, top n",
+      "input": {
+        "sql": "SELECT u.name, count(*) FROM users u JOIN orders o ON o.user_id = u.id WHERE o.status = 'shipped' GROUP BY u.name ORDER BY 2 DESC LIMIT 5",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [\n                                        {\n                                            \"children\": [\n                                                {\n                                                    \"children\": [\n                                                        {\n                                                            \"children\": [\n                                                                {\n                                                                    \"children\": [],\n                                                                    \"cpu_time\": 0,\n                                                                    \"cumulative_cardinality\": 111,\n                                                                    \"cumulative_rows_scanned\": 500,\n                                                                    \"extra_info\": {\n                                                                        \"Dynamic Filters\": \"optional: user_id>=1 AND optional: user_id<=15\",\n                                                                        \"Estimated Cardinality\": \"125\",\n                                                                        \"Filters\": \"status='shipped'\",\n                                                                        \"Projections\": \"user_id\",\n                                                                        \"Table\": \"seaquel_test.main.orders\",\n                                                                        \"Type\": \"Sequential Scan\"\n                                                                    },\n                                                                    \"operator_cardinality\": 111,\n                                                                    \"operator_name\": \"SEQ_SCAN\",\n                                                                    \"operator_rows_scanned\": 500,\n                                                                    \"operator_timing\": 0.0005,\n                                                                    \"operator_type\": \"TABLE_SCAN\",\n                                                                    \"result_set_size\": 444,\n                                                                    \"system_peak_buffer_memory\": 0,\n                                                                    \"system_peak_temp_dir_size\": 0\n                                                                },\n                                                                {\n                                                                    \"children\": [],\n                                                                    \"cpu_time\": 0,\n                                                                    \"cumulative_cardinality\": 15,\n                                                                    \"cumulative_rows_scanned\": 15,\n                                                                    \"extra_info\": {\n                                                                        \"Estimated Cardinality\": \"15\",\n                                                                        \"Projections\": [\n                                                                            \"id\",\n                                                                            \"name\"\n                                                                        ],\n                                                                        \"Table\": \"seaquel_test.main.users\",\n                                                                        \"Type\": \"Sequential Scan\"\n                                                                    },\n                                                                    \"operator_cardinality\": 15,\n                                                                    \"operator_name\": \"SEQ_SCAN\",\n                                                                    \"operator_rows_scanned\": 15,\n                                                                    \"operator_timing\": 0.00025,\n                                                                    \"operator_type\": \"TABLE_SCAN\",\n                                                                    \"result_set_size\": 300,\n                                                                    \"system_peak_buffer_memory\": 0,\n                                                                    \"system_peak_temp_dir_size\": 0\n                                                                }\n                                                            ],\n                                                            \"cpu_time\": 0,\n                                                            \"cumulative_cardinality\": 237,\n                                                            \"cumulative_rows_scanned\": 515,\n                                                            \"extra_info\": {\n                                                                \"Conditions\": \"user_id = id\",\n                                                                \"Estimated Cardinality\": \"110\",\n                                                                \"Join Type\": \"INNER\"\n                                                            },\n                                                            \"operator_cardinality\": 111,\n                                                            \"operator_name\": \"HASH_JOIN\",\n                                                            \"operator_rows_scanned\": 0,\n                                                            \"operator_timing\": 0,\n                                                            \"operator_type\": \"HASH_JOIN\",\n                                                            \"result_set_size\": 2220,\n                                                            \"system_peak_buffer_memory\": 0,\n                                                            \"system_peak_temp_dir_size\": 0\n                                                        }\n                                                    ],\n                                                    \"cpu_time\": 0,\n                                                    \"cumulative_cardinality\": 348,\n                                                    \"cumulative_rows_scanned\": 515,\n                                                    \"extra_info\": {\n                                                        \"Estimated Cardinality\": \"110\",\n                                                        \"Projections\": [\n                                                            \"__internal_compress_integral_utinyint(#0, 1)\",\n                                                            \"__internal_compress_string_uhugeint(#1)\"\n                                                        ]\n                                                    },\n                                                    \"operator_cardinality\": 111,\n                                                    \"operator_name\": \"PROJECTION\",\n                                                    \"operator_rows_scanned\": 0,\n                                                    \"operator_timing\": 0.001,\n                                                    \"operator_type\": \"PROJECTION\",\n                                                    \"result_set_size\": 1887,\n                                                    \"system_peak_buffer_memory\": 0,\n                                                    \"system_peak_temp_dir_size\": 0\n                                                }\n                                            ],\n                                            \"cpu_time\": 0,\n                                            \"cumulative_cardinality\": 459,\n                                            \"cumulative_rows_scanned\": 515,\n                                            \"extra_info\": {\n                                                \"Estimated Cardinality\": \"110\",\n                                                \"Projections\": \"name\"\n                                            },\n                                            \"operator_cardinality\": 111,\n                                            \"operator_name\": \"PROJECTION\",\n                                            \"operator_rows_scanned\": 0,\n                                            \"operator_timing\": 0.0002,\n                                            \"operator_type\": \"PROJECTION\",\n                                            \"result_set_size\": 1776,\n                                            \"system_peak_buffer_memory\": 0,\n                                            \"system_peak_temp_dir_size\": 0\n                                        }\n                                    ],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 474,\n                                    \"cumulative_rows_scanned\": 515,\n                                    \"extra_info\": {\n                                        \"Aggregates\": \"count_star()\",\n                                        \"Estimated Cardinality\": \"14\",\n                                        \"Groups\": \"#0\"\n                                    },\n                                    \"operator_cardinality\": 15,\n                                    \"operator_name\": \"HASH_GROUP_BY\",\n                                    \"operator_rows_scanned\": 0,\n                                    \"operator_timing\": 0.00015,\n                                    \"operator_type\": \"HASH_GROUP_BY\",\n                                    \"result_set_size\": 360,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 489,\n                            \"cumulative_rows_scanned\": 515,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"14\",\n                                \"Projections\": [\n                                    \"__internal_decompress_string(#0)\",\n                                    \"#1\"\n                                ]\n                            },\n                            \"operator_cardinality\": 15,\n                            \"operator_name\": \"PROJECTION\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0.00075,\n                            \"operator_type\": \"PROJECTION\",\n                            \"result_set_size\": 360,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 494,\n                    \"cumulative_rows_scanned\": 515,\n                    \"extra_info\": {\n                        \"Order By\": \"count_star() DESC\",\n                        \"Top\": \"5\"\n                    },\n                    \"operator_cardinality\": 5,\n                    \"operator_name\": \"TOP_N\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.0005,\n                    \"operator_type\": \"TOP_N\",\n                    \"result_set_size\": 120,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 494,\n            \"cumulative_rows_scanned\": 515,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.00025,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 494,\n    \"cumulative_rows_scanned\": 515,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT u.name, count(*) FROM users u JOIN orders o ON o.user_id = u.id WHERE o.status = 'shipped' GROUP BY u.name ORDER BY 2 DESC LIMIT 5\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-7",
+          "nodeType": "TOP_N",
+          "actualTotalTime": 3.35,
+          "actualRows": 5,
+          "children": [
+            {
+              "id": "node-6",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 2.85,
+              "actualRows": 15,
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "HASH_GROUP_BY",
+                  "actualTotalTime": 2.1,
+                  "actualRows": 15,
+                  "children": [
+                    {
+                      "id": "node-4",
+                      "nodeType": "PROJECTION",
+                      "actualTotalTime": 1.95,
+                      "actualRows": 111,
+                      "children": [
+                        {
+                          "id": "node-3",
+                          "nodeType": "PROJECTION",
+                          "actualTotalTime": 1.75,
+                          "actualRows": 111,
+                          "children": [
+                            {
+                              "id": "node-2",
+                              "nodeType": "HASH_JOIN",
+                              "actualTotalTime": 0.75,
+                              "actualRows": 111,
+                              "children": [
+                                {
+                                  "id": "node-0",
+                                  "nodeType": "SEQ_SCAN",
+                                  "actualTotalTime": 0.5,
+                                  "actualRows": 111,
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.orders",
+                                  "planRows": 125,
+                                  "filter": "status='shipped'"
+                                },
+                                {
+                                  "id": "node-1",
+                                  "nodeType": "SEQ_SCAN",
+                                  "actualTotalTime": 0.25,
+                                  "actualRows": 15,
+                                  "children": [],
+                                  "relationName": "seaquel_test.main.users",
+                                  "planRows": 15
+                                }
+                              ],
+                              "planRows": 110,
+                              "joinType": "INNER",
+                              "hashCond": "user_id = id"
+                            }
+                          ],
+                          "planRows": 110
+                        }
+                      ],
+                      "planRows": 110
+                    }
+                  ],
+                  "planRows": 14
+                }
+              ],
+              "planRows": 14
+            }
+          ]
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: inequality join",
+      "input": {
+        "sql": "SELECT o.id, u.id FROM orders o JOIN users u ON o.total > u.id * 10",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 500,\n                                    \"cumulative_rows_scanned\": 500,\n                                    \"extra_info\": {\n                                        \"Estimated Cardinality\": \"500\",\n                                        \"Projections\": [\n                                            \"total\",\n                                            \"id\"\n                                        ],\n                                        \"Table\": \"seaquel_test.main.orders\",\n                                        \"Type\": \"Sequential Scan\"\n                                    },\n                                    \"operator_cardinality\": 500,\n                                    \"operator_name\": \"SEQ_SCAN\",\n                                    \"operator_rows_scanned\": 500,\n                                    \"operator_timing\": 0.0005,\n                                    \"operator_type\": \"TABLE_SCAN\",\n                                    \"result_set_size\": 6000,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                },\n                                {\n                                    \"children\": [],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 15,\n                                    \"cumulative_rows_scanned\": 15,\n                                    \"extra_info\": {\n                                        \"Estimated Cardinality\": \"15\",\n                                        \"Projections\": \"id\",\n                                        \"Table\": \"seaquel_test.main.users\",\n                                        \"Type\": \"Sequential Scan\"\n                                    },\n                                    \"operator_cardinality\": 15,\n                                    \"operator_name\": \"SEQ_SCAN\",\n                                    \"operator_rows_scanned\": 15,\n                                    \"operator_timing\": 0.00025,\n                                    \"operator_type\": \"TABLE_SCAN\",\n                                    \"result_set_size\": 60,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 7383,\n                            \"cumulative_rows_scanned\": 515,\n                            \"extra_info\": {\n                                \"Conditions\": \"CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))\",\n                                \"Estimated Cardinality\": \"158\",\n                                \"Join Type\": \"INNER\"\n                            },\n                            \"operator_cardinality\": 6868,\n                            \"operator_name\": \"PIECEWISE_MERGE_JOIN\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0,\n                            \"operator_type\": \"PIECEWISE_MERGE_JOIN\",\n                            \"result_set_size\": 109888,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 14251,\n                    \"cumulative_rows_scanned\": 515,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"158\",\n                        \"Projections\": [\n                            \"id\",\n                            \"id\"\n                        ]\n                    },\n                    \"operator_cardinality\": 6868,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.001,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 54944,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 14251,\n            \"cumulative_rows_scanned\": 515,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.0002,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 14251,\n    \"cumulative_rows_scanned\": 515,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT o.id, u.id FROM orders o JOIN users u ON o.total > u.id * 10\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 6868,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "PIECEWISE_MERGE_JOIN",
+              "actualTotalTime": 0.75,
+              "actualRows": 6868,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 500,
+                  "children": [],
+                  "relationName": "seaquel_test.main.orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-1",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.25,
+                  "actualRows": 15,
+                  "children": [],
+                  "relationName": "seaquel_test.main.users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 158,
+              "joinType": "INNER",
+              "filter": "CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))"
+            }
+          ],
+          "planRows": 158
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: window function",
+      "input": {
+        "sql": "SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY total) FROM orders",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [\n                                        {\n                                            \"children\": [],\n                                            \"cpu_time\": 0,\n                                            \"cumulative_cardinality\": 500,\n                                            \"cumulative_rows_scanned\": 500,\n                                            \"extra_info\": {\n                                                \"Estimated Cardinality\": \"500\",\n                                                \"Projections\": [\n                                                    \"id\",\n                                                    \"user_id\",\n                                                    \"total\"\n                                                ],\n                                                \"Table\": \"seaquel_test.main.orders\",\n                                                \"Type\": \"Sequential Scan\"\n                                            },\n                                            \"operator_cardinality\": 500,\n                                            \"operator_name\": \"SEQ_SCAN\",\n                                            \"operator_rows_scanned\": 500,\n                                            \"operator_timing\": 0.0005,\n                                            \"operator_type\": \"TABLE_SCAN\",\n                                            \"result_set_size\": 8000,\n                                            \"system_peak_buffer_memory\": 0,\n                                            \"system_peak_temp_dir_size\": 0\n                                        }\n                                    ],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 1000,\n                                    \"cumulative_rows_scanned\": 500,\n                                    \"extra_info\": {\n                                        \"Projections\": \"ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY total ASC NULLS LAST)\"\n                                    },\n                                    \"operator_cardinality\": 500,\n                                    \"operator_name\": \"WINDOW\",\n                                    \"operator_rows_scanned\": 0,\n                                    \"operator_timing\": 0.00025,\n                                    \"operator_type\": \"WINDOW\",\n                                    \"result_set_size\": 12000,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 1500,\n                            \"cumulative_rows_scanned\": 500,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"500\",\n                                \"Projections\": [\n                                    \"#0\",\n                                    \"#1\",\n                                    \"#2\",\n                                    \"#3\"\n                                ]\n                            },\n                            \"operator_cardinality\": 500,\n                            \"operator_name\": \"PROJECTION\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0,\n                            \"operator_type\": \"PROJECTION\",\n                            \"result_set_size\": 12000,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 2000,\n                    \"cumulative_rows_scanned\": 500,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"500\",\n                        \"Projections\": [\n                            \"id\",\n                            \"#3\"\n                        ]\n                    },\n                    \"operator_cardinality\": 500,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.001,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 6000,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 2000,\n            \"cumulative_rows_scanned\": 500,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.0002,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 2000,\n    \"cumulative_rows_scanned\": 500,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY total) FROM orders\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 500,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 0.75,
+              "actualRows": 500,
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "WINDOW",
+                  "actualTotalTime": 0.75,
+                  "actualRows": 500,
+                  "children": [
+                    {
+                      "id": "node-0",
+                      "nodeType": "SEQ_SCAN",
+                      "actualTotalTime": 0.5,
+                      "actualRows": 500,
+                      "children": [],
+                      "relationName": "seaquel_test.main.orders",
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: recursive CTE",
+      "input": {
+        "sql": "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 1,\n                                    \"cumulative_rows_scanned\": 0,\n                                    \"extra_info\": {},\n                                    \"operator_cardinality\": 1,\n                                    \"operator_name\": \"DUMMY_SCAN\",\n                                    \"operator_rows_scanned\": 0,\n                                    \"operator_timing\": 0.0005,\n                                    \"operator_type\": \"DUMMY_SCAN\",\n                                    \"result_set_size\": 4,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 2,\n                            \"cumulative_rows_scanned\": 0,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"1\",\n                                \"Projections\": \"1\"\n                            },\n                            \"operator_cardinality\": 1,\n                            \"operator_name\": \"PROJECTION\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0.00025,\n                            \"operator_type\": \"PROJECTION\",\n                            \"result_set_size\": 4,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        },\n                        {\n                            \"children\": [\n                                {\n                                    \"children\": [\n                                        {\n                                            \"children\": [],\n                                            \"cpu_time\": 0,\n                                            \"cumulative_cardinality\": 3,\n                                            \"cumulative_rows_scanned\": 0,\n                                            \"extra_info\": {\n                                                \"CTE Index\": \"1\",\n                                                \"Estimated Cardinality\": \"1\"\n                                            },\n                                            \"operator_cardinality\": 3,\n                                            \"operator_name\": \"REC_CTE_SCAN\",\n                                            \"operator_rows_scanned\": 0,\n                                            \"operator_timing\": 0,\n                                            \"operator_type\": \"RECURSIVE_CTE_SCAN\",\n                                            \"result_set_size\": 12,\n                                            \"system_peak_buffer_memory\": 0,\n                                            \"system_peak_temp_dir_size\": 0\n                                        }\n                                    ],\n                                    \"cpu_time\": 0,\n                                    \"cumulative_cardinality\": 5,\n                                    \"cumulative_rows_scanned\": 0,\n                                    \"extra_info\": {\n                                        \"Estimated Cardinality\": \"1\",\n                                        \"Expression\": \"(n < 3)\"\n                                    },\n                                    \"operator_cardinality\": 2,\n                                    \"operator_name\": \"FILTER\",\n                                    \"operator_rows_scanned\": 0,\n                                    \"operator_timing\": 0.001,\n                                    \"operator_type\": \"FILTER\",\n                                    \"result_set_size\": 8,\n                                    \"system_peak_buffer_memory\": 0,\n                                    \"system_peak_temp_dir_size\": 0\n                                }\n                            ],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 7,\n                            \"cumulative_rows_scanned\": 0,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"1\",\n                                \"Projections\": \"(n + 1)\"\n                            },\n                            \"operator_cardinality\": 2,\n                            \"operator_name\": \"PROJECTION\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0.0002,\n                            \"operator_type\": \"PROJECTION\",\n                            \"result_set_size\": 8,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 12,\n                    \"cumulative_rows_scanned\": 0,\n                    \"extra_info\": {\n                        \"CTE Name\": \"r\",\n                        \"Estimated Cardinality\": \"1001\",\n                        \"Table Index\": \"1\"\n                    },\n                    \"operator_cardinality\": 3,\n                    \"operator_name\": \"REC_CTE\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.00015,\n                    \"operator_type\": \"RECURSIVE_CTE\",\n                    \"result_set_size\": 12,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 12,\n            \"cumulative_rows_scanned\": 0,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.00075,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 12,\n    \"cumulative_rows_scanned\": 0,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "REC_CTE",
+          "actualTotalTime": 2.1,
+          "actualRows": 3,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 0.75,
+              "actualRows": 1,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "DUMMY_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 1,
+                  "children": []
+                }
+              ],
+              "planRows": 1
+            },
+            {
+              "id": "node-4",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 1.2,
+              "actualRows": 2,
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "FILTER",
+                  "actualTotalTime": 1,
+                  "actualRows": 2,
+                  "children": [
+                    {
+                      "id": "node-2",
+                      "nodeType": "REC_CTE_SCAN",
+                      "actualTotalTime": 0,
+                      "actualRows": 3,
+                      "children": [],
+                      "planRows": 1
+                    }
+                  ],
+                  "planRows": 1
+                }
+              ],
+              "planRows": 1
+            }
+          ],
+          "planRows": 1001
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: filter over a table function",
+      "input": {
+        "sql": "SELECT * FROM range(1000) t(x) WHERE x % 7 = 0",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 1000,\n                            \"cumulative_rows_scanned\": 1000,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"1000\",\n                                \"Function\": \"RANGE\"\n                            },\n                            \"operator_cardinality\": 1000,\n                            \"operator_name\": \"RANGE\",\n                            \"operator_rows_scanned\": 1000,\n                            \"operator_timing\": 0.0005,\n                            \"operator_type\": \"TABLE_SCAN\",\n                            \"result_set_size\": 8000,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 1143,\n                    \"cumulative_rows_scanned\": 1000,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"200\",\n                        \"Expression\": \"((x % 7) = 0)\"\n                    },\n                    \"operator_cardinality\": 143,\n                    \"operator_name\": \"FILTER\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.00025,\n                    \"operator_type\": \"FILTER\",\n                    \"result_set_size\": 1144,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 1143,\n            \"cumulative_rows_scanned\": 1000,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 1143,\n    \"cumulative_rows_scanned\": 1000,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM range(1000) t(x) WHERE x % 7 = 0\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "FILTER",
+          "actualTotalTime": 0.75,
+          "actualRows": 143,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "RANGE",
+              "actualTotalTime": 0.5,
+              "actualRows": 1000,
+              "children": [],
+              "planRows": 1000
+            }
+          ],
+          "planRows": 200
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: no tables",
+      "input": {
+        "sql": "SELECT 1",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 1,\n                            \"cumulative_rows_scanned\": 0,\n                            \"extra_info\": {},\n                            \"operator_cardinality\": 1,\n                            \"operator_name\": \"DUMMY_SCAN\",\n                            \"operator_rows_scanned\": 0,\n                            \"operator_timing\": 0.0005,\n                            \"operator_type\": \"DUMMY_SCAN\",\n                            \"result_set_size\": 4,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 2,\n                    \"cumulative_rows_scanned\": 0,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"1\",\n                        \"Projections\": \"1\"\n                    },\n                    \"operator_cardinality\": 1,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.00025,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 4,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 2,\n            \"cumulative_rows_scanned\": 0,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 2,\n    \"cumulative_rows_scanned\": 0,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT 1\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 0.75,
+          "actualRows": 1,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "DUMMY_SCAN",
+              "actualTotalTime": 0.5,
+              "actualRows": 1,
+              "children": []
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: non-main schema, names with spaces and quotes",
+      "input": {
+        "sql": "SELECT \"line no\" FROM fx_sales.\"fx order lines\" WHERE \"it's\" LIKE 'Line 1%'",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 111,\n                    \"cumulative_rows_scanned\": 300,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"60\",\n                        \"Filters\": \"it's>='Line 1' AND it's<'Line 2'\",\n                        \"Projections\": \"line no\",\n                        \"Table\": \"seaquel_test.fx_sales.\\\"fx order lines\\\"\",\n                        \"Type\": \"Sequential Scan\"\n                    },\n                    \"operator_cardinality\": 111,\n                    \"operator_name\": \"SEQ_SCAN\",\n                    \"operator_rows_scanned\": 300,\n                    \"operator_timing\": 0.0005,\n                    \"operator_type\": \"TABLE_SCAN\",\n                    \"result_set_size\": 444,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 111,\n            \"cumulative_rows_scanned\": 300,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0.00025,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 111,\n    \"cumulative_rows_scanned\": 300,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT \\\"line no\\\" FROM fx_sales.\\\"fx order lines\\\" WHERE \\\"it's\\\" LIKE 'Line 1%'\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 0.5,
+          "actualRows": 111,
+          "children": [],
+          "relationName": "seaquel_test.fx_sales.\"fx order lines\"",
+          "planRows": 60,
+          "filter": "it's>='Line 1' AND it's<'Line 2'"
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "EXPLAIN ANALYZE: attached catalog",
+      "input": {
+        "sql": "SELECT * FROM fx_aux.main.users WHERE nickname = 'ada'",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"attach_load_storage_latency\": 0,\n    \"attach_replay_wal_latency\": 0,\n    \"blocked_thread_time\": 0,\n    \"checkpoint_latency\": 0,\n    \"children\": [\n        {\n            \"children\": [\n                {\n                    \"children\": [\n                        {\n                            \"children\": [],\n                            \"cpu_time\": 0,\n                            \"cumulative_cardinality\": 1,\n                            \"cumulative_rows_scanned\": 1,\n                            \"extra_info\": {\n                                \"Estimated Cardinality\": \"1\",\n                                \"Filters\": \"nickname='ada'\",\n                                \"Projections\": [\n                                    \"nickname\",\n                                    \"id\"\n                                ],\n                                \"Table\": \"fx_aux.main.users\",\n                                \"Type\": \"Index Scan\"\n                            },\n                            \"operator_cardinality\": 1,\n                            \"operator_name\": \"SEQ_SCAN\",\n                            \"operator_rows_scanned\": 1,\n                            \"operator_timing\": 0.0005,\n                            \"operator_type\": \"TABLE_SCAN\",\n                            \"result_set_size\": 20,\n                            \"system_peak_buffer_memory\": 0,\n                            \"system_peak_temp_dir_size\": 0\n                        }\n                    ],\n                    \"cpu_time\": 0,\n                    \"cumulative_cardinality\": 2,\n                    \"cumulative_rows_scanned\": 1,\n                    \"extra_info\": {\n                        \"Estimated Cardinality\": \"1\",\n                        \"Projections\": [\n                            \"id\",\n                            \"nickname\"\n                        ]\n                    },\n                    \"operator_cardinality\": 1,\n                    \"operator_name\": \"PROJECTION\",\n                    \"operator_rows_scanned\": 0,\n                    \"operator_timing\": 0.00025,\n                    \"operator_type\": \"PROJECTION\",\n                    \"result_set_size\": 20,\n                    \"system_peak_buffer_memory\": 0,\n                    \"system_peak_temp_dir_size\": 0\n                }\n            ],\n            \"cpu_time\": 0,\n            \"cumulative_cardinality\": 2,\n            \"cumulative_rows_scanned\": 1,\n            \"extra_info\": {},\n            \"operator_cardinality\": 0,\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_rows_scanned\": 0,\n            \"operator_timing\": 0,\n            \"operator_type\": \"EXPLAIN_ANALYZE\",\n            \"result_set_size\": 0,\n            \"system_peak_buffer_memory\": 0,\n            \"system_peak_temp_dir_size\": 0\n        }\n    ],\n    \"commit_local_storage_latency\": 0,\n    \"cpu_time\": 0,\n    \"cumulative_cardinality\": 2,\n    \"cumulative_rows_scanned\": 1,\n    \"extra_info\": {},\n    \"latency\": 0.0125,\n    \"query_name\": \"EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM fx_aux.main.users WHERE nickname = 'ada'\",\n    \"result_set_size\": 0,\n    \"rows_returned\": 0,\n    \"system_peak_buffer_memory\": 0,\n    \"system_peak_temp_dir_size\": 0,\n    \"total_bytes_read\": 0,\n    \"total_bytes_written\": 0,\n    \"total_memory_allocated\": 0,\n    \"waiting_to_attach_latency\": 0,\n    \"wal_replay_entry_count\": 0,\n    \"write_to_wal_latency\": 0\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 0.75,
+          "actualRows": 1,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SEQ_SCAN",
+              "actualTotalTime": 0.5,
+              "actualRows": 1,
+              "children": [],
+              "relationName": "fx_aux.main.users",
+              "planRows": 1,
+              "filter": "nickname='ada'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, plain digits",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"100\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, a number",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": 100\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, with underscores",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"1_000\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 1000
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, approximate (~100)",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"~100\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, with a thousands separator",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"1,234\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, with a unit",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"~42 rows\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, not a number",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"unknown\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: estimated cardinality, analyzed",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"latency\": 0.002,\n    \"children\": [\n        {\n            \"operator_name\": \"EXPLAIN_ANALYZE\",\n            \"operator_timing\": 0,\n            \"operator_cardinality\": 0,\n            \"children\": [\n                {\n                    \"operator_name\": \"SEQ_SCAN \",\n                    \"operator_timing\": 0.001,\n                    \"operator_cardinality\": 100,\n                    \"extra_info\": {\n                        \"Table\": \"t\",\n                        \"Estimated Cardinality\": \"~100\"\n                    },\n                    \"children\": []\n                }\n            ]\n        }\n    ]\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 1,
+          "actualRows": 100,
+          "children": [],
+          "relationName": "t"
+        },
+        "planningTime": 0,
+        "executionTime": 2,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "synthetic: an index scan's conditions",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"INDEX_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Conditions\": \"id=5\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "INDEX_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 1,
+          "indexCond": "id=5"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: a hash join named with a space",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"HASH JOIN\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN \",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"t\",\n                    \"Estimated Cardinality\": \"10\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN \",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"t\",\n                    \"Estimated Cardinality\": \"20\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Join Type\": \"INNER\",\n            \"Conditions\": \"a = b\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "HASH JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "t",
+              "planRows": 10
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "t",
+              "planRows": 20
+            }
+          ],
+          "joinType": "INNER",
+          "hashCond": "a = b"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: conditions on another operator are its filter",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"PIECEWISE_MERGE_JOIN\",\n        \"children\": [\n            {\n                \"name\": \"SEQ_SCAN \",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"t\",\n                    \"Estimated Cardinality\": \"10\"\n                }\n            },\n            {\n                \"name\": \"SEQ_SCAN \",\n                \"children\": [],\n                \"extra_info\": {\n                    \"Table\": \"t\",\n                    \"Estimated Cardinality\": \"20\"\n                }\n            }\n        ],\n        \"extra_info\": {\n            \"Join Type\": \"INNER\",\n            \"Conditions\": \"a < b\",\n            \"Filters\": \"c > 1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PIECEWISE_MERGE_JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "t",
+              "planRows": 10
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "t",
+              "planRows": 20
+            }
+          ],
+          "joinType": "INNER",
+          "filter": "a < b"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: filters as a list, with a non-string",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Filters\": [\n                \"a=1\",\n                2,\n                \"b>3\"\n            ]\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "filter": "a=1, b>3"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: a node without a name or extra_info",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"children\": []\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Operator",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: an empty plan",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "filter": "[]",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: not JSON",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "physical_plan: <text>"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "filter": "physical_plan: <text>",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "synthetic: analyzed, without the EXPLAIN_ANALYZE wrapper",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"latency\": \"slow\",\n    \"children\": [\n        {\n            \"operator_name\": \"PROJECTION\",\n            \"operator_cardinality\": 3,\n            \"children\": [\n                {\n                    \"operator_name\": \"SEQ_SCAN\",\n                    \"operator_timing\": 0.002,\n                    \"children\": []\n                }\n            ]\n        }\n    ]\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 2,
+          "actualRows": 3,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SEQ_SCAN",
+              "actualTotalTime": 2,
+              "children": []
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "synthetic: analyzed, no children",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "{\n    \"latency\": 0.001,\n    \"children\": []\n}"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "filter": "{\n    \"latency\": 0.001,\n    \"children\": []\n}",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "synthetic: analyzed, not JSON",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": true,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "analyzed_plan",
+            "explain_value": "not json"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "Query Plan",
+          "filter": "not json",
+          "children": []
+        },
+        "planningTime": 0,
+        "isAnalyze": true
+      }
+    }
+  ]
+}

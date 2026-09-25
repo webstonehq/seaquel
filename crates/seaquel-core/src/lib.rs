@@ -338,8 +338,8 @@ impl Core {
             // `take_until` ends the stream on cancel even while the driver is
             // awaiting a query it can't interrupt (the default, non-streaming
             // `query_stream`, e.g. MSSQL); the driver's stream is dropped when
-            // this ends. It can't help a driver that blocks the thread instead
-            // of awaiting (DuckDB today): that query runs to completion first.
+            // this ends. Drivers that run blocking work elsewhere (DuckDB, on
+            // `spawn_blocking`) interrupt the query when their stream drops.
             let mut batches = std::pin::pin!(driver
                 .query_stream(sql, params, token.clone())
                 .take_until(token.cancelled()));

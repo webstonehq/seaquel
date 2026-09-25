@@ -30,12 +30,7 @@ async fn test_missing_connection_string_returns_bad_gateway() {
     // DbError::connection_error which maps to 502.
     let app = build_router(AppState::default());
 
-    let (status, body) = post_json(
-        app,
-        "/api/db/test",
-        json!({ "driver": "sqlite" }),
-    )
-    .await;
+    let (status, body) = post_json(app, "/api/db/test", json!({ "driver": "sqlite" })).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "body={body}");
     assert_eq!(body["code"], "CONNECTION_ERROR");
 }

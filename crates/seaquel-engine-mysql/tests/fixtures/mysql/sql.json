@@ -1,0 +1,93 @@
+{
+  "cases": [
+    {
+      "name": "getSchemaQuery",
+      "input": {
+        "query": "getSchemaQuery"
+      },
+      "output": "SELECT\n\t\t\ttable_schema AS schema_name,\n\t\t\ttable_name AS table_name,\n\t\t\ttable_type\n\t\tFROM\n\t\t\tinformation_schema.tables\n\t\tWHERE\n\t\t\ttable_type IN ('BASE TABLE', 'VIEW')\n\t\t\tAND table_schema = DATABASE()\n\t\tORDER BY\n\t\t\ttable_schema, table_name"
+    },
+    {
+      "name": "getSchemasQuery",
+      "input": {
+        "query": "getSchemasQuery"
+      },
+      "output": "SELECT SCHEMA_NAME as schema_name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;"
+    },
+    {
+      "name": "getColumnsQuery",
+      "input": {
+        "query": "getColumnsQuery",
+        "schema": "seaquel_test",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tc.COLUMN_NAME AS column_name,\n\t\t\tc.COLUMN_TYPE AS data_type,\n\t\t\tc.IS_NULLABLE AS is_nullable,\n\t\t\tc.COLUMN_DEFAULT AS column_default,\n\t\t\tIF(c.COLUMN_KEY = 'PRI', 1, 0) AS is_primary_key,\n\t\t\tIF(c.COLUMN_KEY = 'MUL' AND EXISTS (\n\t\t\t\tSELECT 1 FROM information_schema.KEY_COLUMN_USAGE kcu\n\t\t\t\tWHERE kcu.TABLE_SCHEMA = c.TABLE_SCHEMA\n\t\t\t\t\tAND kcu.TABLE_NAME = c.TABLE_NAME\n\t\t\t\t\tAND kcu.COLUMN_NAME = c.COLUMN_NAME\n\t\t\t\t\tAND kcu.REFERENCED_TABLE_NAME IS NOT NULL\n\t\t\t), 1, 0) AS is_foreign_key,\n\t\t\t(SELECT CONCAT(kcu.REFERENCED_TABLE_SCHEMA, '.', kcu.REFERENCED_TABLE_NAME, '.', kcu.REFERENCED_COLUMN_NAME)\n\t\t\t\tFROM information_schema.KEY_COLUMN_USAGE kcu\n\t\t\t\tWHERE kcu.TABLE_SCHEMA = c.TABLE_SCHEMA\n\t\t\t\t\tAND kcu.TABLE_NAME = c.TABLE_NAME\n\t\t\t\t\tAND kcu.COLUMN_NAME = c.COLUMN_NAME\n\t\t\t\t\tAND kcu.REFERENCED_TABLE_NAME IS NOT NULL\n\t\t\t\tLIMIT 1\n\t\t\t) AS foreign_key_ref\n\t\tFROM information_schema.COLUMNS c\n\t\tWHERE c.TABLE_NAME = 'users' AND c.TABLE_SCHEMA = 'seaquel_test'\n\t\tORDER BY c.ORDINAL_POSITION"
+    },
+    {
+      "name": "getIndexesQuery",
+      "input": {
+        "query": "getIndexesQuery",
+        "schema": "seaquel_test",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tINDEX_NAME AS index_name,\n\t\t\tCOLUMN_NAME AS column_name,\n\t\t\tNON_UNIQUE AS non_unique,\n\t\t\tINDEX_TYPE AS index_type\n\t\tFROM information_schema.STATISTICS\n\t\tWHERE TABLE_NAME = 'users' AND TABLE_SCHEMA = 'seaquel_test'\n\t\tORDER BY INDEX_NAME, SEQ_IN_INDEX"
+    },
+    {
+      "name": "getTableSizesQuery",
+      "input": {
+        "query": "getTableSizesQuery"
+      },
+      "output": "SELECT\n\t\t\tTABLE_SCHEMA AS schema_name,\n\t\t\tTABLE_NAME AS table_name,\n\t\t\tTABLE_ROWS AS row_count,\n\t\t\tCONCAT(ROUND((DATA_LENGTH + INDEX_LENGTH) / 1024, 2), ' KB') AS total_size,\n\t\t\t(DATA_LENGTH + INDEX_LENGTH) AS total_size_bytes,\n\t\t\tCONCAT(ROUND(DATA_LENGTH / 1024, 2), ' KB') AS data_size,\n\t\t\tCONCAT(ROUND(INDEX_LENGTH / 1024, 2), ' KB') AS index_size\n\t\tFROM information_schema.TABLES\n\t\tWHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'\n\t\tORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC"
+    },
+    {
+      "name": "getIndexUsageQuery",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tTABLE_SCHEMA AS schema_name,\n\t\t\tTABLE_NAME AS table_name,\n\t\t\tINDEX_NAME AS index_name,\n\t\t\tCONCAT(ROUND(STAT_VALUE * @@innodb_page_size / 1024, 2), ' KB') AS size,\n\t\t\t0 AS scans,\n\t\t\t0 AS rows_read,\n\t\t\t0 AS unused\n\t\tFROM mysql.innodb_index_stats\n\t\tWHERE stat_name = 'size' AND TABLE_SCHEMA = DATABASE()\n\t\tORDER BY STAT_VALUE DESC"
+    },
+    {
+      "name": "getDatabaseOverviewQuery",
+      "input": {
+        "query": "getDatabaseOverviewQuery"
+      },
+      "output": "SELECT\n\t\t\tDATABASE() AS database_name,\n\t\t\tCONCAT(ROUND(SUM(DATA_LENGTH + INDEX_LENGTH) / 1024, 2), ' KB') AS total_size,\n\t\t\tSUM(DATA_LENGTH + INDEX_LENGTH) AS total_size_bytes,\n\t\t\tCOUNT(*) AS table_count,\n\t\t\t(SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()) AS index_count,\n\t\t\t(SELECT COUNT(*) FROM information_schema.PROCESSLIST) AS connection_count\n\t\tFROM information_schema.TABLES\n\t\tWHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
+    },
+    {
+      "name": "getExplainQuery",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": false
+      },
+      "output": "EXPLAIN FORMAT=JSON SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery, analyze",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": true
+      },
+      "output": "EXPLAIN ANALYZE SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery strips one trailing semicolon",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;;",
+        "analyze": false
+      },
+      "output": "EXPLAIN FORMAT=JSON SELECT 1;"
+    },
+    {
+      "name": "getExplainQuery keeps a semicolon before whitespace",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;\n",
+        "analyze": true
+      },
+      "output": "EXPLAIN ANALYZE SELECT 1;\n"
+    }
+  ]
+}

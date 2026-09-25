@@ -96,7 +96,14 @@
 		showParamsDialog = false;
 		// Substitute parameters with inline values (tutorial DB doesn't support bind params)
 		const dbType = executor.dbType ?? 'duckdb';
-		const { sql: substitutedSql } = substituteParameters(editorValue, values, dbType);
+		// bindValues is dropped: safe, since this editor only runs on DuckDB, which inlines.
+		let substitutedSql: string;
+		try {
+			({ sql: substitutedSql } = substituteParameters(editorValue, values, dbType));
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		runQuery(substitutedSql);
 	}
 

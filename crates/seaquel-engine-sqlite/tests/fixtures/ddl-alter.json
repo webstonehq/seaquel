@@ -1,0 +1,2242 @@
+{
+  "cases": [
+    {
+      "name": "no changes",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "rename a column",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "full_name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"full_name\";"
+    },
+    {
+      "name": "add columns",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            },
+            {
+              "id": "c6",
+              "name": "tier",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "1",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c7",
+              "name": "notes",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"tier\" INTEGER NOT NULL DEFAULT 1;\nALTER TABLE \"main\".\"customers\" ADD COLUMN \"notes\" TEXT;"
+    },
+    {
+      "name": "drop a column",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" DROP COLUMN \"email\";"
+    },
+    {
+      "name": "drop an index",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "DROP INDEX \"customers_name_idx\";"
+    },
+    {
+      "name": "a dropped foreign key emits nothing",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "an unnamed index is skipped",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            },
+            {
+              "id": "i2",
+              "name": "",
+              "columns": ["status"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "rename and drop, another table name",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "clients",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"clients\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"main\".\"clients\" DROP COLUMN \"status\";"
+    },
+    {
+      "name": "change a type (dropped by the adapter)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "320"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "make a column NOT NULL (dropped by the adapter)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "default-only change (dropped by the adapter)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'new'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- No changes detected"
+    },
+    {
+      "name": "rename and change a type (the type change is dropped)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "length": "150"
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";"
+    },
+    {
+      "name": "add an index (qualified table, invalid in SQLite)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            },
+            {
+              "id": "i2",
+              "name": "customers_status_email_idx",
+              "columns": ["status", "email"],
+              "unique": true,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "CREATE UNIQUE INDEX \"customers_status_email_idx\" ON \"main\".\"customers\" (\"status\", \"email\");"
+    },
+    {
+      "name": "add a foreign key (invalid in SQLite)",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            },
+            {
+              "id": "f2",
+              "column": "email",
+              "referencedSchema": "",
+              "referencedTable": "emails",
+              "referencedColumn": "address"
+            },
+            {
+              "id": "f3",
+              "column": "name",
+              "referencedSchema": "main",
+              "referencedTable": "names",
+              "referencedColumn": "value"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD FOREIGN KEY (\"email\") REFERENCES \"emails\" (\"address\");\nALTER TABLE \"main\".\"customers\" ADD FOREIGN KEY (\"name\") REFERENCES \"main\".\"names\" (\"value\");"
+    },
+    {
+      "name": "statement order: every branch",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "TEXT",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "customers_name_idx",
+              "columns": ["name"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "display_name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "NUMERIC",
+              "nullable": true,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            },
+            {
+              "id": "c6",
+              "name": "tier",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "1",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i2",
+              "name": "customers_tier_idx",
+              "columns": ["tier"],
+              "unique": false,
+              "type": "btree"
+            }
+          ],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            },
+            {
+              "id": "f2",
+              "column": "tier",
+              "referencedSchema": "main",
+              "referencedTable": "tiers",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"main\".\"customers\" ADD COLUMN \"tier\" INTEGER NOT NULL DEFAULT 1;\nALTER TABLE \"main\".\"customers\" DROP COLUMN \"email\";\nDROP INDEX \"customers_name_idx\";\nCREATE INDEX \"customers_tier_idx\" ON \"main\".\"customers\" (\"tier\");\nALTER TABLE \"main\".\"customers\" ADD FOREIGN KEY (\"tier\") REFERENCES \"main\".\"tiers\" (\"id\");"
+    }
+  ]
+}

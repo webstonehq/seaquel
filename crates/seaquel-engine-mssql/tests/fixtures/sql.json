@@ -1,0 +1,72 @@
+{
+  "cases": [
+    {
+      "name": "getSchemaQuery",
+      "input": {
+        "query": "getSchemaQuery"
+      },
+      "output": "SELECT s.name AS schema_name, t.name AS table_name, 'TABLE' AS object_type\n\t\tFROM sys.tables t\n\t\tINNER JOIN sys.schemas s ON t.schema_id = s.schema_id\n\t\tWHERE t.is_ms_shipped = 0\n\t\tUNION ALL\n\t\tSELECT s.name AS schema_name, v.name AS table_name, 'VIEW' AS object_type\n\t\tFROM sys.views v\n\t\tINNER JOIN sys.schemas s ON v.schema_id = s.schema_id\n\t\tWHERE v.is_ms_shipped = 0\n\t\tORDER BY schema_name, table_name"
+    },
+    {
+      "name": "getSchemasQuery",
+      "input": {
+        "query": "getSchemasQuery"
+      },
+      "output": "SELECT name as schema_name FROM sys.schemas WHERE name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA') ORDER BY name;"
+    },
+    {
+      "name": "getColumnsQuery",
+      "input": {
+        "query": "getColumnsQuery",
+        "schema": "dbo",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\tc.name AS column_name,\n\t\t\tTYPE_NAME(c.user_type_id) AS data_type,\n\t\t\tCASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END AS is_nullable,\n\t\t\tdc.definition AS column_default,\n\t\t\tCASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,\n\t\t\tCASE WHEN fk.parent_column_id IS NOT NULL THEN 1 ELSE 0 END AS is_foreign_key,\n\t\t\trs.name AS referenced_schema,\n\t\t\trt.name AS referenced_table,\n\t\t\trc.name AS referenced_column\n\t\tFROM sys.columns c\n\t\tINNER JOIN sys.tables t ON c.object_id = t.object_id\n\t\tINNER JOIN sys.schemas s ON t.schema_id = s.schema_id\n\t\tLEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id\n\t\tLEFT JOIN (\n\t\t\tSELECT ic.object_id, ic.column_id\n\t\t\tFROM sys.index_columns ic\n\t\t\tINNER JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id\n\t\t\tWHERE i.is_primary_key = 1\n\t\t) pk ON c.object_id = pk.object_id AND c.column_id = pk.column_id\n\t\tLEFT JOIN sys.foreign_key_columns fk ON c.object_id = fk.parent_object_id AND c.column_id = fk.parent_column_id\n\t\tLEFT JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id\n\t\tLEFT JOIN sys.schemas rs ON rt.schema_id = rs.schema_id\n\t\tLEFT JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id\n\t\tWHERE t.name = 'users' AND s.name = 'dbo'\n\t\tORDER BY c.column_id"
+    },
+    {
+      "name": "getIndexesQuery",
+      "input": {
+        "query": "getIndexesQuery",
+        "schema": "dbo",
+        "table": "users"
+      },
+      "output": "SELECT\n\t\t\ti.name AS index_name,\n\t\t\tc.name AS column_name,\n\t\t\ti.is_unique,\n\t\t\ti.type_desc AS index_type\n\t\tFROM sys.indexes i\n\t\tINNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id\n\t\tINNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\n\t\tINNER JOIN sys.tables t ON i.object_id = t.object_id\n\t\tINNER JOIN sys.schemas s ON t.schema_id = s.schema_id\n\t\tWHERE t.name = 'users'\n\t\t\tAND s.name = 'dbo'\n\t\t\tAND i.name IS NOT NULL\n\t\tORDER BY i.name, ic.key_ordinal"
+    },
+    {
+      "name": "getExplainQuery",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": false
+      },
+      "output": "SET SHOWPLAN_XML ON;\nSELECT * FROM users;\nSET SHOWPLAN_XML OFF;"
+    },
+    {
+      "name": "getExplainQuery, analyze",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": true
+      },
+      "output": "SET STATISTICS XML ON;\nSELECT * FROM users;\nSET STATISTICS XML OFF;"
+    },
+    {
+      "name": "getExplainQuery strips one trailing semicolon",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;;",
+        "analyze": false
+      },
+      "output": "SET SHOWPLAN_XML ON;\nSELECT 1;;\nSET SHOWPLAN_XML OFF;"
+    },
+    {
+      "name": "getExplainQuery keeps a semicolon before whitespace",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;\n",
+        "analyze": true
+      },
+      "output": "SET STATISTICS XML ON;\nSELECT 1;\n;\nSET STATISTICS XML OFF;"
+    }
+  ]
+}

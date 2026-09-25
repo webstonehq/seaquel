@@ -21,6 +21,15 @@ pub type RowValues = Vec<(String, Value)>;
 pub trait Dialect: MaybeSend + MaybeSync {
     fn quote_ident(&self, id: &str) -> String;
 
+    /// A schema as the engine's introspection lists it, quoted for the
+    /// schema part of `schema.table`. That is one identifier for most
+    /// engines, the default. DuckDB lists an attached catalog's schemas as
+    /// `catalog.schema` (a part holding `.` or `"` double-quoted), which it
+    /// splits and quotes part by part.
+    fn quote_schema(&self, schema: &str) -> String {
+        self.quote_ident(schema)
+    }
+
     fn paginate(&self, sql: &str, limit: u64, offset: u64) -> String;
 
     /// `casts` wraps the value placeholder and, since bug fix 6, the
@@ -47,6 +56,26 @@ pub trait Dialect: MaybeSend + MaybeSync {
         row: &RowValues,
         casts: Option<&CastMap>,
     ) -> SqlWithBindings;
+
+    /// [`Dialect::build_set_default`] for a column whose default expression
+    /// the caller read from the table's metadata (`defaultValue`, or `NULL`
+    /// for a column without one). Engines whose `UPDATE` has no `DEFAULT`
+    /// keyword (SQLite) assign that expression instead; the others ignore it,
+    /// which is the default.
+    #[allow(clippy::too_many_arguments)]
+    fn build_set_default_expr(
+        &self,
+        schema: &str,
+        table: &str,
+        column: &str,
+        column_default: Option<&str>,
+        pks: &[String],
+        row: &RowValues,
+        casts: Option<&CastMap>,
+    ) -> SqlWithBindings {
+        let _ = column_default;
+        self.build_set_default(schema, table, column, pks, row, casts)
+    }
 
     fn build_insert(
         &self,

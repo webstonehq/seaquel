@@ -1,7 +1,7 @@
-use tauri_plugin_log::fern::FormatCallback;
 use log::kv::{Key, Value, VisitSource};
 use log::Record;
 use std::fmt::Arguments;
+use tauri_plugin_log::fern::FormatCallback;
 use time::macros::format_description;
 
 fn timestamp_now(strategy: &tauri_plugin_log::TimezoneStrategy) -> String {
@@ -23,13 +23,8 @@ impl KvCollector {
 }
 
 impl<'kvs> VisitSource<'kvs> for KvCollector {
-    fn visit_pair(
-        &mut self,
-        key: Key<'kvs>,
-        value: Value<'kvs>,
-    ) -> Result<(), log::kv::Error> {
-        self.pairs
-            .push((key.to_string(), value.to_string()));
+    fn visit_pair(&mut self, key: Key<'kvs>, value: Value<'kvs>) -> Result<(), log::kv::Error> {
+        self.pairs.push((key.to_string(), value.to_string()));
         Ok(())
     }
 }

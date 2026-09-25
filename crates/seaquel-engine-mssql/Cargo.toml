@@ -7,12 +7,10 @@ description = "Microsoft SQL Server engine for Seaquel."
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-runtime = { path = "../seaquel-runtime" }
-base64 = { workspace = true }
-# tiberius pulls chrono without default features; to_rfc3339 (driver.rs) needs "alloc".
-# Inside the old seaquel-db crate it arrived by accident, via duckdb → arrow.
-chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 futures = { workspace = true }
 log = { workspace = true }
+roxmltree = "0.20"
+seaquel-types = { path = "../seaquel-types" }
 serde_json = { workspace = true }
 tiberius = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
@@ -20,4 +18,5 @@ tokio-util = { workspace = true }
 
 [dev-dependencies]
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
+serde = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt"] }

@@ -1,0 +1,111 @@
+{
+  "cases": [
+    {
+      "name": "getSchemaQuery",
+      "input": {
+        "query": "getSchemaQuery"
+      },
+      "output": "SELECT name, type FROM sqlite_master\n\t\t\tWHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'\n\t\t\tORDER BY name"
+    },
+    {
+      "name": "getSchemasQuery",
+      "input": {
+        "query": "getSchemasQuery"
+      },
+      "output": "SELECT 'main' as schema_name;"
+    },
+    {
+      "name": "getColumnsQuery",
+      "input": {
+        "query": "getColumnsQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "PRAGMA table_info('users')"
+    },
+    {
+      "name": "getIndexesQuery",
+      "input": {
+        "query": "getIndexesQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "PRAGMA index_list('users')"
+    },
+    {
+      "name": "getForeignKeysQuery",
+      "input": {
+        "query": "getForeignKeysQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "PRAGMA foreign_key_list('users')"
+    },
+    {
+      "name": "getTableSizesQuery",
+      "input": {
+        "query": "getTableSizesQuery"
+      },
+      "output": "SELECT\n\t\t\tname AS table_name,\n\t\t\t'main' AS schema_name\n\t\tFROM sqlite_master\n\t\tWHERE type = 'table' AND name NOT LIKE 'sqlite_%'\n\t\tORDER BY name"
+    },
+    {
+      "name": "getTableRowCountQuery",
+      "input": {
+        "query": "getTableRowCountQuery",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "SELECT COUNT(*) AS row_count FROM \"users\""
+    },
+    {
+      "name": "getIndexUsageQuery",
+      "input": {
+        "query": "getIndexUsageQuery"
+      },
+      "output": "SELECT\n\t\t\tm.name AS index_name,\n\t\t\tm.tbl_name AS table_name,\n\t\t\t'main' AS schema_name\n\t\tFROM sqlite_master m\n\t\tWHERE m.type = 'index' AND m.name NOT LIKE 'sqlite_%'\n\t\tORDER BY m.tbl_name, m.name"
+    },
+    {
+      "name": "getDatabaseOverviewQuery",
+      "input": {
+        "query": "getDatabaseOverviewQuery"
+      },
+      "output": "SELECT\n\t\t\t(SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%') AS table_count,\n\t\t\t(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%') AS index_count,\n\t\t\t(SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()) AS total_size_bytes"
+    },
+    {
+      "name": "getExplainQuery",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": false
+      },
+      "output": "EXPLAIN QUERY PLAN SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery, analyze",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT * FROM users",
+        "analyze": true
+      },
+      "output": "EXPLAIN QUERY PLAN SELECT * FROM users"
+    },
+    {
+      "name": "getExplainQuery strips one trailing semicolon",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;;",
+        "analyze": false
+      },
+      "output": "EXPLAIN QUERY PLAN SELECT 1;"
+    },
+    {
+      "name": "getExplainQuery keeps a semicolon before whitespace",
+      "input": {
+        "query": "getExplainQuery",
+        "sql": "SELECT 1;\n",
+        "analyze": true
+      },
+      "output": "EXPLAIN QUERY PLAN SELECT 1;\n"
+    }
+  ]
+}

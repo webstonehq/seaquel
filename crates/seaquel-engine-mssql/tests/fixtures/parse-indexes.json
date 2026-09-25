@@ -1,0 +1,298 @@
+{
+  "cases": [
+    {
+      "name": "dbo.fx_customers",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_customers",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_customers_email_uq",
+            "column_name": "email",
+            "is_unique": true,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_external_uq",
+            "column_name": "external_id",
+            "is_unique": true,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_name_idx",
+            "column_name": "email",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_name_idx",
+            "column_name": "score",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_name_idx",
+            "column_name": "name",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_name_idx",
+            "column_name": "status",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_customers_pk",
+            "column_name": "id",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_customers_email_uq",
+          "columns": ["email"],
+          "unique": false,
+          "type": "nonclustered"
+        },
+        {
+          "name": "fx_customers_external_uq",
+          "columns": ["external_id"],
+          "unique": false,
+          "type": "nonclustered"
+        },
+        {
+          "name": "fx_customers_name_idx",
+          "columns": ["email", "score", "name", "status"],
+          "unique": false,
+          "type": "nonclustered"
+        },
+        {
+          "name": "fx_customers_pk",
+          "columns": ["id"],
+          "unique": false,
+          "type": "clustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_orders",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_orders",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_orders_customer_idx",
+            "column_name": "customer_id",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_orders_customer_idx",
+            "column_name": "placed_at",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_orders_pk",
+            "column_name": "id",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_orders_customer_idx",
+          "columns": ["customer_id", "placed_at"],
+          "unique": false,
+          "type": "nonclustered"
+        },
+        {
+          "name": "fx_orders_pk",
+          "columns": ["id"],
+          "unique": false,
+          "type": "clustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_accounts",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_accounts",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_accounts_pk",
+            "column_name": "customer_id",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          },
+          {
+            "index_name": "fx_accounts_pk",
+            "column_name": "region",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_accounts_pk",
+          "columns": ["customer_id", "region"],
+          "unique": false,
+          "type": "clustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_ledger",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_ledger",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_ledger_pk",
+            "column_name": "id",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_ledger_pk",
+          "columns": ["id"],
+          "unique": false,
+          "type": "clustered"
+        }
+      ]
+    },
+    {
+      "name": "fx_sales.fx_invoices",
+      "input": {
+        "schema": "fx_sales",
+        "table": "fx_invoices",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_invoices_number_uq",
+            "column_name": "number",
+            "is_unique": true,
+            "index_type": "NONCLUSTERED"
+          },
+          {
+            "index_name": "fx_invoices_pk",
+            "column_name": "id",
+            "is_unique": true,
+            "index_type": "CLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_invoices_number_uq",
+          "columns": ["number"],
+          "unique": false,
+          "type": "nonclustered"
+        },
+        {
+          "name": "fx_invoices_pk",
+          "columns": ["id"],
+          "unique": false,
+          "type": "clustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_events",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_events",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_events_occurred_cix",
+            "column_name": "occurred_at",
+            "is_unique": false,
+            "index_type": "CLUSTERED"
+          },
+          {
+            "index_name": "fx_events_pk",
+            "column_name": "id",
+            "is_unique": true,
+            "index_type": "NONCLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_events_occurred_cix",
+          "columns": ["occurred_at"],
+          "unique": false,
+          "type": "clustered"
+        },
+        {
+          "name": "fx_events_pk",
+          "columns": ["id"],
+          "unique": false,
+          "type": "nonclustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_heap",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_heap",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_heap_v_idx",
+            "column_name": "v",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_heap_v_idx",
+          "columns": ["v"],
+          "unique": false,
+          "type": "nonclustered"
+        }
+      ]
+    },
+    {
+      "name": "dbo.fx_café",
+      "input": {
+        "schema": "dbo",
+        "table": "fx_café",
+        "columns": ["index_name", "column_name", "is_unique", "index_type"],
+        "rows": [
+          {
+            "index_name": "fx_café_名前_idx",
+            "column_name": "名前",
+            "is_unique": false,
+            "index_type": "NONCLUSTERED"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_café_名前_idx",
+          "columns": ["名前"],
+          "unique": false,
+          "type": "nonclustered"
+        }
+      ]
+    }
+  ]
+}

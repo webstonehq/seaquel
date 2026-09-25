@@ -1,0 +1,170 @@
+{
+  "cases": [
+    {
+      "name": "schema",
+      "input": {
+        "columns": ["schema_name", "table_name", "object_type"],
+        "rows": [
+          {
+            "schema_name": "dbo",
+            "table_name": "fx order items",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx]odd name",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_accounts",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_café",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_customer_names",
+            "object_type": "VIEW"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_customers",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_events",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_heap",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_ledger",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_orders",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "dbo",
+            "table_name": "fx_types",
+            "object_type": "TABLE"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx_invoice_totals",
+            "object_type": "VIEW"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx_invoices",
+            "object_type": "TABLE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx order items",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx]odd name",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_accounts",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_café",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_customer_names",
+          "schema": "dbo",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_customers",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_events",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_heap",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_ledger",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_orders",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_types",
+          "schema": "dbo",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_invoice_totals",
+          "schema": "fx_sales",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_invoices",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    }
+  ]
+}

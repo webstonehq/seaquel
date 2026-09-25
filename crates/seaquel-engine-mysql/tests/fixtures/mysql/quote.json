@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "id": "users"
+      },
+      "output": "`users`"
+    },
+    {
+      "name": "embedded backtick",
+      "input": {
+        "id": "we`ird"
+      },
+      "output": "`we``ird`"
+    },
+    {
+      "name": "two backticks",
+      "input": {
+        "id": "``"
+      },
+      "output": "``````"
+    },
+    {
+      "name": "space",
+      "input": {
+        "id": "order items"
+      },
+      "output": "`order items`"
+    },
+    {
+      "name": "dot",
+      "input": {
+        "id": "a.b"
+      },
+      "output": "`a.b`"
+    },
+    {
+      "name": "double quote",
+      "input": {
+        "id": "say \"hi\""
+      },
+      "output": "`say \"hi\"`"
+    },
+    {
+      "name": "non-ASCII",
+      "input": {
+        "id": "café"
+      },
+      "output": "`café`"
+    },
+    {
+      "name": "empty",
+      "input": {
+        "id": ""
+      },
+      "output": "``"
+    }
+  ]
+}

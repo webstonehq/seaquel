@@ -10,6 +10,28 @@ import { dedupeColumnNames } from "$lib/utils/row-access";
 type AsyncDuckDB = import("@duckdb/duckdb-wasm").AsyncDuckDB;
 type AsyncDuckDBConnection = import("@duckdb/duckdb-wasm").AsyncDuckDBConnection;
 
+/** The parts of an Arrow result `rowsAffected` reads. */
+interface CountResult {
+  numRows: number;
+  schema: { fields: { name: string }[] };
+  getChildAt(index: number): { get(index: number): unknown } | null;
+}
+
+/**
+ * The rows an INSERT, UPDATE or DELETE affected. DuckDB answers them with one
+ * row in one column, `Count`; `numRows` is the size of that answer (always 1),
+ * which would hide an UPDATE that matched nothing. Anything else (DDL) keeps
+ * reporting `numRows`.
+ */
+export function rowsAffected(result: CountResult): number {
+  const fields = result.schema.fields;
+  if (fields.length === 1 && fields[0].name === "Count" && result.numRows === 1) {
+    const count = result.getChildAt(0)?.get(0);
+    if (typeof count === "bigint" || typeof count === "number") return Number(count);
+  }
+  return result.numRows;
+}
+
 /**
  * Database provider that uses DuckDB-WASM.
  * Provides an in-browser SQL database for the demo.
@@ -162,9 +184,7 @@ export class DuckDBProvider implements DatabaseProvider {
     // For the demo, we execute the SQL directly
     const result = await conn.query(sql);
 
-    return {
-      rowsAffected: result.numRows,
-    };
+    return { rowsAffected: rowsAffected(result) };
   }
 
   async test(_config: ConnectionConfig): Promise<void> {

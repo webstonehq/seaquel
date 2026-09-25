@@ -1,0 +1,1184 @@
+// Copy of the generator that wrote crates/seaquel-engine-duckdb/tests/fixtures/bugfixes.json
+// (phase 2, Task 17, fixes 1-15). Kept for reference; it isn't part of the build. It ran from a
+// scratch directory as a vitest file (npx vitest run --dir <dir>) with SEAQUEL_SERVER_URL set, and
+// read the 'about' text from an about.txt next to it (the text is bugfixes.json's 'about').
+
+/**
+ * Writes crates/seaquel-engine-duckdb/tests/fixtures/bugfixes.json (DuckDB,
+ * phase 2 Task 17): the scratch block, and the expected output of each bug
+ * fix. Run from the repo root with a seaquel-server on SEAQUEL_SERVER_URL:
+ *
+ *   SEAQUEL_SERVER_URL=http://127.0.0.1:47117 npx vitest run --dir <this dir>
+ *
+ * Expected outputs come from a model of the fixed dialect (below): the fixed
+ * catalog queries run live against a copy of the seeded database with the
+ * scratch objects, the unchanged TypeScript parsers where the parsing
+ * doesn't change, and small models where it does (indexes, overview,
+ * estimated cardinality, ALTER notes). Every DDL output is also executed in a
+ * rolled-back transaction and the result printed.
+ */
+import { it } from "vitest";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { getAdapter } from "$lib/db";
+import {
+  buildColumnType,
+  sanitizeDefaultValue,
+} from "$lib/db/alter-table";
+import type { CreateTableColumn, CreateTableDefinition } from "$lib/types";
+import { openSession, type Session } from "/Users/m/projects/github/webstonehq/seaquel/scripts/fixtures/server";
+import { decodeStoredRows } from "/Users/m/projects/github/webstonehq/seaquel/scripts/fixtures/replay";
+import { toJson, type Json } from "/Users/m/projects/github/webstonehq/seaquel/scripts/fixtures/corpus";
+
+const REPO = "/Users/m/projects/github/webstonehq/seaquel";
+const FIXTURES = `${REPO}/crates/seaquel-engine-duckdb/tests/fixtures/`;
+const SOURCE = `${REPO}/e2e/test-databases/duckdb/seaquel_test.duckdb`;
+const DIR = new URL("./db/", import.meta.url).pathname;
+const DB = `${DIR}seaquel_test.duckdb`;
+
+const adapter = getAdapter("duckdb");
+const read = (f: string) => JSON.parse(readFileSync(FIXTURES + f, "utf-8")) as { cases: { name: string; input: any; output: any }[] };
+const recorded = (f: string, name: string) => {
+  const c = read(f).cases.find((x) => x.name === name);
+  if (!c) throw new Error(`${f}: no case ${name}`);
+  return c;
+};
+
+// ─── The fixed dialect (the model) ───────────────────────────────────
+
+/** A catalog or schema name as the tree shows it: double-quoted ("" for ") when it holds . or ". */
+const part = (x: string) =>
+  `CASE WHEN ${x} LIKE '%.%' OR ${x} LIKE '%"%' THEN '"' || replace(${x}, '"', '""') || '"' ELSE ${x} END`;
+/** The schema as the tree lists it: the default catalog's bare, any other's as catalog.schema. */
+const shown = (cat: string, sch: string) =>
+  `CASE WHEN ${cat} = current_database() THEN ${part(sch)} ELSE ${part(cat)} || '.' || ${part(sch)} END`;
+
+export const Q = {
+  getSchemaQuery: `SELECT
+  ${shown("table_catalog", "table_schema")} AS schema_name,
+  table_name,
+  table_type
+FROM information_schema.tables
+WHERE table_type IN ('BASE TABLE', 'VIEW')
+  AND table_catalog NOT IN ('system', 'temp')
+  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+ORDER BY table_catalog <> current_database(), table_catalog, table_schema, table_name`,
+  getSchemasQuery: `SELECT
+  ${shown("catalog_name", "schema_name")} AS schema_name
+FROM information_schema.schemata
+WHERE catalog_name NOT IN ('system', 'temp')
+ORDER BY catalog_name <> current_database(), catalog_name, schema_name`,
+  getColumnsQuery: `SELECT
+  c.column_name,
+  c.data_type,
+  c.is_nullable,
+  c.column_default,
+  EXISTS (
+    SELECT 1
+    FROM duckdb_constraints() dc
+    WHERE dc.constraint_type = 'PRIMARY KEY'
+      AND dc.database_name = c.table_catalog
+      AND dc.schema_name = c.table_schema
+      AND dc.table_name = c.table_name
+      AND list_contains(dc.constraint_column_names, c.column_name)
+  ) AS is_primary_key
+FROM information_schema.columns c
+WHERE c.table_catalog NOT IN ('system', 'temp')
+  AND ${shown("c.table_catalog", "c.table_schema")} = $1
+  AND c.table_name = $2
+ORDER BY c.ordinal_position`,
+  getForeignKeysQuery: `SELECT
+  $1 AS schema_name,
+  referenced_table,
+  unnest(constraint_column_names) AS source_column,
+  unnest(referenced_column_names) AS referenced_column,
+  unnest(generate_series(1, len(constraint_column_names))) AS position
+FROM duckdb_constraints()
+WHERE constraint_type = 'FOREIGN KEY'
+  AND database_name NOT IN ('system', 'temp')
+  AND ${shown("database_name", "schema_name")} = $1
+  AND table_name = $2
+ORDER BY constraint_index, position`,
+  getIndexesQuery: `SELECT
+  i.index_name,
+  i.is_unique,
+  k.position,
+  CASE
+    WHEN regexp_full_match(k.expression, '"([^"]|"")*"') THEN replace(k.expression[2:-2], '""', '"')
+    ELSE k.expression
+  END AS column_name
+FROM duckdb_indexes() i,
+  unnest(CAST(i.expressions AS VARCHAR[])) WITH ORDINALITY AS k(expression, position)
+WHERE i.database_name NOT IN ('system', 'temp')
+  AND ${shown("i.database_name", "i.schema_name")} = $1
+  AND i.table_name = $2
+ORDER BY i.index_name, k.position`,
+  getTableSizesQuery: `SELECT
+  ${shown("table_catalog", "table_schema")} AS schema_name,
+  table_name,
+  table_catalog,
+  table_schema
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE'
+  AND table_catalog NOT IN ('system', 'temp')
+  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+ORDER BY table_catalog <> current_database(), table_catalog, table_schema, table_name`,
+  getIndexUsageQuery: `SELECT
+  ${shown("database_name", "schema_name")} AS schema_name,
+  table_name,
+  index_name,
+  is_unique
+FROM duckdb_indexes()
+WHERE database_name NOT IN ('system', 'temp')
+ORDER BY database_name <> current_database(), database_name, schema_name, table_name, index_name`,
+  getDatabaseOverviewQuery: `SELECT
+  current_database() AS database_name,
+  (
+    SELECT count(*)
+    FROM information_schema.tables
+    WHERE table_type = 'BASE TABLE'
+      AND table_catalog NOT IN ('system', 'temp')
+      AND table_schema NOT IN ('pg_catalog', 'information_schema')
+  ) AS table_count,
+  (SELECT count(*) FROM duckdb_indexes() WHERE database_name NOT IN ('system', 'temp')) AS index_count,
+  (
+    SELECT CAST(COALESCE(sum(block_size * total_blocks), 0) AS BIGINT)
+    FROM pragma_database_size()
+    WHERE database_name NOT IN ('system', 'temp')
+  ) AS total_size_bytes`,
+};
+
+/** The fixed quote: `"` doubled (fix 1). */
+const qd = (s: string) => `"${s.replaceAll('"', '""')}"`;
+const rowCountSql = (catalog: string, schema: string, table: string) =>
+  `SELECT COUNT(*) AS row_count FROM ${qd(catalog)}.${qd(schema)}.${qd(table)}`;
+
+/** `note()` in ddl.rs: line breaks become spaces. */
+const note = (text: string) => `-- ${text.replace(/[\r\n]/g, " ")}`;
+
+/**
+ * The fixes the DDL and EXPLAIN models apply. Every fix can be switched off:
+ * with none on, the models must reproduce the recorded TypeScript output (checked
+ * below), and a case's fix numbers are the ones whose removal changes its output.
+ * Fix 6 here is its DDL side: a listed schema is split quote-aware
+ * (`quoteSchema`, the port's `Dialect::quote_schema`).
+ */
+const ON = new Set<number>([1, 4, 5, 6, 8, 9, 10, 11, 13, 14]);
+const DDL_FIXES = [1, 4, 6, 8, 9, 10, 11];
+const EXPLAIN_FIXES = [5, 13, 14];
+const quote = () => (ON.has(1) ? qd : (s: string) => `"${s}"`);
+
+/**
+ * The parts of a dotted name in DuckDB's identifier syntax: `"…"` parts with
+ * `""` for `"`, bare parts up to the next dot. Null when it doesn't parse.
+ */
+function parseDotted(name: string): string[] | null {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < name.length) {
+    let part = "";
+    if (name[i] === '"') {
+      i++;
+      for (;;) {
+        if (i >= name.length) return null;
+        if (name[i] === '"') {
+          if (name[i + 1] === '"') {
+            part += '"';
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        part += name[i++];
+      }
+    } else {
+      while (i < name.length && name[i] !== ".") part += name[i++];
+    }
+    parts.push(part);
+    if (i < name.length) {
+      if (name[i] !== ".") return null;
+      i++;
+      if (i === name.length) return null;
+    }
+  }
+  return parts.length > 0 ? parts : null;
+}
+
+/** Fix 14: the last part of a dotted name; an unparseable name stays as it is. */
+function lastPart(name: string): string {
+  const parts = parseDotted(name);
+  return parts ? parts[parts.length - 1] : name;
+}
+
+/**
+ * A schema as the tree lists it, quoted for SQL (fix 6's DDL side): `main` →
+ * `"main"`, `"fx.a.b"` → `"fx.a.b"`, `fx_aux.main` → `"fx_aux"."main"`.
+ */
+function quoteSchema(schema: string): string {
+  const q = quote();
+  if (!ON.has(6)) return q(schema);
+  const parts = parseDotted(schema);
+  return parts && parts.length <= 2 ? parts.map((p) => q(p)).join(".") : q(schema);
+}
+/** The attached catalog a listed schema names, if any. */
+function catalogOf(schema: string): string | undefined {
+  const parts = ON.has(6) ? parseDotted(schema) : null;
+  return parts && parts.length === 2 ? parts[0] : undefined;
+}
+
+/** Fix 9: a NOT NULL column added without a default can't be made NOT NULL on a table with rows. */
+const notNullNote = (table: string, q: (s: string) => string, column: string) =>
+  note(
+    `DuckDB can't add column ${q(column)} as NOT NULL without a default; fill it, then run ALTER TABLE ${table} ALTER COLUMN ${q(column)} SET NOT NULL`,
+  );
+
+/** TS `buildColumnLine`. */
+function columnLine(c: CreateTableColumn, q: (s: string) => string): string {
+  let line = `  ${q(c.name)} ${buildColumnType(c)}`;
+  if (!c.nullable) line += " NOT NULL";
+  if (c.defaultValue) {
+    const safe = sanitizeDefaultValue(c.defaultValue);
+    if (safe) line += ` DEFAULT ${safe}`;
+  }
+  return line;
+}
+
+/**
+ * Fixed CREATE TABLE (the TypeScript `generateCreateTableDdl` with every fix
+ * off). Fix 1: the quote doubles ". Fix 6: the schema is split. Fix 11: a
+ * foreign key references the table's own schema; in an attached catalog it
+ * can't be created at all, so it is a note.
+ */
+function createSql(def: CreateTableDefinition): string {
+  const q = quote();
+  const table = `${quoteSchema(def.schemaName)}.${q(def.tableName)}`;
+  const lines = def.columns.map((c) => columnLine(c, q));
+  const pk = def.columns.filter((c) => c.isPrimaryKey);
+  if (pk.length > 0) lines.push(`  PRIMARY KEY (${pk.map((c) => q(c.name)).join(", ")})`);
+  for (const c of def.columns) if (c.isUnique && !c.isPrimaryKey) lines.push(`  UNIQUE (${q(c.name)})`);
+  const notes: string[] = [];
+  const catalog = catalogOf(def.schemaName);
+  for (const f of def.foreignKeys) {
+    const ref = ON.has(11)
+      ? `${quoteSchema(def.schemaName)}.${q(f.referencedTable)}`
+      : `${q(f.referencedSchema)}.${q(f.referencedTable)}`;
+    const clause = `(${q(f.column)}) REFERENCES ${ref} (${q(f.referencedColumn)})`;
+    if (ON.has(11) && catalog !== undefined) {
+      notes.push(
+        note(`DuckDB can't create a foreign key in attached catalog ${q(catalog)} from here: ${clause}; create the table after USE ${q(catalog)} to add it`),
+      );
+    } else {
+      lines.push(`  FOREIGN KEY ${clause}`);
+    }
+  }
+  let sql = `CREATE TABLE ${table} (\n${lines.join(",\n")}\n);`;
+  for (const i of def.indexes) {
+    sql += `\n\nCREATE ${i.unique ? "UNIQUE " : ""}INDEX ${q(i.name)} ON ${table} (${i.columns.map((c) => q(c)).join(", ")});`;
+  }
+  return [sql, ...notes].join("\n");
+}
+
+/** Fixed ADD COLUMN: fix 1's quote, fix 6's schema; fix 9 adds NOT NULL as its own statement (or a note). */
+function addColumnSql(schema: string, tableName: string, col: CreateTableColumn): string {
+  const q = quote();
+  const table = `${quoteSchema(schema)}.${q(tableName)}`;
+  const safe = col.defaultValue ? sanitizeDefaultValue(col.defaultValue) : "";
+  if (!ON.has(9)) {
+    return `ALTER TABLE ${table} ADD COLUMN ${q(col.name)} ${buildColumnType(col)}${col.nullable ? "" : " NOT NULL"}${safe ? ` DEFAULT ${safe}` : ""};`;
+  }
+  const out = [`ALTER TABLE ${table} ADD COLUMN ${q(col.name)} ${buildColumnType(col)}${safe ? ` DEFAULT ${safe}` : ""};`];
+  if (!col.nullable) {
+    out.push(safe ? `ALTER TABLE ${table} ALTER COLUMN ${q(col.name)} SET NOT NULL;` : notNullNote(table, q, col.name));
+  }
+  return out.join("\n");
+}
+
+/**
+ * Fixed ALTER TABLE. With every fix off this is the TypeScript generator.
+ * Fix 1: the quote doubles ". Fix 4: an added foreign key is a note. Fix 6:
+ * the schema is split. Fix 8: DROP INDEX is qualified with the original
+ * schema. Fix 9: NOT NULL on an added column is a separate SET NOT NULL (or a
+ * note without a default). Fix 10: removed indexes are dropped first
+ * (`drop_indexes_first`); while indexes the edit keeps remain, every statement
+ * DuckDB rejects on an indexed table (RENAME COLUMN, DROP COLUMN, TYPE,
+ * SET/DROP NOT NULL) is a note carrying that statement instead, and so is a
+ * DROP COLUMN or TYPE change of a column in a PRIMARY KEY or UNIQUE
+ * constraint, and a DROP COLUMN of a column that comes before one (the
+ * constraint's ART index depends on a later column); DuckDB rejects those
+ * whatever the CREATE INDEX indexes.
+ */
+function alterSql(from: CreateTableDefinition, to: CreateTableDefinition): string {
+  const q = quote();
+  const table = `${quoteSchema(to.schemaName)}.${q(to.tableName)}`;
+  const stmts: string[] = [];
+  const notes: string[] = [];
+  const origCols = new Map(from.columns.map((c) => [c.id, c]));
+  const newCols = new Map(to.columns.map((c) => [c.id, c]));
+  const origIdx = new Set(from.indexes.map((i) => i.name));
+  const newIdx = new Set(to.indexes.map((i) => i.name));
+  const kept = ON.has(10) ? from.indexes.filter((i) => i.name && newIdx.has(i.name)) : [];
+  const keptNames = kept.map((i) => `${quoteSchema(from.schemaName)}.${q(i.name)}`).join(", ");
+  /** A statement DuckDB rejects while the table has indexes. */
+  const blocked = (stmt: string) => {
+    if (kept.length === 0) {
+      stmts.push(stmt);
+      return;
+    }
+    notes.push(
+      note(
+        `DuckDB can't run this while the table has indexes; drop ${keptNames} first and recreate ${kept.length > 1 ? "them" : "it"} afterwards: ${stmt.replace(/;$/, "")}`,
+      ),
+    );
+  };
+  /** DuckDB can't drop or retype a column in a PRIMARY KEY or UNIQUE constraint. */
+  const constrained = (c: CreateTableColumn, stmt: string) => {
+    if (ON.has(10) && (c.isPrimaryKey || c.isUnique)) {
+      notes.push(
+        note(
+          `DuckDB can't drop or change the type of a column in a PRIMARY KEY or UNIQUE constraint; recreate the table to change it: ${stmt.replace(/;$/, "")}`,
+        ),
+      );
+      return;
+    }
+    blocked(stmt);
+  };
+  /** New names of columns whose rename became a note: later statements naming them can't run either. */
+  const unrenamed = new Set<string>();
+  const afterRename = (names: string[], stmt: string) => {
+    if (names.some((n) => unrenamed.has(n))) {
+      notes.push(note(`DuckDB can't run this before the rename above: ${stmt.replace(/;$/, "")}`));
+    } else {
+      stmts.push(stmt);
+    }
+  };
+  for (const c of to.columns) {
+    const o = origCols.get(c.id);
+    if (o && o.name !== c.name) {
+      blocked(`ALTER TABLE ${table} RENAME COLUMN ${q(o.name)} TO ${q(c.name)};`);
+      if (kept.length > 0) unrenamed.add(c.name);
+    }
+  }
+  for (const c of to.columns) {
+    if (origCols.has(c.id)) continue;
+    const safe = c.defaultValue ? sanitizeDefaultValue(c.defaultValue) : "";
+    if (!ON.has(9)) {
+      let st = `ALTER TABLE ${table} ADD COLUMN ${q(c.name)} ${buildColumnType(c)}`;
+      if (!c.nullable) st += " NOT NULL";
+      if (safe) st += ` DEFAULT ${safe}`;
+      stmts.push(st + ";");
+      continue;
+    }
+    stmts.push(`ALTER TABLE ${table} ADD COLUMN ${q(c.name)} ${buildColumnType(c)}${safe ? ` DEFAULT ${safe}` : ""};`);
+    if (!c.nullable) {
+      if (safe) blocked(`ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} SET NOT NULL;`);
+      else notes.push(notNullNote(table, q, c.name));
+    }
+  }
+  for (const c of from.columns) {
+    if (newCols.has(c.id)) continue;
+    const stmt = `ALTER TABLE ${table} DROP COLUMN ${q(c.name)};`;
+    const later = from.columns.slice(from.columns.indexOf(c) + 1);
+    if (ON.has(10) && !(c.isPrimaryKey || c.isUnique) && later.some((x) => x.isPrimaryKey || x.isUnique)) {
+      // The constraint's ART index depends on a column after this one.
+      notes.push(
+        note(
+          `DuckDB can't drop a column that comes before a PRIMARY KEY or UNIQUE column; recreate the table to change it: ${stmt.replace(/;$/, "")}`,
+        ),
+      );
+      continue;
+    }
+    constrained(c, stmt);
+  }
+  for (const c of to.columns) {
+    const o = origCols.get(c.id);
+    if (!o) continue;
+    const ot = buildColumnType(o);
+    const nt = buildColumnType(c);
+    if (ot !== nt) constrained(o, `ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} TYPE ${nt};`);
+    if (o.nullable && !c.nullable) blocked(`ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} SET NOT NULL;`);
+    else if (!o.nullable && c.nullable) blocked(`ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} DROP NOT NULL;`);
+    if (o.defaultValue !== c.defaultValue) {
+      const safe = sanitizeDefaultValue(c.defaultValue);
+      afterRename(
+        [c.name],
+        safe
+          ? `ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} SET DEFAULT ${safe};`
+          : `ALTER TABLE ${table} ALTER COLUMN ${q(c.name)} DROP DEFAULT;`,
+      );
+    }
+  }
+  const dropped = from.indexes
+    .filter((i) => i.name && !newIdx.has(i.name))
+    .map((i) => `DROP INDEX ${ON.has(8) ? `${quoteSchema(from.schemaName)}.` : ""}${q(i.name)};`);
+  if (ON.has(10)) stmts.unshift(...dropped);
+  else stmts.push(...dropped);
+  for (const i of to.indexes) {
+    if (i.name && !origIdx.has(i.name)) {
+      afterRename(
+        i.columns,
+        `CREATE ${i.unique ? "UNIQUE " : ""}INDEX ${q(i.name)} ON ${table} (${i.columns.map((c) => q(c)).join(", ")});`,
+      );
+    }
+  }
+  const fkKey = (f: { column: string; referencedTable: string; referencedColumn: string }) =>
+    `${f.column}->${f.referencedTable}.${f.referencedColumn}`;
+  const origFks = new Set(from.foreignKeys.map(fkKey));
+  for (const f of to.foreignKeys) {
+    if (origFks.has(fkKey(f))) continue;
+    const ref = f.referencedSchema ? `${q(f.referencedSchema)}.${q(f.referencedTable)}` : q(f.referencedTable);
+    if (ON.has(4)) {
+      notes.push(
+        note(
+          `DuckDB can't add a foreign key to an existing table: (${q(f.column)}) REFERENCES ${ref} (${q(f.referencedColumn)}); recreate the table to add it`,
+        ),
+      );
+    } else {
+      stmts.push(`ALTER TABLE ${table} ADD FOREIGN KEY (${q(f.column)}) REFERENCES ${ref} (${q(f.referencedColumn)});`);
+    }
+  }
+  const all = [...stmts, ...notes];
+  return all.length === 0 ? "-- No changes detected" : all.join("\n");
+}
+
+/** Fixed EXPLAIN parsing: the TypeScript output with fixes 5, 13 and 14 applied node by node. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function explainOutput(input: any, tsOut: any): any {
+  const out = structuredClone(tsOut);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.rows[0]?.explain_value ?? "");
+  } catch {
+    return out;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let root: any;
+  if (input.analyze) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const first = (parsed as any)?.children?.[0];
+    root = first?.operator_name?.trim() === "EXPLAIN_ANALYZE" ? first?.children?.[0] : first;
+  } else {
+    root = Array.isArray(parsed) ? parsed[0] : undefined;
+  }
+  if (!root) return out;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const walk = (raw: any, node: any) => {
+    const extra = raw.extra_info ?? {};
+    if (ON.has(5)) {
+      const rows = cardinality(extra["Estimated Cardinality"]);
+      if (rows !== undefined) node.planRows = rows;
+    }
+    if (ON.has(13) && node.nodeType === "FILTER" && typeof extra.Expression === "string" && node.filter === undefined) {
+      node.filter = extra.Expression;
+    }
+    if (ON.has(14) && typeof node.relationName === "string") node.relationName = lastPart(node.relationName);
+    (raw.children ?? []).forEach((c: unknown, k: number) => walk(c, node.children[k]));
+  };
+  walk(root, out.plan);
+  return out;
+}
+
+/** The fixes among `candidates` whose removal changes `compute()`'s result. */
+function fixesOf(candidates: number[], compute: () => unknown): number[] {
+  const full = JSON.stringify(compute());
+  return candidates.filter((f) => {
+    ON.delete(f);
+    const without = JSON.stringify(compute());
+    ON.add(f);
+    return without !== full;
+  });
+}
+
+/** With every fix off, `compute()` must equal the recorded TypeScript output. */
+function assertTsParity(label: string, compute: () => unknown, recordedOutput: unknown): void {
+  const saved = [...ON];
+  ON.clear();
+  const got = JSON.stringify(toJson(compute()));
+  for (const f of saved) ON.add(f);
+  if (got !== JSON.stringify(recordedOutput)) throw new Error(`model differs from the TypeScript: ${label}\n${got}`);
+}
+
+/** Fixed indexes parser: rows of the fixed query, grouped in order (fix 2). */
+function parseIndexes(rows: Record<string, unknown>[]) {
+  const out: { name: string; columns: string[]; unique: boolean; type: string }[] = [];
+  for (const r of rows) {
+    const name = r.index_name as string;
+    let idx = out.find((i) => i.name === name);
+    if (!idx) {
+      idx = { name, columns: [], unique: r.is_unique === true, type: "art" };
+      out.push(idx);
+    }
+    idx.columns.push(r.column_name as string);
+  }
+  return out;
+}
+
+/** `format_bytes` in the SQLite port (the TS `formatBytes`). */
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 bytes";
+  const sizes = ["bytes", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + " " + sizes[i];
+}
+
+/** Fixed overview parser (fix 3). */
+function parseOverview(rows: Record<string, unknown>[]) {
+  const row = rows[0];
+  const bytes = Number(row?.total_size_bytes) || 0;
+  return {
+    databaseName:
+      typeof row?.database_name === "string" && row.database_name ? row.database_name : "DuckDB Database",
+    totalSize: formatBytes(bytes),
+    totalSizeBytes: bytes,
+    tableCount: Number(row?.table_count) || 0,
+    indexCount: Number(row?.index_count) || 0,
+  };
+}
+
+/** Fixed estimated cardinality (fix 5). */
+function cardinality(ec: unknown): number | undefined {
+  if (typeof ec === "number") return ec;
+  if (typeof ec !== "string") return undefined;
+  const s = ec.trim().replace(/^~\s*/, "").replace(/\s*rows?$/i, "").replace(/[_,]/g, "");
+  return /^\d+$/.test(s) ? Number(s) : undefined;
+}
+
+// ─── Live ────────────────────────────────────────────────────────────
+
+let session: Session;
+const select = async (sql: string, params?: unknown[]) => session.select(sql, params);
+const rowsOf = async (sql: string, params?: unknown[]) => {
+  const { columns, rows } = await select(sql, params);
+  return { columns, rows: rows as unknown as Json };
+};
+
+/**
+ * Runs the script's statements one by one in autocommit, as the table editor
+ * does (splitDdlScript, then one execute per statement), on a fresh in-memory
+ * database after `setup`; prints "ok" or the first error. DuckDB keeps a
+ * dropped index's dependencies until the transaction ends, so a transaction
+ * would hide fix 10.
+ */
+async function tryDdl(label: string, setup: string[], script: string): Promise<void> {
+  const statements = script
+    .split(/;\n/)
+    .map((s) => s.replace(/;$/, "").trim())
+    .filter((s) => s && !s.startsWith("--"));
+  const scratchDb = await openSession(process.env.SEAQUEL_SERVER_URL!, { driver: "duckdb", path: ":memory:" });
+  let result = "ok";
+  try {
+    for (const s of setup) await scratchDb.execute(s);
+    for (const s of statements) {
+      try {
+        await scratchDb.execute(s);
+      } catch (e) {
+        result = `FAILED: ${s}\n    ${String(e).split("\n")[0]}`;
+        break;
+      }
+    }
+  } finally {
+    await scratchDb.close();
+  }
+  console.log(`[ddl] ${label}: ${result}`);
+}
+
+type Case = { name: string; fix: number; kind: string; replaces?: string; input: Json; output: Json };
+
+it("writes bugfixes.json", async () => {
+  const scratch = JSON.parse(readFileSync(`${FIXTURES}bugfixes.json`, "utf-8")).scratch as {
+    setup: string[];
+    teardown: string[];
+  };
+  rmSync(DIR, { recursive: true, force: true });
+  mkdirSync(DIR, { recursive: true });
+  copyFileSync(SOURCE, DB);
+  if (existsSync(`${SOURCE}.wal`)) copyFileSync(`${SOURCE}.wal`, `${DB}.wal`);
+  session = await openSession(process.env.SEAQUEL_SERVER_URL!, { driver: "duckdb", path: DB });
+  for (const s of [...scratch.teardown, ...scratch.setup]) await session.execute(s);
+
+  const cases: Case[] = [];
+  const add = (c: Case) => cases.push({ ...c, input: toJson(c.input), output: toJson(c.output) });
+
+  // Every query of the model, checked to run.
+  for (const [name, sql] of Object.entries(Q)) {
+    const params = sql.includes("$2") ? ["main", "users"] : [];
+    await select(sql, params);
+    console.log(`[sql] ${name}: runs`);
+  }
+
+  // ── Fix 1 + 6: catalog queries ──
+  const sqlCase = (fix: number, what: string, query: keyof typeof Q, replaces = true) =>
+    add({
+      name: `fix ${what}: ${query}`,
+      fix,
+      kind: "sql",
+      ...(replaces ? { replaces: `sql.json: ${query}` } : {}),
+      input: null,
+      output: Q[query],
+    });
+  sqlCase(6, "6 (catalogs told apart, system and temp left out)", "getSchemaQuery");
+  sqlCase(6, "6 (catalogs told apart)", "getSchemasQuery");
+  sqlCase(1, "1 + 6 (bound $1 schema as listed, $2 table; the primary key matched in its own catalog)", "getColumnsQuery");
+  sqlCase(1, "1 + 6 (bound $1 schema, $2 table; the column pairs in order)", "getForeignKeysQuery");
+  sqlCase(2, "2 + 1 + 6 (indexes from duckdb_indexes(), one row per key)", "getIndexesQuery");
+  sqlCase(6, "6 (the catalog and schema for the row counts)", "getTableSizesQuery");
+  sqlCase(6, "6 (catalogs told apart)", "getIndexUsageQuery");
+  sqlCase(3, "3 + 6 + 15 (the size from pragma_database_size, the name from current_database())", "getDatabaseOverviewQuery");
+  add({
+    name: "fix 1 + 6: getTableRowCountQuery names the catalog and doubles \"",
+    fix: 1,
+    kind: "sql",
+    replaces: "sql.json: getTableRowCountQuery",
+    input: { query: "getTableRowCountQuery", catalog: "seaquel_test", schema: "main", table: "users" },
+    output: rowCountSql("seaquel_test", "main", "users"),
+  });
+  add({
+    name: "fix 1 + 6: getTableRowCountQuery in an attached catalog, a name with quotes",
+    fix: 1,
+    kind: "sql",
+    input: { query: "getTableRowCountQuery", catalog: "fx_aux", schema: "main", table: 'it\'s "x"' },
+    output: rowCountSql("fx_aux", "main", 'it\'s "x"'),
+  });
+
+  // ── columns: recorded replacements (fixed rows) and live cases ──
+  const columnsOf = async (schema: string, table: string) => {
+    const cols = await rowsOf(Q.getColumnsQuery, [schema, table]);
+    const fks = await rowsOf(Q.getForeignKeysQuery, [schema, table]);
+    const output = adapter.parseColumnsResult(decodeStoredRows(cols.rows), decodeStoredRows(fks.rows));
+    return { cols, fks, output };
+  };
+  for (const [schema, table, why] of [
+    ["main", "users", "the attached catalog's users table is no longer mixed in"],
+    ["fx_sales", "regions", "fx_aux.fx_sales.regions is no longer mixed in"],
+  ] as const) {
+    const { cols, fks, output } = await columnsOf(schema, table);
+    add({
+      name: `fix 6: ${why} (${schema}.${table})`,
+      fix: 6,
+      kind: "parse-columns",
+      replaces: `parse-columns.json: ${schema}.${table}`,
+      input: {
+        schema,
+        table,
+        columns: cols.columns,
+        rows: cols.rows,
+        foreignKeyColumns: fks.columns,
+        foreignKeys: fks.rows,
+      },
+      output,
+    });
+  }
+  const liveColumns: [number, string, string, string][] = [
+    [1, "fx_sales", "fx order lines", "a table with spaces in its names, a composite foreign key and a default"],
+    [1, "main", "fx it's", 'a table with a quote in its name and a column named say "hi"'],
+    [6, "main", "categories", "a table whose fx_aux namesake also has a primary key (the adapter's query failed)"],
+    [6, "fx_aux.main", "users", "a table in an attached catalog"],
+    [6, "fx_aux.main", "fx_items", "an attached table with a foreign key (it references the schema as listed)"],
+    [6, "fx_aux.fx_sales", "regions", "a non-main schema in an attached catalog"],
+    [6, "fx_sales", "orders", "a non-main schema with a composite primary key"],
+    [6, '"fx.a.b"', "things", "a default-catalog schema with dots in its name, listed quoted"],
+    [6, '"fx_aux.main"', "users", "a default-catalog schema named fx_aux.main, which doesn't collide with the attached fx_aux.main"],
+    [6, '"fx.we""ird".main', "items", "an attached catalog whose name has a dot and a quote"],
+  ];
+  for (const [fix, schema, table, why] of liveColumns) {
+    const { output } = await columnsOf(schema, table);
+    add({ name: `fix ${fix}: columns of ${why}`, fix, kind: "columns", input: { schema, table }, output });
+  }
+
+  // ── Fix 7: a failing foreign-key query keeps the columns ──
+  {
+    const cols = await rowsOf(Q.getColumnsQuery, ["fx_sales", "orders"]);
+    add({
+      name: "fix 7: a failing foreign-key query leaves the columns without foreign keys (fx_sales.orders)",
+      fix: 7,
+      kind: "columns-fk-error",
+      input: {
+        schema: "fx_sales",
+        table: "orders",
+        columns: cols.columns,
+        rows: cols.rows,
+        foreignKeysError: "QUERY_ERROR: Query failed: Binder Error: Table function with name duckdb_constraints does not exist",
+      },
+      output: adapter.parseColumnsResult(decodeStoredRows(cols.rows), undefined),
+    });
+  }
+
+  // ── Fix 2: indexes ──
+  // main.users has no duckdb_indexes() row: [] before and after, so it isn't replaced.
+  for (const [schema, table] of [
+    ["main", "orders"],
+    ["fx_sales", "orders"],
+  ] as const) {
+    const r = await rowsOf(Q.getIndexesQuery, [schema, table]);
+    add({
+      name: `fix 2: indexes from duckdb_indexes() (${schema}.${table})`,
+      fix: 2,
+      kind: "parse-indexes",
+      replaces: `parse-indexes.json: ${schema}.${table}`,
+      input: { schema, table, columns: r.columns, rows: r.rows },
+      output: parseIndexes(decodeStoredRows(r.rows)),
+    });
+  }
+  for (const [fix, schema, table, why] of [
+    [2, "fx_sales", "orders", "expression keys keep DuckDB's text; a unique two-column index"],
+    [1, "fx_sales", "fx order lines", "a table and key with spaces and quotes, an index name with \""],
+    [2, "main", "users", "PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row"],
+    [6, "fx_aux.main", "users", "an attached catalog's index"],
+    [6, '"fx.we""ird".main', "items", "an attached catalog whose name has a dot and a quote"],
+  ] as [number, string, string, string][]) {
+    const r = await rowsOf(Q.getIndexesQuery, [schema, table]);
+    add({
+      name: `fix ${fix}: indexes: ${why} (${schema}.${table})`,
+      fix,
+      kind: "indexes",
+      input: { schema, table },
+      output: parseIndexes(decodeStoredRows(r.rows)),
+    });
+  }
+
+  // ── Fix 6: schema listing ──
+  {
+    const r = await rowsOf(Q.getSchemaQuery);
+    const output = adapter.parseSchemaResult(decodeStoredRows(r.rows));
+    add({
+      name: "fix 6: catalogs told apart: attached tables are listed under catalog.schema",
+      fix: 6,
+      kind: "parse-schema",
+      replaces: "parse-schema.json: schema",
+      input: { columns: r.columns, rows: r.rows },
+      output,
+    });
+    add({ name: "fix 6: the schema tree, live", fix: 6, kind: "schema", input: {}, output });
+    const s = await select(Q.getSchemasQuery);
+    add({
+      name: "fix 6: listSchemas, live (no duplicate main)",
+      fix: 6,
+      kind: "schemas",
+      input: {},
+      output: s.rows.map((x) => x.schema_name as string),
+    });
+  }
+
+  // ── Fix 3 + 6: statistics ──
+  {
+    const sizes = await rowsOf(Q.getTableSizesQuery);
+    const parsedSizes = adapter.parseTableSizesResult!(decodeStoredRows(sizes.rows));
+    add({
+      name: "fix 6: table sizes list attached tables under catalog.schema",
+      fix: 6,
+      kind: "parse-stats",
+      replaces: "parse-stats.json: table sizes",
+      input: { kind: "tableSizes", columns: sizes.columns, rows: sizes.rows },
+      output: parsedSizes,
+    });
+    const counted = [];
+    for (const row of decodeStoredRows(sizes.rows)) {
+      const r = await select(rowCountSql(row.table_catalog as string, row.table_schema as string, row.table_name as string));
+      counted.push({
+        schema: row.schema_name,
+        name: row.table_name,
+        rowCount: Number(r.rows[0].row_count),
+        totalSize: "N/A",
+        totalSizeBytes: 0,
+      });
+    }
+    add({
+      name: "fix 1 + 6: table sizes with row counts, live (each table counted in its own catalog, names with spaces and quotes counted)",
+      fix: 6,
+      kind: "table-sizes",
+      input: {},
+      output: counted,
+    });
+    const usage = await rowsOf(Q.getIndexUsageQuery);
+    add({
+      name: "fix 6: index usage lists attached indexes under catalog.schema",
+      fix: 6,
+      kind: "parse-stats",
+      replaces: "parse-stats.json: index usage",
+      input: { kind: "indexUsage", columns: usage.columns, rows: usage.rows },
+      output: adapter.parseIndexUsageResult!(decodeStoredRows(usage.rows)),
+    });
+    const ov = await rowsOf(Q.getDatabaseOverviewQuery);
+    add({
+      name: "fix 3 + 15: the overview's size comes from pragma_database_size, its name from current_database()",
+      fix: 3,
+      kind: "parse-stats",
+      replaces: "parse-stats.json: database overview",
+      input: { kind: "overview", columns: ov.columns, rows: ov.rows },
+      output: parseOverview(decodeStoredRows(ov.rows)),
+    });
+    add({
+      name: "fix 3: no overview row is 0 bytes, not In-memory",
+      fix: 3,
+      kind: "parse-stats",
+      replaces: "parse-stats.json: database overview, no rows (fallbacks)",
+      input: null,
+      output: parseOverview([]),
+    });
+    add({
+      name: "fix 3 + 15: an in-memory database (0 bytes)",
+      fix: 15,
+      kind: "parse-stats",
+      input: {
+        kind: "overview",
+        columns: ["database_name", "table_count", "index_count", "total_size_bytes"],
+        rows: [{ database_name: "memory", table_count: 2, index_count: 1, total_size_bytes: 0 }],
+      },
+      output: parseOverview([{ database_name: "memory", table_count: 2, index_count: 1, total_size_bytes: 0 }]),
+    });
+    add({
+      name: "fix 3 + 15: 1.5 GB",
+      fix: 3,
+      kind: "parse-stats",
+      input: {
+        kind: "overview",
+        columns: ["database_name", "table_count", "index_count", "total_size_bytes"],
+        rows: [{ database_name: "warehouse", table_count: 1, index_count: 0, total_size_bytes: 1610612736 }],
+      },
+      output: parseOverview([{ database_name: "warehouse", table_count: 1, index_count: 0, total_size_bytes: 1610612736 }]),
+    });
+  }
+
+  // ── DDL: every recorded case a fix changes (1, 4, 8, 9, 10, 11), and new cases ──
+  const label = (fixes: number[]) => `fix ${fixes.join(" + ")}`;
+  const schemaSetup = (schema: string) =>
+    schema === "main" ? [] : [`CREATE SCHEMA IF NOT EXISTS ${qd(schema)}`];
+  /** The referenced tables a definition's foreign keys need, in its own schema (fix 11). */
+  const referencedSetup = (def: CreateTableDefinition) =>
+    def.foreignKeys.map((f) => {
+      const col = def.columns.find((c) => c.name === f.column);
+      const type = col ? buildColumnType(col) : "INTEGER";
+      return `CREATE TABLE IF NOT EXISTS ${qd(def.schemaName)}.${qd(f.referencedTable)} (${qd(f.referencedColumn)} ${type} PRIMARY KEY)`;
+    });
+  /** The `from` table, built with the fixed CREATE TABLE minus its foreign keys. */
+  const tableSetup = (def: CreateTableDefinition) => [
+    ...schemaSetup(def.schemaName),
+    ...createSql({ ...def, foreignKeys: [] })
+      .split(/;\n\n/)
+      .map((x) => x.replace(/;$/, "")),
+  ];
+
+  for (const c of read("ddl-create.json").cases) {
+    const def = c.input as CreateTableDefinition;
+    assertTsParity(`ddl-create ${c.name}`, () => createSql(def), c.output);
+    const out = createSql(def);
+    if (out !== c.output) {
+      const fixes = fixesOf(DDL_FIXES, () => createSql(def));
+      add({ name: `${label(fixes)}: CREATE TABLE, ${c.name}`, fix: fixes[0], kind: "ddl-create", replaces: `ddl-create.json: ${c.name}`, input: null, output: out });
+    }
+    await tryDdl(`create: ${c.name}`, [...schemaSetup(def.schemaName), ...referencedSetup(def)], out);
+  }
+  {
+    const def: CreateTableDefinition = {
+      tableName: "fx_notes",
+      schemaName: "fx_sales",
+      columns: [
+        { id: "c1", name: "id", type: "INTEGER", nullable: false, defaultValue: "", isPrimaryKey: true, isUnique: false },
+        { id: "c2", name: "region_code", type: "VARCHAR", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false },
+      ],
+      indexes: [],
+      foreignKeys: [{ id: "f1", column: "region_code", referencedSchema: "main", referencedTable: "regions", referencedColumn: "code" }],
+    };
+    const out = createSql(def);
+    add({
+      name: "fix 11: a foreign key names the table's own schema, whatever the definition says (DuckDB has no cross-schema foreign keys)",
+      fix: 11,
+      kind: "ddl-create",
+      input: toJson(def),
+      output: out,
+    });
+    await tryDdl("create: fix 11 another schema", ["CREATE SCHEMA fx_sales", "CREATE TABLE fx_sales.regions (code VARCHAR PRIMARY KEY)"], out);
+  }
+  {
+    const def: CreateTableDefinition = {
+      tableName: "fx_links",
+      schemaName: "fx_aux.main",
+      columns: [
+        { id: "c1", name: "id", type: "INTEGER", nullable: false, defaultValue: "", isPrimaryKey: true, isUnique: false },
+        { id: "c2", name: "category_id", type: "INTEGER", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false },
+      ],
+      indexes: [{ id: "i1", name: "fx_links_category_idx", columns: ["category_id"], unique: false, type: "art" }],
+      foreignKeys: [{ id: "f1", column: "category_id", referencedSchema: "fx_aux.main", referencedTable: "categories", referencedColumn: "id" }],
+    };
+    const out = createSql(def);
+    add({
+      name: "fix 6 + 11: a table in an attached catalog: the schema is split, and its foreign key is a note (DuckDB can't create it from another catalog)",
+      fix: 11,
+      kind: "ddl-create",
+      input: toJson(def),
+      output: out,
+    });
+    const attach = ["ATTACH ':memory:' AS fx_aux", "CREATE TABLE fx_aux.main.categories (id INTEGER PRIMARY KEY)"];
+    await tryDdl("create: fix 6 + 11 attached catalog", attach, out);
+    await tryDdl(
+      "create: the same with its foreign key inline (expected to fail)",
+      attach,
+      `CREATE TABLE "fx_aux"."main"."fx_links" ("id" INTEGER PRIMARY KEY, "category_id" INTEGER, FOREIGN KEY ("category_id") REFERENCES "fx_aux"."main"."categories" ("id"));`,
+    );
+
+    const from: CreateTableDefinition = { ...def, foreignKeys: [] };
+    const to: CreateTableDefinition = {
+      ...from,
+      columns: [...from.columns, { id: "c3", name: "note", type: "VARCHAR", nullable: true, defaultValue: "'x'", isPrimaryKey: false, isUnique: false }],
+      indexes: [],
+    };
+    to.columns[1] = { ...to.columns[1], name: "cat_id" };
+    const out2 = alterSql(from, to);
+    add({
+      name: "fix 6 + 8 + 10: ALTER TABLE in an attached catalog names catalog, schema and table",
+      fix: 6,
+      kind: "ddl-alter",
+      input: { from: toJson(from), to: toJson(to) },
+      output: out2,
+    });
+    await tryDdl("alter: fix 6 attached catalog", ["ATTACH ':memory:' AS fx_aux", ...createSql(from).split(/;\n\n/).map((x) => x.replace(/;$/, ""))], out2);
+  }
+
+  for (const c of read("ddl-add-column.json").cases) {
+    const { schema, table, column: col } = c.input as { schema: string; table: string; column: CreateTableColumn };
+    const compute = () => addColumnSql(schema, table, col);
+    assertTsParity(`ddl-add-column ${c.name}`, compute, c.output);
+    const out = compute();
+    if (out !== c.output) {
+      const fixes = fixesOf(DDL_FIXES, compute);
+      add({ name: `${label(fixes)}: ADD COLUMN, ${c.name}`, fix: fixes[0], kind: "ddl-add-column", replaces: `ddl-add-column.json: ${c.name}`, input: null, output: out });
+    }
+    await tryDdl(
+      `add column: ${c.name}`,
+      [...schemaSetup(schema), `CREATE TABLE ${qd(schema)}.${qd(table)} (id INTEGER)`, `INSERT INTO ${qd(schema)}.${qd(table)} VALUES (1)`],
+      out,
+    );
+  }
+  {
+    const col: CreateTableColumn = { id: "c9", name: "code", type: "VARCHAR", nullable: false, defaultValue: "", isPrimaryKey: false, isUnique: false };
+    const out = addColumnSql("main", "customers", col);
+    add({
+      name: "fix 9: NOT NULL without a default is added nullable, with a note (SET NOT NULL fails on a table with rows)",
+      fix: 9,
+      kind: "ddl-add-column",
+      input: { schema: "main", table: "customers", column: toJson(col) },
+      output: out,
+    });
+    await tryDdl("add column: fix 9 without a default", ["CREATE TABLE main.customers (id INTEGER)", "INSERT INTO main.customers VALUES (1)"], out);
+  }
+
+  for (const c of read("ddl-alter.json").cases) {
+    const from = c.input.from as CreateTableDefinition;
+    const to = c.input.to as CreateTableDefinition;
+    const compute = () => alterSql(from, to);
+    assertTsParity(`ddl-alter ${c.name}`, compute, c.output);
+    const out = compute();
+    if (out !== c.output) {
+      const fixes = fixesOf(DDL_FIXES, compute);
+      add({ name: `${label(fixes)}: ALTER TABLE, ${c.name}`, fix: fixes[0], kind: "ddl-alter", replaces: `ddl-alter.json: ${c.name}`, input: null, output: out });
+    }
+    await tryDdl(`alter: ${c.name}`, tableSetup(from), out);
+  }
+  {
+    const base = (): CreateTableDefinition => ({
+      tableName: "t",
+      schemaName: "main",
+      columns: [
+        { id: "c1", name: "a", type: "INTEGER", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false },
+      ],
+      indexes: [],
+      foreignKeys: [],
+    });
+    const to = base();
+    to.foreignKeys.push({ id: "f1", column: "a", referencedSchema: "main", referencedTable: 'p"\nq', referencedColumn: "id" });
+    add({
+      name: "fix 4: a line break in a referenced name can't end the comment; quotes are doubled",
+      fix: 4,
+      kind: "ddl-alter",
+      input: { from: base(), to },
+      output: alterSql(base(), to),
+    });
+    const to2 = base();
+    to2.columns.push({ id: "c2", name: "owner_id", type: "INTEGER", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false });
+    to2.foreignKeys.push({ id: "f1", column: "owner_id", referencedSchema: "", referencedTable: "users", referencedColumn: "id" });
+    const out2 = alterSql(base(), to2);
+    add({
+      name: "fix 4: a foreign key on a column added in the same edit is a note too (DuckDB rejects constraints in ADD COLUMN)",
+      fix: 4,
+      kind: "ddl-alter",
+      input: { from: base(), to: to2 },
+      output: out2,
+    });
+    await tryDdl("alter: fix 4 added column", ["CREATE TABLE main.t (a INTEGER)"], out2);
+
+    const to3 = base();
+    to3.columns.push({ id: "c2", name: "code", type: "VARCHAR", nullable: false, defaultValue: "", isPrimaryKey: false, isUnique: false });
+    const out3 = alterSql(base(), to3);
+    add({
+      name: "fix 9: a NOT NULL column without a default is added nullable, with a note",
+      fix: 9,
+      kind: "ddl-alter",
+      input: { from: base(), to: to3 },
+      output: out3,
+    });
+    await tryDdl("alter: fix 9 without a default", ["CREATE TABLE main.t (a INTEGER)", "INSERT INTO main.t VALUES (1)"], out3);
+
+    // Fix 10: dropping every index the edit removes first makes the column changes run.
+    const indexed = (): CreateTableDefinition => ({
+      ...base(),
+      schemaName: "fx_sales",
+      columns: [
+        { id: "c1", name: "a", type: "INTEGER", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false },
+        { id: "c2", name: "b", type: "VARCHAR", nullable: true, defaultValue: "", isPrimaryKey: false, isUnique: false },
+      ],
+      indexes: [
+        { id: "i1", name: "t_a_idx", columns: ["a"], unique: false, type: "art" },
+        { id: "i2", name: "t_b_idx", columns: ["b"], unique: false, type: "art" },
+      ],
+    });
+    const to4 = indexed();
+    to4.indexes = [];
+    to4.columns[1] = { ...to4.columns[1], name: "b2", type: "TEXT" };
+    const out4 = alterSql(indexed(), to4);
+    add({
+      name: "fix 8 + 10: indexes the edit removes are dropped first, qualified, so the rename and type change run",
+      fix: 10,
+      kind: "ddl-alter",
+      input: { from: toJson(indexed()), to: toJson(to4) },
+      output: out4,
+    });
+    await tryDdl("alter: fix 10 drop first", tableSetup(indexed()), out4);
+    const to5 = indexed();
+    to5.indexes = to5.indexes.filter((i) => i.name === "t_a_idx");
+    to5.columns[1] = { ...to5.columns[1], name: "b2" };
+    const out5 = alterSql(indexed(), to5);
+    add({
+      name: "fix 10: while an index stays, the rename is a note (DuckDB refuses it even for an index on another column)",
+      fix: 10,
+      kind: "ddl-alter",
+      input: { from: toJson(indexed()), to: toJson(to5) },
+      output: out5,
+    });
+    await tryDdl("alter: fix 10 kept index", tableSetup(indexed()), out5);
+    const to6 = indexed();
+    to6.columns[1] = { ...to6.columns[1], name: "b2", defaultValue: "'x'" };
+    to6.indexes.push({ id: "i3", name: "t_b2_idx", columns: ["b2"], unique: false, type: "art" });
+    const out6 = alterSql(indexed(), to6);
+    add({
+      name: "fix 10: when a rename is a note, the default change and new index on the renamed column are notes too",
+      fix: 10,
+      kind: "ddl-alter",
+      input: { from: toJson(indexed()), to: toJson(to6) },
+      output: out6,
+    });
+    await tryDdl("alter: fix 10 after a blocked rename", tableSetup(indexed()), out6);
+
+    // Constraint ART indexes: a DROP COLUMN before a PRIMARY KEY or UNIQUE column fails.
+    const plain = (): CreateTableDefinition => ({
+      ...(structuredClone(recorded("ddl-alter.json", "no changes").input.from) as CreateTableDefinition),
+      indexes: [],
+    });
+    const to7 = plain();
+    to7.columns = to7.columns.filter((c) => c.name !== "name");
+    const out7 = alterSql(plain(), to7);
+    add({
+      name: "fix 10: dropping a column that comes before a UNIQUE column is a note (customers.name, before email)",
+      fix: 10,
+      kind: "ddl-alter",
+      input: { from: toJson(plain()), to: toJson(to7) },
+      output: out7,
+    });
+    await tryDdl("alter: fix 10 drop before a UNIQUE column", tableSetup(plain()), out7);
+    await tryDdl("alter: the same DROP COLUMN run as it is (expected to fail)", tableSetup(plain()), 'ALTER TABLE "main"."customers" DROP COLUMN "name";');
+    const to8 = plain();
+    to8.columns = to8.columns.filter((c) => c.name !== "status");
+    const out8 = alterSql(plain(), to8);
+    add({
+      name: "fix 10: dropping a column after the last PRIMARY KEY or UNIQUE column runs (customers.status)",
+      fix: 10,
+      kind: "ddl-alter",
+      input: { from: toJson(plain()), to: toJson(to8) },
+      output: out8,
+    });
+    await tryDdl("alter: fix 10 drop after the last constrained column", tableSetup(plain()), out8);
+  }
+
+  // ── Fix 12: column types ──
+  {
+    const c = recorded("column-types.json", "getColumnTypes");
+    const bare = ["ARRAY", "LIST", "MAP", "STRUCT", "UNION"];
+    const out = (c.output as { name: string }[]).filter((t) => !bare.includes(t.name));
+    add({
+      name: "fix 12: no bare ARRAY, LIST, MAP, STRUCT or UNION (DuckDB needs their type arguments)",
+      fix: 12,
+      kind: "column-types",
+      replaces: "column-types.json: getColumnTypes",
+      input: null,
+      output: out,
+    });
+    for (const t of out as { name: string; hasLength?: boolean; hasPrecision?: boolean }[]) {
+      const type = t.hasPrecision ? `${t.name}(10,2)` : t.hasLength ? `${t.name}(20)` : t.name;
+      await tryDdl(`column type ${type}`, [], `CREATE TABLE main.fx_type_probe (c ${type});`);
+    }
+    for (const t of bare) await tryDdl(`bare column type ${t} (expected to fail)`, [], `CREATE TABLE main.fx_type_probe (c ${t});`);
+  }
+
+  // ── Fixes 5, 13, 14: EXPLAIN ──
+  for (const c of read("parse-explain.json").cases) {
+    const compute = () => explainOutput(c.input, c.output);
+    const out = toJson(compute());
+    if (JSON.stringify(out) !== JSON.stringify(c.output)) {
+      const fixes = fixesOf(EXPLAIN_FIXES, compute);
+      add({ name: `${label(fixes)}: ${c.name}`, fix: fixes[0], kind: "parse-explain", replaces: `parse-explain.json: ${c.name}`, input: null, output: out });
+    }
+  }
+  const fresh = (input: { rows: unknown; analyze: boolean }) =>
+    explainOutput(input, adapter.parseExplainResult(decodeStoredRows(input.rows), input.analyze));
+  for (const ec of ["~ 7", "~1_000 rows", "1 row", " 12 "]) {
+    const c = recorded("parse-explain.json", "synthetic: estimated cardinality, plain digits");
+    const input = structuredClone(c.input);
+    const plan = JSON.parse(input.rows[0].explain_value);
+    plan[0].extra_info["Estimated Cardinality"] = ec;
+    input.rows[0].explain_value = JSON.stringify(plan, null, 4);
+    add({ name: `fix 5: Estimated Cardinality ${JSON.stringify(ec)}`, fix: 5, kind: "parse-explain", input, output: fresh(input) });
+  }
+  {
+    const dotted = `fx_sales."fx.dotted ""t"""`;
+    await session.execute(`CREATE TABLE ${dotted} (id INTEGER)`);
+    await session.execute(`INSERT INTO ${dotted} VALUES (1), (2)`);
+    const sql = `SELECT * FROM ${dotted} WHERE id > 0`;
+    const r = await rowsOf(adapter.getExplainQuery(sql, false));
+    await session.execute(`DROP TABLE ${dotted}`);
+    const input = { sql, analyze: false, columns: r.columns, rows: r.rows };
+    add({
+      name: 'fix 14: a table named with a dot and quotes keeps its whole last part (fx.dotted "t")',
+      fix: 14,
+      kind: "parse-explain",
+      input,
+      output: fresh(input),
+    });
+  }
+
+  // A replacing case must change the recorded output, and replace it once.
+  const names = new Set<string>();
+  for (const c of cases) {
+    if (names.has(c.name)) throw new Error(`duplicate case name ${c.name}`);
+    names.add(c.name);
+  }
+  const replaced = new Set<string>();
+  for (const c of cases.filter((x) => x.replaces)) {
+    if (replaced.has(c.replaces!)) throw new Error(`${c.replaces} replaced twice`);
+    replaced.add(c.replaces!);
+  }
+  for (const c of cases.filter((x) => x.replaces)) {
+    const [file, ...rest] = c.replaces!.split(": ");
+    const r = recorded(file, rest.join(": "));
+    if (JSON.stringify(toJson(r.output)) === JSON.stringify(c.output)) {
+      throw new Error(`${c.name}: same output as ${c.replaces}`);
+    }
+  }
+
+  await session.close();
+  rmSync(DIR, { recursive: true, force: true });
+
+  const about = readFileSync(new URL("./about.txt", import.meta.url), "utf-8").trim().replace(/\s*\n\s*/g, " ");
+  writeFileSync(
+    `${FIXTURES}bugfixes.json`,
+    JSON.stringify({ about, scratch, cases }, null, 2) + "\n",
+  );
+  console.log(`${cases.length} cases, ${cases.filter((c) => c.replaces).length} replaces`);
+}, 120_000);

@@ -1,7 +1,6 @@
 import type { DatabaseAdapter } from "./index";
 import { validateIdentifier } from "./index";
 import type { ExplainPlanNode, ExplainResult } from "$lib/types";
-import { makeNodeIdFactory } from "./explain-helpers";
 import { generateAlterTableSql, generateCreateTableDdl, generateAddColumnDdl } from "./alter-table";
 import type { SqlWithBindings } from "./crud-helpers";
 import {
@@ -37,8 +36,16 @@ interface DuckDBColumnRow {
   is_primary_key: boolean;
 }
 
+/** A node-id generator scoped to one EXPLAIN parse: `node-0`, `node-1`, … */
+function makeNodeIdFactory(): () => string {
+  let counter = 0;
+  return () => `node-${counter++}`;
+}
+
 /**
- * DuckDB adapter for SQL generation and result parsing.
+ * DuckDB adapter for SQL generation and result parsing, used only by the
+ * browser demo (DuckDB-WASM, which has no Rust core). Desktop and web run
+ * DuckDB in `crates/seaquel-engine-duckdb`.
  * DuckDB uses PostgreSQL-compatible SQL syntax.
  */
 export class DuckDBAdapter implements DatabaseAdapter {
@@ -461,12 +468,7 @@ export class DuckDBAdapter implements DatabaseAdapter {
   }
 
   generateAlterTableSql(originalDef: CreateTableDefinition, newDef: CreateTableDefinition): string {
-    return generateAlterTableSql(originalDef, newDef, {
-      quote: DuckDBAdapter.quote,
-      supportsDropColumn: true,
-      supportsAlterColumn: true,
-      useModifyColumn: false,
-    });
+    return generateAlterTableSql(originalDef, newDef, DuckDBAdapter.quote);
   }
 
   getSchemasQuery(): string {

@@ -1,0 +1,130 @@
+{
+  "cases": [
+    {
+      "name": "first page",
+      "input": {
+        "sql": "SELECT * FROM users",
+        "limit": 100,
+        "offset": 0
+      },
+      "output": "SELECT * FROM users ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"
+    },
+    {
+      "name": "later page",
+      "input": {
+        "sql": "SELECT * FROM users",
+        "limit": 50,
+        "offset": 150
+      },
+      "output": "SELECT * FROM users ORDER BY (SELECT NULL) OFFSET 150 ROWS FETCH NEXT 50 ROWS ONLY"
+    },
+    {
+      "name": "keeps a top-level ORDER BY",
+      "input": {
+        "sql": "SELECT id, name FROM users ORDER BY name",
+        "limit": 10,
+        "offset": 20
+      },
+      "output": "SELECT id, name FROM users ORDER BY name OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "lower-case order by across a line break",
+      "input": {
+        "sql": "SELECT id FROM users order\n  by id DESC",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT id FROM users order\n  by id DESC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY after a UNION",
+      "input": {
+        "sql": "SELECT id FROM a UNION SELECT id FROM b ORDER BY id",
+        "limit": 5,
+        "offset": 5
+      },
+      "output": "SELECT id FROM a UNION SELECT id FROM b ORDER BY id OFFSET 5 ROWS FETCH NEXT 5 ROWS ONLY"
+    },
+    {
+      "name": "a column named like ORDER_BY is not ORDER BY",
+      "input": {
+        "sql": "SELECT order_by FROM t",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT order_by FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "large numbers",
+      "input": {
+        "sql": "SELECT id FROM t ORDER BY id",
+        "limit": 1000000,
+        "offset": 9007199254740991
+      },
+      "output": "SELECT id FROM t ORDER BY id OFFSET 9007199254740991 ROWS FETCH NEXT 1000000 ROWS ONLY"
+    },
+    {
+      "name": "keeps a trailing semicolon",
+      "input": {
+        "sql": "SELECT 1;",
+        "limit": 10,
+        "offset": 5
+      },
+      "output": "SELECT 1; ORDER BY (SELECT NULL) OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside OVER() (read as the query's)",
+      "input": {
+        "sql": "SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside a subquery (read as the query's)",
+      "input": {
+        "sql": "SELECT * FROM users WHERE id IN (SELECT TOP 5 user_id FROM orders ORDER BY total DESC)",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT * FROM users WHERE id IN (SELECT TOP 5 user_id FROM orders ORDER BY total DESC) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside a CTE (read as the query's)",
+      "input": {
+        "sql": "WITH r AS (SELECT id, ROW_NUMBER() OVER (PARTITION BY kind ORDER BY id) AS rn FROM orders) SELECT * FROM r",
+        "limit": 25,
+        "offset": 50
+      },
+      "output": "WITH r AS (SELECT id, ROW_NUMBER() OVER (PARTITION BY kind ORDER BY id) AS rn FROM orders) SELECT * FROM r OFFSET 50 ROWS FETCH NEXT 25 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside a string literal (read as the query's)",
+      "input": {
+        "sql": "SELECT * FROM notes WHERE body = N'sort: ORDER BY name'",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT * FROM notes WHERE body = N'sort: ORDER BY name' OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside a bracketed name (read as the query's)",
+      "input": {
+        "sql": "SELECT [order by] FROM t",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT [order by] FROM t OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    },
+    {
+      "name": "ORDER BY inside a comment (read as the query's)",
+      "input": {
+        "sql": "SELECT id FROM t /* ORDER BY id */ WHERE id > 1",
+        "limit": 10,
+        "offset": 0
+      },
+      "output": "SELECT id FROM t /* ORDER BY id */ WHERE id > 1 OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    }
+  ]
+}

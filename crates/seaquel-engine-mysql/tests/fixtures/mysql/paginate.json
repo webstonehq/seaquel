@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "first page",
+      "input": {
+        "sql": "SELECT * FROM users",
+        "limit": 100,
+        "offset": 0
+      },
+      "output": "SELECT * FROM users LIMIT 100 OFFSET 0"
+    },
+    {
+      "name": "later page",
+      "input": {
+        "sql": "SELECT * FROM users",
+        "limit": 50,
+        "offset": 150
+      },
+      "output": "SELECT * FROM users LIMIT 50 OFFSET 150"
+    },
+    {
+      "name": "keeps a trailing semicolon and whitespace",
+      "input": {
+        "sql": "SELECT 1;\n",
+        "limit": 10,
+        "offset": 5
+      },
+      "output": "SELECT 1;\n LIMIT 10 OFFSET 5"
+    },
+    {
+      "name": "large numbers",
+      "input": {
+        "sql": "SELECT id FROM t ORDER BY id",
+        "limit": 1000000,
+        "offset": 9007199254740991
+      },
+      "output": "SELECT id FROM t ORDER BY id LIMIT 1000000 OFFSET 9007199254740991"
+    }
+  ]
+}

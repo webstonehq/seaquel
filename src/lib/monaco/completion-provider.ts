@@ -129,9 +129,16 @@ function isColumnContext(textBeforeCursor: string): boolean {
   return ["select", "where", "on", "order", "group", "having", "set"].includes(clause);
 }
 
+/**
+ * @param qualifyTable `schema.table` as the schema-qualified completion
+ *   inserts it: bare for plain names, quoted where the name needs it
+ *   (`editorQualifiedTable` in `$lib/engine`). Without it, names are
+ *   inserted as listed.
+ */
 export function createSchemaCompletionProvider(
   m: Monaco,
   getSchema: () => SchemaTable[],
+  qualifyTable?: () => ((schema: string, table: string) => string) | undefined,
 ): monaco.languages.CompletionItemProvider {
   return {
     triggerCharacters: [".", " ", ","],
@@ -256,6 +263,7 @@ export function createSchemaCompletionProvider(
       });
 
       // Add table suggestions - Group 1: Tables
+      const qualify = qualifyTable?.() ?? ((s: string, t: string) => `${s}.${t}`);
       const sortedTables = [...schema].sort((a, b) => a.name.localeCompare(b.name));
       sortedTables.forEach((table, idx) => {
         // Table name only
@@ -279,7 +287,7 @@ export function createSchemaCompletionProvider(
               ? m.languages.CompletionItemKind.Interface
               : m.languages.CompletionItemKind.Struct,
           detail: table.columns.length ? `${table.columns.length} columns` : "",
-          insertText: `${table.schema}.${table.name}`,
+          insertText: qualify(table.schema, table.name),
           range,
           sortText: `1-table-${String(idx).padStart(3, "0")}-qualified`,
         });

@@ -1,0 +1,4693 @@
+{
+  "about": "Hand-written expectations for the intended changes from the TypeScript DuckDB adapter (src/lib/db/duckdb.ts, which the browser demo keeps); see 'Task 17' in docs/plans/2026-09-26-rust-core-phase-2-plan.md and this directory's README. The recorder never writes this file; its 'scratch' block is what record mode builds on a copy of e2e/test-databases/duckdb/seaquel_test.duckdb (the copy must keep that file name: the catalog, the file name up to its first dot, is 'seaquel_test', and the setup runs USE seaquel_test), and what tests/smoke.rs builds. The cases were generated from a model of the fixed dialect, with every catalog query run live on the scratch objects. Fix 1: catalog filters are bound ($1 = the schema as the tree lists it, $2 = the table) instead of passed through validateIdentifier, which rejected any name with a space or a quote; the row count names catalog, schema and table with \" doubled; the DDL quote doubles \" (CREATE TABLE, ADD COLUMN, ALTER TABLE). Fix 2: indexes come from duckdb_indexes(), one row per key: 'expressions' cast to VARCHAR[] and unnested in order, a key that is one double-quoted identifier un-quoted, any other expression kept as DuckDB prints it; type 'art'. PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row, so they aren't listed (they can't be dropped with DROP INDEX either). Fix 3: the overview's size is the sum of block_size * total_blocks from pragma_database_size() over the listed catalogs, formatted like the SQLite port's format_bytes ('0 bytes' for an in-memory database), instead of 'In-memory' and 0. Fix 4: DuckDB has no ALTER TABLE ... ADD FOREIGN KEY and rejects constraints in ADD COLUMN, so every added foreign key is a comment line after the statements, in the SQLite note's wording with DuckDB as the engine (ddl.rs supports_add_foreign_key: false, unsupported_notes: Some(\"DuckDB\"), inline_foreign_keys_on_added_columns: false). Fix 5: Estimated Cardinality is read when it is a number or a string of digits after trimming, dropping a leading '~', a trailing 'row'/'rows' and '_' or ',' separators; anything else leaves planRows unset. Fix 6: catalogs are told apart. The system and temp catalogs are left out; the default catalog's (current_database()) schemas are listed as they are ('main', 'fx_sales'); every other attached catalog's schemas are listed as 'catalog.schema' ('fx_aux.main'); a catalog or schema name holding '.' or '\"' is double-quoted in that listing ('\"fx.a.b\"', '\"fx.we\"\"ird\".main'), so a default-catalog schema named fx_aux.main ('\"fx_aux.main\"') can't collide with the attached one. The introspection queries match that same expression, so a table in one catalog no longer picks up the columns, primary keys, foreign keys or indexes of its namesake in another (the TS columns query even failed there: its primary-key scalar subquery returned two rows). Foreign keys report the schema as listed. Row counts use the catalog and schema columns of the fixed table sizes query. DDL splits a listed schema quote-aware with fix 14's parser (the port's Dialect::quote_schema): 'fx_aux.main' is \"fx_aux\".\"main\". The default catalog is current_database(), so it follows a USE. Fix 7: a failing foreign-key query no longer fails the table's metadata: the columns come back without foreign keys (TsEngineClient had no try/catch). A case with 'replaces' supersedes the recorded case of that name (the parity tests assert the recorded TypeScript output differs); its 'input' is null when the recorded input applies, and holds the fixed query's rows otherwise. Kinds and where the port checks them are in the README. Fixes 8-15 were found while recording and accepted as fixes. Fix 8: DROP INDEX is qualified with the table's original schema (\"schema\".\"index\"; ddl.rs qualify_drop_index: true); unqualified, DuckDB looked in main only. Fix 9: DuckDB rejects ADD COLUMN ... NOT NULL, so a NOT NULL column is added with its default and then made NOT NULL by its own ALTER COLUMN ... SET NOT NULL statement; without a default, SET NOT NULL fails on a table with rows, so the column is added nullable and a comment line says to fill it and run SET NOT NULL. Fix 10: removed indexes are dropped before the column changes (AlterTableOptions drop_indexes_first: true, from MSSQL fix 13). DuckDB refuses RENAME COLUMN, DROP COLUMN, ALTER COLUMN TYPE and SET/DROP NOT NULL on a table that has any CREATE INDEX index, whichever column it is on; while indexes the edit keeps remain, each such statement is a comment line that carries it and names the indexes to drop first, and a later statement on a column whose rename became a note (its default, a new index on it) is a note too. DROP COLUMN and TYPE on a column in a PRIMARY KEY or UNIQUE constraint are notes as well, whatever the indexes, and so is DROP COLUMN of a column that comes before a PRIMARY KEY or UNIQUE column (the constraint's ART index depends on a later column). These rules read the definition's isPrimaryKey and isUnique; edit mode sets isUnique false today, so the port must report UNIQUE columns. Everything else (ADD COLUMN, SET/DROP DEFAULT, index drops and creates) runs. Kept indexes are not dropped and recreated (an expression key can't be recreated from the definition). Fix 11: a foreign key in CREATE TABLE references the table's own schema, never \"\" (DuckDB can't parse REFERENCES \"\".\"t\" and rejects cross-schema foreign keys anyway). In an attached catalog it can't be created at all (cross-database), so it is a comment line, as in fix 4. Fix 12: the column types leave out bare ARRAY, LIST, MAP, STRUCT and UNION, which DuckDB rejects without type arguments; full types such as INTEGER[] or STRUCT(a INT) still come through the SQL pane of the table editor. Fix 13: a FILTER operator's Expression is its filter (FILTER nodes only). Fix 14: relationName is the last part of DuckDB 1.5's catalog.schema.table name, double quotes removed (\"\" un-doubled), so a table named a.b stays a.b. Fix 15: the overview is named after current_database() (the query's database_name column), 'DuckDB Database' only without a row.",
+  "scratch": {
+    "setup": [
+      "CREATE TYPE fx_mood AS ENUM ('sad', 'ok', 'happy')",
+      "CREATE SCHEMA fx_sales",
+      "CREATE TABLE fx_sales.regions (code VARCHAR PRIMARY KEY, name VARCHAR NOT NULL UNIQUE)",
+      "CREATE TABLE fx_sales.orders (region_code VARCHAR NOT NULL REFERENCES fx_sales.regions (code), order_no INTEGER NOT NULL, placed_on DATE DEFAULT DATE '2024-01-01', total DECIMAL(12,2) DEFAULT 0, PRIMARY KEY (region_code, order_no))",
+      "CREATE TABLE fx_sales.\"fx order lines\" (\"line no\" INTEGER PRIMARY KEY, region_code VARCHAR NOT NULL, order_no INTEGER NOT NULL, \"it's\" VARCHAR DEFAULT 'n/a', FOREIGN KEY (region_code, order_no) REFERENCES fx_sales.orders (region_code, order_no))",
+      "CREATE UNIQUE INDEX fx_orders_no_region_idx ON fx_sales.orders (order_no, region_code)",
+      "CREATE INDEX fx_orders_expr_idx ON fx_sales.orders (coalesce(placed_on, DATE '2020-01-01'), (order_no + 1))",
+      "CREATE INDEX \"fx lines \"\"odd\"\" idx\" ON fx_sales.\"fx order lines\" (\"line no\", lower(\"it's\"))",
+      "CREATE VIEW fx_sales.fx_region_totals AS SELECT region_code, sum(total) AS total FROM fx_sales.orders GROUP BY region_code",
+      "INSERT INTO fx_sales.regions VALUES ('eu', 'Europe'), ('us', 'United States'), ('ap', 'Asia Pacific')",
+      "INSERT INTO fx_sales.orders SELECT CASE i % 3 WHEN 0 THEN 'eu' WHEN 1 THEN 'us' ELSE 'ap' END, i, DATE '2024-01-01' + CAST(i AS INTEGER), i * 1.5 FROM range(1, 301) t(i)",
+      "INSERT INTO fx_sales.\"fx order lines\" SELECT i, CASE i % 3 WHEN 0 THEN 'eu' WHEN 1 THEN 'us' ELSE 'ap' END, i, 'Line ' || i FROM range(1, 301) t(i)",
+      "CREATE TABLE main.\"fx it's\" (id INTEGER PRIMARY KEY, \"say \"\"hi\"\"\" VARCHAR DEFAULT 'it''s')",
+      "CREATE TABLE main.fx_types (id INTEGER PRIMARY KEY, c_tinyint TINYINT, c_smallint SMALLINT, c_integer INTEGER NOT NULL DEFAULT 42, c_bigint BIGINT, c_hugeint HUGEINT DEFAULT 170141183460469231731687303715884105727, c_utinyint UTINYINT, c_usmallint USMALLINT, c_uinteger UINTEGER, c_ubigint UBIGINT, c_uhugeint UHUGEINT, c_float FLOAT, c_double DOUBLE DEFAULT 2.5, c_decimal DECIMAL(18,4) DEFAULT 1.5, c_decimal_wide DECIMAL(38,10), c_bool BOOLEAN DEFAULT true, c_varchar VARCHAR, c_varchar_n VARCHAR(20), c_text TEXT, c_blob BLOB, c_bit BIT, c_bignum BIGNUM, c_date DATE DEFAULT DATE '2024-01-01', c_time TIME, c_timetz TIMETZ, c_timestamp TIMESTAMP DEFAULT current_timestamp, c_timestamp_s TIMESTAMP_S, c_timestamp_ms TIMESTAMP_MS, c_timestamp_ns TIMESTAMP_NS, c_timestamptz TIMESTAMPTZ DEFAULT TIMESTAMPTZ '2024-01-01 00:00:00+00', c_interval INTERVAL DEFAULT INTERVAL 1 DAY, c_uuid UUID DEFAULT gen_random_uuid(), c_json JSON, c_enum fx_mood DEFAULT 'ok', c_enum_inline ENUM('x', 'y'), c_list INTEGER[] DEFAULT [1, 2], c_nested VARCHAR[][], c_array INTEGER[3], c_struct STRUCT(name VARCHAR, age INTEGER), c_map MAP(VARCHAR, INTEGER), c_union UNION(num INTEGER, str VARCHAR))",
+      "INSERT INTO main.fx_types (id, c_tinyint, c_hugeint, c_uhugeint, c_decimal_wide, c_date, c_time, c_timestamptz, c_interval, c_json, c_enum, c_list, c_array, c_struct, c_map, c_union, c_blob, c_bit, c_bignum) VALUES (1, -1, -170141183460469231731687303715884105728, 340282366920938463463374607431768211455, 1234567890123456789012345678.0123456789, DATE '1969-12-31', TIME '23:59:59.123456', TIMESTAMPTZ '2024-03-10 02:30:00+00', INTERVAL '1 year 2 months 3 days 04:05:06', '{\"a\": [1, 2]}', 'happy', [1, NULL, 3], [1, 2, 3], {'name': 'x', 'age': 1}, MAP {'k': 1}, 'str', '\\xDE\\xAD'::BLOB, '0101'::BIT, 12345678901234567890123456789012345678901234567890)",
+      "CREATE TEMP TABLE fx_temp (a INTEGER)",
+      "ATTACH ':memory:' AS fx_aux",
+      "CREATE TABLE fx_aux.main.users (id INTEGER, nickname VARCHAR NOT NULL)",
+      "CREATE INDEX fx_aux_users_nickname_idx ON fx_aux.main.users (nickname)",
+      "CREATE TABLE fx_aux.main.categories (id INTEGER PRIMARY KEY, label VARCHAR)",
+      "USE fx_aux",
+      "CREATE TABLE fx_items (id INTEGER PRIMARY KEY, category_id INTEGER REFERENCES categories (id))",
+      "USE seaquel_test",
+      "CREATE SCHEMA fx_aux.fx_sales",
+      "CREATE TABLE fx_aux.fx_sales.regions (code VARCHAR, note VARCHAR)",
+      "INSERT INTO fx_aux.main.users VALUES (1, 'ada'), (2, 'grace')",
+      "INSERT INTO fx_aux.main.categories VALUES (1, 'one')",
+      "CREATE SCHEMA \"fx.a.b\"",
+      "CREATE TABLE \"fx.a.b\".things (id INTEGER PRIMARY KEY, label VARCHAR)",
+      "CREATE SCHEMA \"fx_aux.main\"",
+      "CREATE TABLE \"fx_aux.main\".users (dotted_id INTEGER)",
+      "ATTACH ':memory:' AS \"fx.we\"\"ird\"",
+      "CREATE TABLE \"fx.we\"\"ird\".main.items (id INTEGER, note VARCHAR)",
+      "CREATE INDEX items_note_idx ON \"fx.we\"\"ird\".main.items (note)",
+      "ANALYZE"
+    ],
+    "teardown": [
+      "DETACH DATABASE IF EXISTS fx_aux",
+      "DETACH DATABASE IF EXISTS \"fx.we\"\"ird\"",
+      "DROP SCHEMA IF EXISTS \"fx.a.b\" CASCADE",
+      "DROP SCHEMA IF EXISTS \"fx_aux.main\" CASCADE",
+      "DROP TABLE IF EXISTS temp.main.fx_temp",
+      "DROP TABLE IF EXISTS main.fx_types",
+      "DROP TABLE IF EXISTS main.\"fx it's\"",
+      "DROP SCHEMA IF EXISTS fx_sales CASCADE",
+      "DROP TYPE IF EXISTS fx_mood"
+    ]
+  },
+  "cases": [
+    {
+      "name": "fix 6 (catalogs told apart, system and temp left out): getSchemaQuery",
+      "fix": 6,
+      "kind": "sql",
+      "replaces": "sql.json: getSchemaQuery",
+      "input": null,
+      "output": "SELECT\n  CASE WHEN table_catalog = current_database() THEN CASE WHEN table_schema LIKE '%.%' OR table_schema LIKE '%\"%' THEN '\"' || replace(table_schema, '\"', '\"\"') || '\"' ELSE table_schema END ELSE CASE WHEN table_catalog LIKE '%.%' OR table_catalog LIKE '%\"%' THEN '\"' || replace(table_catalog, '\"', '\"\"') || '\"' ELSE table_catalog END || '.' || CASE WHEN table_schema LIKE '%.%' OR table_schema LIKE '%\"%' THEN '\"' || replace(table_schema, '\"', '\"\"') || '\"' ELSE table_schema END END AS schema_name,\n  table_name,\n  table_type\nFROM information_schema.tables\nWHERE table_type IN ('BASE TABLE', 'VIEW')\n  AND table_catalog NOT IN ('system', 'temp')\n  AND table_schema NOT IN ('pg_catalog', 'information_schema')\nORDER BY table_catalog <> current_database(), table_catalog, table_schema, table_name"
+    },
+    {
+      "name": "fix 6 (catalogs told apart): getSchemasQuery",
+      "fix": 6,
+      "kind": "sql",
+      "replaces": "sql.json: getSchemasQuery",
+      "input": null,
+      "output": "SELECT\n  CASE WHEN catalog_name = current_database() THEN CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END ELSE CASE WHEN catalog_name LIKE '%.%' OR catalog_name LIKE '%\"%' THEN '\"' || replace(catalog_name, '\"', '\"\"') || '\"' ELSE catalog_name END || '.' || CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END END AS schema_name\nFROM information_schema.schemata\nWHERE catalog_name NOT IN ('system', 'temp')\nORDER BY catalog_name <> current_database(), catalog_name, schema_name"
+    },
+    {
+      "name": "fix 1 + 6 (bound $1 schema as listed, $2 table; the primary key matched in its own catalog): getColumnsQuery",
+      "fix": 1,
+      "kind": "sql",
+      "replaces": "sql.json: getColumnsQuery",
+      "input": null,
+      "output": "SELECT\n  c.column_name,\n  c.data_type,\n  c.is_nullable,\n  c.column_default,\n  EXISTS (\n    SELECT 1\n    FROM duckdb_constraints() dc\n    WHERE dc.constraint_type = 'PRIMARY KEY'\n      AND dc.database_name = c.table_catalog\n      AND dc.schema_name = c.table_schema\n      AND dc.table_name = c.table_name\n      AND list_contains(dc.constraint_column_names, c.column_name)\n  ) AS is_primary_key\nFROM information_schema.columns c\nWHERE c.table_catalog NOT IN ('system', 'temp')\n  AND CASE WHEN c.table_catalog = current_database() THEN CASE WHEN c.table_schema LIKE '%.%' OR c.table_schema LIKE '%\"%' THEN '\"' || replace(c.table_schema, '\"', '\"\"') || '\"' ELSE c.table_schema END ELSE CASE WHEN c.table_catalog LIKE '%.%' OR c.table_catalog LIKE '%\"%' THEN '\"' || replace(c.table_catalog, '\"', '\"\"') || '\"' ELSE c.table_catalog END || '.' || CASE WHEN c.table_schema LIKE '%.%' OR c.table_schema LIKE '%\"%' THEN '\"' || replace(c.table_schema, '\"', '\"\"') || '\"' ELSE c.table_schema END END = $1\n  AND c.table_name = $2\nORDER BY c.ordinal_position"
+    },
+    {
+      "name": "fix 1 + 6 (bound $1 schema, $2 table; the column pairs in order): getForeignKeysQuery",
+      "fix": 1,
+      "kind": "sql",
+      "replaces": "sql.json: getForeignKeysQuery",
+      "input": null,
+      "output": "SELECT\n  $1 AS schema_name,\n  referenced_table,\n  unnest(constraint_column_names) AS source_column,\n  unnest(referenced_column_names) AS referenced_column,\n  unnest(generate_series(1, len(constraint_column_names))) AS position\nFROM duckdb_constraints()\nWHERE constraint_type = 'FOREIGN KEY'\n  AND database_name NOT IN ('system', 'temp')\n  AND CASE WHEN database_name = current_database() THEN CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END ELSE CASE WHEN database_name LIKE '%.%' OR database_name LIKE '%\"%' THEN '\"' || replace(database_name, '\"', '\"\"') || '\"' ELSE database_name END || '.' || CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END END = $1\n  AND table_name = $2\nORDER BY constraint_index, position"
+    },
+    {
+      "name": "fix 2 + 1 + 6 (indexes from duckdb_indexes(), one row per key): getIndexesQuery",
+      "fix": 2,
+      "kind": "sql",
+      "replaces": "sql.json: getIndexesQuery",
+      "input": null,
+      "output": "SELECT\n  i.index_name,\n  i.is_unique,\n  k.position,\n  CASE\n    WHEN regexp_full_match(k.expression, '\"([^\"]|\"\")*\"') THEN replace(k.expression[2:-2], '\"\"', '\"')\n    ELSE k.expression\n  END AS column_name\nFROM duckdb_indexes() i,\n  unnest(CAST(i.expressions AS VARCHAR[])) WITH ORDINALITY AS k(expression, position)\nWHERE i.database_name NOT IN ('system', 'temp')\n  AND CASE WHEN i.database_name = current_database() THEN CASE WHEN i.schema_name LIKE '%.%' OR i.schema_name LIKE '%\"%' THEN '\"' || replace(i.schema_name, '\"', '\"\"') || '\"' ELSE i.schema_name END ELSE CASE WHEN i.database_name LIKE '%.%' OR i.database_name LIKE '%\"%' THEN '\"' || replace(i.database_name, '\"', '\"\"') || '\"' ELSE i.database_name END || '.' || CASE WHEN i.schema_name LIKE '%.%' OR i.schema_name LIKE '%\"%' THEN '\"' || replace(i.schema_name, '\"', '\"\"') || '\"' ELSE i.schema_name END END = $1\n  AND i.table_name = $2\nORDER BY i.index_name, k.position"
+    },
+    {
+      "name": "fix 6 (the catalog and schema for the row counts): getTableSizesQuery",
+      "fix": 6,
+      "kind": "sql",
+      "replaces": "sql.json: getTableSizesQuery",
+      "input": null,
+      "output": "SELECT\n  CASE WHEN table_catalog = current_database() THEN CASE WHEN table_schema LIKE '%.%' OR table_schema LIKE '%\"%' THEN '\"' || replace(table_schema, '\"', '\"\"') || '\"' ELSE table_schema END ELSE CASE WHEN table_catalog LIKE '%.%' OR table_catalog LIKE '%\"%' THEN '\"' || replace(table_catalog, '\"', '\"\"') || '\"' ELSE table_catalog END || '.' || CASE WHEN table_schema LIKE '%.%' OR table_schema LIKE '%\"%' THEN '\"' || replace(table_schema, '\"', '\"\"') || '\"' ELSE table_schema END END AS schema_name,\n  table_name,\n  table_catalog,\n  table_schema\nFROM information_schema.tables\nWHERE table_type = 'BASE TABLE'\n  AND table_catalog NOT IN ('system', 'temp')\n  AND table_schema NOT IN ('pg_catalog', 'information_schema')\nORDER BY table_catalog <> current_database(), table_catalog, table_schema, table_name"
+    },
+    {
+      "name": "fix 6 (catalogs told apart): getIndexUsageQuery",
+      "fix": 6,
+      "kind": "sql",
+      "replaces": "sql.json: getIndexUsageQuery",
+      "input": null,
+      "output": "SELECT\n  CASE WHEN database_name = current_database() THEN CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END ELSE CASE WHEN database_name LIKE '%.%' OR database_name LIKE '%\"%' THEN '\"' || replace(database_name, '\"', '\"\"') || '\"' ELSE database_name END || '.' || CASE WHEN schema_name LIKE '%.%' OR schema_name LIKE '%\"%' THEN '\"' || replace(schema_name, '\"', '\"\"') || '\"' ELSE schema_name END END AS schema_name,\n  table_name,\n  index_name,\n  is_unique\nFROM duckdb_indexes()\nWHERE database_name NOT IN ('system', 'temp')\nORDER BY database_name <> current_database(), database_name, schema_name, table_name, index_name"
+    },
+    {
+      "name": "fix 3 + 6 + 15 (the size from pragma_database_size, the name from current_database()): getDatabaseOverviewQuery",
+      "fix": 3,
+      "kind": "sql",
+      "replaces": "sql.json: getDatabaseOverviewQuery",
+      "input": null,
+      "output": "SELECT\n  current_database() AS database_name,\n  (\n    SELECT count(*)\n    FROM information_schema.tables\n    WHERE table_type = 'BASE TABLE'\n      AND table_catalog NOT IN ('system', 'temp')\n      AND table_schema NOT IN ('pg_catalog', 'information_schema')\n  ) AS table_count,\n  (SELECT count(*) FROM duckdb_indexes() WHERE database_name NOT IN ('system', 'temp')) AS index_count,\n  (\n    SELECT CAST(COALESCE(sum(block_size * total_blocks), 0) AS BIGINT)\n    FROM pragma_database_size()\n    WHERE database_name NOT IN ('system', 'temp')\n  ) AS total_size_bytes"
+    },
+    {
+      "name": "fix 1 + 6: getTableRowCountQuery names the catalog and doubles \"",
+      "fix": 1,
+      "kind": "sql",
+      "replaces": "sql.json: getTableRowCountQuery",
+      "input": {
+        "query": "getTableRowCountQuery",
+        "catalog": "seaquel_test",
+        "schema": "main",
+        "table": "users"
+      },
+      "output": "SELECT COUNT(*) AS row_count FROM \"seaquel_test\".\"main\".\"users\""
+    },
+    {
+      "name": "fix 1 + 6: getTableRowCountQuery in an attached catalog, a name with quotes",
+      "fix": 1,
+      "kind": "sql",
+      "input": {
+        "query": "getTableRowCountQuery",
+        "catalog": "fx_aux",
+        "schema": "main",
+        "table": "it's \"x\""
+      },
+      "output": "SELECT COUNT(*) AS row_count FROM \"fx_aux\".\"main\".\"it's \"\"x\"\"\""
+    },
+    {
+      "name": "fix 6: the attached catalog's users table is no longer mixed in (main.users)",
+      "fix": 6,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: main.users",
+      "input": {
+        "schema": "main",
+        "table": "users",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "id",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": "nextval('users_id_seq')",
+            "is_primary_key": true
+          },
+          {
+            "column_name": "name",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "email",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          },
+          {
+            "column_name": "role",
+            "data_type": "VARCHAR",
+            "is_nullable": "YES",
+            "column_default": "'customer'",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "created_at",
+            "data_type": "TIMESTAMP",
+            "is_nullable": "YES",
+            "column_default": "CURRENT_TIMESTAMP",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column",
+          "position"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('users_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "role",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "'customer'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: fx_aux.fx_sales.regions is no longer mixed in (fx_sales.regions)",
+      "fix": 6,
+      "kind": "parse-columns",
+      "replaces": "parse-columns.json: fx_sales.regions",
+      "input": {
+        "schema": "fx_sales",
+        "table": "regions",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "code",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "name",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeyColumns": [
+          "schema_name",
+          "referenced_table",
+          "source_column",
+          "referenced_column",
+          "position"
+        ],
+        "foreignKeys": []
+      },
+      "output": [
+        {
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with spaces in its names, a composite foreign key and a default",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "fx_sales",
+        "table": "fx order lines"
+      },
+      "output": [
+        {
+          "name": "line no",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "region_code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "fx_sales",
+            "referencedTable": "orders",
+            "referencedColumn": "region_code"
+          }
+        },
+        {
+          "name": "order_no",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "fx_sales",
+            "referencedTable": "orders",
+            "referencedColumn": "order_no"
+          }
+        },
+        {
+          "name": "it's",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "'n/a'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 1: columns of a table with a quote in its name and a column named say \"hi\"",
+      "fix": 1,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "fx it's"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "say \"hi\"",
+          "type": "VARCHAR",
+          "nullable": true,
+          "defaultValue": "'it''s'",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a table whose fx_aux namesake also has a primary key (the adapter's query failed)",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "main",
+        "table": "categories"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "defaultValue": "nextval('categories_id_seq')",
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "defaultValue": "CURRENT_TIMESTAMP",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a table in an attached catalog",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "fx_aux.main",
+        "table": "users"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "nickname",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of an attached table with a foreign key (it references the schema as listed)",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "fx_aux.main",
+        "table": "fx_items"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "fx_aux.main",
+            "referencedTable": "categories",
+            "referencedColumn": "id"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a non-main schema in an attached catalog",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "fx_aux.fx_sales",
+        "table": "regions"
+      },
+      "output": [
+        {
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a non-main schema with a composite primary key",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders"
+      },
+      "output": [
+        {
+          "name": "region_code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": true,
+          "foreignKeyRef": {
+            "referencedSchema": "fx_sales",
+            "referencedTable": "regions",
+            "referencedColumn": "code"
+          }
+        },
+        {
+          "name": "order_no",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_on",
+          "type": "DATE",
+          "nullable": true,
+          "defaultValue": "CAST('2024-01-01' AS \"DATE\")",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "DECIMAL(12,2)",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a default-catalog schema with dots in its name, listed quoted",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "\"fx.a.b\"",
+        "table": "things"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "label",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of a default-catalog schema named fx_aux.main, which doesn't collide with the attached fx_aux.main",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "\"fx_aux.main\"",
+        "table": "users"
+      },
+      "output": [
+        {
+          "name": "dotted_id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 6: columns of an attached catalog whose name has a dot and a quote",
+      "fix": 6,
+      "kind": "columns",
+      "input": {
+        "schema": "\"fx.we\"\"ird\".main",
+        "table": "items"
+      },
+      "output": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "note",
+          "type": "VARCHAR",
+          "nullable": true,
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 7: a failing foreign-key query leaves the columns without foreign keys (fx_sales.orders)",
+      "fix": 7,
+      "kind": "columns-fk-error",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders",
+        "columns": ["column_name", "data_type", "is_nullable", "column_default", "is_primary_key"],
+        "rows": [
+          {
+            "column_name": "region_code",
+            "data_type": "VARCHAR",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "order_no",
+            "data_type": "INTEGER",
+            "is_nullable": "NO",
+            "column_default": null,
+            "is_primary_key": true
+          },
+          {
+            "column_name": "placed_on",
+            "data_type": "DATE",
+            "is_nullable": "YES",
+            "column_default": "CAST('2024-01-01' AS \"DATE\")",
+            "is_primary_key": false
+          },
+          {
+            "column_name": "total",
+            "data_type": "DECIMAL(12,2)",
+            "is_nullable": "YES",
+            "column_default": "0",
+            "is_primary_key": false
+          }
+        ],
+        "foreignKeysError": "QUERY_ERROR: Query failed: Binder Error: Table function with name duckdb_constraints does not exist"
+      },
+      "output": [
+        {
+          "name": "region_code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "order_no",
+          "type": "INTEGER",
+          "nullable": false,
+          "isPrimaryKey": true,
+          "isForeignKey": false
+        },
+        {
+          "name": "placed_on",
+          "type": "DATE",
+          "nullable": true,
+          "defaultValue": "CAST('2024-01-01' AS \"DATE\")",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        },
+        {
+          "name": "total",
+          "type": "DECIMAL(12,2)",
+          "nullable": true,
+          "defaultValue": "0",
+          "isPrimaryKey": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "name": "fix 2: indexes from duckdb_indexes() (main.orders)",
+      "fix": 2,
+      "kind": "parse-indexes",
+      "replaces": "parse-indexes.json: main.orders",
+      "input": {
+        "schema": "main",
+        "table": "orders",
+        "columns": ["index_name", "is_unique", "position", "column_name"],
+        "rows": [
+          {
+            "index_name": "idx_orders_status",
+            "is_unique": false,
+            "position": 1,
+            "column_name": "status"
+          },
+          {
+            "index_name": "idx_orders_user",
+            "is_unique": false,
+            "position": 1,
+            "column_name": "user_id"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "idx_orders_status",
+          "columns": ["status"],
+          "unique": false,
+          "type": "art"
+        },
+        {
+          "name": "idx_orders_user",
+          "columns": ["user_id"],
+          "unique": false,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 2: indexes from duckdb_indexes() (fx_sales.orders)",
+      "fix": 2,
+      "kind": "parse-indexes",
+      "replaces": "parse-indexes.json: fx_sales.orders",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders",
+        "columns": ["index_name", "is_unique", "position", "column_name"],
+        "rows": [
+          {
+            "index_name": "fx_orders_expr_idx",
+            "is_unique": false,
+            "position": 1,
+            "column_name": "(COALESCE(placed_on, CAST('2020-01-01' AS \"DATE\")))"
+          },
+          {
+            "index_name": "fx_orders_expr_idx",
+            "is_unique": false,
+            "position": 2,
+            "column_name": "((order_no + 1))"
+          },
+          {
+            "index_name": "fx_orders_no_region_idx",
+            "is_unique": true,
+            "position": 1,
+            "column_name": "order_no"
+          },
+          {
+            "index_name": "fx_orders_no_region_idx",
+            "is_unique": true,
+            "position": 2,
+            "column_name": "region_code"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx_orders_expr_idx",
+          "columns": ["(COALESCE(placed_on, CAST('2020-01-01' AS \"DATE\")))", "((order_no + 1))"],
+          "unique": false,
+          "type": "art"
+        },
+        {
+          "name": "fx_orders_no_region_idx",
+          "columns": ["order_no", "region_code"],
+          "unique": true,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 2: indexes: expression keys keep DuckDB's text; a unique two-column index (fx_sales.orders)",
+      "fix": 2,
+      "kind": "indexes",
+      "input": {
+        "schema": "fx_sales",
+        "table": "orders"
+      },
+      "output": [
+        {
+          "name": "fx_orders_expr_idx",
+          "columns": ["(COALESCE(placed_on, CAST('2020-01-01' AS \"DATE\")))", "((order_no + 1))"],
+          "unique": false,
+          "type": "art"
+        },
+        {
+          "name": "fx_orders_no_region_idx",
+          "columns": ["order_no", "region_code"],
+          "unique": true,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 1: indexes: a table and key with spaces and quotes, an index name with \" (fx_sales.fx order lines)",
+      "fix": 1,
+      "kind": "indexes",
+      "input": {
+        "schema": "fx_sales",
+        "table": "fx order lines"
+      },
+      "output": [
+        {
+          "name": "fx lines \"odd\" idx",
+          "columns": ["line no", "(lower(\"it's\"))"],
+          "unique": false,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 2: indexes: PRIMARY KEY and UNIQUE constraints have no duckdb_indexes() row (main.users)",
+      "fix": 2,
+      "kind": "indexes",
+      "input": {
+        "schema": "main",
+        "table": "users"
+      },
+      "output": []
+    },
+    {
+      "name": "fix 6: indexes: an attached catalog's index (fx_aux.main.users)",
+      "fix": 6,
+      "kind": "indexes",
+      "input": {
+        "schema": "fx_aux.main",
+        "table": "users"
+      },
+      "output": [
+        {
+          "name": "fx_aux_users_nickname_idx",
+          "columns": ["nickname"],
+          "unique": false,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 6: indexes: an attached catalog whose name has a dot and a quote (\"fx.we\"\"ird\".main.items)",
+      "fix": 6,
+      "kind": "indexes",
+      "input": {
+        "schema": "\"fx.we\"\"ird\".main",
+        "table": "items"
+      },
+      "output": [
+        {
+          "name": "items_note_idx",
+          "columns": ["note"],
+          "unique": false,
+          "type": "art"
+        }
+      ]
+    },
+    {
+      "name": "fix 6: catalogs told apart: attached tables are listed under catalog.schema",
+      "fix": 6,
+      "kind": "parse-schema",
+      "replaces": "parse-schema.json: schema",
+      "input": {
+        "columns": ["schema_name", "table_name", "table_type"],
+        "rows": [
+          {
+            "schema_name": "\"fx.a.b\"",
+            "table_name": "things",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "\"fx_aux.main\"",
+            "table_name": "users",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx order lines",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx_region_totals",
+            "table_type": "VIEW"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "regions",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "all_types",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "categories",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx it's",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx_types",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "products",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "users",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "\"fx.we\"\"ird\".main",
+            "table_name": "items",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_aux.fx_sales",
+            "table_name": "regions",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "categories",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "fx_items",
+            "table_type": "BASE TABLE"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "users",
+            "table_type": "BASE TABLE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "things",
+          "schema": "\"fx.a.b\"",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "\"fx_aux.main\"",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx order lines",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_region_totals",
+          "schema": "fx_sales",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "regions",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "all_types",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "categories",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx it's",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_types",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "order_items",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "products",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "items",
+          "schema": "\"fx.we\"\"ird\".main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "regions",
+          "schema": "fx_aux.fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "categories",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_items",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    },
+    {
+      "name": "fix 6: the schema tree, live",
+      "fix": 6,
+      "kind": "schema",
+      "input": {},
+      "output": [
+        {
+          "name": "things",
+          "schema": "\"fx.a.b\"",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "\"fx_aux.main\"",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx order lines",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_region_totals",
+          "schema": "fx_sales",
+          "type": "view",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "regions",
+          "schema": "fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "all_types",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "categories",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx it's",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_types",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "order_items",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "orders",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "products",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "items",
+          "schema": "\"fx.we\"\"ird\".main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "regions",
+          "schema": "fx_aux.fx_sales",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "categories",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_items",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "users",
+          "schema": "fx_aux.main",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    },
+    {
+      "name": "fix 6: listSchemas, live (no duplicate main)",
+      "fix": 6,
+      "kind": "schemas",
+      "input": {},
+      "output": [
+        "\"fx.a.b\"",
+        "\"fx_aux.main\"",
+        "fx_sales",
+        "main",
+        "\"fx.we\"\"ird\".main",
+        "fx_aux.fx_sales",
+        "fx_aux.main"
+      ]
+    },
+    {
+      "name": "fix 6: table sizes list attached tables under catalog.schema",
+      "fix": 6,
+      "kind": "parse-stats",
+      "replaces": "parse-stats.json: table sizes",
+      "input": {
+        "kind": "tableSizes",
+        "columns": ["schema_name", "table_name", "table_catalog", "table_schema"],
+        "rows": [
+          {
+            "schema_name": "\"fx.a.b\"",
+            "table_name": "things",
+            "table_catalog": "seaquel_test",
+            "table_schema": "fx.a.b"
+          },
+          {
+            "schema_name": "\"fx_aux.main\"",
+            "table_name": "users",
+            "table_catalog": "seaquel_test",
+            "table_schema": "fx_aux.main"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx order lines",
+            "table_catalog": "seaquel_test",
+            "table_schema": "fx_sales"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "table_catalog": "seaquel_test",
+            "table_schema": "fx_sales"
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "regions",
+            "table_catalog": "seaquel_test",
+            "table_schema": "fx_sales"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "all_types",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "categories",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx it's",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "fx_types",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "products",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "main",
+            "table_name": "users",
+            "table_catalog": "seaquel_test",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "\"fx.we\"\"ird\".main",
+            "table_name": "items",
+            "table_catalog": "fx.we\"ird",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "fx_aux.fx_sales",
+            "table_name": "regions",
+            "table_catalog": "fx_aux",
+            "table_schema": "fx_sales"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "categories",
+            "table_catalog": "fx_aux",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "fx_items",
+            "table_catalog": "fx_aux",
+            "table_schema": "main"
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "users",
+            "table_catalog": "fx_aux",
+            "table_schema": "main"
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "\"fx.a.b\"",
+          "name": "things",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "\"fx_aux.main\"",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "fx order lines",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "orders",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "regions",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "all_types",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "categories",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx it's",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx_types",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "order_items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "orders",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "products",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "\"fx.we\"\"ird\".main",
+          "name": "items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.fx_sales",
+          "name": "regions",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "categories",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "fx_items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        }
+      ]
+    },
+    {
+      "name": "fix 1 + 6: table sizes with row counts, live (each table counted in its own catalog, names with spaces and quotes counted)",
+      "fix": 6,
+      "kind": "table-sizes",
+      "input": {},
+      "output": [
+        {
+          "schema": "\"fx.a.b\"",
+          "name": "things",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "\"fx_aux.main\"",
+          "name": "users",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "fx order lines",
+          "rowCount": 300,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "orders",
+          "rowCount": 300,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_sales",
+          "name": "regions",
+          "rowCount": 3,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "all_types",
+          "rowCount": 1,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "categories",
+          "rowCount": 5,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx it's",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "fx_types",
+          "rowCount": 1,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "order_items",
+          "rowCount": 1260,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "orders",
+          "rowCount": 500,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "products",
+          "rowCount": 28,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "main",
+          "name": "users",
+          "rowCount": 15,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "\"fx.we\"\"ird\".main",
+          "name": "items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.fx_sales",
+          "name": "regions",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "categories",
+          "rowCount": 1,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "fx_items",
+          "rowCount": 0,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        },
+        {
+          "schema": "fx_aux.main",
+          "name": "users",
+          "rowCount": 2,
+          "totalSize": "N/A",
+          "totalSizeBytes": 0
+        }
+      ]
+    },
+    {
+      "name": "fix 6: index usage lists attached indexes under catalog.schema",
+      "fix": 6,
+      "kind": "parse-stats",
+      "replaces": "parse-stats.json: index usage",
+      "input": {
+        "kind": "indexUsage",
+        "columns": ["schema_name", "table_name", "index_name", "is_unique"],
+        "rows": [
+          {
+            "schema_name": "fx_sales",
+            "table_name": "fx order lines",
+            "index_name": "fx lines \"odd\" idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "index_name": "fx_orders_expr_idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "fx_sales",
+            "table_name": "orders",
+            "index_name": "fx_orders_no_region_idx",
+            "is_unique": true
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_order",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "order_items",
+            "index_name": "idx_order_items_product",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "index_name": "idx_orders_status",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "orders",
+            "index_name": "idx_orders_user",
+            "is_unique": false
+          },
+          {
+            "schema_name": "main",
+            "table_name": "products",
+            "index_name": "idx_products_category",
+            "is_unique": false
+          },
+          {
+            "schema_name": "\"fx.we\"\"ird\".main",
+            "table_name": "items",
+            "index_name": "items_note_idx",
+            "is_unique": false
+          },
+          {
+            "schema_name": "fx_aux.main",
+            "table_name": "users",
+            "index_name": "fx_aux_users_nickname_idx",
+            "is_unique": false
+          }
+        ]
+      },
+      "output": [
+        {
+          "schema": "fx_sales",
+          "table": "fx order lines",
+          "indexName": "fx lines \"odd\" idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "fx_sales",
+          "table": "orders",
+          "indexName": "fx_orders_expr_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "fx_sales",
+          "table": "orders",
+          "indexName": "fx_orders_no_region_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "order_items",
+          "indexName": "idx_order_items_order",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "order_items",
+          "indexName": "idx_order_items_product",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "orders",
+          "indexName": "idx_orders_status",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "orders",
+          "indexName": "idx_orders_user",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "main",
+          "table": "products",
+          "indexName": "idx_products_category",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "\"fx.we\"\"ird\".main",
+          "table": "items",
+          "indexName": "items_note_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        },
+        {
+          "schema": "fx_aux.main",
+          "table": "users",
+          "indexName": "fx_aux_users_nickname_idx",
+          "size": "N/A",
+          "scans": 0,
+          "unused": false
+        }
+      ]
+    },
+    {
+      "name": "fix 3 + 15: the overview's size comes from pragma_database_size, its name from current_database()",
+      "fix": 3,
+      "kind": "parse-stats",
+      "replaces": "parse-stats.json: database overview",
+      "input": {
+        "kind": "overview",
+        "columns": ["database_name", "table_count", "index_count", "total_size_bytes"],
+        "rows": [
+          {
+            "database_name": "seaquel_test",
+            "table_count": 18,
+            "index_count": 10,
+            "total_size_bytes": 6029312
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "seaquel_test",
+        "totalSize": "5.75 MB",
+        "totalSizeBytes": 6029312,
+        "tableCount": 18,
+        "indexCount": 10
+      }
+    },
+    {
+      "name": "fix 3: no overview row is 0 bytes, not In-memory",
+      "fix": 3,
+      "kind": "parse-stats",
+      "replaces": "parse-stats.json: database overview, no rows (fallbacks)",
+      "input": null,
+      "output": {
+        "databaseName": "DuckDB Database",
+        "totalSize": "0 bytes",
+        "totalSizeBytes": 0,
+        "tableCount": 0,
+        "indexCount": 0
+      }
+    },
+    {
+      "name": "fix 3 + 15: an in-memory database (0 bytes)",
+      "fix": 15,
+      "kind": "parse-stats",
+      "input": {
+        "kind": "overview",
+        "columns": ["database_name", "table_count", "index_count", "total_size_bytes"],
+        "rows": [
+          {
+            "database_name": "memory",
+            "table_count": 2,
+            "index_count": 1,
+            "total_size_bytes": 0
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "memory",
+        "totalSize": "0 bytes",
+        "totalSizeBytes": 0,
+        "tableCount": 2,
+        "indexCount": 1
+      }
+    },
+    {
+      "name": "fix 3 + 15: 1.5 GB",
+      "fix": 3,
+      "kind": "parse-stats",
+      "input": {
+        "kind": "overview",
+        "columns": ["database_name", "table_count", "index_count", "total_size_bytes"],
+        "rows": [
+          {
+            "database_name": "warehouse",
+            "table_count": 1,
+            "index_count": 0,
+            "total_size_bytes": 1610612736
+          }
+        ]
+      },
+      "output": {
+        "databaseName": "warehouse",
+        "totalSize": "1.5 GB",
+        "totalSizeBytes": 1610612736,
+        "tableCount": 1,
+        "indexCount": 0
+      }
+    },
+    {
+      "name": "fix 11: CREATE TABLE, a foreign key without a referenced schema",
+      "fix": 11,
+      "kind": "ddl-create",
+      "replaces": "ddl-create.json: a foreign key without a referenced schema",
+      "input": null,
+      "output": "CREATE TABLE \"main\".\"notes\" (\n  \"user_id\" INTEGER,\n  FOREIGN KEY (\"user_id\") REFERENCES \"main\".\"users\" (\"id\")\n);"
+    },
+    {
+      "name": "fix 1: CREATE TABLE, names with double quotes (unescaped by the adapter)",
+      "fix": 1,
+      "kind": "ddl-create",
+      "replaces": "ddl-create.json: names with double quotes (unescaped by the adapter)",
+      "input": null,
+      "output": "CREATE TABLE \"main\".\"say \"\"hi\"\"\" (\n  \"id\"\"\" INTEGER NOT NULL,\n  \"a\"\"b\" VARCHAR,\n  \"note\" VARCHAR DEFAULT 'say \"x\"',\n  PRIMARY KEY (\"id\"\"\"),\n  UNIQUE (\"a\"\"b\"),\n  FOREIGN KEY (\"a\"\"b\") REFERENCES \"main\".\"other\"\"t\" (\"c\"\"d\")\n);\n\nCREATE INDEX \"idx\"\"1\" ON \"main\".\"say \"\"hi\"\"\" (\"a\"\"b\");"
+    },
+    {
+      "name": "fix 11: a foreign key names the table's own schema, whatever the definition says (DuckDB has no cross-schema foreign keys)",
+      "fix": 11,
+      "kind": "ddl-create",
+      "input": {
+        "tableName": "fx_notes",
+        "schemaName": "fx_sales",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "region_code",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "region_code",
+            "referencedSchema": "main",
+            "referencedTable": "regions",
+            "referencedColumn": "code"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"fx_sales\".\"fx_notes\" (\n  \"id\" INTEGER NOT NULL,\n  \"region_code\" VARCHAR,\n  PRIMARY KEY (\"id\"),\n  FOREIGN KEY (\"region_code\") REFERENCES \"fx_sales\".\"regions\" (\"code\")\n);"
+    },
+    {
+      "name": "fix 6 + 11: a table in an attached catalog: the schema is split, and its foreign key is a note (DuckDB can't create it from another catalog)",
+      "fix": 11,
+      "kind": "ddl-create",
+      "input": {
+        "tableName": "fx_links",
+        "schemaName": "fx_aux.main",
+        "columns": [
+          {
+            "id": "c1",
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "defaultValue": "",
+            "isPrimaryKey": true,
+            "isUnique": false
+          },
+          {
+            "id": "c2",
+            "name": "category_id",
+            "type": "INTEGER",
+            "nullable": true,
+            "defaultValue": "",
+            "isPrimaryKey": false,
+            "isUnique": false
+          }
+        ],
+        "indexes": [
+          {
+            "id": "i1",
+            "name": "fx_links_category_idx",
+            "columns": ["category_id"],
+            "unique": false,
+            "type": "art"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "f1",
+            "column": "category_id",
+            "referencedSchema": "fx_aux.main",
+            "referencedTable": "categories",
+            "referencedColumn": "id"
+          }
+        ]
+      },
+      "output": "CREATE TABLE \"fx_aux\".\"main\".\"fx_links\" (\n  \"id\" INTEGER NOT NULL,\n  \"category_id\" INTEGER,\n  PRIMARY KEY (\"id\")\n);\n\nCREATE INDEX \"fx_links_category_idx\" ON \"fx_aux\".\"main\".\"fx_links\" (\"category_id\");\n-- DuckDB can't create a foreign key in attached catalog \"fx_aux\" from here: (\"category_id\") REFERENCES \"fx_aux\".\"main\".\"categories\" (\"id\"); create the table after USE \"fx_aux\" to add it"
+    },
+    {
+      "name": "fix 6 + 8 + 10: ALTER TABLE in an attached catalog names catalog, schema and table",
+      "fix": 6,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "fx_links",
+          "schemaName": "fx_aux.main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "category_id",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "fx_links_category_idx",
+              "columns": ["category_id"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "fx_links",
+          "schemaName": "fx_aux.main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "cat_id",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "note",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"fx_aux\".\"main\".\"fx_links_category_idx\";\nALTER TABLE \"fx_aux\".\"main\".\"fx_links\" RENAME COLUMN \"category_id\" TO \"cat_id\";\nALTER TABLE \"fx_aux\".\"main\".\"fx_links\" ADD COLUMN \"note\" VARCHAR DEFAULT 'x';"
+    },
+    {
+      "name": "fix 9: ADD COLUMN, NOT NULL with a default",
+      "fix": 9,
+      "kind": "ddl-add-column",
+      "replaces": "ddl-add-column.json: NOT NULL with a default",
+      "input": null,
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"code\" VARCHAR DEFAULT 'x';\nALTER TABLE \"main\".\"customers\" ALTER COLUMN \"code\" SET NOT NULL;"
+    },
+    {
+      "name": "fix 1: ADD COLUMN, names with double quotes (unescaped by the adapter)",
+      "fix": 1,
+      "kind": "ddl-add-column",
+      "replaces": "ddl-add-column.json: names with double quotes (unescaped by the adapter)",
+      "input": null,
+      "output": "ALTER TABLE \"sch\"\"x\".\"odd\"\"table\" ADD COLUMN \"a\"\"b\" INTEGER DEFAULT 0;"
+    },
+    {
+      "name": "fix 9: NOT NULL without a default is added nullable, with a note (SET NOT NULL fails on a table with rows)",
+      "fix": 9,
+      "kind": "ddl-add-column",
+      "input": {
+        "schema": "main",
+        "table": "customers",
+        "column": {
+          "id": "c9",
+          "name": "code",
+          "type": "VARCHAR",
+          "nullable": false,
+          "defaultValue": "",
+          "isPrimaryKey": false,
+          "isUnique": false
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"code\" VARCHAR;\n-- DuckDB can't add column \"code\" as NOT NULL without a default; fill it, then run ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"code\" SET NOT NULL"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, rename a column",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: rename a column",
+      "input": null,
+      "output": "-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"full_name\""
+    },
+    {
+      "name": "fix 9 + 10: ALTER TABLE, add a NOT NULL column",
+      "fix": 9,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: add a NOT NULL column",
+      "input": null,
+      "output": "ALTER TABLE \"main\".\"customers\" ADD COLUMN \"tier\" INTEGER DEFAULT 1;\n-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"tier\" SET NOT NULL"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, drop a column",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: drop a column",
+      "input": null,
+      "output": "-- DuckDB can't drop or change the type of a column in a PRIMARY KEY or UNIQUE constraint; recreate the table to change it: ALTER TABLE \"main\".\"customers\" DROP COLUMN \"email\""
+    },
+    {
+      "name": "fix 8: ALTER TABLE, drop an index",
+      "fix": 8,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: drop an index",
+      "input": null,
+      "output": "DROP INDEX \"main\".\"customers_name_idx\";"
+    },
+    {
+      "name": "fix 8: ALTER TABLE, drop an index in another schema",
+      "fix": 8,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: drop an index in another schema",
+      "input": null,
+      "output": "DROP INDEX \"sales\".\"customers_name_idx\";"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, change a type",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: change a type",
+      "input": null,
+      "output": "-- DuckDB can't drop or change the type of a column in a PRIMARY KEY or UNIQUE constraint; recreate the table to change it: ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"email\" TYPE VARCHAR(320)"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, make a column NOT NULL",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: make a column NOT NULL",
+      "input": null,
+      "output": "-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"email\" SET NOT NULL"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, make a column nullable",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: make a column nullable",
+      "input": null,
+      "output": "-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"balance\" DROP NOT NULL"
+    },
+    {
+      "name": "fix 10: ALTER TABLE, rename and change a type",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: rename and change a type",
+      "input": null,
+      "output": "-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\"\n-- DuckDB can't run this while the table has indexes; drop \"main\".\"customers_name_idx\" first and recreate it afterwards: ALTER TABLE \"main\".\"customers\" ALTER COLUMN \"display_name\" TYPE VARCHAR(150)"
+    },
+    {
+      "name": "fix 4: ALTER TABLE, add foreign keys (invalid in DuckDB)",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: add foreign keys (invalid in DuckDB)",
+      "input": null,
+      "output": "-- DuckDB can't add a foreign key to an existing table: (\"email\") REFERENCES \"emails\" (\"address\"); recreate the table to add it\n-- DuckDB can't add a foreign key to an existing table: (\"name\") REFERENCES \"main\".\"names\" (\"value\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 4 + 8 + 10: ALTER TABLE, statement order: every branch (the foreign key is invalid)",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: statement order: every branch (the foreign key is invalid)",
+      "input": null,
+      "output": "DROP INDEX \"main\".\"customers_name_idx\";\nALTER TABLE \"main\".\"customers\" RENAME COLUMN \"name\" TO \"display_name\";\nALTER TABLE \"main\".\"customers\" ADD COLUMN \"tier\" INTEGER DEFAULT 1;\nALTER TABLE \"main\".\"customers\" ALTER COLUMN \"display_name\" TYPE TEXT;\nALTER TABLE \"main\".\"customers\" ALTER COLUMN \"status\" SET DEFAULT 'open';\nALTER TABLE \"main\".\"customers\" ALTER COLUMN \"balance\" DROP NOT NULL;\nCREATE INDEX \"customers_tier_idx\" ON \"main\".\"customers\" (\"tier\");\n-- DuckDB can't drop or change the type of a column in a PRIMARY KEY or UNIQUE constraint; recreate the table to change it: ALTER TABLE \"main\".\"customers\" DROP COLUMN \"email\"\n-- DuckDB can't add a foreign key to an existing table: (\"tier\") REFERENCES \"main\".\"tiers\" (\"id\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 1 + 8 + 10: ALTER TABLE, names with double quotes (unescaped by the adapter)",
+      "fix": 1,
+      "kind": "ddl-alter",
+      "replaces": "ddl-alter.json: names with double quotes (unescaped by the adapter)",
+      "input": null,
+      "output": "DROP INDEX \"main\".\"idx\"\"1\";\nALTER TABLE \"main\".\"say \"\"hi\"\"\" RENAME COLUMN \"a\"\"b\" TO \"c\"\"d\";\nALTER TABLE \"main\".\"say \"\"hi\"\"\" ADD COLUMN \"new\"\"col\" INTEGER;\nALTER TABLE \"main\".\"say \"\"hi\"\"\" ALTER COLUMN \"note\" SET DEFAULT 'it''s';\nCREATE INDEX \"idx\"\"2\" ON \"main\".\"say \"\"hi\"\"\" (\"c\"\"d\");"
+    },
+    {
+      "name": "fix 4: a line break in a referenced name can't end the comment; quotes are doubled",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "a",
+              "referencedSchema": "main",
+              "referencedTable": "p\"\nq",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "-- DuckDB can't add a foreign key to an existing table: (\"a\") REFERENCES \"main\".\"p\"\" q\" (\"id\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 4: a foreign key on a column added in the same edit is a note too (DuckDB rejects constraints in ADD COLUMN)",
+      "fix": 4,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "owner_id",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "owner_id",
+              "referencedSchema": "",
+              "referencedTable": "users",
+              "referencedColumn": "id"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"t\" ADD COLUMN \"owner_id\" INTEGER;\n-- DuckDB can't add a foreign key to an existing table: (\"owner_id\") REFERENCES \"users\" (\"id\"); recreate the table to add it"
+    },
+    {
+      "name": "fix 9: a NOT NULL column without a default is added nullable, with a note",
+      "fix": 9,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "code",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"t\" ADD COLUMN \"code\" VARCHAR;\n-- DuckDB can't add column \"code\" as NOT NULL without a default; fill it, then run ALTER TABLE \"main\".\"t\" ALTER COLUMN \"code\" SET NOT NULL"
+    },
+    {
+      "name": "fix 8 + 10: indexes the edit removes are dropped first, qualified, so the rename and type change run",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "art"
+            },
+            {
+              "id": "i2",
+              "name": "t_b_idx",
+              "columns": ["b"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b2",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"fx_sales\".\"t_a_idx\";\nDROP INDEX \"fx_sales\".\"t_b_idx\";\nALTER TABLE \"fx_sales\".\"t\" RENAME COLUMN \"b\" TO \"b2\";\nALTER TABLE \"fx_sales\".\"t\" ALTER COLUMN \"b2\" TYPE TEXT;"
+    },
+    {
+      "name": "fix 10: while an index stays, the rename is a note (DuckDB refuses it even for an index on another column)",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "art"
+            },
+            {
+              "id": "i2",
+              "name": "t_b_idx",
+              "columns": ["b"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b2",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "DROP INDEX \"fx_sales\".\"t_b_idx\";\n-- DuckDB can't run this while the table has indexes; drop \"fx_sales\".\"t_a_idx\" first and recreate it afterwards: ALTER TABLE \"fx_sales\".\"t\" RENAME COLUMN \"b\" TO \"b2\""
+    },
+    {
+      "name": "fix 10: when a rename is a note, the default change and new index on the renamed column are notes too",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "art"
+            },
+            {
+              "id": "i2",
+              "name": "t_b_idx",
+              "columns": ["b"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        },
+        "to": {
+          "tableName": "t",
+          "schemaName": "fx_sales",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "a",
+              "type": "INTEGER",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "b2",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            }
+          ],
+          "indexes": [
+            {
+              "id": "i1",
+              "name": "t_a_idx",
+              "columns": ["a"],
+              "unique": false,
+              "type": "art"
+            },
+            {
+              "id": "i2",
+              "name": "t_b_idx",
+              "columns": ["b"],
+              "unique": false,
+              "type": "art"
+            },
+            {
+              "id": "i3",
+              "name": "t_b2_idx",
+              "columns": ["b2"],
+              "unique": false,
+              "type": "art"
+            }
+          ],
+          "foreignKeys": []
+        }
+      },
+      "output": "-- DuckDB can't run this while the table has indexes; drop \"fx_sales\".\"t_a_idx\", \"fx_sales\".\"t_b_idx\" first and recreate them afterwards: ALTER TABLE \"fx_sales\".\"t\" RENAME COLUMN \"b\" TO \"b2\"\n-- DuckDB can't run this before the rename above: ALTER TABLE \"fx_sales\".\"t\" ALTER COLUMN \"b2\" SET DEFAULT 'x'\n-- DuckDB can't run this before the rename above: CREATE INDEX \"t_b2_idx\" ON \"fx_sales\".\"t\" (\"b2\")"
+    },
+    {
+      "name": "fix 10: dropping a column that comes before a UNIQUE column is a note (customers.name, before email)",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "-- DuckDB can't drop a column that comes before a PRIMARY KEY or UNIQUE column; recreate the table to change it: ALTER TABLE \"main\".\"customers\" DROP COLUMN \"name\""
+    },
+    {
+      "name": "fix 10: dropping a column after the last PRIMARY KEY or UNIQUE column runs (customers.status)",
+      "fix": 10,
+      "kind": "ddl-alter",
+      "input": {
+        "from": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c4",
+              "name": "status",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'active'",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        },
+        "to": {
+          "tableName": "customers",
+          "schemaName": "main",
+          "columns": [
+            {
+              "id": "c1",
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": true,
+              "isUnique": false
+            },
+            {
+              "id": "c2",
+              "name": "name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": false
+            },
+            {
+              "id": "c3",
+              "name": "email",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "",
+              "isPrimaryKey": false,
+              "isUnique": true,
+              "length": "255"
+            },
+            {
+              "id": "c5",
+              "name": "balance",
+              "type": "DECIMAL",
+              "nullable": false,
+              "defaultValue": "0",
+              "isPrimaryKey": false,
+              "isUnique": false,
+              "precision": "10,2"
+            }
+          ],
+          "indexes": [],
+          "foreignKeys": [
+            {
+              "id": "f1",
+              "column": "status",
+              "referencedSchema": "main",
+              "referencedTable": "statuses",
+              "referencedColumn": "code"
+            }
+          ]
+        }
+      },
+      "output": "ALTER TABLE \"main\".\"customers\" DROP COLUMN \"status\";"
+    },
+    {
+      "name": "fix 12: no bare ARRAY, LIST, MAP, STRUCT or UNION (DuckDB needs their type arguments)",
+      "fix": 12,
+      "kind": "column-types",
+      "replaces": "column-types.json: getColumnTypes",
+      "input": null,
+      "output": [
+        {
+          "name": "VARCHAR",
+          "category": "String",
+          "hasLength": true
+        },
+        {
+          "name": "TEXT",
+          "category": "String"
+        },
+        {
+          "name": "INTEGER",
+          "category": "Numeric"
+        },
+        {
+          "name": "BIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "HUGEINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "SMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "TINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UINTEGER",
+          "category": "Numeric"
+        },
+        {
+          "name": "UBIGINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UHUGEINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "USMALLINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "UTINYINT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DOUBLE",
+          "category": "Numeric"
+        },
+        {
+          "name": "FLOAT",
+          "category": "Numeric"
+        },
+        {
+          "name": "DECIMAL",
+          "category": "Numeric",
+          "hasPrecision": true
+        },
+        {
+          "name": "BIGNUM",
+          "category": "Numeric"
+        },
+        {
+          "name": "DATE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIME",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIMESTAMP",
+          "category": "Date/Time"
+        },
+        {
+          "name": "TIMESTAMP WITH TIME ZONE",
+          "category": "Date/Time"
+        },
+        {
+          "name": "INTERVAL",
+          "category": "Date/Time"
+        },
+        {
+          "name": "BOOLEAN",
+          "category": "Boolean"
+        },
+        {
+          "name": "JSON",
+          "category": "JSON"
+        },
+        {
+          "name": "BLOB",
+          "category": "Binary"
+        },
+        {
+          "name": "BIT",
+          "category": "Binary"
+        },
+        {
+          "name": "UUID",
+          "category": "UUID"
+        }
+      ]
+    },
+    {
+      "name": "fix 14: EXPLAIN: scan with a filter",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: scan with a filter",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 100,
+              "filter": "total>100.00"
+            }
+          ],
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: equality on an indexed column",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: equality on an indexed column",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 125,
+              "filter": "status='shipped'"
+            }
+          ],
+          "planRows": 125
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: two filters on one scan",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: two filters on one scan",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "orders",
+          "planRows": 125,
+          "filter": "status='shipped', total>50.00"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: primary key lookup",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: primary key lookup",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "users",
+          "planRows": 1,
+          "filter": "id=3"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: two-column filter",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: two-column filter",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 1,
+              "filter": "order_no=5, region_code='ap'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: hash join",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: hash join",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 441,
+              "joinType": "INNER",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 441
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: join, group by, top n",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: join, group by, top n",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "TOP_N",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "HASH_GROUP_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "PROJECTION",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "HASH_JOIN",
+                              "children": [
+                                {
+                                  "id": "node-6",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "orders",
+                                  "planRows": 125,
+                                  "filter": "status='shipped'"
+                                },
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "users",
+                                  "planRows": 15
+                                }
+                              ],
+                              "planRows": 110,
+                              "joinType": "INNER",
+                              "hashCond": "user_id = id"
+                            }
+                          ],
+                          "planRows": 110
+                        }
+                      ],
+                      "planRows": 110
+                    }
+                  ],
+                  "planRows": 14
+                }
+              ],
+              "planRows": 14
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: left join",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: left join",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 500,
+              "joinType": "RIGHT",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: IN subquery (semi join)",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: IN subquery (semi join)",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "HASH_JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 100,
+              "filter": "total>500.00"
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 15
+            }
+          ],
+          "planRows": 3,
+          "joinType": "RIGHT_SEMI",
+          "hashCond": "#0 = id"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: NOT EXISTS (anti join)",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: NOT EXISTS (anti join)",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "HASH_JOIN",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 100
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 15
+            }
+          ],
+          "planRows": 3,
+          "joinType": "RIGHT_ANTI",
+          "hashCond": "id IS NOT DISTINCT FROM id"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: inequality join",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: inequality join",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PIECEWISE_MERGE_JOIN",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-3",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 158,
+              "joinType": "INNER",
+              "filter": "CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))"
+            }
+          ],
+          "planRows": 158
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: cross product",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: cross product",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "CROSS_PRODUCT",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 15
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "categories",
+              "planRows": 5
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: union",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: union",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "HASH_GROUP_BY",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "UNION",
+                              "children": [
+                                {
+                                  "id": "node-6",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "users",
+                                  "planRows": 15
+                                },
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "categories",
+                                  "planRows": 5
+                                }
+                              ]
+                            }
+                          ],
+                          "planRows": 15
+                        }
+                      ],
+                      "planRows": 15
+                    }
+                  ],
+                  "planRows": 15
+                }
+              ],
+              "planRows": 15
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: union all",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: union all",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "UNION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 15
+            },
+            {
+              "id": "node-2",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "categories",
+              "planRows": 5
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: distinct",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: distinct",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "SEQ_SCAN",
+                          "children": [],
+                          "relationName": "orders",
+                          "planRows": 500
+                        }
+                      ],
+                      "planRows": 500
+                    }
+                  ],
+                  "planRows": 500
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: window function",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: window function",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "WINDOW",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "SEQ_SCAN",
+                      "children": [],
+                      "relationName": "orders",
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: materialized CTE",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: materialized CTE",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "CTE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PERFECT_HASH_GROUP_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "PROJECTION",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "SEQ_SCAN",
+                              "children": [],
+                              "relationName": "orders",
+                              "planRows": 500
+                            }
+                          ],
+                          "planRows": 500
+                        }
+                      ],
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 16
+            },
+            {
+              "id": "node-6",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-7",
+                  "nodeType": "HASH_JOIN",
+                  "children": [
+                    {
+                      "id": "node-8",
+                      "nodeType": "CTE_SCAN",
+                      "children": [],
+                      "planRows": 16
+                    },
+                    {
+                      "id": "node-9",
+                      "nodeType": "CTE_SCAN",
+                      "children": [],
+                      "planRows": 16
+                    }
+                  ],
+                  "planRows": 15,
+                  "joinType": "INNER",
+                  "hashCond": "user_id = user_id"
+                }
+              ],
+              "planRows": 15
+            }
+          ],
+          "planRows": 15
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 13: EXPLAIN: recursive CTE",
+      "fix": 13,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: recursive CTE",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "REC_CTE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "DUMMY_SCAN",
+                  "children": []
+                }
+              ],
+              "planRows": 1
+            },
+            {
+              "id": "node-3",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-4",
+                  "nodeType": "FILTER",
+                  "children": [
+                    {
+                      "id": "node-5",
+                      "nodeType": "REC_CTE_SCAN",
+                      "children": [],
+                      "planRows": 1
+                    }
+                  ],
+                  "planRows": 1,
+                  "filter": "(n < 3)"
+                }
+              ],
+              "planRows": 1
+            }
+          ],
+          "planRows": 1001
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 13: EXPLAIN: filter over a table function",
+      "fix": 13,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: filter over a table function",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "FILTER",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "RANGE",
+              "children": [],
+              "planRows": 1000
+            }
+          ],
+          "planRows": 200,
+          "filter": "((x % 7) = 0)"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: order by",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: order by",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "ORDER_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "SEQ_SCAN",
+                      "children": [],
+                      "relationName": "users",
+                      "planRows": 15
+                    }
+                  ],
+                  "planRows": 15
+                }
+              ]
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: limit and offset",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: limit and offset",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "ORDER_BY",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "HASH_JOIN",
+                          "children": [
+                            {
+                              "id": "node-5",
+                              "nodeType": "SEQ_SCAN",
+                              "children": [],
+                              "relationName": "users",
+                              "planRows": 15
+                            },
+                            {
+                              "id": "node-6",
+                              "nodeType": "STREAMING_LIMIT",
+                              "children": [
+                                {
+                                  "id": "node-7",
+                                  "nodeType": "SEQ_SCAN",
+                                  "children": [],
+                                  "relationName": "users",
+                                  "planRows": 15
+                                }
+                              ]
+                            }
+                          ],
+                          "planRows": 0,
+                          "joinType": "SEMI",
+                          "hashCond": "rowid = rowid"
+                        }
+                      ],
+                      "planRows": 0
+                    }
+                  ]
+                }
+              ],
+              "planRows": 0
+            }
+          ],
+          "planRows": 0
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: trailing semicolon",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: trailing semicolon",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "users",
+          "planRows": 15
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: non-main schema, names with spaces and quotes",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: non-main schema, names with spaces and quotes",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "fx order lines",
+          "planRows": 60,
+          "filter": "it's>='Line 1' AND it's<'Line 2'"
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: view",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: view",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "HASH_GROUP_BY",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "PROJECTION",
+                  "children": [
+                    {
+                      "id": "node-3",
+                      "nodeType": "PROJECTION",
+                      "children": [
+                        {
+                          "id": "node-4",
+                          "nodeType": "SEQ_SCAN",
+                          "children": [],
+                          "relationName": "orders",
+                          "planRows": 300
+                        }
+                      ],
+                      "planRows": 300
+                    }
+                  ],
+                  "planRows": 300
+                }
+              ],
+              "planRows": 3
+            }
+          ],
+          "planRows": 3
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: attached catalog",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: attached catalog",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 1,
+              "filter": "nickname='ada'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: types table",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: types table",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "fx_types",
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: unnest a list",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: unnest a list",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "PROJECTION",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "UNNEST",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "fx_types",
+                  "planRows": 1
+                }
+              ]
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: update",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: update",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "UPDATE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "children": [
+                {
+                  "id": "node-2",
+                  "nodeType": "SEQ_SCAN",
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 1,
+                  "filter": "id=1"
+                }
+              ],
+              "planRows": 1
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: delete",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: delete",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "DELETE",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "orders",
+              "planRows": 1,
+              "filter": "id=1"
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN: insert select",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN: insert select",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "BATCH_INSERT",
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "SEQ_SCAN",
+              "children": [],
+              "relationName": "users",
+              "planRows": 15
+            }
+          ]
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: scan with a filter",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: scan with a filter",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 0.75,
+          "actualRows": 445,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SEQ_SCAN",
+              "actualTotalTime": 0.5,
+              "actualRows": 445,
+              "children": [],
+              "relationName": "orders",
+              "planRows": 100,
+              "filter": "total>100.00"
+            }
+          ],
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: two filters on one scan",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: two filters on one scan",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 0.5,
+          "actualRows": 104,
+          "children": [],
+          "relationName": "orders",
+          "planRows": 125,
+          "filter": "status='shipped', total>50.00"
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: hash join",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: hash join",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 500,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "HASH_JOIN",
+              "actualTotalTime": 0.75,
+              "actualRows": 500,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 500,
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-1",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.25,
+                  "actualRows": 15,
+                  "children": [],
+                  "relationName": "users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 441,
+              "joinType": "INNER",
+              "hashCond": "user_id = id"
+            }
+          ],
+          "planRows": 441
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: join, group by, top n",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: join, group by, top n",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-7",
+          "nodeType": "TOP_N",
+          "actualTotalTime": 3.35,
+          "actualRows": 5,
+          "children": [
+            {
+              "id": "node-6",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 2.85,
+              "actualRows": 15,
+              "children": [
+                {
+                  "id": "node-5",
+                  "nodeType": "HASH_GROUP_BY",
+                  "actualTotalTime": 2.1,
+                  "actualRows": 15,
+                  "children": [
+                    {
+                      "id": "node-4",
+                      "nodeType": "PROJECTION",
+                      "actualTotalTime": 1.95,
+                      "actualRows": 111,
+                      "children": [
+                        {
+                          "id": "node-3",
+                          "nodeType": "PROJECTION",
+                          "actualTotalTime": 1.75,
+                          "actualRows": 111,
+                          "children": [
+                            {
+                              "id": "node-2",
+                              "nodeType": "HASH_JOIN",
+                              "actualTotalTime": 0.75,
+                              "actualRows": 111,
+                              "children": [
+                                {
+                                  "id": "node-0",
+                                  "nodeType": "SEQ_SCAN",
+                                  "actualTotalTime": 0.5,
+                                  "actualRows": 111,
+                                  "children": [],
+                                  "relationName": "orders",
+                                  "planRows": 125,
+                                  "filter": "status='shipped'"
+                                },
+                                {
+                                  "id": "node-1",
+                                  "nodeType": "SEQ_SCAN",
+                                  "actualTotalTime": 0.25,
+                                  "actualRows": 15,
+                                  "children": [],
+                                  "relationName": "users",
+                                  "planRows": 15
+                                }
+                              ],
+                              "planRows": 110,
+                              "joinType": "INNER",
+                              "hashCond": "user_id = id"
+                            }
+                          ],
+                          "planRows": 110
+                        }
+                      ],
+                      "planRows": 110
+                    }
+                  ],
+                  "planRows": 14
+                }
+              ],
+              "planRows": 14
+            }
+          ]
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: inequality join",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: inequality join",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 6868,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "PIECEWISE_MERGE_JOIN",
+              "actualTotalTime": 0.75,
+              "actualRows": 6868,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 500,
+                  "children": [],
+                  "relationName": "orders",
+                  "planRows": 500
+                },
+                {
+                  "id": "node-1",
+                  "nodeType": "SEQ_SCAN",
+                  "actualTotalTime": 0.25,
+                  "actualRows": 15,
+                  "children": [],
+                  "relationName": "users",
+                  "planRows": 15
+                }
+              ],
+              "planRows": 158,
+              "joinType": "INNER",
+              "filter": "CAST(total AS DECIMAL(12,2)) > CAST((id * 10) AS DECIMAL(12,2))"
+            }
+          ],
+          "planRows": 158
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: window function",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: window function",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-3",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 1.75,
+          "actualRows": 500,
+          "children": [
+            {
+              "id": "node-2",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 0.75,
+              "actualRows": 500,
+              "children": [
+                {
+                  "id": "node-1",
+                  "nodeType": "WINDOW",
+                  "actualTotalTime": 0.75,
+                  "actualRows": 500,
+                  "children": [
+                    {
+                      "id": "node-0",
+                      "nodeType": "SEQ_SCAN",
+                      "actualTotalTime": 0.5,
+                      "actualRows": 500,
+                      "children": [],
+                      "relationName": "orders",
+                      "planRows": 500
+                    }
+                  ]
+                }
+              ],
+              "planRows": 500
+            }
+          ],
+          "planRows": 500
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 13: EXPLAIN ANALYZE: recursive CTE",
+      "fix": 13,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: recursive CTE",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-5",
+          "nodeType": "REC_CTE",
+          "actualTotalTime": 2.1,
+          "actualRows": 3,
+          "children": [
+            {
+              "id": "node-1",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 0.75,
+              "actualRows": 1,
+              "children": [
+                {
+                  "id": "node-0",
+                  "nodeType": "DUMMY_SCAN",
+                  "actualTotalTime": 0.5,
+                  "actualRows": 1,
+                  "children": []
+                }
+              ],
+              "planRows": 1
+            },
+            {
+              "id": "node-4",
+              "nodeType": "PROJECTION",
+              "actualTotalTime": 1.2,
+              "actualRows": 2,
+              "children": [
+                {
+                  "id": "node-3",
+                  "nodeType": "FILTER",
+                  "actualTotalTime": 1,
+                  "actualRows": 2,
+                  "children": [
+                    {
+                      "id": "node-2",
+                      "nodeType": "REC_CTE_SCAN",
+                      "actualTotalTime": 0,
+                      "actualRows": 3,
+                      "children": [],
+                      "planRows": 1
+                    }
+                  ],
+                  "planRows": 1,
+                  "filter": "(n < 3)"
+                }
+              ],
+              "planRows": 1
+            }
+          ],
+          "planRows": 1001
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 13: EXPLAIN ANALYZE: filter over a table function",
+      "fix": 13,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: filter over a table function",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "FILTER",
+          "actualTotalTime": 0.75,
+          "actualRows": 143,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "RANGE",
+              "actualTotalTime": 0.5,
+              "actualRows": 1000,
+              "children": [],
+              "planRows": 1000
+            }
+          ],
+          "planRows": 200,
+          "filter": "((x % 7) = 0)"
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: non-main schema, names with spaces and quotes",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: non-main schema, names with spaces and quotes",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 0.5,
+          "actualRows": 111,
+          "children": [],
+          "relationName": "fx order lines",
+          "planRows": 60,
+          "filter": "it's>='Line 1' AND it's<'Line 2'"
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 14: EXPLAIN ANALYZE: attached catalog",
+      "fix": 14,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: EXPLAIN ANALYZE: attached catalog",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-1",
+          "nodeType": "PROJECTION",
+          "actualTotalTime": 0.75,
+          "actualRows": 1,
+          "children": [
+            {
+              "id": "node-0",
+              "nodeType": "SEQ_SCAN",
+              "actualTotalTime": 0.5,
+              "actualRows": 1,
+              "children": [],
+              "relationName": "users",
+              "planRows": 1,
+              "filter": "nickname='ada'"
+            }
+          ],
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "executionTime": 12.5,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 5: synthetic: estimated cardinality, approximate (~100)",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: synthetic: estimated cardinality, approximate (~100)",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: synthetic: estimated cardinality, with a thousands separator",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: synthetic: estimated cardinality, with a thousands separator",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 1234
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: synthetic: estimated cardinality, with a unit",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: synthetic: estimated cardinality, with a unit",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 42
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: synthetic: estimated cardinality, analyzed",
+      "fix": 5,
+      "kind": "parse-explain",
+      "replaces": "parse-explain.json: synthetic: estimated cardinality, analyzed",
+      "input": null,
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "actualTotalTime": 1,
+          "actualRows": 100,
+          "children": [],
+          "relationName": "t",
+          "planRows": 100
+        },
+        "planningTime": 0,
+        "executionTime": 2,
+        "isAnalyze": true
+      }
+    },
+    {
+      "name": "fix 5: Estimated Cardinality \"~ 7\"",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"~ 7\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 7
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: Estimated Cardinality \"~1_000 rows\"",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"~1_000 rows\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 1000
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: Estimated Cardinality \"1 row\"",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \"1 row\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 5: Estimated Cardinality \" 12 \"",
+      "fix": 5,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "(synthetic)",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN \",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"t\",\n            \"Estimated Cardinality\": \" 12 \"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "t",
+          "planRows": 12
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    },
+    {
+      "name": "fix 14: a table named with a dot and quotes keeps its whole last part (fx.dotted \"t\")",
+      "fix": 14,
+      "kind": "parse-explain",
+      "input": {
+        "sql": "SELECT * FROM fx_sales.\"fx.dotted \"\"t\"\"\" WHERE id > 0",
+        "analyze": false,
+        "columns": ["explain_key", "explain_value"],
+        "rows": [
+          {
+            "explain_key": "physical_plan",
+            "explain_value": "[\n    {\n        \"name\": \"SEQ_SCAN\",\n        \"children\": [],\n        \"extra_info\": {\n            \"Table\": \"seaquel_test.fx_sales.\\\"fx.dotted \\\"\\\"t\\\"\\\"\\\"\",\n            \"Type\": \"Sequential Scan\",\n            \"Projections\": \"id\",\n            \"Estimated Cardinality\": \"1\"\n        }\n    }\n]"
+          }
+        ]
+      },
+      "output": {
+        "plan": {
+          "id": "node-0",
+          "nodeType": "SEQ_SCAN",
+          "children": [],
+          "relationName": "fx.dotted \"t\"",
+          "planRows": 1
+        },
+        "planningTime": 0,
+        "isAnalyze": false
+      }
+    }
+  ]
+}

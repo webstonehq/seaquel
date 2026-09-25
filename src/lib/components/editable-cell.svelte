@@ -2,8 +2,8 @@
 	import { Input } from "$lib/components/ui/input";
 	import { LoaderIcon } from "@lucide/svelte";
 	import FormattedCell from "$lib/components/formatted-cell.svelte";
-	import type { CellType } from "$lib/utils/cell-type";
-	import { inputTypeForCellType } from "$lib/utils/cell-type";
+	import type { BinaryStringEncoding, CellType } from "$lib/utils/cell-type";
+	import { binaryCellBytes, editedCellValue, inputTypeForCellType } from "$lib/utils/cell-type";
 	import { SqlDecimal, cellText, jsonReplacer, toHex } from "$lib/values";
 
 	interface Props {
@@ -14,9 +14,11 @@
 		onTextareaToggle?: (active: boolean) => void;
 		/** When true, render the idle state with green pending-change styling */
 		pendingDisplay?: boolean;
+		/** How string cells in a binary column hold their bytes (see `binaryCellBytes`). */
+		binaryStrings?: BinaryStringEncoding;
 	}
 
-	let { value, isEditable = false, columnType = 'text', onSave, onTextareaToggle = () => {}, pendingDisplay = false }: Props = $props();
+	let { value, isEditable = false, columnType = 'text', onSave, onTextareaToggle = () => {}, pendingDisplay = false, binaryStrings = 'text' }: Props = $props();
 
 	const monoTypes = new Set(['integer', 'float', 'date', 'datetime', 'time', 'uuid', 'json']);
 	const useMono = $derived(monoTypes.has(columnType));
@@ -49,6 +51,10 @@
 
 	function formatValue(val: unknown): string {
 		if (val === null || val === undefined) return '';
+		// Bytes are edited as \x hex, as the cell shows them; that includes a
+		// MySQL VARBINARY string in a binary column.
+		const bytes = columnType === 'binary' ? binaryCellBytes(val, binaryStrings) : null;
+		if (bytes) return toHex(bytes);
 		if (val instanceof Uint8Array) return toHex(val);
 		if (val instanceof SqlDecimal) return val.value;
 		// Compact on purpose: a single-line <input> would drop the newlines of
@@ -72,7 +78,7 @@
 
 		isSaving = true;
 		try {
-			await onSave(editValue);
+			await onSave(editedCellValue(value, columnType, editValue, binaryStrings));
 			stopEditing();
 		} finally {
 			isSaving = false;
@@ -142,7 +148,7 @@
 		{#if pendingDisplay}
 			{value === null ? 'NULL' : value === undefined ? 'DEFAULT' : cellText(value)}
 		{:else}
-			<FormattedCell {value} {columnType} {isEditable} {onSave} />
+			<FormattedCell {value} {columnType} {isEditable} {onSave} {binaryStrings} />
 		{/if}
 	</span>
 {/if}

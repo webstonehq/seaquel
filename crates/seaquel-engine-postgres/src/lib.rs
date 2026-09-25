@@ -2,10 +2,10 @@
 
 mod bind;
 mod decode;
-mod numeric;
 mod dialect;
 mod driver;
 pub mod introspect;
+mod numeric;
 
 use std::sync::Arc;
 

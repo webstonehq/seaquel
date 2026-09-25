@@ -1,7 +1,8 @@
 import type { QueryTab, ParameterValue } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import { getStatementAtOffset } from "$lib/db/sql-parser";
-import { substituteParameters } from "$lib/db/query-params";
+import { ParameterSubstitutionError, substituteParameters } from "$lib/db/query-params";
+import { errorToast } from "$lib/utils/toast";
 
 /**
  * Resolve query text from a query tab, optionally extracting the statement at cursor
@@ -32,8 +33,15 @@ export function resolveQuery(
   if (!query.trim()) return null;
 
   if (parameterValues) {
-    const { sql, bindValues } = substituteParameters(query, parameterValues, dbType, forceInline);
-    return { tab, query: sql, bindValues };
+    try {
+      const { sql, bindValues } = substituteParameters(query, parameterValues, dbType, forceInline);
+      return { tab, query: sql, bindValues };
+    } catch (error) {
+      // A value that can't be substituted safely: shown, nothing runs.
+      if (!(error instanceof ParameterSubstitutionError)) throw error;
+      errorToast(error.message);
+      return null;
+    }
   }
   return { tab, query };
 }

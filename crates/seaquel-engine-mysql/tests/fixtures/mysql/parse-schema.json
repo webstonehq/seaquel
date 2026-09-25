@@ -1,0 +1,134 @@
+{
+  "cases": [
+    {
+      "name": "schema",
+      "input": {
+        "columns": ["schema_name", "table_name", "TABLE_TYPE"],
+        "rows": [
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx order items",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx-my-table",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx.dotted",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_accounts",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_café",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customer_names",
+            "TABLE_TYPE": "VIEW"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_customers",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_dotted_refs",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_mem",
+            "TABLE_TYPE": "BASE TABLE"
+          },
+          {
+            "schema_name": "seaquel_test",
+            "table_name": "fx_orders",
+            "TABLE_TYPE": "BASE TABLE"
+          }
+        ]
+      },
+      "output": [
+        {
+          "name": "fx order items",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx-my-table",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx.dotted",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_accounts",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_café",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_customer_names",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_customers",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_dotted_refs",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_mem",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        },
+        {
+          "name": "fx_orders",
+          "schema": "seaquel_test",
+          "type": "table",
+          "columns": [],
+          "indexes": []
+        }
+      ]
+    }
+  ]
+}

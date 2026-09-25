@@ -1,0 +1,14 @@
+// `npm run fixtures:record -- <engine>` (or ENGINE=<engine>): record the
+// dialect parity fixtures for one engine. See dialect-fixtures.test.ts.
+import { spawnSync } from "node:child_process";
+
+const engine = process.argv[2] ?? process.env.ENGINE;
+if (!engine) {
+  console.error("usage: npm run fixtures:record -- <engine>");
+  process.exit(2);
+}
+const result = spawnSync("npx", ["vitest", "run", "scripts/fixtures/dialect-fixtures.test.ts"], {
+  stdio: "inherit",
+  env: { ...process.env, RECORD_FIXTURES: "1", ENGINE: engine },
+});
+process.exit(result.status ?? 1);

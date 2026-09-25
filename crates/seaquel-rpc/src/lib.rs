@@ -80,6 +80,12 @@ pub enum EngineRequest {
         schema: String,
         table: String,
         column: String,
+        /// The column's default expression from its metadata (`defaultValue`,
+        /// or `NULL` when it has none). SQLite, which has no `DEFAULT` in
+        /// `UPDATE`, assigns it; other engines ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        column_default: Option<String>,
         primary_keys: Vec<String>,
         #[cfg_attr(feature = "ts", ts(type = "Array<[string, unknown]>"))]
         row: RowValues,
@@ -187,14 +193,16 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             schema,
             table,
             column,
+            column_default,
             primary_keys,
             row,
             casts,
         } => core.with_dialect(id, |d| {
-            Res::SqlWithBindings(d.build_set_default(
+            Res::SqlWithBindings(d.build_set_default_expr(
                 &schema,
                 &table,
                 &column,
+                column_default.as_deref(),
                 &primary_keys,
                 &row,
                 casts.as_ref(),

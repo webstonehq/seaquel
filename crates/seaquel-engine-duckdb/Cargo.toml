@@ -7,11 +7,18 @@ description = "DuckDB engine for Seaquel (native; the browser demo gets its own 
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-runtime = { path = "../seaquel-runtime" }
-base64 = { workspace = true }
+seaquel-types = { path = "../seaquel-types" }
+async-stream = { workspace = true }
 duckdb = { workspace = true }
+log = { workspace = true }
 serde_json = { workspace = true }
+# `rt` for spawn_blocking: duckdb-rs is synchronous. Engine crates are
+# native-only; the browser demo gets its own DuckDB engine in phase 8.
+tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+serde = { workspace = true }
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+futures = { workspace = true }

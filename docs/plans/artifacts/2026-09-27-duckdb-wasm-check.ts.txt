@@ -1,0 +1,123 @@
+// Copy of the throwaway check that compared the DuckDB parse fixtures with DuckDB-WASM (the
+// demo's engine), phase 2 Task 17. Kept for reference; it isn't part of the build. Run it from a
+// scratch directory as a vitest file, from the repo root: npx vitest run --dir <dir>. It needs
+// e2e/test-databases/duckdb/seaquel_test.duckdb (npm run e2e:db:seed) and no server.
+
+/**
+ * Replays the DuckDB corpus's parse cases against DuckDB-WASM (the demo's
+ * engine, node-blocking build): the same seeded database and scratch
+ * objects, the adapter's own queries, rows converted with Arrow's toJSON as
+ * DuckDBProvider does, then the parser. Prints every case whose output
+ * differs from the recorded (native) one.
+ *
+ *   npx vitest run --dir <this dir>
+ */
+import { it } from "vitest";
+import { createRequire } from "node:module";
+import { readFileSync, existsSync } from "node:fs";
+import { getAdapter } from "$lib/db";
+import { toJson } from "/Users/m/projects/github/webstonehq/seaquel/scripts/fixtures/corpus";
+
+const REPO = "/Users/m/projects/github/webstonehq/seaquel";
+const FIX = `${REPO}/crates/seaquel-engine-duckdb/tests/fixtures/`;
+const SRC = `${REPO}/e2e/test-databases/duckdb/seaquel_test.duckdb`;
+const require = createRequire(import.meta.url);
+
+it("compares with DuckDB-WASM", async () => {
+  const d = require(`${REPO}/node_modules/@duckdb/duckdb-wasm/dist/duckdb-node-blocking.cjs`);
+  const dist = `${REPO}/node_modules/@duckdb/duckdb-wasm/dist/`;
+  const db = await d.createDuckDB(
+    {
+      mvp: { mainModule: dist + "duckdb-mvp.wasm", mainWorker: "" },
+      eh: { mainModule: dist + "duckdb-eh.wasm", mainWorker: "" },
+    },
+    new d.VoidLogger(),
+    d.NODE_RUNTIME,
+  );
+  await db.instantiate();
+  db.open({});
+  db.registerFileBuffer("seaquel_test.duckdb", new Uint8Array(readFileSync(SRC)));
+  if (existsSync(`${SRC}.wal`)) {
+    db.registerFileBuffer("seaquel_test.duckdb.wal", new Uint8Array(readFileSync(`${SRC}.wal`)));
+  }
+  const c = db.connect();
+  const q = (sql: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    c.query(sql).toArray().map((r: any) => r.toJSON()) as Record<string, unknown>[];
+  console.log("WASM", q("SELECT version() AS v")[0].v);
+  q("ATTACH 'seaquel_test.duckdb' AS seaquel_test");
+  q("USE seaquel_test");
+  const scratch = JSON.parse(readFileSync(`${FIX}bugfixes.json`, "utf-8")).scratch;
+  for (const s of [...scratch.teardown, ...scratch.setup]) {
+    try {
+      q(s);
+    } catch (e) {
+      console.log("setup failed:", s.slice(0, 80), String(e).split("\n")[0]);
+    }
+  }
+
+  const a = getAdapter("duckdb");
+  const read = (f: string) => JSON.parse(readFileSync(FIX + f, "utf-8")).cases as { name: string; input: any; output: any }[];
+  let same = 0;
+  const diffs: string[] = [];
+  const check = (file: string, name: string, got: unknown, want: unknown) => {
+    const g = JSON.stringify(toJson(got));
+    if (g === JSON.stringify(want)) same++;
+    else {
+      const paths: string[] = [];
+      const walk = (x: any, y: any, p: string) => {
+        if (JSON.stringify(x) === JSON.stringify(y)) return;
+        if (x && y && typeof x === "object" && typeof y === "object") {
+          for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) walk(x[k], y[k], `${p}.${k}`);
+        } else paths.push(`${p}: ${JSON.stringify(x)} -> ${JSON.stringify(y)}`);
+      };
+      walk(want, JSON.parse(g), "");
+      diffs.push(`${file}: ${name}\n    ${paths.slice(0, 6).join("\n    ")}`);
+    }
+  };
+  const run = (sql: string) => {
+    try {
+      return q(sql);
+    } catch (e) {
+      return new Error(String(e).split("\n")[0]);
+    }
+  };
+
+  for (const cs of read("parse-schema.json")) {
+    const rows = run(a.getSchemaQuery());
+    check("parse-schema", cs.name, rows instanceof Error ? rows.message : a.parseSchemaResult(rows), cs.output);
+  }
+  for (const cs of read("parse-columns.json")) {
+    const { schema, table } = cs.input;
+    const rows = run(a.getColumnsQuery(table, schema));
+    const fks = run(a.getForeignKeysQuery!(table, schema));
+    const out = rows instanceof Error || fks instanceof Error ? String(rows instanceof Error ? rows.message : (fks as Error).message) : a.parseColumnsResult(rows, fks);
+    check("parse-columns", cs.name, out, cs.output);
+  }
+  for (const cs of read("parse-indexes.json")) {
+    const rows = run(a.getIndexesQuery(cs.input.table, cs.input.schema));
+    check("parse-indexes", cs.name, rows instanceof Error ? rows.message : a.parseIndexesResult(rows), cs.output);
+  }
+  const normalize = (o: any) => {
+    // Timings differ run to run; compare the plan shape, rows and estimates only.
+    const strip = (n: any): any => ({ ...n, actualTotalTime: undefined, children: n.children.map(strip) });
+    return { ...o, executionTime: undefined, plan: strip(o.plan) };
+  };
+  for (const cs of read("parse-explain.json")) {
+    if (cs.input.sql === "(synthetic)") continue;
+    const rows = run(a.getExplainQuery(cs.input.sql, cs.input.analyze));
+    const got = rows instanceof Error ? rows.message : a.parseExplainResult(rows, cs.input.analyze);
+    if (cs.input.analyze && !(typeof got === "string")) check("parse-explain", cs.name, normalize(got), normalize(cs.output));
+    else check("parse-explain", cs.name, got, cs.output);
+  }
+  for (const cs of read("parse-stats.json")) {
+    const k = cs.input.kind;
+    let got: unknown;
+    if (k === "tableSizes") got = a.parseTableSizesResult!(q(a.getTableSizesQuery!()));
+    else if (k === "indexUsage") got = a.parseIndexUsageResult!(q(a.getIndexUsageQuery!()));
+    else if (k === "overview") got = a.parseDatabaseOverviewResult!(cs.input.rows.length ? q(a.getDatabaseOverviewQuery!()) : []);
+    else got = Number(q(a.getTableRowCountQuery!(cs.input.table, cs.input.schema))[0].row_count);
+    check("parse-stats", cs.name, got, cs.output);
+  }
+  console.log(`same: ${same}, different: ${diffs.length}\n${diffs.join("\n")}`);
+}, 120_000);

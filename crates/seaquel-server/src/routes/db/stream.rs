@@ -46,7 +46,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             Ok(r) => r,
             Err(e) => {
                 warn!("stream request parse failed: {e}");
-                send_error(&mut socket, DbError::query_error(format!("malformed request: {e}"))).await;
+                send_error(
+                    &mut socket,
+                    DbError::query_error(format!("malformed request: {e}")),
+                )
+                .await;
                 return;
             }
         },
@@ -76,7 +80,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             Ok(json) => json,
             Err(e) => {
                 warn!("failed to serialize stream event: {e}");
-                send_error(&mut socket, DbError::query_error(format!("failed to serialize result: {e}"))).await;
+                send_error(
+                    &mut socket,
+                    DbError::query_error(format!("failed to serialize result: {e}")),
+                )
+                .await;
                 return;
             }
         };
