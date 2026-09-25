@@ -1,0 +1,3 @@
+# Generated from the Rust seaquel-types / seaquel-rpc crates by `npm run types:gen`.
+# Collapsed in GitHub diffs; still committed so frontend builds don't need Rust.
+src/lib/types/generated/** linguist-generated=true
