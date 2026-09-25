@@ -1,7 +1,6 @@
 use axum::{extract::State, Json};
-use log::debug;
+use seaquel_types::QueryResult;
 use serde::Deserialize;
-use seaquel_db::QueryResult;
 
 use crate::{error::ApiError, AppState};
 
@@ -17,15 +16,5 @@ pub async fn query(
     State(state): State<AppState>,
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResult>, ApiError> {
-    debug!(
-        activity = "db.query",
-        connection_id = req.connection_id.as_str(),
-        sql_len = req.sql.len(),
-        params = req.values.len();
-        "Query"
-    );
-
-    let driver = state.connection_manager.get_driver(&req.connection_id).await?;
-    let result = driver.query(&req.sql, req.values).await?;
-    Ok(Json(result))
+    Ok(Json(state.core.query(&req.connection_id, &req.sql, req.values).await?))
 }

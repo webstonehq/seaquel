@@ -2,6 +2,7 @@
 
 **Date:** 2026-09-24
 **Status:** Draft
+Phase 0: implemented (see 2026-09-24-rust-core-phase-0-plan.md).
 
 ## Problem
 
@@ -48,9 +49,14 @@ web, CLI, TUI and MCP in the same release.
 | 6 | One API for GUIs | A single RPC surface (`seaquel-rpc`) served over Tauri IPC and over HTTP/WebSocket. TS types are generated from Rust |
 | 7 | Multi-tenancy | Core has a process-wide `Core` and per-user `Workspace`s. Web gets one workspace per user; desktop, CLI, TUI and MCP get one each |
 | 8 | GUI state | Tabs, panes and layout stay in the interface. Core persists them as opaque per-interface blobs and never parses them |
-| 9 | Web auth | Better Auth, signup, team and license gating stay in the SvelteKit/Node layer. They're web-specific |
+| 9 | Web auth | Better Auth, signup, team and account routes stay in the SvelteKit/Node layer. They're web-specific. Replacing Node with an axum auth layer is out of scope |
 | 10 | Terminal binaries | One `seaquel` binary: `seaquel <cmd>` for CLI, `seaquel tui`, `seaquel mcp` |
 | 11 | Migration | Strangler pattern, one engine or subsystem at a time. The app ships working at every step |
+| 12 | Demo | Core compiles to WASM for the browser, with a JS-bridged DuckDB-WASM engine and an in-browser storage backend. The demo becomes a third RPC transport |
+| 13 | Web licensing | Licensing and air-gap logic move to `seaquel-license`. Node's gate calls `seaquel-server` over loopback |
+| 14 | Terminal binary licensing | Honour system. `seaquel` doesn't check for a license key |
+| 15 | CLI distribution | Bundled with the desktop app as a sidecar. Standalone distribution can be added later without design changes |
+| 16 | Legacy JSON storage | Dropped. Core doesn't import the pre-SQLite JSON files from versions before 2026.4.5 |
 
 ### Why compile-time plugins
 
@@ -100,16 +106,18 @@ web) and loads `seaquel-wasm` for pure hot-path functions.
 | `seaquel-engine` | pure + async traits | `Engine`, `Dialect`, `Connection` traits, `Capabilities`, `EngineRegistry`, `DbError` | `crates/seaquel-db/src/lib.rs`, `db/index.ts` |
 | `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}` | plugin | Driver, value decoding, dialect, introspection, EXPLAIN parsing. The `mysql` crate also registers `mariadb` | `crates/seaquel-db/src/*`, `db/{postgres,mysql,sqlite,mssql,duckdb}.ts`, `db/alter-table.ts`, `db/crud-helpers.ts`, `db/parse-create-table.ts` |
 | `seaquel-engine-testkit` | dev | Conformance suite every engine must pass | new |
-| `seaquel-storage` | infra | App metadata SQLite: schema, migrations, repos, legacy JSON import | `storage/*`, `src/lib/server/storage.ts`, `storage-guard.ts` |
+| `seaquel-storage` | infra | App metadata SQLite: schema, migrations, repos, data dir resolution. Native (sqlx) and browser backends | `storage/*`, `src/lib/server/storage.ts`, `storage-guard.ts` |
 | `seaquel-secrets` | infra | `SecretStore` trait, OS keychain implementation (`keyring` crate) | `services/keyring.ts` |
 | `seaquel-ssh` | infra | SSH tunnels (russh) | `src-tauri/src/ssh_tunnel.rs`, `services/ssh-tunnel.ts` |
 | `seaquel-git` | infra | git2 operations and credential chain | `src-tauri/src/git.rs`, `services/git.ts` |
-| `seaquel-license` | infra | Desktop activation/validation, control-plane client, air-gap bundle verification | `src-tauri/src/license.rs`, `src/lib/server/licensing.ts`, `license-cache.ts`, `airgap/*` |
+| `seaquel-license` | infra | Desktop activation/validation, control-plane client, grace-period cache, install id, member binding, air-gap bundle verification | `src-tauri/src/license.rs`, `src/lib/server/{licensing,license-cache,member-license,install}.ts`, `src/lib/server/airgap/*` |
 | `seaquel-workspace` | domain | Connections, projects, labels, saved queries and versions, history, dashboards and versions, workflows, shared repo file format (`.seaquel/` YAML and frontmatter SQL), importers, exporters, connection strings | `hooks/database/*` (core parts), `services/*-parser.ts`, `services/{dbeaver,tableplus}-import.ts`, `utils/{connection-string,export-formats,query-versions,dashboard-versions,cell-type}.ts` |
 | `seaquel-ai` | domain | LLM provider clients, tool registry, tool loop, @mention expansion | `services/ai/*`, `services/ai-mentions.ts` |
 | `seaquel-core` | orchestrator | `Core`, `Workspace`, execution services, event bus | `hooks/database.svelte.ts` and managers (logic only) |
 | `seaquel-rpc` | interface glue | Request/response/event enums and a dispatcher onto `Workspace` | new; replaces `providers/*` and `/api/storage/*` |
 | `seaquel-wasm` | interface glue | wasm-bindgen exports of pure crates for the GUI | new |
+| `seaquel-engine-duckdb-wasm` | plugin (browser only) | `Connection` implemented over `@duckdb/duckdb-wasm` via wasm-bindgen. Reuses the DuckDB `Dialect` | `providers/duckdb-provider.ts` |
+| `seaquel-browser` | interface glue | Core built for `wasm32-unknown-unknown` with browser plugins, exporting the RPC dispatcher | new |
 | `src-tauri`, `seaquel-server`, `seaquel-cli`, `seaquel-tui`, `seaquel-mcp` | interfaces | Transport, presentation, platform integration | existing plus new |
 
 `seaquel-db` disappears. Its contents split between `seaquel-engine` and the
@@ -285,6 +293,19 @@ localStorage) and client-side write queues. After the move:
 - Cross-process change detection: Core polls `PRAGMA data_version` and emits
   `CoreEvent::StorageChanged` so a running GUI picks up a query saved from the
   CLI.
+- Data dir resolution moves from `get_data_dir` in `src-tauri` into
+  `seaquel-storage`. It honours `SEAQUEL_DATA_DIR` first, then computes the
+  platform app-data path for `app.seaquel.desktop` (or `app.seaquel.desktop.dev`
+  in dev builds) with the `directories` crate. It has to produce exactly the path
+  Tauri's `app_data_dir` gives today, so the CLI finds the desktop app's data
+  without Tauri. A unit test pins this per platform.
+- **No legacy JSON import.** Versions before 2026.4.5 kept data in
+  `tauri-plugin-store` JSON files, and `json-migration.ts` imports them on first
+  launch. Core doesn't port this. If Core finds the legacy files and no
+  `seaquel.db`, it refuses to start and names the fix: install any release from
+  2026.4.5 up to the last pre-Core release, launch it once, then upgrade.
+  `json-migration.ts`, `legacy.ts`, `tauri-storage.ts`, `web-storage.ts` and
+  the `tauri-plugin-store` dependency are deleted in phase 3.
 
 ### Secrets
 
@@ -356,8 +377,8 @@ Schema data for completions comes from Core and is cached in the GUI.
 |---|---|---|
 | Svelte GUI (desktop and web) | Components, tabs/panes/layout, Monaco, xyflow canvases, charts, theming, i18n, toasts, dialogs, shortcuts, the web vault's crypto | `db/*`, `providers/*`, `storage/*`, and the logic in `hooks/database/*`, `services/*`, `utils/*` as listed in the crate table |
 | `src-tauri` | Windows, menus, updater, deep-link registration, drag-drop, clipboard images, `open_path`, logging, the two RPC commands | `db/commands.rs`, `git.rs`, `ssh_tunnel.rs`, `license.rs`, `read_dbeaver_config`, `read_tableplus_config`, `get_username` |
-| SvelteKit/Node (web) | Better Auth, signup, team, account routes, license gate in `hooks.server.ts`, static serving, loopback proxy | `/api/storage/*`, connection scoping, the licensing and air-gap logic (called through a small Rust endpoint or napi binding; see open questions) |
-| `seaquel-server` | axum routing, WS, `X-Seaquel-User` handling | `/api/db/*` handlers (replaced by `/rpc`) |
+| SvelteKit/Node (web) | Better Auth, signup, team, account routes, the gate in `hooks.server.ts` (now a loopback call), static serving, loopback proxy | `/api/storage/*`, connection scoping, licensing and air-gap logic |
+| `seaquel-server` | axum routing, WS, `X-Seaquel-User` handling, `/internal/license/*` | `/api/db/*` handlers (replaced by `/rpc`) |
 | `seaquel` CLI | `clap` commands, table/CSV/JSON output, exit codes | — |
 | `seaquel tui` | ratatui views | — |
 | `seaquel mcp` | rmcp server, tool schemas, stdio/HTTP transport | — |
@@ -388,6 +409,112 @@ seaquel export -c <conn> "<sql>" --format csv > out.csv
 seaquel tui
 seaquel mcp [--connection <name>…]
 ```
+
+## Web licensing over loopback
+
+`hooks.server.ts` needs a license answer on every request, and that logic
+moves to `seaquel-license`. Node asks `seaquel-server` over loopback, the same
+way `server.js` already asks `/api/account/stream-access` before proxying a
+WebSocket.
+
+- `seaquel-server` serves `/internal/license/*`:
+  - `gate` (per user: ok, needs membership, suspended, revalidate)
+  - `signup-check` and `register-install`
+  - `bind-member` and `unbind-member`
+  - `members` (the team list proxy)
+  - air-gap bundle `status`, `upload` and `clear`
+- The Node proxy forwards only `/rpc` and `/rpc/stream` to Rust. `/internal/*`
+  is reachable from inside the container only, and `seaquel-server` rejects it
+  if the request didn't come from loopback, as a second check.
+- **Tables.** The license tables (install id, `member_license`, the
+  grace-period cache, `airgap_bundle`) stay in `auth.db`, so no data moves.
+  Rust owns those tables and their migrations, and Better Auth keeps its own.
+  Both processes open the file in WAL mode.
+- **Caching.** The soft/hard TTL ladder from the 2026-05-19 design runs in Rust.
+  Node keeps a few seconds of in-memory cache per user to absorb request bursts.
+- **Behaviour.** The control-plane contract (`X-Install-Id`, `X-License-Key`)
+  and the air-gap Ed25519 verification don't change. The existing vitest
+  suites for `licensing`, `license-cache`, `airgap/*` and `signup` become
+  parity fixtures for the Rust port, the same way the dialect fixtures work.
+
+## Terminal binaries: licensing and distribution
+
+**Licensing.** `seaquel`, `seaquel tui` and `seaquel mcp` don't check for a
+license. The terms from the 2026-09-18 license split still apply (free for
+personal use, paid for commercial use); it's just not enforced. `seaquel
+--version` and `--help` print one line pointing to `seaquel.app/terms`. The CLI
+crates don't depend on `seaquel-license`. The desktop app's license checks don't
+change.
+
+**Bundling.** The desktop app ships `seaquel` as a Tauri sidecar
+(`bundle.externalBin`):
+
+- `release.yml` builds `seaquel` for each target triple before `tauri-action`
+  runs. Each target is signed with the same identity as the app.
+- On **macOS**, the app menu gets "Install Command Line Tool…", which symlinks
+  `/usr/local/bin/seaquel` to the binary inside the app bundle. The admin prompt
+  appears only when needed.
+- On **Linux**, the `.deb` and `.rpm` packages install `/usr/bin/seaquel`. The
+  AppImage offers the same menu item, targeting `~/.local/bin`.
+- On **Windows**, the installer adds the binary's directory to `PATH`.
+- The CLI updates with the app through the existing updater.
+- Signing both binaries with the same team identity is what lets `seaquel` read
+  keychain items created by the app. The macOS keychain access group still
+  needs setting up; see Risks.
+
+Standalone distribution later (Homebrew, cargo-dist, `ghcr.io`) needs no design
+change. The binary already finds its data dir without Tauri (see Storage
+ownership).
+
+## The demo: Core in the browser
+
+The demo runs entirely in the browser on DuckDB-WASM and sql.js. It stays that
+way, but the logic comes from Core compiled to `wasm32-unknown-unknown`. It then
+behaves like the desktop app, and every engine and domain fix reaches it.
+
+```
+Svelte GUI ──CoreClient (in-page transport)──▶ seaquel-browser (WASM)
+                                                 ├─ seaquel-core, -workspace, -ai
+                                                 ├─ seaquel-engine-duckdb-wasm ──▶ @duckdb/duckdb-wasm (JS)
+                                                 └─ seaquel-storage (browser backend) ──▶ SQLite in the page
+```
+
+- **Transport.** `CoreClient` gets a third transport that calls the WASM
+  `dispatch` directly. There's no network, and the same `Request`/`Response`
+  types are used.
+- **Engine.** `seaquel-engine-duckdb-wasm` implements `Connection` by calling
+  DuckDB-WASM through wasm-bindgen. Its `Dialect` is the DuckDB engine crate's,
+  built with its `driver` feature off so the native `duckdb` crate isn't pulled
+  in. The demo's sample data seeding (`src/lib/demo/*`) stays as TS content
+  loaded through Core.
+- **Storage.** `seaquel-storage` gets a `StorageBackend` trait. The native
+  backend uses sqlx. The browser backend is either rusqlite on
+  `sqlite-wasm-rs`, or a wasm-bindgen bridge to the sql.js the demo uses today.
+  Spike rusqlite first, since it keeps all of storage in Rust. Persistence stays
+  in the browser: IndexedDB rather than today's base64 in localStorage, which
+  has a size cap.
+- **Excluded in the browser build.** SSH, git, keychain, licensing, and every
+  native engine. These are Cargo features, off in `seaquel-browser`. AI works
+  if the user brings a key: `LlmProvider` uses `reqwest`'s WASM fetch backend.
+
+### Constraints this puts on Core from phase 0
+
+Retrofitting WASM support into an async codebase later is painful, so these
+rules apply from the start. CI builds `seaquel-core` for
+`wasm32-unknown-unknown` with the `browser` feature set from phase 3 onward.
+
+- **`Send` bounds.** JS-backed futures aren't `Send`. Async traits use
+  `#[cfg_attr(not(target_arch = "wasm32"), async_trait)]` and
+  `#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]`, wrapped in one
+  crate-local macro so nobody writes it by hand.
+- **No direct `tokio::spawn`.** Core spawns through a small `Executor` it's
+  given: tokio on native, `wasm_bindgen_futures::spawn_local` in the browser.
+  `tokio::sync` primitives are fine, since they don't need a runtime.
+- **Time.** Timers and clocks go through the executor as well, and
+  `std::time::Instant` isn't used in Core. It panics on wasm32.
+- **Filesystem.** Shared-repo file I/O and exports go through a trait, because
+  the browser has no filesystem. Git and shared repos are off in the browser
+  anyway, but exports need a download-based implementation.
 
 ## Testing
 
@@ -431,6 +558,8 @@ that's fine.
   current behaviour unchanged.
 - `seaquel-types` with TS codegen wired into `npm run check`.
 - Move connect/disconnect into Core, and switch to `CancellationToken`.
+- Set up the async-trait macro, the `Executor` abstraction and the no-`Instant`
+  lint so new Core code is WASM-ready from the first line.
 
 **Phase 1: Postgres engine pilot**
 - Port `postgres.ts` and the shared helpers to `seaquel-engine-postgres`,
@@ -446,6 +575,7 @@ that's fine.
 - Replace node-sql-parser with sqlparser-rs.
 - The editor, query builder and tutorial parser switch to `seaquel-wasm`.
 - Delete `src/lib/db/*`.
+- Pin `seaquel.app/demo` to the last build before this phase.
 
 **Phase 3: storage, secrets, infrastructure**
 - Move `seaquel-storage` (and migrate the web backend off better-sqlite3),
@@ -453,12 +583,17 @@ that's fine.
   their crates.
 - Introduce `Workspace` and `seaquel-rpc` for the moved pieces.
 - Delete `storage/*` backends, `/api/storage/*` and most `src-tauri` commands.
+- Drop the legacy JSON import and `tauri-plugin-store`.
+- Web licensing moves behind `/internal/license/*`, and `hooks.server.ts` and
+  the signup/team routes call it.
+- Add the `wasm32` CI build of Core with the `browser` feature set.
 
 **Phase 4: `seaquel mcp`**
 - The first new interface, and the first real test of Core with a second
   consumer.
 - Needs engines, storage and secrets. Nothing else.
-- Ship it with the desktop release.
+- Ship it as the bundled sidecar, along with the "Install Command Line Tool"
+  menu item. `seaquel mcp` is the only subcommand at this point.
 
 **Phase 5: domain services**
 - Move query execution, pending changes, projects, saved queries, versions,
@@ -473,6 +608,14 @@ that's fine.
 
 **Phase 7: CLI, then TUI**
 - By this point they're mostly presentation code.
+- They ship in the same sidecar binary as `seaquel mcp`.
+
+**Phase 8: demo on Core**
+- Build `seaquel-browser`, `seaquel-engine-duckdb-wasm` and the browser storage
+  backend, plus the in-page `CoreClient` transport.
+- Unpin the demo. `npm run demo:update` in the website repo builds it the same
+  way as before, with the WASM bundle included.
+- This can start any time after phase 5, in parallel with phases 6 and 7.
 
 ## Risks
 
@@ -483,15 +626,22 @@ that's fine.
   tutorial's lesson criteria depend on node-sql-parser's AST shape and its
   PostgreSQL dialect quirks. Parity fixtures will surface differences. Some
   lesson criteria may need rewriting rather than porting.
-- **The demo.** It runs entirely in the browser on DuckDB-WASM and sql.js. After
-  phase 2 there's no TS dialect code for it to use, and after phase 3 no TS
-  storage. See open question 1.
+- **The demo gap.** The browser build of Core needs the domain services, so it
+  can't ship before phase 5. Phase 2 deletes the TS dialect code the demo uses.
+  Between those points the demo stays on the last build before phase 2. It still
+  works on `seaquel.app/demo`, but it doesn't get new features. The alternative
+  is keeping the TS dialect code alive for the demo alone. That's the double
+  maintenance this design exists to remove.
+- **WASM size and startup.** Core, sqlparser-rs and SQLite compiled to WASM,
+  plus DuckDB-WASM, is a heavy page. Budget it in phase 8 and use `wasm-opt`
+  and lazy loading of the AI and dashboard modules if needed.
 - **Keychain compatibility.**
   - Entries written by `tauri-plugin-keyring` must be readable by the `keyring`
     crate under the same service and account names. Check this before phase 3.
-  - On macOS, a second binary (`seaquel`) reading items created by the desktop
-    app triggers a keychain access prompt unless both are signed by the same
-    team with a shared access group.
+  - On macOS, the bundled `seaquel` is signed by the same team as the app. Items
+    also need a shared keychain access group, or the first read from the CLI
+    still shows an access prompt. Verify this on a signed build in phase 4,
+    because that's the first time a second binary reads the keychain.
 - **AI on web.** Moving LLM calls server-side means the tenant container makes
   outbound calls to `api.anthropic.com` or a custom base URL. Air-gapped
   installs need that to be off or configurable. It also means API keys transit
@@ -506,32 +656,11 @@ that's fine.
 
 ## Open questions
 
-1. **Demo.** Options:
-   - (a) Compile Core to WASM with a JS-bridged DuckDB-WASM engine and an
-     in-browser storage backend. This needs `?Send` async variants.
-   - (b) Run the demo against a hosted, sandboxed `seaquel-server` with
-     throwaway DuckDB workspaces. This costs hosting, abuse controls and
-     latency.
-   - (c) Freeze the demo on the last pre-migration build.
+None at the moment. The six questions from the first draft are resolved as
+decisions 9 and 12–16 above.
 
-   Recommendation: (c) as a stopgap from phase 2. Spike (a) after phase 3, when
-   we know how much of Core is wasm-clean.
-2. **Web licensing code.** `licensing.ts`, `license-cache.ts` and `airgap/*`
-   move to `seaquel-license`, but `hooks.server.ts` needs their answers on
-   every request. Options: call `seaquel-server` over loopback, use a napi-rs
-   binding, or move the gate itself into `seaquel-server`. Loopback is simplest
-   and matches the existing stream-access check.
-3. **License terms for terminal binaries.** Per the 2026-09-18 license split,
-   official binaries are free for personal use and paid for commercial use.
-   Does `seaquel` check the license key from the keychain, or is it honour
-   system?
-4. **Bundling the CLI with the desktop app.** Ship `seaquel` inside the app
-   bundle with a "Install command-line tool" menu item (as VS Code does), or
-   distribute it separately via Homebrew/cargo-dist? Bundling also solves the
-   keychain signing question.
-5. **Auth in Rust.** Better Auth stays in Node for now. If the Node layer
-   shrinks to auth plus static files, is it worth replacing with an axum auth
-   layer and dropping Node from the image? That's out of scope here.
-6. **Legacy JSON import.** `json-migration.ts` imports plugin-store data from
-   before storage v4. Port it to Rust, or drop it and require users on very old
-   versions to upgrade through an intermediate release?
+Two choices are left to the spikes and don't block the plan:
+
+- The browser storage backend: rusqlite on `sqlite-wasm-rs`, or a bridge to
+  sql.js. This is decided in phase 8.
+- The keychain access group setup on macOS. This is verified in phase 4.

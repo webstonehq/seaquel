@@ -1,7 +1,6 @@
 use axum::{extract::State, Json};
-use log::debug;
+use seaquel_types::BatchStatement;
 use serde::Deserialize;
-use seaquel_db::BatchStatement;
 
 use crate::{error::ApiError, AppState};
 
@@ -15,14 +14,6 @@ pub async fn transaction(
     State(state): State<AppState>,
     Json(req): Json<TransactionRequest>,
 ) -> Result<(), ApiError> {
-    debug!(
-        activity = "db.transaction",
-        connection_id = req.connection_id.as_str(),
-        statements = req.statements.len();
-        "Executing transaction"
-    );
-
-    let driver = state.connection_manager.get_driver(&req.connection_id).await?;
-    driver.transaction(req.statements).await?;
+    state.core.transaction(&req.connection_id, req.statements).await?;
     Ok(())
 }

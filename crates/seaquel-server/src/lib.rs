@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use seaquel_db::ConnectionManager;
+use seaquel_core::Core;
 use std::sync::Arc;
 
 mod error;
@@ -16,13 +16,13 @@ mod routes;
 /// Application state shared across request handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub connection_manager: Arc<ConnectionManager>,
+    pub core: Arc<Core>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            connection_manager: Arc::new(ConnectionManager::new()),
+            core: Arc::new(seaquel_core::with_default_plugins().build()),
         }
     }
 }

@@ -447,13 +447,15 @@ pub fn run() {
                 ])
                 .level(log::LevelFilter::Info)
                 .level_for("seaquel_lib", log::LevelFilter::Trace)
+                // DB activity (queries, streams, cancels) is logged by the core crate.
+                .level_for("seaquel_core", log::LevelFilter::Trace)
                 .max_file_size(5_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .build(),
         )
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
-        .manage(db::ConnectionManager::new())
+        .manage(seaquel_core::with_default_plugins().build())
         .manage(PendingUpdate { bytes: Mutex::new(None) })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

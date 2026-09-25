@@ -189,19 +189,26 @@
 				data={chartData}
 				x="x"
 				{series}
+				seriesLayout="overlap"
 				axis
 				grid
-				tooltip
 				props={{
 					xAxis: { label: data.chartConfig.xAxis ?? "Index" },
 					yAxis: { label: data.chartConfig.yAxis[0] ?? "Value" },
 				}}
 			>
-				{#snippet marks({ visibleSeries, getBarsProps })}
-					{#each visibleSeries as s, i (s.key)}
+				{#snippet marks({ context })}
+					{#each context.series.visibleSeries as s (s.key)}
 						<LinearGradient stops={[`color-mix(in oklch, ${s.color}, white 30%)`, s.color] as string[]} vertical>
 							{#snippet children({ gradient })}
-								<Bars {...getBarsProps(s, i)} fill={gradient} />
+								<Bars
+									seriesKey={s.key}
+									rounded="edge"
+									radius={4}
+									strokeWidth={1}
+									opacity={(d: unknown) => (context.series.isHighlighted(context.cKey(d) ?? s.key, true) ? 1 : 0.1)}
+									fill={gradient}
+								/>
 							{/snippet}
 						</LinearGradient>
 					{/each}
@@ -214,14 +221,13 @@
 				{series}
 				axis
 				grid
-				tooltip
 				props={{
 					xAxis: { label: data.chartConfig.xAxis ?? "Index" },
 					yAxis: { label: data.chartConfig.yAxis[0] ?? "Value" },
 				}}
 			>
-				{#snippet belowMarks({ visibleSeries, getSplineProps })}
-					{#each visibleSeries as s, i (s.key)}
+				{#snippet belowMarks({ context })}
+					{#each context.series.visibleSeries as s (s.key)}
 						<LinearGradient stops={[s.color, 'transparent'] as string[]} vertical>
 							{#snippet children({ gradient })}
 								<Area y1={s.value ?? s.key} fill={gradient} fillOpacity={0.3} line={false} />
@@ -231,7 +237,7 @@
 				{/snippet}
 			</LineChart>
 		{:else if data.chartConfig.type === "pie"}
-			<PieChart data={pieData} key="name" value="value" label="name" c="color" legend tooltip />
+			<PieChart data={pieData} key="name" value="value" label="name" c="color" legend />
 		{:else if data.chartConfig.type === "scatter"}
 			<ScatterChart
 				data={chartData}
@@ -240,7 +246,6 @@
 					d[data.chartConfig.yAxis[1] ?? data.chartConfig.yAxis[0] ?? "x"] as number}
 				axis
 				grid
-				tooltip
 				props={{
 					xAxis: { label: data.chartConfig.yAxis[0] ?? "X" },
 					yAxis: {

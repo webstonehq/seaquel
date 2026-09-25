@@ -1,4 +1,4 @@
-//! HTTP error mapping for `seaquel_db::DbError`.
+//! HTTP error mapping for `seaquel_types::DbError`.
 //!
 //! The database layer is platform-agnostic (no axum dependency), so this
 //! wrapper lives in the server crate. Handlers return `Result<T, ApiError>`
@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use seaquel_db::DbError;
+use seaquel_types::DbError;
 
 pub struct ApiError(pub DbError);
 

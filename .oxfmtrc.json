@@ -1,4 +1,4 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["src-tauri"]
+  "ignorePatterns": ["src-tauri", "src/lib/types/generated"]
 }

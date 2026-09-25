@@ -13,7 +13,8 @@ name = "seaquel-server"
 path = "src/main.rs"
 
 [dependencies]
-seaquel-db = { path = "../seaquel-db" }
+seaquel-core = { path = "../seaquel-core" }
+seaquel-types = { path = "../seaquel-types" }
 
 axum = { workspace = true }
 tower = { workspace = true }
@@ -24,8 +25,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 futures = { workspace = true }
-uuid = { workspace = true }
-thiserror = { workspace = true }
 
 # Frontend asset embedding. In release builds, files are baked into the
 # binary; in debug builds, rust-embed loads them from disk at runtime so
@@ -36,3 +35,4 @@ mime_guess = "2"
 [dev-dependencies]
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
+uuid = { workspace = true }

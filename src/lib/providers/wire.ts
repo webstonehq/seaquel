@@ -1,45 +1,28 @@
 /**
- * Shared wire-format types and helpers for providers that speak to a Rust
- * `ConnectionManager` — either over Tauri IPC (UnifiedTauriProvider) or HTTP +
- * WebSocket (HttpProvider). The wire shapes match the Rust `seaquel_db` crate
- * directly, so anything defined here is ground truth for both transports.
+ * Shared wire-format types and helpers for providers that speak to Seaquel
+ * Core in Rust — either over Tauri IPC (UnifiedTauriProvider) or HTTP +
+ * WebSocket (HttpProvider). The wire shapes are generated from the Rust
+ * `seaquel-types` crate (see `src/lib/types/generated`), so they are ground
+ * truth for both transports.
  */
 
+import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
+import type { DbError } from "$lib/types/generated/DbError";
 import type { ConnectionConfig } from "./types";
 
-// -------- Wire types (match Rust `seaquel_db` / `seaquel-server`) --------
+// -------- Wire types --------
+// Generated from the Rust `seaquel-types` crate by `npm run types:gen`. Change
+// the Rust side, then regenerate; don't edit these by hand.
 
-export interface DbError {
-  message: string;
-  code: string;
-}
-
-export interface DbConnectResult {
-  connection_id: string;
-}
-
-export interface DbQueryResult {
-  columns: string[];
-  rows: unknown[][];
-}
-
-export interface DbExecuteResult {
-  rows_affected: number;
-  last_insert_id: number | null;
-}
-
+export type { DbError };
+export type { ConnectResult as DbConnectResult } from "$lib/types/generated/ConnectResult";
+export type { QueryResult as DbQueryResult } from "$lib/types/generated/QueryResult";
+export type { ExecuteResult as DbExecuteResult } from "$lib/types/generated/ExecuteResult";
 /**
- * Internally-tagged stream event. Matches Rust's
- * `#[serde(tag = "type", rename_all = "camelCase")] enum StreamEvent`.
- *
- * For `batch`, the inner `StreamBatch` fields are flattened onto the event,
- * so the wire shape is `{type:"batch", columns, rows, is_final}` rather than
- * `{type:"batch", data:{columns,...}}`.
+ * Internally tagged stream event. For `batch`, the `StreamBatch` fields are
+ * flattened onto the event: `{type:"batch", columns, rows, is_final}`.
  */
-export type DbStreamEvent =
-  | { type: "batch"; columns: string[] | null; rows: unknown[][]; is_final: boolean }
-  | { type: "done" }
-  | { type: "error"; message: string; code: string };
+export type { StreamEvent as DbStreamEvent } from "$lib/types/generated/StreamEvent";
 
 // -------- Error handling --------
 
@@ -93,7 +76,7 @@ export function formatUnknownStreamFrame(frame: unknown): string {
  * `ConnectConfig` struct expects on the wire. Identical for Tauri IPC
  * (`invoke("db_connect", { config })`) and HTTP (`POST /api/db/connect`).
  */
-export function toRustConfig(config: ConnectionConfig): Record<string, unknown> {
+export function toRustConfig(config: ConnectionConfig): ConnectConfig {
   if (config.type === "mssql") {
     return {
       driver: "mssql",

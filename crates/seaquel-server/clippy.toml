@@ -1,0 +1,2 @@
+# seaquel-server is an interface, not Core: it owns its tokio runtime and may
+# spawn tasks and read the clock. This file shadows crates/clippy.toml.

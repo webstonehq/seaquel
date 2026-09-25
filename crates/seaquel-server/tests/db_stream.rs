@@ -107,8 +107,7 @@ async fn stream_multi_batch_sqlite_roundtrip() {
             "sql": "SELECT n FROM nums ORDER BY n",
             "values": []
         }))
-        .unwrap()
-        .into(),
+        .unwrap(),
     ))
     .await
     .unwrap();

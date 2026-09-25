@@ -1,6 +1,16 @@
 [workspace]
 members = [
-    "crates/seaquel-db",
+    "crates/seaquel-macros",
+    "crates/seaquel-runtime",
+    "crates/seaquel-types",
+    "crates/seaquel-engine",
+    "crates/seaquel-engine-testkit",
+    "crates/seaquel-engine-sqlite",
+    "crates/seaquel-engine-postgres",
+    "crates/seaquel-engine-mysql",
+    "crates/seaquel-engine-mssql",
+    "crates/seaquel-engine-duckdb",
+    "crates/seaquel-core",
     "crates/seaquel-server",
     "src-tauri",
 ]
@@ -18,6 +28,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 log = { version = "0.4", features = ["kv"] }
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+ts-rs = "12"
 
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "sqlite", "json", "time", "rust_decimal", "ipnetwork", "mac_address", "bit-vec"] }
 tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "rustls"] }

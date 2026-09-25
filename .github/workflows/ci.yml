@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (lint, tests, wasm, crate rules, generated types)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Crate dependency rules
+        run: node scripts/check-crate-deps.mjs
+
+      - name: Clippy
+        run: cargo clippy --workspace --exclude seaquel --all-targets --features seaquel-runtime/tokio -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --exclude seaquel --features seaquel-runtime/tokio
+
+      - name: Pure crates build for wasm32
+        run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -- -D warnings
+
+      - name: Generated TypeScript types are up to date
+        run: |
+          cargo test -p seaquel-types --features ts --lib export_bindings --quiet
+          if [ -n "$(git status --porcelain -- src/lib/types/generated)" ]; then
+            git status --porcelain -- src/lib/types/generated
+            echo "::error::src/lib/types/generated is stale. Run 'npm run types:gen' and commit the result."
+            exit 1
+          fi
+
+  engines:
+    name: Engine smoke tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: seaquel_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: seaquel_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "yes"
+          MARIADB_DATABASE: seaquel_test
+        ports: ["3307:3306"]
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Seaquel_Test_123!
+          MSSQL_PID: Developer
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Seaquel_Test_123! -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 10s --health-retries 30 --health-start-period 30s
+    env:
+      SEAQUEL_TEST_REQUIRE_ENGINES: "1"
+      SEAQUEL_TEST_POSTGRES: '{"driver":"postgres","connection_string":"postgres://postgres@127.0.0.1:5432/seaquel_test"}'
+      SEAQUEL_TEST_MYSQL: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3306/seaquel_test"}'
+      SEAQUEL_TEST_MARIADB: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3307/seaquel_test"}'
+      SEAQUEL_TEST_MSSQL: '{"driver":"mssql","host":"127.0.0.1","port":1433,"username":"sa","password":"Seaquel_Test_123!","encrypt":true,"trust_cert":true}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Smoke tests
+        run: >-
+          cargo test --test smoke
+          -p seaquel-engine-postgres -p seaquel-engine-mysql -p seaquel-engine-mssql
+          -p seaquel-engine-sqlite -p seaquel-engine-duckdb
+
+  desktop:
+    name: Desktop app compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Placeholder frontend
+        # tauri::generate_context! requires frontendDist (../build) to exist.
+        run: mkdir -p build && touch build/index.html
+      - run: cargo check -p seaquel
+
+  frontend:
+    name: Frontend (types, lint, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `npm run check` regenerates the wire types with cargo first.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Compile paraglide messages
+        # Normally generated by the Vite plugin; svelte-check imports them.
+        run: npx paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie globalVariable baseLocale
+      - run: npm run check
+      - name: Lint
+        run: npx oxlint --type-aware --type-check --deny-warnings
+      - run: npx vitest run

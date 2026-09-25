@@ -1,5 +1,5 @@
-//! Integration test: POST /api/db/disconnect removes the connection from the
-//! ConnectionManager so subsequent queries return CONNECTION_NOT_FOUND.
+//! Integration test: POST /api/db/disconnect removes the connection from
+//! Core so subsequent queries return CONNECTION_NOT_FOUND.
 
 mod common;
 

@@ -1,0 +1,15 @@
+[package]
+name = "seaquel-types"
+version = "0.1.0"
+edition = "2021"
+description = "Wire types shared by every Seaquel interface. Build with --features ts to regenerate the TypeScript bindings."
+
+[features]
+# Generates src/lib/types/generated/*.ts when running `cargo test --features ts`.
+# Run it through `npm run types:gen`.
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ts-rs = { workspace = true, optional = true }

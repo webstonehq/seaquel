@@ -1,0 +1,12 @@
+[package]
+name = "seaquel-macros"
+version = "0.1.0"
+edition = "2021"
+description = "Proc macros for Seaquel crates. Use them through seaquel-runtime, not directly."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"

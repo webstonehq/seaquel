@@ -1,0 +1,18 @@
+# Applies to every crate under crates/ (clippy uses the nearest clippy.toml
+# above a crate). Core crates must also build for wasm32 and run on the
+# `Executor` from seaquel-runtime, so they may not reach for the platform
+# directly. Interface crates that legitimately do (seaquel-server) carry their
+# own clippy.toml to opt out.
+disallowed-types = [
+    { path = "std::time::Instant", reason = "panics on wasm32; take time from seaquel_runtime::Executor" },
+    { path = "std::time::SystemTime", reason = "panics on wasm32; use seaquel_runtime::Executor::unix_time" },
+]
+# `allow-invalid`: crates without tokio in their graph (the pure ones) would
+# otherwise warn that the path is unreachable.
+disallowed-methods = [
+    { path = "tokio::spawn", allow-invalid = true, reason = "use seaquel_runtime::Executor::spawn" },
+    { path = "tokio::task::spawn", allow-invalid = true, reason = "use seaquel_runtime::Executor::spawn" },
+    { path = "tokio::task::spawn_local", allow-invalid = true, reason = "use seaquel_runtime::Executor::spawn" },
+    { path = "std::thread::spawn", reason = "not available on wasm32; use seaquel_runtime::Executor::spawn" },
+    { path = "std::time::SystemTime::now", reason = "panics on wasm32; use seaquel_runtime::Executor::unix_time" },
+]

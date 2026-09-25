@@ -11,38 +11,30 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build the Rust binary
 # ---------------------------------------------------------------------------
-FROM rust:1-bookworm AS rust-builder
-
+FROM rust:1-bookworm AS chef
+RUN cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /build
 
-# Copy only manifests first → Docker layer cache for deps
+# src-tauri is a workspace member, so cargo needs its targets to exist just to
+# load the workspace. The web image never builds it, and .dockerignore keeps
+# its source out, so stub it.
+FROM chef AS rust-planner
 COPY Cargo.toml Cargo.lock ./
-COPY crates/seaquel-db/Cargo.toml crates/seaquel-db/
-COPY crates/seaquel-server/Cargo.toml crates/seaquel-server/
-COPY crates/seaquel-server/build.rs crates/seaquel-server/
-
-# Stub out source so Cargo can resolve deps without the real code
-RUN mkdir -p crates/seaquel-db/src && echo "" > crates/seaquel-db/src/lib.rs \
- && mkdir -p crates/seaquel-server/src && echo "fn main(){}" > crates/seaquel-server/src/main.rs \
- && echo "" > crates/seaquel-server/src/lib.rs \
- && mkdir -p src-tauri/src && echo "" > src-tauri/src/lib.rs && echo "fn main(){}" > src-tauri/src/main.rs
-
-# Pre-fetch + compile deps (cached unless Cargo.toml/lock change)
-COPY src-tauri/Cargo.toml src-tauri/
-COPY src-tauri/build.rs src-tauri/
-RUN cargo build --release -p seaquel-server 2>/dev/null || true
-
-# Now copy real source and build for real. `touch` is load-bearing: the
-# stubbed lib.rs/main.rs from the previous step produced cached rlibs in
-# /build/target, and `COPY` preserves the source files' original mtimes,
-# which can be earlier than those cached rlibs. Cargo then concludes the
-# sources haven't changed and links `seaquel-server` against the empty
-# stub `seaquel_db` rlib — producing unresolved-import errors for every
-# pub item. Bumping mtime forces cargo to recompile the local crates
-# (transitive dep rlibs stay cached, which is the point of the split).
 COPY crates/ crates/
-RUN find crates -name '*.rs' -exec touch {} + \
- && cargo build --release -p seaquel-server \
+COPY src-tauri/Cargo.toml src-tauri/build.rs src-tauri/
+RUN mkdir -p src-tauri/src && echo "" > src-tauri/src/lib.rs && echo "fn main(){}" > src-tauri/src/main.rs
+RUN cargo chef prepare --recipe-path recipe.json
+
+# The cook layer depends only on recipe.json, so it's rebuilt when a manifest
+# or Cargo.lock changes, not on every source edit.
+FROM chef AS rust-builder
+COPY --from=rust-planner /build/recipe.json recipe.json
+RUN cargo chef cook --release -p seaquel-server --recipe-path recipe.json
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY src-tauri/Cargo.toml src-tauri/build.rs src-tauri/
+RUN mkdir -p src-tauri/src && echo "" > src-tauri/src/lib.rs && echo "fn main(){}" > src-tauri/src/main.rs
+RUN cargo build --release -p seaquel-server \
  && strip target/release/seaquel-server
 
 # ---------------------------------------------------------------------------

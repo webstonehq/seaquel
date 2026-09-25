@@ -1,0 +1,31 @@
+[package]
+name = "seaquel-core"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel Core: registers plugins and owns connections and running queries. Every interface goes through it."
+
+[features]
+default = ["engine-postgres", "engine-mysql", "engine-sqlite", "engine-mssql", "engine-duckdb"]
+engine-postgres = ["dep:seaquel-engine-postgres"]
+engine-mysql = ["dep:seaquel-engine-mysql"]
+engine-sqlite = ["dep:seaquel-engine-sqlite"]
+engine-mssql = ["dep:seaquel-engine-mssql"]
+engine-duckdb = ["dep:seaquel-engine-duckdb"]
+
+[dependencies]
+seaquel-engine = { path = "../seaquel-engine" }
+seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-types = { path = "../seaquel-types" }
+seaquel-engine-postgres = { path = "../seaquel-engine-postgres", optional = true }
+seaquel-engine-mysql = { path = "../seaquel-engine-mysql", optional = true }
+seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite", optional = true }
+seaquel-engine-mssql = { path = "../seaquel-engine-mssql", optional = true }
+seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", optional = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

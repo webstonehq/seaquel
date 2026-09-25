@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["src-tauri/patches", "src/lib/components/ui"],
+  "ignorePatterns": ["src-tauri/patches", "src/lib/components/ui", "src/lib/types/generated"],
   "options": {
     "typeAware": true
   }

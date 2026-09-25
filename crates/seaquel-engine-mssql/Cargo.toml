@@ -1,0 +1,23 @@
+[package]
+name = "seaquel-engine-mssql"
+version = "0.1.0"
+edition = "2021"
+description = "Microsoft SQL Server engine for Seaquel."
+
+[dependencies]
+seaquel-engine = { path = "../seaquel-engine" }
+seaquel-runtime = { path = "../seaquel-runtime" }
+base64 = { workspace = true }
+# tiberius pulls chrono without default features; to_rfc3339 (driver.rs) needs "alloc".
+# Inside the old seaquel-db crate it arrived by accident, via duckdb → arrow.
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }
+futures = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+tiberius = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
+tokio = { version = "1", features = ["macros", "rt"] }

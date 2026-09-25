@@ -1,0 +1,15 @@
+[package]
+name = "seaquel-engine"
+version = "0.1.0"
+edition = "2021"
+description = "The Seaquel engine plugin boundary: Driver and Engine traits plus the engine registry. Pure; builds for wasm32."
+
+[dependencies]
+seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-types = { path = "../seaquel-types" }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+# Not the workspace tokio-util: that one enables "compat", which pulls tokio "net".
+tokio-util = { version = "0.7", default-features = false }

@@ -1,0 +1,12 @@
+[package]
+name = "seaquel-engine-testkit"
+version = "0.1.0"
+edition = "2021"
+description = "Behaviour every Seaquel engine must have. Engine crates run it from their tests."
+publish = false
+
+[dependencies]
+seaquel-engine = { path = "../seaquel-engine" }
+futures = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

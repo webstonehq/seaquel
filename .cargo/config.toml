@@ -1,0 +1,5 @@
+# ts-rs writes TypeScript bindings here when seaquel-types is tested with
+# `--features ts` (see `npm run types:gen`). `relative` resolves against the
+# repo root, the directory that contains `.cargo/`.
+[env]
+TS_RS_EXPORT_DIR = { value = "src/lib/types/generated", relative = true }

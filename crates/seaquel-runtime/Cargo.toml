@@ -1,0 +1,24 @@
+[package]
+name = "seaquel-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Platform seams for Seaquel Core: Send bounds, boxed streams and futures, and the executor. Compiles for native and wasm32."
+
+[features]
+# Native executor backed by tokio. Interfaces enable it; pure crates don't.
+tokio = ["dep:tokio"]
+
+[dependencies]
+seaquel-macros = { path = "../seaquel-macros" }
+async-trait = { workspace = true }
+futures = { workspace = true }
+# Not the workspace tokio: that one enables "net", which doesn't build for wasm32.
+tokio = { version = "1", default-features = false, features = ["rt", "time"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "time", "macros", "sync"] }

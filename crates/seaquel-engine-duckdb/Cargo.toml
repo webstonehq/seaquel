@@ -1,0 +1,17 @@
+[package]
+name = "seaquel-engine-duckdb"
+version = "0.1.0"
+edition = "2021"
+description = "DuckDB engine for Seaquel (native; the browser demo gets its own engine in phase 8)."
+
+[dependencies]
+seaquel-engine = { path = "../seaquel-engine" }
+seaquel-runtime = { path = "../seaquel-runtime" }
+base64 = { workspace = true }
+duckdb = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt"] }

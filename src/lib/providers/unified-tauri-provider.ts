@@ -208,7 +208,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
     // GC'd mid-flight if Rust is still wrapping up. The await below
     // resolves almost immediately in the normal case (invoke returns
     // right after Done) and within a loop iteration in the cancel case
-    // (Rust sees the flag and breaks out).
+    // (Rust cancels the stream and returns).
     void invokePromise;
 
     return terminal ?? { aborted: cancelled };

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Seaquel is a desktop database client built with Tauri 2 + SvelteKit 5 + TypeScript. It currently supports PostgreSQL connections via the `tauri-plugin-sql` plugin (with the `postgres` feature enabled).
+Seaquel is a database client built with Tauri 2 + SvelteKit 5 + TypeScript, with a Rust core. It supports PostgreSQL, MySQL/MariaDB, SQLite, MSSQL and DuckDB through the Rust engine crates in `crates/`. It ships as a desktop app, a self-hosted web app (`seaquel-server` behind a Node/SvelteKit server) and a browser demo.
 
 ## Development Commands
 
@@ -31,10 +31,18 @@ npm run check:watch
 - **Tailwind CSS v4** for styling
 - **bits-ui** for accessible UI components (shadcn-svelte pattern)
 
-### Backend (src-tauri/)
+### Backend (Rust)
 
-- **Tauri 2** with Rust backend
-- Plugins: `tauri-plugin-sql` (PostgreSQL), `tauri-plugin-store` (persistence), `tauri-plugin-updater`
+All database logic lives in Rust crates under `crates/`, shared by every interface. See `docs/plans/2026-09-24-rust-core-plugin-architecture-design.md` for where this is heading.
+
+- `seaquel-core` — the only entry point interfaces use: engine registry, open connections, streaming and cancellation. `disconnect` cancels the connection's running streams, which end with a `CONNECTION_CLOSED` error event.
+- `seaquel-engine` — the `Driver`/`Engine` plugin traits. One crate per engine: `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}`.
+- `seaquel-types` — wire types. `npm run types:gen` regenerates `src/lib/types/generated/`; never edit those by hand.
+- `seaquel-runtime` — `MaybeSend`, `BoxStream`, `Executor`, `#[seaquel_runtime::async_trait]`. Core crates must build for wasm32: no `tokio::spawn`, `Instant` or `SystemTime` (enforced by `crates/clippy.toml`).
+- Interfaces: `src-tauri/` (desktop; Tauri commands in `src/db/commands.rs` forward to Core) and `crates/seaquel-server/` (web; axum, loopback-only behind the Node server).
+- `npm run crates:check` (`scripts/check-crate-deps.mjs`) enforces which crates may depend on which.
+- Engine smoke tests: `cargo test -p seaquel-engine-<name> --test smoke`. Server engines need `SEAQUEL_TEST_<ENGINE>` set to ConnectConfig JSON (see each crate's `tests/smoke.rs`) and the containers from `e2e/test-databases/docker-compose.yml`, seeded with `npm run e2e:db:seed` (which creates `seaquel_test`).
+- Desktop plugins still used: `tauri-plugin-store` (legacy JSON import), `tauri-plugin-updater`, `tauri-plugin-keyring`, `tauri-plugin-log` and others in `src-tauri/Cargo.toml`.
 
 ### State Management
 
