@@ -1,0 +1,46 @@
+{
+  "repo": "appStateRepo",
+  "source": "src/lib/storage/repos/app-state-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "app-state/get-missing",
+      "description": "A missing key reads as null.",
+      "steps": [{"call":"appStateRepo.get","args":["nope"],"result":null}],
+      "rows": {"app_state":{"columns":["key","value"],"rows":[],"types":[]}}
+    },
+    {
+      "name": "app-state/set-get-overwrite",
+      "description": "Set, read, overwrite with unicode, read.",
+      "steps": [
+        {"call":"appStateRepo.set","args":["activeProjectId","p1"]},
+        {"call":"appStateRepo.get","args":["activeProjectId"],"result":"p1"},
+        {"call":"appStateRepo.set","args":["activeProjectId","Ünïcødé 🚀 \"quoted\" \n newline"]},
+        {
+          "call": "appStateRepo.get",
+          "args": ["activeProjectId"],
+          "result": "Ünïcødé 🚀 \"quoted\" \n newline"
+        },
+        {"call":"appStateRepo.set","args":["empty",""]},
+        {"call":"appStateRepo.get","args":["empty"],"result":""}
+      ],
+      "rows": {
+        "app_state": {
+          "columns": ["key","value"],
+          "rows": [["activeProjectId","Ünïcødé 🚀 \"quoted\" \n newline"],["empty",""]],
+          "types": [["text","text"],["text","text"]]
+        }
+      }
+    },
+    {
+      "name": "app-state/set-null",
+      "description": "Setting null keeps a row whose value is NULL; get returns null.",
+      "steps": [
+        {"call":"appStateRepo.set","args":["k","v"]},
+        {"call":"appStateRepo.set","args":["k",null]},
+        {"call":"appStateRepo.get","args":["k"],"result":null}
+      ],
+      "rows": {"app_state":{"columns":["key","value"],"rows":[["k",null]],"types":[["text","null"]]}}
+    }
+  ]
+}

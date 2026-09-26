@@ -1,4 +1,4 @@
-import { getDatabase, importStateRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import type { ImportableConnection } from "$lib/types/dbeaver";
 import { discoverDbeaverConnections } from "$lib/services/dbeaver-import";
 
@@ -23,8 +23,7 @@ class DbeaverImportStore {
 
     // Load persisted state
     try {
-      const db = await getDatabase();
-      const persisted = await importStateRepo.load(db, "dbeaver");
+      const persisted = await getStorage().importState.load("dbeaver");
 
       if (persisted) {
         this.hasOfferedImport = persisted.hasOfferedImport;
@@ -116,8 +115,11 @@ class DbeaverImportStore {
    */
   private async persist(): Promise<void> {
     try {
-      const db = await getDatabase();
-      await importStateRepo.save(db, "dbeaver", this.hasOfferedImport, new Date().toISOString());
+      await getStorage().importState.save(
+        "dbeaver",
+        this.hasOfferedImport,
+        new Date().toISOString(),
+      );
     } catch (error) {
       console.error("Failed to persist DBeaver import state:", error);
     }

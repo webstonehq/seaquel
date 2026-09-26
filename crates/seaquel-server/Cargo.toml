@@ -13,9 +13,12 @@ name = "seaquel-server"
 path = "src/main.rs"
 
 [dependencies]
-seaquel-core = { path = "../seaquel-core" }
+# `storage` (Decision 11): each user's workspace opens their meta.db. No
+# `secrets`: the web workspace has no store, so secret calls answer
+# NOT_SUPPORTED.
+seaquel-core = { path = "../seaquel-core", features = ["storage"] }
 seaquel-types = { path = "../seaquel-types" }
-seaquel-rpc = { path = "../seaquel-rpc" }
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage"] }
 
 axum = { workspace = true }
 tower = { workspace = true }
@@ -33,6 +36,11 @@ futures = { workspace = true }
 rust-embed = "8"
 mime_guess = "2"
 
+[target.'cfg(unix)'.dependencies]
+# getrlimit/setrlimit: main raises the open-files limit for the workspace
+# pools.
+libc = "0.2"
+
 [dev-dependencies]
 # For the /api/db/engine tests: a "postgres" engine with the real dialect and
 # no database behind it.
@@ -42,3 +50,4 @@ seaquel-runtime = { path = "../seaquel-runtime" }
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
 uuid = { workspace = true }
+tempfile = "3"

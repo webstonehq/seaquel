@@ -1,0 +1,600 @@
+{
+  "repo": "aiChatsRepo",
+  "source": "src/lib/storage/repos/ai-chats-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "ai-chats/save-and-load-chats",
+      "description": "loadByConnection orders by updated_at, newest first; a second saveChat upserts.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c2",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "old",
+              "connectionId": "c1",
+              "title": "Chat old",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "new",
+              "connectionId": "c1",
+              "title": "Frage zu Umsätzen 🚀",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "mid",
+              "connectionId": "c1",
+              "title": "Chat mid",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "other",
+              "connectionId": "c2",
+              "title": "Chat other",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "old",
+              "connectionId": "c1",
+              "title": "Renamed",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.loadByConnection",
+          "args": ["c1"],
+          "result": [
+            {
+              "id": "old",
+              "connectionId": "c1",
+              "title": "Renamed",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            },
+            {
+              "id": "new",
+              "connectionId": "c1",
+              "title": "Frage zu Umsätzen 🚀",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            },
+            {
+              "id": "mid",
+              "connectionId": "c1",
+              "title": "Chat mid",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "ai_chats": {
+          "columns": ["id","connection_id","title","created_at","updated_at"],
+          "rows": [
+            ["mid","c1","Chat mid","2026-01-02T03:04:05.000Z","2026-01-03T00:00:00.000Z"],
+            [
+              "new",
+              "c1",
+              "Frage zu Umsätzen 🚀",
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-04T12:30:00.000Z"
+            ],
+            ["old","c1","Renamed","2026-01-02T03:04:05.000Z","2026-01-04T12:30:00.000Z"],
+            ["other","c2","Chat other","2026-01-02T03:04:05.000Z","2026-01-03T00:00:00.000Z"]
+          ],
+          "types": [
+            ["text","text","text","text","text"],
+            ["text","text","text","text","text"],
+            ["text","text","text","text","text"],
+            ["text","text","text","text","text"]
+          ]
+        }
+      }
+    },
+    {
+      "name": "ai-chats/replace-all-messages",
+      "description": "Messages with query and dashboardId set and unset, ordered by timestamp; a second replace swaps the set; another chat's messages stay.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "a",
+              "connectionId": "c1",
+              "title": "Chat a",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "b",
+              "connectionId": "c1",
+              "title": "Chat b",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "a",
+            [
+              {
+                "id": "m2",
+                "chatId": "a",
+                "role": "assistant",
+                "content": "Here is a query — 日本語 🚀",
+                "timestamp": "2026-01-03T00:00:00.000Z",
+                "query": "SELECT 1",
+                "dashboardId": "dash-1"
+              },
+              {
+                "id": "m1",
+                "chatId": "a",
+                "role": "user",
+                "content": "message m1",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              },
+              {
+                "id": "m3",
+                "chatId": "a",
+                "role": "user",
+                "content": "message m3",
+                "timestamp": "2026-01-04T12:30:00.000Z",
+                "query": null,
+                "dashboardId": null
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "b",
+            [
+              {
+                "id": "b1",
+                "chatId": "b",
+                "role": "user",
+                "content": "message b1",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.loadMessages",
+          "args": ["a"],
+          "result": [
+            {
+              "id": "m1",
+              "chatId": "a",
+              "role": "user",
+              "content": "message m1",
+              "timestamp": "2026-01-02T03:04:05.000Z"
+            },
+            {
+              "id": "m2",
+              "chatId": "a",
+              "role": "assistant",
+              "content": "Here is a query — 日本語 🚀",
+              "timestamp": "2026-01-03T00:00:00.000Z",
+              "query": "SELECT 1",
+              "dashboardId": "dash-1"
+            },
+            {
+              "id": "m3",
+              "chatId": "a",
+              "role": "user",
+              "content": "message m3",
+              "timestamp": "2026-01-04T12:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "a",
+            [
+              {
+                "id": "m4",
+                "chatId": "a",
+                "role": "user",
+                "content": "",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.loadMessages",
+          "args": ["a"],
+          "result": [
+            {
+              "id": "m4",
+              "chatId": "a",
+              "role": "user",
+              "content": "",
+              "timestamp": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.loadMessages",
+          "args": ["b"],
+          "result": [
+            {
+              "id": "b1",
+              "chatId": "b",
+              "role": "user",
+              "content": "message b1",
+              "timestamp": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {"call":"aiChatsRepo.replaceAllMessages","args":["a",[]]},
+        {"call":"aiChatsRepo.loadMessages","args":["a"],"result":[]}
+      ],
+      "rows": {
+        "ai_messages": {
+          "columns": ["id","chat_id","role","content","timestamp","query","dashboard_id"],
+          "rows": [["b1","b","user","message b1","2026-01-02T03:04:05.000Z",null,null]],
+          "types": [["text","text","text","text","text","null","null"]]
+        }
+      }
+    },
+    {
+      "name": "ai-chats/replace-all-messages-rolls-back",
+      "description": "A message for another (missing) chat fails the foreign key; the batch rolls back and the earlier messages stay.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "a",
+              "connectionId": "c1",
+              "title": "Chat a",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "a",
+            [
+              {
+                "id": "keep",
+                "chatId": "a",
+                "role": "user",
+                "content": "message keep",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "a",
+            [
+              {
+                "id": "new",
+                "chatId": "a",
+                "role": "user",
+                "content": "message new",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              },
+              {
+                "id": "bad",
+                "chatId": "missing",
+                "role": "user",
+                "content": "message bad",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ],
+          "error": {"message":"FOREIGN KEY constraint failed","code":"SQLITE_CONSTRAINT_FOREIGNKEY"}
+        },
+        {
+          "call": "aiChatsRepo.loadMessages",
+          "args": ["a"],
+          "result": [
+            {
+              "id": "keep",
+              "chatId": "a",
+              "role": "user",
+              "content": "message keep",
+              "timestamp": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "ai_messages": {
+          "columns": ["id","chat_id","role","content","timestamp","query","dashboard_id"],
+          "rows": [["keep","a","user","message keep","2026-01-02T03:04:05.000Z",null,null]],
+          "types": [["text","text","text","text","text","null","null"]]
+        }
+      }
+    },
+    {
+      "name": "ai-chats/remove-chat-and-by-connection",
+      "description": "removeChat cascades to its messages; removeByConnection deletes the rest for that connection only.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c2",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "a",
+              "connectionId": "c1",
+              "title": "Chat a",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "b",
+              "connectionId": "c1",
+              "title": "Chat b",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "z",
+              "connectionId": "c2",
+              "title": "Chat z",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "a",
+            [
+              {
+                "id": "a1",
+                "chatId": "a",
+                "role": "user",
+                "content": "message a1",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "z",
+            [
+              {
+                "id": "z1",
+                "chatId": "z",
+                "role": "user",
+                "content": "message z1",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {"call":"aiChatsRepo.removeChat","args":["a"]},
+        {"call":"aiChatsRepo.removeByConnection","args":["c1"]},
+        {"call":"aiChatsRepo.loadByConnection","args":["c1"],"result":[]},
+        {
+          "call": "aiChatsRepo.loadByConnection",
+          "args": ["c2"],
+          "result": [
+            {
+              "id": "z",
+              "connectionId": "c2",
+              "title": "Chat z",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "ai_chats": {
+          "columns": ["id","connection_id","title","created_at","updated_at"],
+          "rows": [["z","c2","Chat z","2026-01-02T03:04:05.000Z","2026-01-02T03:04:05.000Z"]],
+          "types": [["text","text","text","text","text"]]
+        },
+        "ai_messages": {
+          "columns": ["id","chat_id","role","content","timestamp","query","dashboard_id"],
+          "rows": [["z1","z","user","message z1","2026-01-02T03:04:05.000Z",null,null]],
+          "types": [["text","text","text","text","text","null","null"]]
+        }
+      }
+    }
+  ]
+}

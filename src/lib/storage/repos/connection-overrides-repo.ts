@@ -1,15 +1,6 @@
 import type { SqliteDatabase } from "../sqlite-types";
+import type { PersistedConnectionOverride } from "../client";
 import { createRepo, col, nullable, bool } from "../create-repo";
-
-export interface PersistedConnectionOverride {
-  sharedConnectionId: string;
-  username?: string;
-  hostOverride?: string;
-  portOverride?: number;
-  savePassword: boolean;
-  saveSshPassword: boolean;
-  saveSshKeyPassphrase: boolean;
-}
 
 const _connectionOverridesRepo = createRepo<PersistedConnectionOverride>({
   table: "connection_overrides",

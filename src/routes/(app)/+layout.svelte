@@ -41,6 +41,8 @@
     import { handleDeepLink } from "$lib/services/deep-link";
     import { setupFileDropListener } from "$lib/services/file-drop.svelte.js";
     import FileDropOverlay from "$lib/components/file-drop-overlay.svelte";
+    import StorageErrorScreen from "$lib/components/storage-error-screen.svelte";
+    import { storageGate } from "$lib/storage/storage-gate.svelte";
 
     setDatabase();
 
@@ -76,6 +78,11 @@
             }
         }
 
+        // The first storage call (shared with `UseDatabase`'s init). Legacy
+        // or corrupt storage stops here: the template shows the storage
+        // error screen and none of the stores load.
+        if (!(await storageGate.check())) return;
+
         const commonInit = [
             initLogger(),
             themeStore.initialize(),
@@ -99,6 +106,9 @@
             try {
                 const providerConnectionId = await initializeDemo();
                 if (providerConnectionId) {
+                    // Persisted connections must be loaded first, so a saved
+                    // demo connection (and its labels) is updated, not duplicated.
+                    await db.whenReady();
                     await db.connections.addDemoConnection(
                         providerConnectionId,
                     );
@@ -134,6 +144,9 @@
         let cleanupFns: (() => void)[] = [];
 
         (async () => {
+            // Nothing to listen for behind the storage error screen.
+            if (!(await storageGate.check())) return;
+
             const { listen } = await import("@tauri-apps/api/event");
 
             // Flush pending debounced writes before the window actually closes;
@@ -261,9 +274,14 @@
 <!-- ModeWatcher and Toaster are rendered by the root layout so /login and
      /signup get them too. -->
 
-<FileDropOverlay />
+{#if !storageGate.blocked}
+    <FileDropOverlay />
+{/if}
 
-{#if isStandaloneWindow || isAuthPage}
+{#if storageGate.blocked && !isAuthPage}
+    <!-- Storage can't be opened (legacy or corrupt): no app, no retry. -->
+    <StorageErrorScreen error={storageGate.blocked} />
+{:else if isStandaloneWindow || isAuthPage}
     <!-- Standalone window or public auth page: no app shell -->
     {@render children()}
 {:else}
@@ -294,7 +312,7 @@
         </div>
     </Sidebar.Provider>
     <div style="display:none">
-        {#each locales as locale}
+        {#each locales as locale (locale)}
             <a href={localizeHref(page.url.pathname, { locale })}>
                 {locale}
             </a>

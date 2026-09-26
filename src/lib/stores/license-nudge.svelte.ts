@@ -1,5 +1,4 @@
-import { getDatabase, appStateRepo } from "$lib/storage";
-import { safeJsonParse } from "$lib/storage/create-repo";
+import { getStorage } from "$lib/storage";
 import { licenseStore } from "./license.svelte.js";
 
 /**
@@ -21,6 +20,16 @@ interface PersistedNudgeState {
 }
 
 const STORAGE_KEY = "license_nudge";
+
+/** The saved state, or `null` when there is none or it isn't JSON. */
+function parseNudgeState(raw: string | null): PersistedNudgeState | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PersistedNudgeState | null;
+  } catch {
+    return null;
+  }
+}
 const QUERY_THRESHOLD = 100;
 const ACTIVE_DAYS_THRESHOLD = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,9 +70,8 @@ class LicenseNudgeStore {
     if (this.initialized) return;
 
     try {
-      const db = await getDatabase();
-      const raw = await appStateRepo.get(db, STORAGE_KEY);
-      const persisted = safeJsonParse<PersistedNudgeState | null>(raw, null);
+      const raw = await getStorage().appState.get(STORAGE_KEY);
+      const persisted = parseNudgeState(raw);
 
       if (persisted) {
         this.queryCount = persisted.queryCount ?? 0;
@@ -115,7 +123,6 @@ class LicenseNudgeStore {
 
   private async persist(): Promise<void> {
     try {
-      const db = await getDatabase();
       const state: PersistedNudgeState = {
         queryCount: this.queryCount,
         activeDays: this.activeDays,
@@ -123,7 +130,7 @@ class LicenseNudgeStore {
         answer: this.answer,
         snoozedUntil: this.snoozedUntil,
       };
-      await appStateRepo.set(db, STORAGE_KEY, JSON.stringify(state));
+      await getStorage().appState.set(STORAGE_KEY, JSON.stringify(state));
     } catch (error) {
       console.error("Failed to persist license nudge state:", error);
     }

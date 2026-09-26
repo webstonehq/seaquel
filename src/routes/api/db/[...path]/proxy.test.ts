@@ -95,3 +95,65 @@ describe("/api/db/engine proxy", () => {
     expect(status).toBe(401);
   });
 });
+
+describe("/api/db/* path allow-list", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** An event for `params.path` as SvelteKit decodes it (`%2F` becomes `/`). */
+  function pathEvent(path: string, body: unknown): Event {
+    const encoded = path.split("/").map(encodeURIComponent).join("%2F");
+    return {
+      locals: { user: { id: "user-1" } },
+      params: { path },
+      request: new Request(`http://localhost/api/db/${encoded}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      url: new URL(`http://localhost/api/db/${encoded}`),
+    } as unknown as Event;
+  }
+
+  it.each([
+    ["x/../query", "x%2F..%2Fquery"],
+    ["../../rpc", "..%2F..%2Frpc"],
+    ["x/../../../rpc", "x%2F..%2F..%2F..%2Frpc"],
+    ["query/../engine", "query%2F..%2Fengine"],
+    ["query/", "a trailing slash"],
+    ["stream", "stream (server.js proxies the WebSocket)"],
+    ["", "an empty path"],
+    ["Query", "another case"],
+  ])("refuses %s (%s) with 404 before any fetch", async (path) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await statusOf(
+      POST(pathEvent(path, { connection_id: "postgres-abc", sql: "SELECT 1" })),
+    );
+
+    expect(status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["connect", "disconnect", "query", "execute", "transaction", "engine", "test"])(
+    "still forwards %s",
+    async (path) => {
+      const fetchMock = vi.fn(
+        async (_url: string, _init: RequestInit) =>
+          new Response(JSON.stringify({ connection_id: "postgres-abc" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const res = await POST(pathEvent(path, { connection_id: "user-1:postgres-abc" }));
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][0]).toMatch(new RegExp(`/api/db/${path}$`));
+    },
+  );
+});

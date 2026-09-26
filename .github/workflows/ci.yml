@@ -30,6 +30,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # seaquel-secrets uses keyring's sync-secret-service, which links the
+      # system libdbus through libdbus-sys (not vendored: the features match
+      # what tauri-plugin-keyring resolved).
+      - name: D-Bus headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
 
       - name: Crate dependency rules
         run: node scripts/check-crate-deps.mjs

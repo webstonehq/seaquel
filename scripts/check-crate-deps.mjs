@@ -46,10 +46,18 @@ const INTERFACE_GLUE = new Set(["seaquel-rpc"]);
 const TESTKIT = new Set(["seaquel-engine-testkit"]);
 
 /**
- * Domain and infrastructure crates (seaquel-storage, seaquel-workspace, …)
- * arrive in later phases. List them here as they're created.
+ * Domain and infrastructure crates. They may depend on anything but engine
+ * crates, and only Core may depend on them: interfaces reach them through
+ * Core (`core.license_server()`, not `seaquel-license`). Later phases add
+ * more (seaquel-workspace, …); list them here as they're created.
  */
-const DOMAIN_AND_INFRA = new Set([]);
+const DOMAIN_AND_INFRA = new Set([
+  "seaquel-storage",
+  "seaquel-secrets",
+  "seaquel-ssh",
+  "seaquel-git",
+  "seaquel-license",
+]);
 
 const ENGINE_MAY_USE = new Set([
   "seaquel-engine",
@@ -123,7 +131,15 @@ export function checkCrateDeps(packages) {
         );
         break;
       case "interface":
-        forbid((d) => INTERFACE_MAY_USE.has(d), "interfaces reach everything through seaquel-core");
+        for (const dep of deps) {
+          if (DOMAIN_AND_INFRA.has(dep)) {
+            errors.push(
+              `${pkg.name} -> ${dep}: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())`,
+            );
+          } else if (!INTERFACE_MAY_USE.has(dep)) {
+            errors.push(`${pkg.name} -> ${dep}: interfaces reach everything through seaquel-core`);
+          }
+        }
         break;
       case "interface-glue":
         forbid(

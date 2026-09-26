@@ -1,4 +1,4 @@
-import { getDatabase, importStateRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import type { TablePlusImportableConnection } from "$lib/types/tableplus";
 import { discoverTablePlusConnections } from "$lib/services/tableplus-import";
 
@@ -23,8 +23,7 @@ class TablePlusImportStore {
 
     // Load persisted state
     try {
-      const db = await getDatabase();
-      const persisted = await importStateRepo.load(db, "tableplus");
+      const persisted = await getStorage().importState.load("tableplus");
 
       if (persisted) {
         this.hasOfferedImport = persisted.hasOfferedImport;
@@ -115,8 +114,11 @@ class TablePlusImportStore {
    */
   private async persist(): Promise<void> {
     try {
-      const db = await getDatabase();
-      await importStateRepo.save(db, "tableplus", this.hasOfferedImport, new Date().toISOString());
+      await getStorage().importState.save(
+        "tableplus",
+        this.hasOfferedImport,
+        new Date().toISOString(),
+      );
     } catch (error) {
       console.error("Failed to persist TablePlus import state:", error);
     }

@@ -4,10 +4,10 @@ import type { ProviderRegistry } from "$lib/providers";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 
-vi.mock("$lib/storage", () => ({
-  getDatabase: vi.fn(async () => ({})),
-  dashboardsRepo: { save: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
-}));
+vi.mock("$lib/storage", () => {
+  const dashboards = { save: vi.fn(async () => {}), remove: vi.fn(async () => {}) };
+  return { getStorage: () => ({ dashboards }) };
+});
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));

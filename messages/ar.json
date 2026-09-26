@@ -1134,5 +1134,17 @@
   "wasm_error_hint": "يعني هذا عادةً أنه تعذّر تنزيل ملف .wasm (مشكلة في الشبكة أو الخادم الوكيل) أو أن سياسة أمان المحتوى (Content Security Policy) لا تسمح بـ WebAssembly (يجب أن تتضمن 'wasm-unsafe-eval' في script-src). حاول مرة أخرى، وإذا استمر الفشل، انسخ الخطأ أدناه وأرسله إلينا.",
   "wasm_error_copy": "نسخ الخطأ",
   "wasm_error_copied": "تم النسخ",
-  "wasm_error_retry": "إعادة المحاولة"
+  "wasm_error_retry": "إعادة المحاولة",
+  "storage_error_legacy_title": "يتعذّر على Seaquel قراءة بياناتك المحفوظة حتى الآن",
+  "storage_error_legacy_description": "تم حفظ اتصالاتك ومشاريعك وإعداداتك بإصدار من Seaquel أقدم من 2026.4.5، ولا يستطيع هذا الإصدار قراءة ذلك التنسيق. لنقلها، ثبّت إصدارًا من 2026.4.5 إلى 2026.9.x، وشغّله مرة واحدة ليستورد بياناتك، ثم حدّث مرة أخرى إلى هذا الإصدار.",
+  "storage_error_releases_link": "تنزيل إصدار من GitHub",
+  "storage_error_corrupt_title": "تعذّر على Seaquel فتح ملف بياناته",
+  "storage_error_corrupt_description": "{path} ليس قاعدة بيانات Seaquel قابلة للقراءة، لذا يتعذّر تحميل اتصالاتك ومشاريعك وإعداداتك.",
+  "storage_error_corrupt_untouched": "لم يتغيّر الملف.",
+  "storage_error_corrupt_hint_desktop": "إذا كانت لديك نسخة احتياطية من هذا الملف، فأعدها إلى مكانها. للبدء من جديد بلا بيانات محفوظة، أغلق Seaquel وانقل الملف إلى مكان آخر؛ سينشئ Seaquel ملفًا جديدًا في المرة التالية التي يُفتح فيها.",
+  "storage_error_corrupt_hint_web": "اطلب ممن يدير خادم Seaquel هذا استعادة الملف من نسخة احتياطية أو نقله جانبًا.",
+  "storage_error_details": "التفاصيل",
+  "storage_error_no_data_dir_title": "ليس لدى Seaquel مكان لحفظ بياناته",
+  "storage_error_no_data_dir_description": "لا يُبلغ هذا النظام عن مجلد بيانات لـ Seaquel. اضبط متغيّر البيئة SEAQUEL_DATA_DIR على مجلد يمكن لـ Seaquel الكتابة فيه، ثم أعد تشغيل Seaquel.",
+  "storage_save_refused": "تعذّر تحميل بعض بياناتك المحفوظة، لذا لا يحفظ Seaquel أي تغييرات عليها: فحفظها الآن سيؤدي إلى الكتابة فوق ما هو مخزّن. أعد تشغيل Seaquel (أو أعد تحميل الصفحة) لمحاولة تحميلها مرة أخرى."
 }

@@ -1,0 +1,16 @@
+[package]
+name = "seaquel-license"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel licensing: the desktop activation client and the web server's license gate, control-plane client and air-gap bundles."
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+ryu-js = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

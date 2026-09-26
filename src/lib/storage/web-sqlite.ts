@@ -5,7 +5,7 @@ import { dedupeColumnNames } from "$lib/utils/row-access";
 
 const LOCALSTORAGE_KEY = "seaquel_db";
 
-class WebSqliteDatabase implements SqliteDatabase {
+export class WebSqliteDatabase implements SqliteDatabase {
   constructor(private db: Database) {}
 
   async execute(sql: string, params?: unknown[]): Promise<number> {
@@ -49,6 +49,20 @@ class WebSqliteDatabase implements SqliteDatabase {
     this.persistToLocalStorage();
   }
 
+  /**
+   * `export()` closes and reopens the database, which resets
+   * `PRAGMA foreign_keys` to 0. Turn it back on straight away, or cascades and
+   * foreign-key checks stop after the first write.
+   */
+  private exportKeepingForeignKeys(): Uint8Array {
+    const foreignKeys = this.db.exec("PRAGMA foreign_keys")[0]?.values[0]?.[0] === 1;
+    try {
+      return this.db.export();
+    } finally {
+      if (foreignKeys) this.db.run("PRAGMA foreign_keys=ON");
+    }
+  }
+
   async close(): Promise<void> {
     this.persistToLocalStorage();
     this.db.close();
@@ -56,7 +70,7 @@ class WebSqliteDatabase implements SqliteDatabase {
 
   private persistToLocalStorage(): void {
     try {
-      const data = this.db.export();
+      const data = this.exportKeepingForeignKeys();
       let binary = "";
       const chunkSize = 8192;
       for (let i = 0; i < data.length; i += chunkSize) {

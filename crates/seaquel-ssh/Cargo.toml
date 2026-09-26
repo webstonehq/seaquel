@@ -1,0 +1,14 @@
+[package]
+name = "seaquel-ssh"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel SSH tunnels: local port forwards through a bastion with host-key checking and trust on first use."
+
+[dependencies]
+dirs = { workspace = true }
+log = { workspace = true }
+russh = { workspace = true }
+russh-keys = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

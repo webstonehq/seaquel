@@ -1,5 +1,5 @@
 import type { Dashboard, DashboardWidget } from "$lib/types";
-import type { PersistedDashboard } from "$lib/storage/repos/dashboards-repo";
+import type { PersistedDashboard } from "$lib/storage";
 
 /**
  * Strip runtime-only state from a dashboard widget before persistence or serialization.

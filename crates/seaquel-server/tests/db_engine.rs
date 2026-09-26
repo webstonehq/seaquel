@@ -49,9 +49,7 @@ fn offline_app() -> axum::Router {
     let core = seaquel_core::Core::builder()
         .engine(Arc::new(OfflinePostgres))
         .build();
-    build_router(AppState {
-        core: Arc::new(core),
-    })
+    build_router(AppState::with_core(Arc::new(core)))
 }
 
 async fn connect_offline(app: axum::Router) -> String {
@@ -125,9 +123,7 @@ async fn engine_without_a_rust_dialect_returns_501() {
     let core = seaquel_core::Core::builder()
         .engine(Arc::new(NoDialectEngine))
         .build();
-    let app = build_router(AppState {
-        core: Arc::new(core),
-    });
+    let app = build_router(AppState::with_core(Arc::new(core)));
     let (status, body) = post_json(
         app.clone(),
         "/api/db/connect",

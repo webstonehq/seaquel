@@ -142,7 +142,7 @@ export interface PersistedSavedQuery {
   /** When last modified (ISO 8601 string) */
   updatedAt: string;
   /** Optional parameter definitions */
-  parameters?: PersistedQueryParameter[];
+  parameters?: PersistedQueryParameter[] | null;
   /** Whether this query is starred */
   starred?: boolean;
   /** Whether this query is shared via git */
@@ -152,7 +152,7 @@ export interface PersistedSavedQuery {
   /** Target database type */
   databaseType?: string;
   /** Tags for categorization */
-  tags?: string[];
+  tags?: string[] | null;
   /** Folder path within queries directory */
   folder?: string;
 }
@@ -213,7 +213,7 @@ export interface PersistedQueryHistoryItem {
   /** Whether marked as favorite */
   favorite: boolean;
   /** Snapshot of connection labels at execution time */
-  connectionLabelsSnapshot: ConnectionLabel[];
+  connectionLabelsSnapshot: ConnectionLabel[] | null;
   /** Connection name at execution time */
   connectionNameSnapshot: string;
 }

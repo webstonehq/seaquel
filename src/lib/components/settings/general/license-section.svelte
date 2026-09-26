@@ -36,7 +36,13 @@
 
 	async function handleActivate() {
 		if (!licenseKeyInput.trim()) return;
-		const success = await licenseStore.activate(licenseKeyInput.trim());
+		let success: boolean;
+		try {
+			success = await licenseStore.activate(licenseKeyInput.trim());
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		if (success) {
 			toast.success(m.license_activate_success());
 			licenseKeyInput = "";
@@ -45,7 +51,13 @@
 	}
 
 	async function handleDeactivate() {
-		const success = await licenseStore.deactivate();
+		let success: boolean;
+		try {
+			success = await licenseStore.deactivate();
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		if (success) {
 			toast.success(m.license_deactivate_success());
 		} else {

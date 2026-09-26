@@ -1,4 +1,4 @@
-import { getDatabase, tutorialRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import { LESSONS } from "$lib/tutorial/lessons";
 import type { SerializableQueryBuilderState } from "$lib/hooks/query-builder.svelte";
 
@@ -16,8 +16,7 @@ class TutorialProgressStore {
     if (this.isInitialized) return;
 
     try {
-      const db = await getDatabase();
-      const rows = await tutorialRepo.loadAll(db);
+      const rows = await getStorage().tutorial.loadAll();
 
       const challenges: Record<string, Set<string>> = {};
       const states: Record<string, Record<string, SerializableQueryBuilderState>> = {};
@@ -152,8 +151,7 @@ class TutorialProgressStore {
     }
     if (changed) {
       try {
-        const db = await getDatabase();
-        await tutorialRepo.removeLesson(db, lessonId);
+        await getStorage().tutorial.removeLesson(lessonId);
       } catch (error) {
         console.error("Failed to reset tutorial lesson:", error);
       }
@@ -167,8 +165,7 @@ class TutorialProgressStore {
     this.completedChallenges = {};
     this.challengeStates = {};
     try {
-      const db = await getDatabase();
-      await tutorialRepo.removeAll(db);
+      await getStorage().tutorial.removeAll();
     } catch (error) {
       console.error("Failed to reset all tutorial progress:", error);
     }
@@ -180,8 +177,7 @@ class TutorialProgressStore {
     state: string | null,
   ): Promise<void> {
     try {
-      const db = await getDatabase();
-      await tutorialRepo.save(db, lessonId, challengeId, state);
+      await getStorage().tutorial.save(lessonId, challengeId, state);
     } catch (error) {
       console.error("Failed to persist tutorial progress:", error);
     }

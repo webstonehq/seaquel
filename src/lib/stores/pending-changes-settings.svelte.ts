@@ -1,5 +1,4 @@
-import { getDatabase } from "$lib/storage/db";
-import { appStateRepo } from "$lib/storage/repository";
+import { getStorage } from "$lib/storage";
 
 const SETTING_KEY = "pending_changes_enabled";
 
@@ -8,8 +7,7 @@ class PendingChangesSettingsStore {
 
   async load(): Promise<void> {
     try {
-      const db = await getDatabase();
-      const raw = await appStateRepo.get(db, SETTING_KEY);
+      const raw = await getStorage().appState.get(SETTING_KEY);
       if (raw !== null) {
         this.enabled = raw !== "false";
       }
@@ -21,8 +19,7 @@ class PendingChangesSettingsStore {
   async setEnabled(value: boolean): Promise<void> {
     this.enabled = value;
     try {
-      const db = await getDatabase();
-      await appStateRepo.set(db, SETTING_KEY, String(value));
+      await getStorage().appState.set(SETTING_KEY, String(value));
     } catch {
       // Silently fail — setting is still updated in memory
     }

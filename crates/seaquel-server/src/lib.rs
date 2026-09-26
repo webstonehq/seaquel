@@ -4,6 +4,7 @@
 //! drive the router directly without binding a TCP port.
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -12,17 +13,32 @@ use std::sync::Arc;
 
 mod error;
 mod routes;
+pub mod startup;
+pub mod workspaces;
+
+pub use routes::rpc::USER_HEADER;
+pub use workspaces::Workspaces;
 
 /// Application state shared across request handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub core: Arc<Core>,
+    /// Each user's workspace for `POST /rpc`, under `DATA_DIR/users/<id>`.
+    pub workspaces: Arc<Workspaces>,
 }
 
 impl AppState {
+    /// The default engines, with workspaces under `$DATA_DIR` (or the
+    /// current directory).
     pub fn new() -> Self {
+        Self::with_core(Arc::new(seaquel_core::with_default_plugins().build()))
+    }
+
+    /// `core`, with workspaces under `$DATA_DIR` (or the current directory).
+    pub fn with_core(core: Arc<Core>) -> Self {
         Self {
-            core: Arc::new(seaquel_core::with_default_plugins().build()),
+            core,
+            workspaces: Arc::new(Workspaces::from_env()),
         }
     }
 }
@@ -52,6 +68,12 @@ pub fn build_router(state: AppState) -> Router {
             post(routes::db::transaction::transaction),
         )
         .route("/api/db/test", post(routes::db::test::test))
+        // Workspace calls (storage; secrets answer NOT_SUPPORTED) for the
+        // user in `X-Seaquel-User`. Only Node's `/api/rpc` calls it.
+        .route(
+            "/rpc",
+            post(routes::rpc::rpc).layer(DefaultBodyLimit::max(routes::rpc::BODY_LIMIT)),
+        )
         // Static frontend. `fallback(get(...))` means:
         //   - Known API routes above take precedence.
         //   - Any GET for an unknown path gets the SvelteKit SPA shell

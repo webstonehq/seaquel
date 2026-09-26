@@ -1,5 +1,5 @@
 import type { UpdateInfo } from "$lib/api/tauri";
-import { getDatabase, appStateRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 
 const SKIPPED_VERSION_KEY = "skippedUpdateVersion";
 
@@ -25,8 +25,7 @@ class UpdateStore {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     try {
-      const db = await getDatabase();
-      this.skippedVersion = await appStateRepo.get(db, SKIPPED_VERSION_KEY);
+      this.skippedVersion = await getStorage().appState.get(SKIPPED_VERSION_KEY);
     } catch (error) {
       console.error("Failed to load skipped update version:", error);
     }
@@ -58,8 +57,7 @@ class UpdateStore {
     if (!this.updateInfo) return;
     this.skippedVersion = this.updateInfo.version;
     try {
-      const db = await getDatabase();
-      await appStateRepo.set(db, SKIPPED_VERSION_KEY, this.updateInfo.version);
+      await getStorage().appState.set(SKIPPED_VERSION_KEY, this.updateInfo.version);
     } catch (error) {
       console.error("Failed to persist skipped version:", error);
     }

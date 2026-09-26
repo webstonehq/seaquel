@@ -15,6 +15,11 @@ members = [
     "crates/seaquel-sql",
     "crates/seaquel-wasm",
     "crates/seaquel-server",
+    "crates/seaquel-storage",
+    "crates/seaquel-secrets",
+    "crates/seaquel-ssh",
+    "crates/seaquel-git",
+    "crates/seaquel-license",
     "src-tauri",
 ]
 resolver = "2"
@@ -47,6 +52,23 @@ tiberius = { version = "0.12", default-features = false, features = ["tokio", "c
 duckdb = { version = "1.1", features = ["bundled"] }
 rust_decimal = "1"
 time = { version = "0.3", features = ["formatting"] }
+
+# Infrastructure crates (phase 3). Native only; Core pulls them in behind features.
+# Exact pin and features: what tauri-plugin-keyring 0.1.0 resolved to, so the
+# entries it saved read back unchanged.
+keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+russh = "0.48"
+russh-keys = "0.48"
+git2 = { version = "0.19", features = ["vendored-libgit2", "vendored-openssl"] }
+# rustls, like sqlx and tiberius, so seaquel-server's image gets no OpenSSL.
+# With both root features, reqwest 0.12 puts the bundled webpki roots and the OS
+# trust store into one root store (async_impl/client.rs): desktop keeps trusting
+# a corporate proxy's CA from the OS, as it did through native-tls, and a server
+# image without a system CA bundle still has the webpki roots (an empty native
+# store isn't an error).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
+ed25519-dalek = "2"
+dirs = "6"
 
 # Server-side only
 axum = { version = "0.8", features = ["ws", "macros"] }

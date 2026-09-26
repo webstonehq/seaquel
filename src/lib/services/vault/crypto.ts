@@ -7,7 +7,7 @@
  * - 12-byte random nonce per encryption (standard AES-GCM).
  *
  * Wire format: `salt`, `nonce`, and `ciphertext` travel as base64-encoded TEXT
- * through the existing `/api/storage/*` JSON pipe. SQLite doesn't care whether
+ * through the JSON storage calls (`/api/rpc`). SQLite doesn't care whether
  * the blob columns are TEXT or BLOB; TEXT keeps the wire layer unchanged.
  *
  * The plan cites XChaCha20-Poly1305 as a stand-in for "an AEAD we trust." We
@@ -135,7 +135,7 @@ export function randomSalt(): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
-// Base64 helpers — the /api/storage/* wire layer is JSON, so binary columns
+// Base64 helpers — the storage wire layer is JSON, so binary columns
 // travel as base64-encoded strings. Kept tiny and dep-free.
 // ---------------------------------------------------------------------------
 

@@ -12,7 +12,7 @@ export interface PersistedConnection {
   sslMode?: string;
   connectionString?: string;
   lastConnected?: Date;
-  sshTunnel?: SSHTunnelConfig;
+  sshTunnel?: SSHTunnelConfig | null;
   /** Whether the database password is saved in keychain */
   savePassword?: boolean;
   /** Whether the SSH password is saved in keychain */

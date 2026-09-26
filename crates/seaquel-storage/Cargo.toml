@@ -1,0 +1,24 @@
+[package]
+name = "seaquel-storage"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel metadata storage: the SQLite schema, its migrations and the typed queries behind every saved connection, project, query and setting."
+
+[dependencies]
+seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-types = { path = "../seaquel-types" }
+dirs = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+# WHATWG URL parsing, for stripping passwords from connection strings exactly as
+# the TypeScript's `new URL` did.
+url = "2"
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "macros"] }

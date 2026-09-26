@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const confirmed = await decryptToString(key2, verifier);
   assert(confirmed === VERIFIER_PLAINTEXT, "verifier round-trip confirms passphrase");
 
-  // Base64 round-trip (used by the wire format for /api/storage/*).
+  // Base64 round-trip (used by the JSON storage wire format).
   const b64 = toBase64(blob.ciphertext);
   const decoded = fromBase64(b64);
   assert(decoded.length === blob.ciphertext.length, "base64 round-trip length matches");

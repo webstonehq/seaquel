@@ -2,7 +2,8 @@ import { hostname } from "@tauri-apps/plugin-os";
 import { getKeyringService } from "$lib/services/keyring";
 import { activateLicense, validateLicense, deactivateLicense, getUsername } from "$lib/api/tauri";
 import type { LicenseResponse } from "$lib/api/tauri";
-import { getDatabase, licenseRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
+import { NotLoadedError, skipUnloadedSave } from "$lib/storage/load-guard";
 
 export type LicenseStatus = "personal" | "active" | "expired" | "invalid";
 export type LicenseTier = "personal" | "individual" | "business";
@@ -42,7 +43,13 @@ class LicenseStore {
   isActivating = $state(false);
   activationError = $state<string | null>(null);
 
+  /** True once the stored license state was read. */
   private initialized = false;
+  /**
+   * True when the in-memory state may be saved: only after a successful
+   * load. Saving writes the whole record.
+   */
+  private persistable = false;
   private revalidationTimer: ReturnType<typeof setTimeout> | null = null;
 
   get badgeLabel(): string {
@@ -57,8 +64,7 @@ class LicenseStore {
     if (this.initialized) return;
 
     try {
-      const db = await getDatabase();
-      const persisted = (await licenseRepo.load(db)) as PersistedLicenseState | null;
+      const persisted = (await getStorage().license.load()) as PersistedLicenseState | null;
 
       if (persisted) {
         this.status = persisted.status;
@@ -71,18 +77,30 @@ class LicenseStore {
       }
 
       this.initialized = true;
+      this.persistable = true;
 
       // Schedule background revalidation if we have an active license
       if (this.status === "active" && this.instanceId) {
         this.scheduleNextRevalidation();
       }
     } catch (error) {
+      // Stay uninitialized: a later `initialize` retries, and saves are off.
       console.error("Failed to load license state:", error);
-      this.initialized = true;
     }
   }
 
+  /**
+   * Before activating or deactivating: the stored state must have loaded, or
+   * load now. Throws `NotLoadedError` before anything reaches the server or
+   * the keychain.
+   */
+  private async ensureLoaded(): Promise<void> {
+    if (!this.initialized) await this.initialize();
+    if (!this.persistable) throw new NotLoadedError("license state");
+  }
+
   async activate(key: string): Promise<boolean> {
+    await this.ensureLoaded();
     this.isActivating = true;
     this.activationError = null;
 
@@ -109,6 +127,7 @@ class LicenseStore {
   }
 
   async deactivate(): Promise<boolean> {
+    await this.ensureLoaded();
     try {
       const key = await this.loadKey();
       if (key && this.instanceId) {
@@ -283,8 +302,11 @@ class LicenseStore {
   }
 
   private async persist(): Promise<void> {
+    if (!this.persistable) {
+      skipUnloadedSave("license state");
+      return;
+    }
     try {
-      const db = await getDatabase();
       const state: PersistedLicenseState = {
         status: this.status,
         tier: this.tier,
@@ -294,7 +316,7 @@ class LicenseStore {
         expiresAt: this.expiresAt,
         lastValidatedAt: this.lastValidatedAt,
       };
-      await licenseRepo.save(db, state);
+      await getStorage().license.save(state);
     } catch (error) {
       console.error("Failed to persist license state:", error);
     }

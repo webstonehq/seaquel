@@ -1,20 +1,5 @@
 import type { SqliteDatabase } from "../sqlite-types";
-
-/**
- * One encrypted credential. `scope` maps to the `KeyringService` category
- * (`db`, `ssh`, `ssh-key`, `license`, `ai-api-key`, `ai-api-key-provider`).
- * `key` is the connection id / provider id, or empty string for singletons.
- *
- * `nonce` and `ciphertext` are base64-encoded — the /api/storage wire layer
- * is JSON, so we don't go through BLOB.
- */
-export interface PersistedCredential {
-  scope: string;
-  key: string;
-  nonce: string;
-  ciphertext: string;
-  updatedAt: string;
-}
+import type { PersistedCredential } from "../client";
 
 interface Row {
   scope: string;

@@ -1,0 +1,15 @@
+[package]
+name = "seaquel-secrets"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel secret storage: the SecretStore trait and the OS keychain store for connection passwords, SSH keys and API keys."
+
+[dependencies]
+seaquel-runtime = { path = "../seaquel-runtime" }
+keyring = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+uuid = { workspace = true }

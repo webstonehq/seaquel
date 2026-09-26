@@ -1,0 +1,39 @@
+{
+  "repo": "importStateRepo",
+  "source": "src/lib/storage/repos/import-state-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "import-state/save-and-load",
+      "description": "null until saved; true with a null timestamp; false with one; overwrite.",
+      "steps": [
+        {"call":"importStateRepo.load","args":["dbeaver"],"result":null},
+        {"call":"importStateRepo.save","args":["dbeaver",true,null]},
+        {"call":"importStateRepo.save","args":["tableplus",false,"2026-01-03T00:00:00.000Z"]},
+        {
+          "call": "importStateRepo.load",
+          "args": ["dbeaver"],
+          "result": {"hasOfferedImport":true,"lastCheckTimestamp":null}
+        },
+        {
+          "call": "importStateRepo.load",
+          "args": ["tableplus"],
+          "result": {"hasOfferedImport":false,"lastCheckTimestamp":"2026-01-03T00:00:00.000Z"}
+        },
+        {"call":"importStateRepo.save","args":["dbeaver",false,"2026-01-04T12:30:00.000Z"]},
+        {
+          "call": "importStateRepo.load",
+          "args": ["dbeaver"],
+          "result": {"hasOfferedImport":false,"lastCheckTimestamp":"2026-01-04T12:30:00.000Z"}
+        }
+      ],
+      "rows": {
+        "import_state": {
+          "columns": ["source","has_offered_import","last_check_timestamp"],
+          "rows": [["dbeaver",0,"2026-01-04T12:30:00.000Z"],["tableplus",0,"2026-01-03T00:00:00.000Z"]],
+          "types": [["text","integer","text"],["text","integer","text"]]
+        }
+      }
+    }
+  ]
+}

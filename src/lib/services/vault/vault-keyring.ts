@@ -18,36 +18,16 @@
  * `connection-manager.svelte.ts` and `persistence-manager.svelte.ts`).
  */
 import type { KeyringService } from "$lib/services/keyring";
-import type { SqliteDatabase } from "$lib/storage/sqlite-types";
-import { getDatabase } from "$lib/storage";
-import { userCredentialsRepo } from "$lib/storage/repos/user-credentials-repo";
+import { getStorage } from "$lib/storage";
 import { decryptToString, encrypt, fromBase64, toBase64 } from "./crypto";
 import { getVault, type Vault } from "./vault-state.svelte";
 
-type Scope = "db" | "ssh" | "ssh-key" | "license" | "ai-api-key" | "ai-api-key-provider";
+type Scope = "db" | "ssh" | "ssh-key" | "license" | "ai-api-key-provider";
 
 const LICENSE_KEY_ID = "";
-const PRIMARY_AI_KEY_ID = "";
 
 export class VaultKeyringService implements KeyringService {
-  private dbPromise: Promise<SqliteDatabase> | null = null;
-
   constructor(private readonly vault: Vault = getVault()) {}
-
-  private async db(): Promise<SqliteDatabase> {
-    // Only cache a *successful* promise. A rejected promise pinned here
-    // would make every subsequent call fail with the same error, even if
-    // the underlying issue (e.g. transient storage failure) has resolved —
-    // mirrors the retry-on-reject pattern in `src/lib/storage/db.ts`.
-    if (!this.dbPromise) {
-      const pending = getDatabase();
-      pending.catch(() => {
-        if (this.dbPromise === pending) this.dbPromise = null;
-      });
-      this.dbPromise = pending;
-    }
-    return this.dbPromise;
-  }
 
   private async encryptFor(plaintext: string): Promise<{ nonce: string; ciphertext: string }> {
     const key = await this.vault.ensureUnlocked();
@@ -57,8 +37,7 @@ export class VaultKeyringService implements KeyringService {
 
   private async setSecret(scope: Scope, id: string, plaintext: string): Promise<void> {
     const { nonce, ciphertext } = await this.encryptFor(plaintext);
-    const db = await this.db();
-    await userCredentialsRepo.save(db, {
+    await getStorage().userCredentials.save({
       scope,
       key: id,
       nonce,
@@ -68,8 +47,7 @@ export class VaultKeyringService implements KeyringService {
   }
 
   private async getSecret(scope: Scope, id: string): Promise<string | null> {
-    const db = await this.db();
-    const row = await userCredentialsRepo.load(db, scope, id);
+    const row = await getStorage().userCredentials.load(scope, id);
     if (!row) return null;
     const key = await this.vault.ensureUnlocked();
     try {
@@ -87,8 +65,7 @@ export class VaultKeyringService implements KeyringService {
 
   private async deleteSecret(scope: Scope, id: string): Promise<void> {
     // Deletion does not need the VK — just drop the row.
-    const db = await this.db();
-    await userCredentialsRepo.remove(db, scope, id);
+    await getStorage().userCredentials.remove(scope, id);
   }
 
   setDbPassword(connectionId: string, password: string): Promise<void> {
@@ -122,8 +99,7 @@ export class VaultKeyringService implements KeyringService {
   }
 
   async deleteAllForConnection(connectionId: string): Promise<void> {
-    const db = await this.db();
-    await userCredentialsRepo.removeAllForKey(db, connectionId);
+    await getStorage().userCredentials.removeAllForKey(connectionId);
   }
 
   setLicenseKey(key: string): Promise<void> {
@@ -134,16 +110,6 @@ export class VaultKeyringService implements KeyringService {
   }
   deleteLicenseKey(): Promise<void> {
     return this.deleteSecret("license", LICENSE_KEY_ID);
-  }
-
-  setAIApiKey(key: string): Promise<void> {
-    return this.setSecret("ai-api-key", PRIMARY_AI_KEY_ID, key);
-  }
-  getAIApiKey(): Promise<string | null> {
-    return this.getSecret("ai-api-key", PRIMARY_AI_KEY_ID);
-  }
-  deleteAIApiKey(): Promise<void> {
-    return this.deleteSecret("ai-api-key", PRIMARY_AI_KEY_ID);
   }
 
   setAIApiKeyForProvider(id: string, key: string): Promise<void> {

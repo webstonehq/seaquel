@@ -22,6 +22,19 @@ use seaquel_sql::read_only::read_only_error;
 use seaquel_sql::SqlEngine;
 pub use seaquel_types::{StreamEvent, Value};
 
+mod workspace;
+pub use workspace::{CoreError, Workspace, WorkspaceSpec, DESKTOP_STORAGE_FILE};
+
+/// The metadata storage (`seaquel-storage`), for interfaces and
+/// `seaquel-rpc`, which may not depend on it directly.
+#[cfg(feature = "storage")]
+pub use seaquel_storage as storage;
+
+/// The secret stores (`seaquel-secrets`), for interfaces and `seaquel-rpc`,
+/// which may not depend on them directly.
+#[cfg(feature = "secrets")]
+pub use seaquel_secrets as secrets;
+
 type StreamTokens = Mutex<HashMap<String, StreamEntry>>;
 
 /// A running stream's entry in [`Core::streams`].
@@ -164,6 +177,18 @@ fn sql_keyword(sql: &str) -> String {
 impl Core {
     pub fn builder() -> CoreBuilder {
         CoreBuilder::default()
+    }
+
+    /// Open one user's workspace: its metadata storage at
+    /// `<data_dir>/<storage_file>` and its secret store. Each call opens a
+    /// new, independent workspace; the caller keeps it.
+    ///
+    /// Storage failures keep their codes (`LEGACY_STORAGE`,
+    /// `STORAGE_CORRUPT`, `NO_DATA_DIR`, `STORAGE_ERROR`).
+    pub async fn open_workspace(&self, spec: WorkspaceSpec) -> Result<Arc<Workspace>, CoreError> {
+        info!(activity = "workspace.open"; "Opening workspace");
+        let workspace = Workspace::open(spec).await?;
+        Ok(Arc::new(workspace))
     }
 
     /// Ids of the engines in this build, sorted.

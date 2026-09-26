@@ -114,7 +114,15 @@ async function resolveSession(req) {
 }
 
 server.on("upgrade", async (req, socket, head) => {
-  if (!req.url || !req.url.startsWith("/api/db/stream")) {
+  // Match the path exactly. The Rust URL is fixed (RUST_WS_URL), so a prefix
+  // match couldn't steer anywhere, but `/api/db/streamX` isn't ours either.
+  let pathname = null;
+  try {
+    pathname = new URL(req.url ?? "", "http://localhost").pathname;
+  } catch {
+    /* not ours */
+  }
+  if (pathname !== "/api/db/stream") {
     // Not ours — let SvelteKit's default handling (usually "refuse") run.
     return;
   }

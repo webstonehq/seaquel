@@ -25,29 +25,28 @@ import { toPersistedDashboard } from "./dashboard-serialize.js";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistedConnection } from "./types.js";
 import type { ConnectionOverride } from "$lib/types";
-import {
-  getDatabase,
-  projectsRepo,
-  appStateRepo,
-  connectionsRepo,
-  projectStateRepo,
-  savedQueriesRepo,
-  queryHistoryRepo,
-  queryVersionsRepo,
-  sharedReposRepo,
-  dashboardsRepo,
-  dashboardVersionsRepo,
-  connectionOverridesRepo,
-  aiChatsRepo,
-} from "$lib/storage";
+import { getStorage, type PersistedDashboard } from "$lib/storage";
 import { getKeyringService } from "$lib/services/keyring";
 import { log } from "$lib/utils/logger";
+import { skipUnloadedSave } from "$lib/storage/load-guard";
+
+/**
+ * A stored collection whose save replaces what's stored, keyed so a failed
+ * load can be recorded (see `load-guard.ts`).
+ */
+export type LoadKey =
+  | "projects"
+  | "sharedRepos"
+  | `projectState:${string}`
+  | `savedQueries:${string}`
+  | `history:${string}`
+  | `aiMessages:${string}`;
 
 /**
  * Manages persistence of projects, connections, and their state to SQLite.
  * Handles serialization, debounced saving, and state loading.
  *
- * Storage: single seaquel.db SQLite database with tables for each domain.
+ * Storage goes through `getStorage()`.
  */
 export class PersistenceManager {
   // Keyed per project/connection: a single shared timer meant scheduling a save
@@ -59,7 +58,59 @@ export class PersistenceManager {
   readonly PERSISTENCE_DEBOUNCE_MS = 500;
   readonly MAX_HISTORY_ITEMS = 500;
 
+  /**
+   * Collections whose last load failed or is still running. Their in-memory copy is empty or
+   * default, not what's stored, so their replacing saves are refused until
+   * a later load succeeds. A collection that was never loaded (a new
+   * project, say) isn't in here and saves normally.
+   */
+  private failedLoads = new Set<LoadKey>();
+  /** The subset of `failedLoads` whose read is still running. */
+  private pendingLoads = new Set<LoadKey>();
+
   constructor(private state: DatabaseState) {}
+
+  /** True if the last load of `key` failed, so saving it would overwrite it. */
+  loadFailed(key: LoadKey): boolean {
+    return this.failedLoads.has(key);
+  }
+
+  private recordLoad(key: LoadKey, ok: boolean): void {
+    if (ok) this.failedLoads.delete(key);
+    else this.failedLoads.add(key);
+  }
+
+  /** Refuses a save of `what` because one of `keys` isn't loaded. */
+  private refuse(what: string, ...keys: LoadKey[]): void {
+    const failed = keys.filter((k) => this.failedLoads.has(k));
+    skipUnloadedSave(what, { pending: failed.every((k) => this.pendingLoads.has(k)) });
+  }
+
+  /**
+   * Runs a load; records whether it worked, and returns `fallback` if not.
+   * The key counts as unloaded while the read is pending too: a save then
+   * would write the empty in-memory copy over what's being read.
+   */
+  private async load<T>(
+    key: LoadKey,
+    what: string,
+    read: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> {
+    this.recordLoad(key, false);
+    this.pendingLoads.add(key);
+    try {
+      const value = await read();
+      this.recordLoad(key, true);
+      return value;
+    } catch (error) {
+      this.recordLoad(key, false);
+      void log.error(`Failed to load ${what}:`, error);
+      return fallback;
+    } finally {
+      this.pendingLoads.delete(key);
+    }
+  }
 
   /**
    * Cancel any pending debounced persistence timer.
@@ -349,9 +400,11 @@ export class PersistenceManager {
   // === PROJECT PERSISTENCE ===
 
   async persistProjects(): Promise<void> {
+    if (this.loadFailed("projects")) {
+      this.refuse("projects", "projects");
+      return;
+    }
     try {
-      const db = await getDatabase();
-
       const projects: PersistedProject[] = this.state.projects.map((p) => ({
         id: p.id,
         name: p.name,
@@ -362,28 +415,28 @@ export class PersistenceManager {
         gitRepoPath: p.gitRepoPath,
       }));
 
-      await projectsRepo.saveAll(db, projects);
+      await getStorage().projects.saveAll(projects);
     } catch (error) {
       void log.error("Failed to persist projects:", error);
     }
   }
 
+  /** The stored projects, or `[]` with `loadFailed("projects")` set if the read failed. */
   async loadProjects(): Promise<PersistedProject[]> {
-    try {
-      const db = await getDatabase();
-      return await projectsRepo.loadAll(db);
-    } catch (error) {
-      void log.error("Failed to load projects:", error);
-      return [];
-    }
+    return this.load("projects", "projects", () => getStorage().projects.loadAll(), []);
   }
 
   // === APP STATE PERSISTENCE ===
 
   async persistAppState(): Promise<void> {
+    // With no stored projects loaded, the active project is an in-memory
+    // stand-in whose id must not replace the stored choice.
+    if (this.loadFailed("projects")) {
+      this.refuse("the active project", "projects");
+      return;
+    }
     try {
-      const db = await getDatabase();
-      await appStateRepo.set(db, "lastActiveProjectId", this.state.activeProjectId);
+      await getStorage().appState.set("lastActiveProjectId", this.state.activeProjectId);
     } catch (error) {
       void log.error("Failed to persist app state:", error);
     }
@@ -391,8 +444,7 @@ export class PersistenceManager {
 
   async getLastActiveProjectId(): Promise<string | null> {
     try {
-      const db = await getDatabase();
-      return await appStateRepo.get(db, "lastActiveProjectId");
+      return await getStorage().appState.get("lastActiveProjectId");
     } catch (error) {
       void log.error("Failed to load last active project:", error);
       return null;
@@ -403,9 +455,12 @@ export class PersistenceManager {
 
   async persistProjectState(projectId: string): Promise<void> {
     void log.debug(`Persisting project state: ${projectId}`);
+    // Saving replaces the project's tabs and saved canvases.
+    if (this.loadFailed("projects") || this.loadFailed(`projectState:${projectId}`)) {
+      this.refuse(`the state of project ${projectId}`, "projects", `projectState:${projectId}`);
+      return;
+    }
     try {
-      const db = await getDatabase();
-
       const state: PersistedProjectState = {
         projectId,
         queryTabs: this.serializeQueryTabs(projectId),
@@ -443,12 +498,16 @@ export class PersistenceManager {
         paneLayout: this.serializePaneLayout(projectId),
       };
 
-      await projectStateRepo.save(db, state);
+      await getStorage().projectState.save(state);
 
       // Only persist saved queries if they've been loaded into memory for this project.
       // Otherwise saveAll would delete all queries (since the in-memory list is empty).
-      if (projectId in this.state.queriesByProject) {
-        await savedQueriesRepo.saveAll(db, projectId, this.serializeSavedQueries(projectId));
+      // The same goes for a project whose saved queries failed to load: its
+      // list holds only what was added since, and saveAll would delete the rest.
+      if (this.loadFailed(`savedQueries:${projectId}`)) {
+        this.refuse(`the saved queries of project ${projectId}`, `savedQueries:${projectId}`);
+      } else if (projectId in this.state.queriesByProject) {
+        await getStorage().savedQueries.saveAll(projectId, this.serializeSavedQueries(projectId));
       }
     } catch (error) {
       void log.error(`Persistence failed: ${projectId}`);
@@ -458,12 +517,11 @@ export class PersistenceManager {
 
   async persistProjectDashboards(projectId: string): Promise<void> {
     try {
-      const db = await getDatabase();
       const dashboards = this.state.dashboardsByProject[projectId] ?? [];
       for (const d of dashboards) {
         // Through the shared helper so widget results (runtime rows, possibly
         // bigint) are stripped exactly as on every other save path.
-        await dashboardsRepo.save(db, toPersistedDashboard(d));
+        await getStorage().dashboards.save(toPersistedDashboard(d));
       }
     } catch (error) {
       void log.error(`Failed to persist dashboards for project ${projectId}:`, error);
@@ -471,19 +529,17 @@ export class PersistenceManager {
   }
 
   async loadProjectState(projectId: string): Promise<PersistedProjectState | null> {
-    try {
-      const db = await getDatabase();
-      return await projectStateRepo.load(db, projectId);
-    } catch (error) {
-      void log.error(`Failed to load persisted state for project ${projectId}:`, error);
-      return null;
-    }
+    return this.load(
+      `projectState:${projectId}`,
+      `persisted state for project ${projectId}`,
+      () => getStorage().projectState.load(projectId),
+      null,
+    );
   }
 
   async removeProjectState(projectId: string): Promise<void> {
     try {
-      const db = await getDatabase();
-      await projectStateRepo.remove(db, projectId);
+      await getStorage().projectState.remove(projectId);
     } catch (error) {
       void log.error(`Failed to remove persisted state for project ${projectId}:`, error);
     }
@@ -491,8 +547,7 @@ export class PersistenceManager {
 
   async removeProject(projectId: string): Promise<void> {
     try {
-      const db = await getDatabase();
-      await projectsRepo.remove(db, projectId);
+      await getStorage().projects.remove(projectId);
     } catch (error) {
       void log.error(`Failed to remove project ${projectId}:`, error);
     }
@@ -502,9 +557,16 @@ export class PersistenceManager {
 
   async persistConnectionData(connectionId: string): Promise<void> {
     void log.debug(`Persisting connection data: ${connectionId}`);
+    // Saving replaces the connection's whole history.
+    if (this.loadFailed(`history:${connectionId}`)) {
+      this.refuse(`the query history of connection ${connectionId}`, `history:${connectionId}`);
+      return;
+    }
     try {
-      const db = await getDatabase();
-      await queryHistoryRepo.replaceAll(db, connectionId, this.serializeQueryHistory(connectionId));
+      await getStorage().queryHistory.replaceAll(
+        connectionId,
+        this.serializeQueryHistory(connectionId),
+      );
     } catch (error) {
       void log.error(`Persistence failed: ${connectionId}`);
       void log.error(`Failed to persist data for connection ${connectionId}:`, error);
@@ -514,31 +576,28 @@ export class PersistenceManager {
   async loadConnectionData(connectionId: string): Promise<{
     queryHistory: PersistedQueryHistoryItem[];
   }> {
-    try {
-      const db = await getDatabase();
-      return {
-        queryHistory: await queryHistoryRepo.loadByConnection(db, connectionId),
-      };
-    } catch (error) {
-      void log.error(`Failed to load data for connection ${connectionId}:`, error);
-      return { queryHistory: [] };
-    }
+    return {
+      queryHistory: await this.load(
+        `history:${connectionId}`,
+        `data for connection ${connectionId}`,
+        () => getStorage().queryHistory.loadByConnection(connectionId),
+        [],
+      ),
+    };
   }
 
   async loadProjectSavedQueries(projectId: string): Promise<PersistedSavedQuery[]> {
-    try {
-      const db = await getDatabase();
-      return await savedQueriesRepo.loadByProject(db, projectId);
-    } catch (error) {
-      void log.error(`Failed to load saved queries for project ${projectId}:`, error);
-      return [];
-    }
+    return this.load(
+      `savedQueries:${projectId}`,
+      `saved queries for project ${projectId}`,
+      () => getStorage().savedQueries.loadByProject(projectId),
+      [],
+    );
   }
 
   async loadProjectQueryVersions(projectId: string): Promise<PersistedQueryVersion[]> {
     try {
-      const db = await getDatabase();
-      return await queryVersionsRepo.loadByProject(db, projectId);
+      return await getStorage().queryVersions.loadByProject(projectId);
     } catch (error) {
       void log.error(`Failed to load query versions for project ${projectId}:`, error);
       return [];
@@ -547,8 +606,7 @@ export class PersistenceManager {
 
   async persistQueryVersion(version: PersistedQueryVersion): Promise<void> {
     try {
-      const db = await getDatabase();
-      await queryVersionsRepo.insert(db, version);
+      await getStorage().queryVersions.insert(version);
     } catch (error) {
       void log.error(`Failed to persist query version:`, error);
     }
@@ -556,8 +614,7 @@ export class PersistenceManager {
 
   async pruneQueryVersions(queryId: string, keepCount: number): Promise<void> {
     try {
-      const db = await getDatabase();
-      await queryVersionsRepo.pruneOldVersions(db, queryId, keepCount);
+      await getStorage().queryVersions.pruneOldVersions(queryId, keepCount);
     } catch (error) {
       void log.error(`Failed to prune query versions:`, error);
     }
@@ -565,8 +622,7 @@ export class PersistenceManager {
 
   async persistDashboardVersion(version: PersistedDashboardVersion): Promise<void> {
     try {
-      const db = await getDatabase();
-      await dashboardVersionsRepo.insert(db, version);
+      await getStorage().dashboardVersions.insert(version);
     } catch (error) {
       void log.error(`Failed to persist dashboard version:`, error);
     }
@@ -574,8 +630,7 @@ export class PersistenceManager {
 
   async pruneDashboardVersions(dashboardId: string, keepCount: number): Promise<void> {
     try {
-      const db = await getDatabase();
-      await dashboardVersionsRepo.pruneOldVersions(db, dashboardId, keepCount);
+      await getStorage().dashboardVersions.pruneOldVersions(dashboardId, keepCount);
     } catch (error) {
       void log.error(`Failed to prune dashboard versions:`, error);
     }
@@ -583,20 +638,16 @@ export class PersistenceManager {
 
   async loadProjectDashboardVersions(projectId: string): Promise<PersistedDashboardVersion[]> {
     try {
-      const db = await getDatabase();
-      return await dashboardVersionsRepo.loadByProject(db, projectId);
+      return await getStorage().dashboardVersions.loadByProject(projectId);
     } catch (error) {
       void log.error(`Failed to load dashboard versions for project ${projectId}:`, error);
       return [];
     }
   }
 
-  async loadProjectDashboards(
-    projectId: string,
-  ): Promise<import("$lib/storage/repository").PersistedDashboard[]> {
+  async loadProjectDashboards(projectId: string): Promise<PersistedDashboard[]> {
     try {
-      const db = await getDatabase();
-      return await dashboardsRepo.loadByProject(db, projectId);
+      return await getStorage().dashboards.loadByProject(projectId);
     } catch (error) {
       void log.error(`Failed to load dashboards for project ${projectId}:`, error);
       return [];
@@ -612,9 +663,8 @@ export class PersistenceManager {
     }
 
     try {
-      const db = await getDatabase();
-      await queryHistoryRepo.removeByConnection(db, connectionId);
-      await aiChatsRepo.removeByConnection(db, connectionId);
+      await getStorage().queryHistory.removeByConnection(connectionId);
+      await getStorage().aiChats.removeByConnection(connectionId);
     } catch (error) {
       void log.error(`Failed to remove data for connection ${connectionId}:`, error);
     }
@@ -637,10 +687,9 @@ export class PersistenceManager {
 
   async persistAIChats(connectionId: string): Promise<void> {
     try {
-      const db = await getDatabase();
       const chats = this.state.aiChatsByConnection[connectionId] ?? [];
       for (const chat of chats) {
-        await aiChatsRepo.saveChat(db, {
+        await getStorage().aiChats.saveChat({
           id: chat.id,
           connectionId: chat.connectionId,
           title: chat.title,
@@ -655,15 +704,13 @@ export class PersistenceManager {
 
   async persistAIChatMessages(chatId: string): Promise<void> {
     try {
-      const db = await getDatabase();
-
       // Ensure the parent chat record exists before inserting messages
       // (chat persistence is debounced so it may not have run yet)
       const chat = Object.values(this.state.aiChatsByConnection)
         .flat()
         .find((c) => c.id === chatId);
       if (chat) {
-        await aiChatsRepo.saveChat(db, {
+        await getStorage().aiChats.saveChat({
           id: chat.id,
           connectionId: chat.connectionId,
           title: chat.title,
@@ -672,11 +719,15 @@ export class PersistenceManager {
         });
       }
 
+      // Saving replaces every message of the chat.
+      if (this.loadFailed(`aiMessages:${chatId}`)) {
+        this.refuse(`the messages of AI chat ${chatId}`, `aiMessages:${chatId}`);
+        return;
+      }
       const messages = (this.state.aiMessagesByChat[chatId] ?? []).filter(
         (m) => !m.pendingModelSelection,
       );
-      await aiChatsRepo.replaceAllMessages(
-        db,
+      await getStorage().aiChats.replaceAllMessages(
         chatId,
         messages.map((m) => ({
           id: m.id,
@@ -695,8 +746,7 @@ export class PersistenceManager {
 
   async loadAIChats(connectionId: string): Promise<PersistedAIChat[]> {
     try {
-      const db = await getDatabase();
-      return await aiChatsRepo.loadByConnection(db, connectionId);
+      return await getStorage().aiChats.loadByConnection(connectionId);
     } catch (error) {
       void log.error(`Failed to load AI chats for connection ${connectionId}:`, error);
       return [];
@@ -704,77 +754,19 @@ export class PersistenceManager {
   }
 
   async loadAIChatMessages(chatId: string): Promise<PersistedAIMessage[]> {
-    try {
-      const db = await getDatabase();
-      return await aiChatsRepo.loadMessages(db, chatId);
-    } catch (error) {
-      void log.error(`Failed to load AI chat messages for chat ${chatId}:`, error);
-      return [];
-    }
+    return this.load(
+      `aiMessages:${chatId}`,
+      `AI chat messages for chat ${chatId}`,
+      () => getStorage().aiChats.loadMessages(chatId),
+      [],
+    );
   }
 
   async removeAIChat(chatId: string): Promise<void> {
     try {
-      const db = await getDatabase();
-      await aiChatsRepo.removeChat(db, chatId);
+      await getStorage().aiChats.removeChat(chatId);
     } catch (error) {
       void log.error(`Failed to remove AI chat ${chatId}:`, error);
-    }
-  }
-
-  // === LEGACY CONNECTION STATE (for migration) ===
-
-  async loadLegacyConnectionState(connectionId: string): Promise<{
-    queryTabs: PersistedQueryTab[];
-    schemaTabs: PersistedSchemaTab[];
-    explainTabs: PersistedExplainTab[];
-    erdTabs: PersistedErdTab[];
-    tabOrder: string[];
-    activeQueryTabId: string | null;
-    activeSchemaTabId: string | null;
-    activeExplainTabId: string | null;
-    activeErdTabId: string | null;
-    activeView: "query" | "schema" | "explain" | "erd";
-    savedQueries: PersistedSavedQuery[];
-    queryHistory: PersistedQueryHistoryItem[];
-  } | null> {
-    try {
-      const { loadStore } = await import("$lib/storage/legacy");
-      const store = await loadStore(`connection_state_${connectionId}.json`, {
-        autoSave: false,
-        defaults: { state: null },
-      });
-      const state = await store.get("state");
-      if (!state) return null;
-      return state as {
-        queryTabs: PersistedQueryTab[];
-        schemaTabs: PersistedSchemaTab[];
-        explainTabs: PersistedExplainTab[];
-        erdTabs: PersistedErdTab[];
-        tabOrder: string[];
-        activeQueryTabId: string | null;
-        activeSchemaTabId: string | null;
-        activeExplainTabId: string | null;
-        activeErdTabId: string | null;
-        activeView: "query" | "schema" | "explain" | "erd";
-        savedQueries: PersistedSavedQuery[];
-        queryHistory: PersistedQueryHistoryItem[];
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  async removeLegacyConnectionState(connectionId: string): Promise<void> {
-    try {
-      const { loadStore } = await import("$lib/storage/legacy");
-      const store = await loadStore(`connection_state_${connectionId}.json`, {
-        autoSave: false,
-        defaults: { state: null },
-      });
-      await store.delete();
-    } catch {
-      // Ignore errors when removing legacy state
     }
   }
 
@@ -825,8 +817,6 @@ export class PersistenceManager {
   ): Promise<void> {
     await withErrorHandling(
       async () => {
-        const db = await getDatabase();
-
         // Fall back to what the connection already carries so an omitted flag
         // doesn't clear the stored one (auto-reconnect reads these at launch).
         const savePassword = options?.savePassword ?? connection.savePassword;
@@ -859,7 +849,7 @@ export class PersistenceManager {
           activeAIModel: connection.activeAIModel,
         };
 
-        await connectionsRepo.save(db, persistedConnection);
+        await getStorage().connections.save(persistedConnection);
 
         // Save passwords to keyring if enabled
         const keyring = getKeyringService();
@@ -897,8 +887,7 @@ export class PersistenceManager {
   async removePersistedConnection(connectionId: string): Promise<void> {
     await withErrorHandling(
       async () => {
-        const db = await getDatabase();
-        await connectionsRepo.remove(db, connectionId);
+        await getStorage().connections.remove(connectionId);
 
         // Delete passwords from keyring
         const keyring = getKeyringService();
@@ -920,8 +909,7 @@ export class PersistenceManager {
 
   async loadPersistedConnections(): Promise<PersistedConnection[]> {
     try {
-      const db = await getDatabase();
-      return await connectionsRepo.loadAll(db);
+      return await getStorage().connections.loadAll();
     } catch (error) {
       void log.error("Failed to load persisted connections:", error);
       return [];
@@ -931,10 +919,14 @@ export class PersistenceManager {
   // === SHARED QUERY REPOS PERSISTENCE ===
 
   async persistSharedRepos(): Promise<void> {
+    // Saving replaces every stored repo.
+    if (this.loadFailed("sharedRepos")) {
+      this.refuse("shared query repositories", "sharedRepos");
+      return;
+    }
     try {
-      const db = await getDatabase();
       const repos: PersistedSharedQueryRepo[] = this.state.sharedRepos.map(serializeRepo);
-      await sharedReposRepo.saveAll(db, repos, this.state.activeRepoId);
+      await getStorage().sharedRepos.saveAll(repos, this.state.activeRepoId);
     } catch (error) {
       void log.error("Failed to persist shared repos:", error);
     }
@@ -944,21 +936,17 @@ export class PersistenceManager {
     repos: PersistedSharedQueryRepo[];
     activeRepoId: string | null;
   }> {
-    try {
-      const db = await getDatabase();
-      return await sharedReposRepo.loadAll(db);
-    } catch (error) {
-      void log.error("Failed to load shared repos:", error);
-      return { repos: [], activeRepoId: null };
-    }
+    return this.load("sharedRepos", "shared repos", () => getStorage().sharedRepos.loadAll(), {
+      repos: [],
+      activeRepoId: null,
+    });
   }
 
   // === CONNECTION OVERRIDES PERSISTENCE ===
 
   async persistConnectionOverride(override: ConnectionOverride): Promise<void> {
     try {
-      const db = await getDatabase();
-      await connectionOverridesRepo.save(db, {
+      await getStorage().connectionOverrides.save({
         sharedConnectionId: override.sharedConnectionId,
         username: override.username,
         hostOverride: override.hostOverride,
@@ -974,8 +962,7 @@ export class PersistenceManager {
 
   async loadConnectionOverrides(): Promise<Record<string, ConnectionOverride>> {
     try {
-      const db = await getDatabase();
-      const overrides = await connectionOverridesRepo.loadAll(db);
+      const overrides = await getStorage().connectionOverrides.loadAll();
       const result: Record<string, ConnectionOverride> = {};
       for (const o of overrides) {
         result[o.sharedConnectionId] = {
@@ -997,33 +984,9 @@ export class PersistenceManager {
 
   async removeConnectionOverride(sharedConnectionId: string): Promise<void> {
     try {
-      const db = await getDatabase();
-      await connectionOverridesRepo.remove(db, sharedConnectionId);
+      await getStorage().connectionOverrides.remove(sharedConnectionId);
     } catch (error) {
       void log.error("Failed to remove connection override:", error);
-    }
-  }
-
-  // === STORAGE VERSION ===
-
-  async getStorageVersion(): Promise<number> {
-    try {
-      const db = await getDatabase();
-      const rows = await db.query<{ version: number }>(
-        "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
-      );
-      return rows.length > 0 ? rows[0].version : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  async setStorageVersion(version: number): Promise<void> {
-    try {
-      const db = await getDatabase();
-      await db.execute("INSERT INTO schema_version (version) VALUES (?)", [version]);
-    } catch (error) {
-      void log.error("Failed to set storage version:", error);
     }
   }
 }

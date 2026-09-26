@@ -4,7 +4,7 @@ const SCHEMA_VERSION = 1;
 
 /**
  * Current storage/data-migration version.
- * Increment when adding new data migrations in MigrationManager.
+ * The demo (sql.js) records it on a fresh database. Desktop and web use seaquel-storage.
  * On a fresh database the DDL is already up-to-date, so this version
  * is recorded directly to skip all data migrations.
  */
@@ -265,7 +265,7 @@ const DDL_STATEMENTS = [
   // `verifier` is a known-plaintext blob encrypted with VK; unlocking
   // decrypts it to confirm the passphrase before trusting any other
   // decryption. Binary columns are base64-encoded TEXT so they travel
-  // unchanged through the JSON /api/storage/* pipe.
+  // unchanged through JSON.
   `CREATE TABLE IF NOT EXISTS vault_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     salt TEXT NOT NULL,

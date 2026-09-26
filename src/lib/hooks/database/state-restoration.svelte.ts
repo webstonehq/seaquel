@@ -14,7 +14,7 @@ import type {
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
-import type { PersistedDashboard } from "$lib/storage/repository";
+import type { PersistedDashboard } from "$lib/storage";
 
 /**
  * Manages restoration of persisted connection data when loading the app.
@@ -99,12 +99,13 @@ export class StateRestorationManager {
       projectId: q.projectId,
       createdAt: new Date(q.createdAt),
       updatedAt: new Date(q.updatedAt),
-      parameters: q.parameters,
+      // Stored JSON `null` loads as `null`; the app's Query uses absent.
+      parameters: q.parameters ?? undefined,
       starred: q.starred,
       shared: q.shared ?? false,
       description: q.description,
       databaseType: q.databaseType,
-      tags: q.tags,
+      tags: q.tags ?? undefined,
       folder: q.folder,
     }));
     this.state.queriesByProject = {
@@ -287,6 +288,9 @@ export class StateRestorationManager {
    */
   async loadAIChatMessages(chatId: string): Promise<void> {
     const messages = await this.persistence.loadAIChatMessages(chatId);
+    // After a failed load, leave the chat out of `aiMessagesByChat` so the
+    // next `switchChat` loads it again instead of showing it empty.
+    if (this.persistence.loadFailed(`aiMessages:${chatId}`)) return;
     this.restoreAIChatMessages(chatId, messages);
   }
 }

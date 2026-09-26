@@ -38,9 +38,9 @@ import { PaneManager } from "./database/pane-manager.svelte.js";
 import { PendingChangesManager } from "./database/pending-changes.svelte.js";
 import { ProviderRegistry } from "$lib/providers";
 import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
+import { storageGate } from "$lib/storage/storage-gate.svelte";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte";
 import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
-import { getDatabase } from "$lib/storage/db";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -354,18 +354,33 @@ class UseDatabase {
     try {
       void log.info("Initializing app");
 
-      // Initialize projects (runs migrations if needed)
+      // The first storage call. Legacy or corrupt storage stops here and the
+      // app shell shows the storage error screen instead of empty state.
+      if (!(await storageGate.check())) {
+        void log.info("App initialization stopped: storage can't be opened");
+        return;
+      }
+
+      // Initialize projects
       await this.projects.initialize();
       void log.info("Projects initialized");
 
-      // Initialize settings and connections in parallel (all independent after projects)
-      const sqliteDb = await getDatabase();
-      await Promise.all([
-        aiSettingsStore.initialize(sqliteDb),
+      // Initialize settings and connections in parallel (all independent
+      // after projects). One failing (a storage error in the AI settings
+      // load, say) is logged and the others still count, so shared repos
+      // below are still loaded.
+      const steps = await Promise.allSettled([
+        aiSettingsStore.initialize(),
         pendingChangesSettingsStore.load(),
         editorSettingsStore.load(),
         this.connections.initializePersistedConnections(),
       ]);
+      const names = ["AI settings", "pending-changes settings", "editor settings", "connections"];
+      steps.forEach((step, i) => {
+        if (step.status === "rejected") {
+          void log.error(`Failed to initialize ${names[i]}:`, step.reason);
+        }
+      });
       void log.info(
         `Settings and connections initialized (count=${this.state.connections.length})`,
       );

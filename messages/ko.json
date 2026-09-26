@@ -1130,5 +1130,17 @@
   "wasm_error_hint": "대개 .wasm 파일을 다운로드하지 못했거나(네트워크 또는 프록시 문제) Content Security Policy가 WebAssembly를 허용하지 않기 때문입니다(script-src에 'wasm-unsafe-eval'이 필요합니다). 다시 시도해 보시고, 계속 실패하면 아래 오류를 복사해서 저희에게 보내주세요.",
   "wasm_error_copy": "오류 복사",
   "wasm_error_copied": "복사됨",
-  "wasm_error_retry": "다시 시도"
+  "wasm_error_retry": "다시 시도",
+  "storage_error_legacy_title": "Seaquel이 아직 저장된 데이터를 읽을 수 없습니다",
+  "storage_error_legacy_description": "연결, 프로젝트, 설정이 2026.4.5보다 오래된 Seaquel 릴리스에서 저장되어 이 버전에서는 해당 형식을 읽을 수 없습니다. 데이터를 옮기려면 2026.4.5부터 2026.9.x 사이의 릴리스를 설치하고 한 번 실행해 데이터를 가져온 다음, 다시 이 버전으로 업그레이드하세요.",
+  "storage_error_releases_link": "GitHub에서 릴리스 다운로드",
+  "storage_error_corrupt_title": "Seaquel이 데이터 파일을 열 수 없습니다",
+  "storage_error_corrupt_description": "{path}은(는) 읽을 수 있는 Seaquel 데이터베이스가 아니어서 연결, 프로젝트, 설정을 불러올 수 없습니다.",
+  "storage_error_corrupt_untouched": "파일은 변경되지 않았습니다.",
+  "storage_error_corrupt_hint_desktop": "이 파일의 백업이 있다면 원래대로 되돌려 놓으세요. 저장된 데이터 없이 새로 시작하려면 Seaquel을 종료하고 파일을 다른 곳으로 옮기세요. 다음에 열 때 Seaquel이 새 파일을 만듭니다.",
+  "storage_error_corrupt_hint_web": "이 Seaquel 서버를 운영하는 사람에게 백업에서 파일을 복원하거나 다른 곳으로 옮겨 달라고 요청하세요.",
+  "storage_error_details": "세부 정보",
+  "storage_error_no_data_dir_title": "Seaquel이 데이터를 저장할 위치가 없습니다",
+  "storage_error_no_data_dir_description": "이 시스템에서 Seaquel의 데이터 폴더를 확인할 수 없습니다. SEAQUEL_DATA_DIR 환경 변수를 Seaquel이 쓸 수 있는 폴더로 설정한 다음 Seaquel을 다시 시작하세요.",
+  "storage_save_refused": "저장된 데이터 중 일부를 불러올 수 없어 Seaquel이 변경 사항을 저장하지 않습니다. 지금 저장하면 저장되어 있는 내용을 덮어쓰게 됩니다. Seaquel을 다시 시작하거나(또는 페이지를 새로고침하여) 다시 불러오세요."
 }

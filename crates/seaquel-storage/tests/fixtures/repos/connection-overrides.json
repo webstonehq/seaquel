@@ -1,0 +1,205 @@
+{
+  "repo": "connectionOverridesRepo",
+  "source": "src/lib/storage/repos/connection-overrides-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "connection-overrides/load-missing",
+      "description": "load of an unknown id is null; loadAll on an empty table is [].",
+      "steps": [
+        {"call":"connectionOverridesRepo.load","args":["nope"],"result":null},
+        {"call":"connectionOverridesRepo.loadAll","args":[],"result":[]}
+      ],
+      "rows": {
+        "connection_overrides": {
+          "columns": [
+            "shared_connection_id",
+            "username",
+            "host_override",
+            "port_override",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase"
+          ],
+          "rows": [],
+          "types": []
+        }
+      }
+    },
+    {
+      "name": "connection-overrides/save-full-and-load",
+      "description": "Every column set.",
+      "steps": [
+        {
+          "call": "connectionOverridesRepo.save",
+          "args": [
+            {
+              "sharedConnectionId": "shared-1",
+              "username": "ユーザー",
+              "hostOverride": "127.0.0.1",
+              "portOverride": 15432,
+              "savePassword": true,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": true
+            }
+          ]
+        },
+        {
+          "call": "connectionOverridesRepo.load",
+          "args": ["shared-1"],
+          "result": {
+            "sharedConnectionId": "shared-1",
+            "username": "ユーザー",
+            "hostOverride": "127.0.0.1",
+            "portOverride": 15432,
+            "savePassword": true,
+            "saveSshPassword": true,
+            "saveSshKeyPassphrase": true
+          }
+        },
+        {
+          "call": "connectionOverridesRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "sharedConnectionId": "shared-1",
+              "username": "ユーザー",
+              "hostOverride": "127.0.0.1",
+              "portOverride": 15432,
+              "savePassword": true,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": true
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connection_overrides": {
+          "columns": [
+            "shared_connection_id",
+            "username",
+            "host_override",
+            "port_override",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase"
+          ],
+          "rows": [["shared-1","ユーザー","127.0.0.1",15432,1,1,1]],
+          "types": [["text","text","text","integer","integer","integer","integer"]]
+        }
+      }
+    },
+    {
+      "name": "connection-overrides/save-minimal",
+      "description": "Optionals unset, flags false.",
+      "steps": [
+        {
+          "call": "connectionOverridesRepo.save",
+          "args": [
+            {
+              "sharedConnectionId": "shared-2",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false
+            }
+          ]
+        },
+        {
+          "call": "connectionOverridesRepo.load",
+          "args": ["shared-2"],
+          "result": {
+            "sharedConnectionId": "shared-2",
+            "savePassword": false,
+            "saveSshPassword": false,
+            "saveSshKeyPassphrase": false
+          }
+        }
+      ],
+      "rows": {
+        "connection_overrides": {
+          "columns": [
+            "shared_connection_id",
+            "username",
+            "host_override",
+            "port_override",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase"
+          ],
+          "rows": [["shared-2",null,null,null,0,0,0]],
+          "types": [["text","null","null","null","integer","integer","integer"]]
+        }
+      }
+    },
+    {
+      "name": "connection-overrides/upsert-and-remove",
+      "description": "A second save updates; remove deletes one of two.",
+      "steps": [
+        {
+          "call": "connectionOverridesRepo.save",
+          "args": [
+            {
+              "sharedConnectionId": "a",
+              "username": "u1",
+              "savePassword": true,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false
+            }
+          ]
+        },
+        {
+          "call": "connectionOverridesRepo.save",
+          "args": [
+            {
+              "sharedConnectionId": "b",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false
+            }
+          ]
+        },
+        {
+          "call": "connectionOverridesRepo.save",
+          "args": [
+            {
+              "sharedConnectionId": "a",
+              "hostOverride": "h2",
+              "savePassword": false,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": false
+            }
+          ]
+        },
+        {"call":"connectionOverridesRepo.remove","args":["b"]},
+        {
+          "call": "connectionOverridesRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "sharedConnectionId": "a",
+              "hostOverride": "h2",
+              "savePassword": false,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": false
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connection_overrides": {
+          "columns": [
+            "shared_connection_id",
+            "username",
+            "host_override",
+            "port_override",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase"
+          ],
+          "rows": [["a",null,"h2",null,0,1,0]],
+          "types": [["text","null","text","null","integer","integer","integer"]]
+        }
+      }
+    }
+  ]
+}

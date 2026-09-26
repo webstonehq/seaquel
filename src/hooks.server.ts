@@ -11,8 +11,8 @@ import { findByUserId } from "$lib/server/member-license";
 //   - Better Auth's `auth.db` schema is applied inside `auth.ts` on the
 //     first auth API call (gated by `if (building)` to avoid build-time DB
 //     creation).
-//   - Per-user `meta.db` schemas are applied by `src/lib/server/storage.ts`
-//     on first request from that user.
+//   - Per-user `meta.db` files are opened (and their schema applied) by the
+//     Rust service on that user's first `/api/rpc` call.
 
 const RTL_LOCALES = ["ar", "he", "fa", "ur"];
 
@@ -33,8 +33,9 @@ const handleAuth: Handle = async ({ event, resolve }) => {
   // hooks for `tauri dev`, and without this gate Better Auth initializes
   // (and warns about the missing baseURL) on every request.
   //
-  // `building` catches the prerender pass during `vite build`, where opening
-  // meta.db as a build artifact would happen before `init` runs migrations.
+  // `building` catches the prerender pass during `vite build`, where a
+  // session lookup would create `auth.db` (and apply its schema) as a build
+  // artifact. Node never opens a user's `meta.db`; the Rust service does.
   if (import.meta.env.VITE_BUILD_TARGET !== "web" || building) {
     event.locals.user = null;
     event.locals.session = null;

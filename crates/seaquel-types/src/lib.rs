@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 mod dialect;
+pub mod storage;
 mod value;
 pub use dialect::*;
 pub use value::{Value, MAX_SAFE_INTEGER};

@@ -1,8 +1,9 @@
+// The TypeScript repositories. Only the demo's `SqljsStorageClient` uses
+// them; everything else goes through `getStorage()`.
 export { projectsRepo } from "./repos/projects-repo";
 export { appStateRepo } from "./repos/app-state-repo";
 export { connectionsRepo } from "./repos/connections-repo";
 export { connectionOverridesRepo } from "./repos/connection-overrides-repo";
-export type { PersistedConnectionOverride } from "./repos/connection-overrides-repo";
 export { projectStateRepo } from "./repos/project-state-repo";
 export { savedQueriesRepo } from "./repos/saved-queries-repo";
 export { queryVersionsRepo } from "./repos/query-versions-repo";
@@ -14,10 +15,7 @@ export { onboardingRepo } from "./repos/onboarding-repo";
 export { tutorialRepo } from "./repos/tutorial-repo";
 export { importStateRepo } from "./repos/import-state-repo";
 export { dashboardsRepo } from "./repos/dashboards-repo";
-export type { PersistedDashboard } from "./repos/dashboards-repo";
 export { dashboardVersionsRepo } from "./repos/dashboard-versions-repo";
 export { aiChatsRepo } from "./repos/ai-chats-repo";
 export { vaultStateRepo } from "./repos/vault-state-repo";
-export type { PersistedVaultState } from "./repos/vault-state-repo";
 export { userCredentialsRepo } from "./repos/user-credentials-repo";
-export type { PersistedCredential } from "./repos/user-credentials-repo";

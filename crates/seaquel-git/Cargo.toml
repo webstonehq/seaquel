@@ -1,0 +1,12 @@
+[package]
+name = "seaquel-git"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel git operations for shared projects: clone, pull, push, status, commit and conflict resolution over libgit2."
+
+[dependencies]
+git2 = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt"] }

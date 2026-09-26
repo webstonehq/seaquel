@@ -3,9 +3,9 @@
 	import { Button } from "$lib/components/ui/button";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
-	import { getDatabase } from "$lib/storage/db";
 	import { getKeyringService } from "$lib/services/keyring";
 	import { toast } from "svelte-sonner";
+	import { errorToast } from "$lib/utils/toast";
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import PencilIcon from "@lucide/svelte/icons/pencil";
 	import TrashIcon from "@lucide/svelte/icons/trash-2";
@@ -22,8 +22,12 @@
 
 	async function executeDeleteProvider() {
 		if (!providerToDelete) return;
-		const sqliteDb = await getDatabase();
-		await aiSettingsStore.deleteProvider(sqliteDb, providerToDelete);
+		try {
+			await aiSettingsStore.deleteProvider(providerToDelete);
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		providerToDelete = null;
 		deleteProviderDialogOpen = false;
 	}
@@ -71,11 +75,10 @@
 		if (!providerFormName.trim()) return;
 		isSavingProvider = true;
 		try {
-			const sqliteDb = await getDatabase();
 			if (editingProviderId) {
 				const existing = aiSettingsStore.settings.providers.find(p => p.id === editingProviderId);
 				if (!existing) { isSavingProvider = false; return; }
-				await aiSettingsStore.updateProvider(sqliteDb, {
+				await aiSettingsStore.updateProvider({
 					...existing,
 					name: providerFormName.trim(),
 					type: providerFormType,
@@ -84,7 +87,7 @@
 				if (providerFormApiKey.trim()) providerFormHasExistingKey = true;
 			} else {
 				const id = crypto.randomUUID();
-				await aiSettingsStore.addProvider(sqliteDb, {
+				await aiSettingsStore.addProvider({
 					id,
 					name: providerFormName.trim(),
 					type: providerFormType,
@@ -94,6 +97,8 @@
 			providerFormApiKey = "";
 			cancelProviderForm();
 			toast.success(m.settings_ai_saved());
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
 		} finally {
 			isSavingProvider = false;
 		}

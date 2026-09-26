@@ -1125,5 +1125,17 @@
   "wasm_error_hint": "This usually means the .wasm file couldn't be downloaded (a network or proxy problem) or a Content Security Policy doesn't allow WebAssembly (it needs 'wasm-unsafe-eval' in script-src). Try again, and if it keeps failing, copy the error below and send it to us.",
   "wasm_error_copy": "Copy error",
   "wasm_error_copied": "Copied",
-  "wasm_error_retry": "Try again"
+  "wasm_error_retry": "Try again",
+  "storage_error_legacy_title": "Seaquel can't read your saved data yet",
+  "storage_error_legacy_description": "Your connections, projects and settings were saved by a Seaquel release older than 2026.4.5, and this release can't read that format. To bring them over, install a release from 2026.4.5 through 2026.9.x, launch it once so it imports your data, then upgrade to this release again.",
+  "storage_error_releases_link": "Download a release from GitHub",
+  "storage_error_corrupt_title": "Seaquel can't open its data file",
+  "storage_error_corrupt_description": "{path} isn't a readable Seaquel database, so your connections, projects and settings can't be loaded.",
+  "storage_error_corrupt_untouched": "The file wasn't changed.",
+  "storage_error_corrupt_hint_desktop": "If you have a backup of this file, put it back. To start over with no saved data, quit Seaquel and move the file somewhere else; Seaquel creates a new one the next time it opens.",
+  "storage_error_corrupt_hint_web": "Ask whoever runs this Seaquel server to restore the file from a backup or move it aside.",
+  "storage_error_details": "Details",
+  "storage_error_no_data_dir_title": "Seaquel has nowhere to keep its data",
+  "storage_error_no_data_dir_description": "This system doesn't report a data folder for Seaquel. Set the SEAQUEL_DATA_DIR environment variable to a folder Seaquel can write to, then start Seaquel again.",
+  "storage_save_refused": "Some of your saved data couldn't be loaded, so Seaquel isn't saving changes to it: saving now would overwrite what's stored. Restart Seaquel (or reload the page) to try loading it again."
 }

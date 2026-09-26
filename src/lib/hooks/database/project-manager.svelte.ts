@@ -14,7 +14,6 @@ import { SEAQUEL_DIR, type SharedRepoManager } from "./shared-repo-manager.svelt
 import type { SharedQueryManager } from "./shared-query-manager.svelte.js";
 import type { SharedDashboardManager } from "./shared-dashboard-manager.svelte.js";
 import type { StarterTabManager } from "./starter-tabs.svelte.js";
-import { MigrationManager } from "./migration.svelte.js";
 import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
 import { mkdir, rename as renameFs, exists, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -36,7 +35,6 @@ interface LegacyPersistedProjectState extends PersistedProjectState {
  * Projects group connections and provide organization.
  */
 export class ProjectManager {
-  private migration: MigrationManager;
   private removeConnection:
     | ((connectionId: string, options?: { skipUnshare?: boolean }) => Promise<void>)
     | null = null;
@@ -49,9 +47,7 @@ export class ProjectManager {
     private state: DatabaseState,
     private persistence: PersistenceManager,
     private stateRestoration: StateRestorationManager,
-  ) {
-    this.migration = new MigrationManager(persistence);
-  }
+  ) {}
 
   /**
    * Set the shared repo manager reference.
@@ -97,16 +93,18 @@ export class ProjectManager {
 
   /**
    * Initialize projects on app startup.
-   * Runs migrations if needed and loads projects.
+   * Loads projects, creating the default one on a fresh install.
    */
   async initialize(): Promise<void> {
-    // Run migrations first
-    await this.migration.migrateIfNeeded();
-
     // Load projects
     const persistedProjects = await this.persistence.loadProjects();
 
-    if (persistedProjects.length === 0) {
+    if (this.persistence.loadFailed("projects")) {
+      // The projects couldn't be read. Work in an in-memory default project,
+      // but don't store it: that would add a stray project next to the real
+      // ones. Project saves stay off (`PersistenceManager.loadFailed`).
+      this.state.projects = [this.createDefaultProject()];
+    } else if (persistedProjects.length === 0) {
       // Create default project
       const defaultProject = this.createDefaultProject();
       this.state.projects = [defaultProject];
@@ -809,7 +807,7 @@ export class ProjectManager {
       persistedState.savedWorkflows ?? persistedState.savedCanvases ?? [];
 
     // Restore tab order and active IDs
-    this.state.tabOrderByProject[projectId] = persistedState.tabOrder;
+    this.state.tabOrderByProject[projectId] = persistedState.tabOrder ?? [];
     this.state.connectionOrderByProject[projectId] = persistedState.connectionOrder ?? [];
     this.state.activeQueryTabIdByProject[projectId] = persistedState.activeQueryTabId;
     this.state.activeSchemaTabIdByProject[projectId] = persistedState.activeSchemaTabId;

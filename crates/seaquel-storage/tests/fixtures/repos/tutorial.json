@@ -1,0 +1,52 @@
+{
+  "repo": "tutorialRepo",
+  "source": "src/lib/storage/repos/tutorial-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "tutorial/save-and-load",
+      "description": "Progress with a state and with null; overwrite a pair.",
+      "steps": [
+        {"call":"tutorialRepo.loadAll","args":[],"result":[]},
+        {"call":"tutorialRepo.save","args":["lesson-1","c1","{\"done\":true}"]},
+        {"call":"tutorialRepo.save","args":["lesson-1","c2",null]},
+        {"call":"tutorialRepo.save","args":["lektion-ü","c1","état 🚀"]},
+        {"call":"tutorialRepo.save","args":["lesson-1","c1","{\"done\":false}"]},
+        {
+          "call": "tutorialRepo.loadAll",
+          "args": [],
+          "result": [
+            {"lessonId":"lesson-1","challengeId":"c2","state":null},
+            {"lessonId":"lektion-ü","challengeId":"c1","state":"état 🚀"},
+            {"lessonId":"lesson-1","challengeId":"c1","state":"{\"done\":false}"}
+          ]
+        }
+      ],
+      "rows": {
+        "tutorial_progress": {
+          "columns": ["lesson_id","challenge_id","state"],
+          "rows": [["lektion-ü","c1","état 🚀"],["lesson-1","c1","{\"done\":false}"],["lesson-1","c2",null]],
+          "types": [["text","text","text"],["text","text","text"],["text","text","null"]]
+        }
+      }
+    },
+    {
+      "name": "tutorial/remove-lesson-and-all",
+      "description": "removeLesson deletes one lesson's rows; removeAll the rest.",
+      "steps": [
+        {"call":"tutorialRepo.save","args":["l1","a","x"]},
+        {"call":"tutorialRepo.save","args":["l1","b","y"]},
+        {"call":"tutorialRepo.save","args":["l2","a","z"]},
+        {"call":"tutorialRepo.removeLesson","args":["l1"]},
+        {
+          "call": "tutorialRepo.loadAll",
+          "args": [],
+          "result": [{"lessonId":"l2","challengeId":"a","state":"z"}]
+        },
+        {"call":"tutorialRepo.removeAll","args":[]},
+        {"call":"tutorialRepo.loadAll","args":[],"result":[]}
+      ],
+      "rows": {"tutorial_progress":{"columns":["lesson_id","challenge_id","state"],"rows":[],"types":[]}}
+    }
+  ]
+}

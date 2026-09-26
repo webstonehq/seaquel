@@ -1,5 +1,4 @@
-import { getDatabase } from "$lib/storage/db";
-import { appStateRepo } from "$lib/storage/repository";
+import { getStorage } from "$lib/storage";
 
 export type EditorKeybindingMode = "default" | "vim" | "emacs";
 
@@ -13,8 +12,7 @@ class EditorSettingsStore {
 
   async load(): Promise<void> {
     try {
-      const db = await getDatabase();
-      const raw = await appStateRepo.get(db, SETTING_KEY);
+      const raw = await getStorage().appState.get(SETTING_KEY);
       if (raw === "vim" || raw === "emacs") {
         this.keybindingMode = raw;
       }
@@ -27,8 +25,7 @@ class EditorSettingsStore {
     this.keybindingMode = value;
     this.listeners.forEach((fn) => fn());
     try {
-      const db = await getDatabase();
-      await appStateRepo.set(db, SETTING_KEY, value);
+      await getStorage().appState.set(SETTING_KEY, value);
     } catch {
       // Silently fail — setting is still updated in memory
     }

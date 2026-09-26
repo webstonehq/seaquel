@@ -1,3 +1,10 @@
+//! The RPCs the GUIs call Core through.
+//!
+//! - The workspace RPC ([`Request`], [`Response`], [`dispatch_workspace`]):
+//!   metadata storage and secrets, served as the `core_call` Tauri command
+//!   and `POST /rpc`. See the `workspace` module.
+//! - The engine RPC, below.
+//!
 //! The engine RPC: one request/response pair for every dialect-dependent call
 //! the frontend makes (introspection, EXPLAIN, and SQL generation), and a
 //! dispatcher onto [`Core`].
@@ -17,6 +24,14 @@
 //! Values use the tagged `Value` wire format from `seaquel-types`. A row
 //! ([`RowValues`]) is an array of `[column, value]` pairs, so its column order
 //! survives JSON (serde_json objects don't keep key order).
+
+mod workspace;
+#[cfg(feature = "secrets")]
+pub use workspace::dispatch_secret;
+pub use workspace::{
+    dispatch_workspace, parse_request, Request, Response, RpcError, SecretRequest, SecretResponse,
+    StorageRequest, StorageResponse, INVALID_ARGUMENT, NOT_SUPPORTED,
+};
 
 use seaquel_core::Core;
 use seaquel_engine::{CastMap, RowValues};

@@ -1130,5 +1130,17 @@
   "wasm_error_hint": "Esto suele significar que el archivo .wasm no se pudo descargar (un problema de red o proxy) o que una Content Security Policy no permite WebAssembly (necesita 'wasm-unsafe-eval' en script-src). Inténtalo de nuevo y, si el problema persiste, copia el error a continuación y envíanoslo.",
   "wasm_error_copy": "Copiar error",
   "wasm_error_copied": "Copiado",
-  "wasm_error_retry": "Intentar de nuevo"
+  "wasm_error_retry": "Intentar de nuevo",
+  "storage_error_legacy_title": "Seaquel todavía no puede leer tus datos guardados",
+  "storage_error_legacy_description": "Tus conexiones, proyectos y configuración se guardaron con una versión de Seaquel anterior a la 2026.4.5, y esta versión no puede leer ese formato. Para recuperarlos, instala una versión entre la 2026.4.5 y la 2026.9.x, ábrela una vez para que importe tus datos y luego actualiza de nuevo a esta versión.",
+  "storage_error_releases_link": "Descargar una versión desde GitHub",
+  "storage_error_corrupt_title": "Seaquel no puede abrir su archivo de datos",
+  "storage_error_corrupt_description": "{path} no es una base de datos de Seaquel legible, así que no se pueden cargar tus conexiones, proyectos y configuración.",
+  "storage_error_corrupt_untouched": "El archivo no se modificó.",
+  "storage_error_corrupt_hint_desktop": "Si tienes una copia de seguridad de este archivo, restáurala. Para empezar de nuevo sin datos guardados, cierra Seaquel y mueve el archivo a otro lugar; Seaquel creará uno nuevo la próxima vez que se abra.",
+  "storage_error_corrupt_hint_web": "Pide a quien administre este servidor de Seaquel que restaure el archivo desde una copia de seguridad o que lo mueva.",
+  "storage_error_details": "Detalles",
+  "storage_error_no_data_dir_title": "Seaquel no tiene dónde guardar sus datos",
+  "storage_error_no_data_dir_description": "Este sistema no indica ninguna carpeta de datos para Seaquel. Define la variable de entorno SEAQUEL_DATA_DIR con una carpeta en la que Seaquel pueda escribir y vuelve a iniciar Seaquel.",
+  "storage_save_refused": "Algunos de tus datos guardados no se pudieron cargar, así que Seaquel no está guardando los cambios en ellos: guardarlos ahora sobrescribiría lo que hay almacenado. Reinicia Seaquel (o recarga la página) para intentar cargarlos de nuevo."
 }

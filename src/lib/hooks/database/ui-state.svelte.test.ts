@@ -25,13 +25,13 @@ vi.mock("$lib/stores/ai-settings.svelte", () => ({
 }));
 /** Runs while a dashboard is being saved: lets a test switch connection mid-await. */
 let duringSave: () => void = () => {};
-vi.mock("$lib/storage", () => ({
-  getDatabase: vi.fn(async () => ({})),
-  dashboardsRepo: {
+vi.mock("$lib/storage", () => {
+  const dashboards = {
     save: vi.fn(async () => duringSave()),
     remove: vi.fn(async () => {}),
-  },
-}));
+  };
+  return { getStorage: () => ({ dashboards }) };
+});
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));

@@ -1,0 +1,516 @@
+{
+  "repo": "dashboardsRepo",
+  "source": "src/lib/storage/repos/dashboards-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "dashboards/save-full-and-minimal",
+      "description": "One dashboard with every column set (unicode, JSON text columns), one minimal (starred/shared unset store 0 and load false, dateFilter unset stores NULL and loads null), one with dateFilter null.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d-full",
+              "projectId": "p1",
+              "name": "Kennzahlen 📊",
+              "viewport": "{\"x\":10,\"y\":-5,\"zoom\":1.25}",
+              "widgets": "[{\"id\":\"w1\",\"type\":\"kpi\",\"title\":\"Umsatz €\"}]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "dateFilter": "{\"preset\":\"last7days\"}",
+              "starred": true,
+              "shared": true,
+              "description": "Beschreibung"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d-min",
+              "projectId": "p1",
+              "name": "Dashboard d-min",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d-null",
+              "projectId": "p1",
+              "name": "Dashboard d-null",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "description": null
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.loadByProject",
+          "args": ["p1"],
+          "result": [
+            {
+              "id": "d-full",
+              "projectId": "p1",
+              "name": "Kennzahlen 📊",
+              "viewport": "{\"x\":10,\"y\":-5,\"zoom\":1.25}",
+              "widgets": "[{\"id\":\"w1\",\"type\":\"kpi\",\"title\":\"Umsatz €\"}]",
+              "dateFilter": "{\"preset\":\"last7days\"}",
+              "starred": true,
+              "shared": true,
+              "description": "Beschreibung",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            },
+            {
+              "id": "d-min",
+              "projectId": "p1",
+              "name": "Dashboard d-min",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            },
+            {
+              "id": "d-null",
+              "projectId": "p1",
+              "name": "Dashboard d-null",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "dashboards": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "viewport",
+            "widgets",
+            "date_filter",
+            "starred",
+            "shared",
+            "description",
+            "created_at",
+            "updated_at"
+          ],
+          "rows": [
+            [
+              "d-full",
+              "p1",
+              "Kennzahlen 📊",
+              "{\"x\":10,\"y\":-5,\"zoom\":1.25}",
+              "[{\"id\":\"w1\",\"type\":\"kpi\",\"title\":\"Umsatz €\"}]",
+              "{\"preset\":\"last7days\"}",
+              1,
+              1,
+              "Beschreibung",
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-03T00:00:00.000Z"
+            ],
+            [
+              "d-min",
+              "p1",
+              "Dashboard d-min",
+              "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "[]",
+              null,
+              0,
+              0,
+              null,
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-03T00:00:00.000Z"
+            ],
+            [
+              "d-null",
+              "p1",
+              "Dashboard d-null",
+              "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "[]",
+              null,
+              0,
+              0,
+              null,
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-03T00:00:00.000Z"
+            ]
+          ],
+          "types": [
+            ["text","text","text","text","text","text","integer","integer","text","text","text"],
+            ["text","text","text","text","text","null","integer","integer","null","text","text"],
+            ["text","text","text","text","text","null","integer","integer","null","text","text"]
+          ]
+        }
+      }
+    },
+    {
+      "name": "dashboards/upsert",
+      "description": "A second save updates in place.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d",
+              "projectId": "p1",
+              "name": "Dashboard d",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "starred": true,
+              "description": "old"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d",
+              "projectId": "p1",
+              "name": "Renamed",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.loadByProject",
+          "args": ["p1"],
+          "result": [
+            {
+              "id": "d",
+              "projectId": "p1",
+              "name": "Renamed",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-04T12:30:00.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "dashboards": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "viewport",
+            "widgets",
+            "date_filter",
+            "starred",
+            "shared",
+            "description",
+            "created_at",
+            "updated_at"
+          ],
+          "rows": [
+            [
+              "d",
+              "p1",
+              "Renamed",
+              "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "[]",
+              null,
+              0,
+              0,
+              null,
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-04T12:30:00.000Z"
+            ]
+          ],
+          "types": [["text","text","text","text","text","null","integer","integer","null","text","text"]]
+        }
+      }
+    },
+    {
+      "name": "dashboards/remove-and-remove-by-project",
+      "description": "remove cascades to versions; removeByProject deletes the rest of that project only.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p2",
+              "name": "Project p2",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d1",
+              "projectId": "p1",
+              "name": "Dashboard d1",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d2",
+              "projectId": "p1",
+              "name": "Dashboard d2",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardsRepo.save",
+          "args": [
+            {
+              "id": "d3",
+              "projectId": "p2",
+              "name": "Dashboard d3",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardVersionsRepo.insert",
+          "args": [
+            {
+              "id": "v1",
+              "dashboardId": "d1",
+              "version": 1,
+              "snapshot": "{}",
+              "createdAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "dashboardVersionsRepo.insert",
+          "args": [
+            {
+              "id": "v3",
+              "dashboardId": "d3",
+              "version": 1,
+              "snapshot": "{}",
+              "createdAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {"call":"dashboardsRepo.remove","args":["d1"]},
+        {"call":"dashboardsRepo.removeByProject","args":["p1"]},
+        {"call":"dashboardsRepo.loadByProject","args":["p1"],"result":[]},
+        {
+          "call": "dashboardsRepo.loadByProject",
+          "args": ["p2"],
+          "result": [
+            {
+              "id": "d3",
+              "projectId": "p2",
+              "name": "Dashboard d3",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "dashboards": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "viewport",
+            "widgets",
+            "date_filter",
+            "starred",
+            "shared",
+            "description",
+            "created_at",
+            "updated_at"
+          ],
+          "rows": [
+            [
+              "d3",
+              "p2",
+              "Dashboard d3",
+              "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "[]",
+              null,
+              0,
+              0,
+              null,
+              "2026-01-02T03:04:05.000Z",
+              "2026-01-03T00:00:00.000Z"
+            ]
+          ],
+          "types": [["text","text","text","text","text","null","integer","integer","null","text","text"]]
+        },
+        "dashboard_versions": {
+          "columns": ["id","dashboard_id","version","snapshot","created_at"],
+          "rows": [["v3","d3",1,"{}","2026-01-02T03:04:05.000Z"]],
+          "types": [["text","text","integer","text","text"]]
+        }
+      }
+    },
+    {
+      "name": "dashboards/load-stored-quirks",
+      "description": "starred is the one nullable flag column (added by upgrade without NOT NULL): NULL loads false; 2 loads false.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO dashboards (id, project_id, name, starred, created_at, updated_at) VALUES ('a', 'p1', 'A', NULL, 'c', 'u')",
+          "params": []
+        },
+        {
+          "sql": "INSERT INTO dashboards (id, project_id, name, starred, shared, created_at, updated_at) VALUES ('b', 'p1', 'B', 2, 2, 'c', 'u')",
+          "params": []
+        },
+        {
+          "call": "dashboardsRepo.loadByProject",
+          "args": ["p1"],
+          "result": [
+            {
+              "id": "a",
+              "projectId": "p1",
+              "name": "A",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "c",
+              "updatedAt": "u"
+            },
+            {
+              "id": "b",
+              "projectId": "p1",
+              "name": "B",
+              "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+              "widgets": "[]",
+              "dateFilter": null,
+              "starred": false,
+              "shared": false,
+              "createdAt": "c",
+              "updatedAt": "u"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "dashboards": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "viewport",
+            "widgets",
+            "date_filter",
+            "starred",
+            "shared",
+            "description",
+            "created_at",
+            "updated_at"
+          ],
+          "rows": [
+            ["a","p1","A","{\"x\":0,\"y\":0,\"zoom\":1}","[]",null,null,0,null,"c","u"],
+            ["b","p1","B","{\"x\":0,\"y\":0,\"zoom\":1}","[]",null,2,2,null,"c","u"]
+          ],
+          "types": [
+            ["text","text","text","text","text","null","null","integer","null","text","text"],
+            ["text","text","text","text","text","null","integer","integer","null","text","text"]
+          ]
+        }
+      }
+    }
+  ]
+}

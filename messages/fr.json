@@ -1130,5 +1130,17 @@
   "wasm_error_hint": "Cela signifie généralement que le fichier .wasm n'a pas pu être téléchargé (problème réseau ou proxy) ou qu'une Content Security Policy n'autorise pas WebAssembly (elle doit inclure 'wasm-unsafe-eval' dans script-src). Réessayez, et si le problème persiste, copiez l'erreur ci-dessous et envoyez-la nous.",
   "wasm_error_copy": "Copier l'erreur",
   "wasm_error_copied": "Copié",
-  "wasm_error_retry": "Réessayer"
+  "wasm_error_retry": "Réessayer",
+  "storage_error_legacy_title": "Seaquel ne peut pas encore lire vos données enregistrées",
+  "storage_error_legacy_description": "Vos connexions, projets et paramètres ont été enregistrés par une version de Seaquel antérieure à la 2026.4.5, et cette version ne peut pas lire ce format. Pour les récupérer, installez une version comprise entre 2026.4.5 et 2026.9.x, lancez-la une fois pour qu'elle importe vos données, puis mettez à jour de nouveau vers cette version.",
+  "storage_error_releases_link": "Télécharger une version depuis GitHub",
+  "storage_error_corrupt_title": "Seaquel ne peut pas ouvrir son fichier de données",
+  "storage_error_corrupt_description": "{path} n'est pas une base de données Seaquel lisible, vos connexions, projets et paramètres ne peuvent donc pas être chargés.",
+  "storage_error_corrupt_untouched": "Le fichier n'a pas été modifié.",
+  "storage_error_corrupt_hint_desktop": "Si vous avez une sauvegarde de ce fichier, remettez-la en place. Pour repartir de zéro sans données enregistrées, quittez Seaquel et déplacez le fichier ailleurs ; Seaquel en crée un nouveau à la prochaine ouverture.",
+  "storage_error_corrupt_hint_web": "Demandez à la personne qui gère ce serveur Seaquel de restaurer le fichier à partir d'une sauvegarde ou de le déplacer.",
+  "storage_error_details": "Détails",
+  "storage_error_no_data_dir_title": "Seaquel n'a aucun endroit où conserver ses données",
+  "storage_error_no_data_dir_description": "Ce système ne signale aucun dossier de données pour Seaquel. Définissez la variable d'environnement SEAQUEL_DATA_DIR sur un dossier dans lequel Seaquel peut écrire, puis relancez Seaquel.",
+  "storage_save_refused": "Certaines de vos données enregistrées n'ont pas pu être chargées, Seaquel n'enregistre donc pas les modifications qui leur sont apportées : les enregistrer maintenant écraserait ce qui est stocké. Redémarrez Seaquel (ou rechargez la page) pour réessayer de les charger."
 }

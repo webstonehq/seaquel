@@ -6,7 +6,7 @@ import type {
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
-import { getDatabase, dashboardsRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import { log } from "$lib/utils/logger";
 import {
   createDashboardVersionEntry,
@@ -109,8 +109,7 @@ export class DashboardManager {
     };
 
     try {
-      const db = await getDatabase();
-      await dashboardsRepo.remove(db, id);
+      await getStorage().dashboards.remove(id);
     } catch (error) {
       void log.error("Failed to delete dashboard:", error);
     }
@@ -397,8 +396,7 @@ export class DashboardManager {
   async loadDashboards(projectId: string): Promise<void> {
     this.stopAllAutoRefresh();
     try {
-      const db = await getDatabase();
-      const rows = await dashboardsRepo.loadByProject(db, projectId);
+      const rows = await getStorage().dashboards.loadByProject(projectId);
 
       const dashboards: Dashboard[] = rows.map((r) => ({
         id: r.id,
@@ -612,8 +610,7 @@ export class DashboardManager {
 
   private async persistDashboard(dashboard: Dashboard): Promise<void> {
     try {
-      const db = await getDatabase();
-      await dashboardsRepo.save(db, toPersistedDashboard(dashboard));
+      await getStorage().dashboards.save(toPersistedDashboard(dashboard));
     } catch (error) {
       void log.error("Failed to persist dashboard:", error);
     }

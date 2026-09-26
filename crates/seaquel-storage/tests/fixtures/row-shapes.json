@@ -1,0 +1,1147 @@
+{
+  "note": "Frozen. `repos`: each repository method's declared parameters and result, from the TypeScript checker over src/lib/storage/repository.ts (the db argument dropped). `types`: the named types they use. `json` lists the JSON kinds a value can take; `absent` means the key may be missing, `Date` means a JS Date (an ISO string on the wire). `observed`: the keys each load returned across the recorded cases, with `always` when every sample had it. Task 4's ts-rs types must regenerate to the same shapes.",
+  "repos": {
+    "projectsRepo": {
+      "loadAll": {"params":[],"returns":{"ts":"PersistedProject[]","json":["array"],"ref":"PersistedProject"}},
+      "save": {
+        "params": [{"name":"project","ts":"PersistedProject","json":["object"],"ref":"PersistedProject"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "saveAll": {
+        "params": [{"name":"projects","ts":"PersistedProject[]","json":["array"],"ref":"PersistedProject"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "appStateRepo": {
+      "get": {
+        "params": [{"name":"key","ts":"string","json":["string"]}],
+        "returns": {"ts":"string | null","json":["null","string"]}
+      },
+      "set": {
+        "params": [
+          {"name":"key","ts":"string","json":["string"]},
+          {"name":"value","ts":"string | null","json":["null","string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "connectionsRepo": {
+      "loadAll": {
+        "params": [],
+        "returns": {"ts":"PersistedConnection[]","json":["array"],"ref":"PersistedConnection"}
+      },
+      "save": {
+        "params": [{"name":"conn","ts":"PersistedConnection","json":["object"],"ref":"PersistedConnection"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [{"name":"connectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "connectionOverridesRepo": {
+      "load": {
+        "params": [{"name":"sharedConnectionId","ts":"string","json":["string"]}],
+        "returns": {
+          "ts": "PersistedConnectionOverride | null",
+          "json": ["null","object"],
+          "ref": "PersistedConnectionOverride"
+        }
+      },
+      "loadAll": {
+        "params": [],
+        "returns": {"ts":"PersistedConnectionOverride[]","json":["array"],"ref":"PersistedConnectionOverride"}
+      },
+      "save": {
+        "params": [
+          {
+            "name": "override",
+            "ts": "PersistedConnectionOverride",
+            "json": ["object"],
+            "ref": "PersistedConnectionOverride"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [{"name":"sharedConnectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "projectStateRepo": {
+      "load": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedProjectState | null","json":["null","object"],"ref":"PersistedProjectState"}
+      },
+      "save": {
+        "params": [
+          {
+            "name": "state",
+            "ts": "PersistedProjectState",
+            "json": ["object"],
+            "ref": "PersistedProjectState"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "savedQueriesRepo": {
+      "loadByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedSavedQuery[]","json":["array"],"ref":"PersistedSavedQuery"}
+      },
+      "saveAll": {
+        "params": [
+          {"name":"projectId","ts":"string","json":["string"]},
+          {
+            "name": "queries",
+            "ts": "PersistedSavedQuery[]",
+            "json": ["array"],
+            "ref": "PersistedSavedQuery"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "queryVersionsRepo": {
+      "loadByQuery": {
+        "params": [{"name":"queryId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedQueryVersion[]","json":["array"],"ref":"PersistedQueryVersion"}
+      },
+      "loadByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedQueryVersion[]","json":["array"],"ref":"PersistedQueryVersion"}
+      },
+      "insert": {
+        "params": [
+          {
+            "name": "version",
+            "ts": "PersistedQueryVersion",
+            "json": ["object"],
+            "ref": "PersistedQueryVersion"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "pruneOldVersions": {
+        "params": [
+          {"name":"queryId","ts":"string","json":["string"]},
+          {"name":"keepCount","ts":"number","json":["number"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "queryHistoryRepo": {
+      "loadByConnection": {
+        "params": [{"name":"connectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedQueryHistoryItem[]","json":["array"],"ref":"PersistedQueryHistoryItem"}
+      },
+      "replaceAll": {
+        "params": [
+          {"name":"connectionId","ts":"string","json":["string"]},
+          {
+            "name": "items",
+            "ts": "PersistedQueryHistoryItem[]",
+            "json": ["array"],
+            "ref": "PersistedQueryHistoryItem"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeByConnection": {
+        "params": [{"name":"connectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "sharedReposRepo": {
+      "loadAll": {
+        "params": [],
+        "returns": {
+          "ts": "{ repos: PersistedSharedQueryRepo[]; activeRepoId: string | null; }",
+          "json": ["object"],
+          "fields": {
+            "repos": {
+              "ts": "PersistedSharedQueryRepo[]",
+              "json": ["array"],
+              "ref": "PersistedSharedQueryRepo",
+              "optional": false
+            },
+            "activeRepoId": {"ts":"string | null","json":["null","string"],"optional":false}
+          }
+        }
+      },
+      "saveAll": {
+        "params": [
+          {
+            "name": "repos",
+            "ts": "PersistedSharedQueryRepo[]",
+            "json": ["array"],
+            "ref": "PersistedSharedQueryRepo"
+          },
+          {"name":"activeRepoId","ts":"string | null","json":["null","string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "themeRepo": {
+      "loadPreferences": {
+        "params": [],
+        "returns": {
+          "ts": "{ lightThemeId: string; darkThemeId: string; } | null",
+          "json": ["null","object"],
+          "fields": {
+            "lightThemeId": {"ts":"string","json":["string"],"optional":false},
+            "darkThemeId": {"ts":"string","json":["string"],"optional":false}
+          }
+        }
+      },
+      "savePreferences": {
+        "params": [
+          {"name":"lightThemeId","ts":"string","json":["string"]},
+          {"name":"darkThemeId","ts":"string","json":["string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "loadUserThemes": {"params":[],"returns":{"ts":"unknown[]","json":["array"]}},
+      "saveUserThemes": {
+        "params": [{"name":"themes","ts":"unknown[]","json":["array"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "licenseRepo": {
+      "load": {"params":[],"returns":{"ts":"unknown","json":["any"],"fields":{}}},
+      "save": {
+        "params": [{"name":"data","ts":"unknown","json":["any"],"fields":{}}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "onboardingRepo": {
+      "load": {"params":[],"returns":{"ts":"unknown","json":["any"],"fields":{}}},
+      "save": {
+        "params": [{"name":"data","ts":"unknown","json":["any"],"fields":{}}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "tutorialRepo": {
+      "loadAll": {
+        "params": [],
+        "returns": {
+          "ts": "{ lessonId: string; challengeId: string; state: string | null; }[]",
+          "json": ["array"],
+          "fields": {
+            "lessonId": {"ts":"string","json":["string"],"optional":false},
+            "challengeId": {"ts":"string","json":["string"],"optional":false},
+            "state": {"ts":"string | null","json":["null","string"],"optional":false}
+          }
+        }
+      },
+      "save": {
+        "params": [
+          {"name":"lessonId","ts":"string","json":["string"]},
+          {"name":"challengeId","ts":"string","json":["string"]},
+          {"name":"state","ts":"string | null","json":["null","string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeLesson": {
+        "params": [{"name":"lessonId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeAll": {"params":[],"returns":{"ts":"void","json":["absent"]}}
+    },
+    "importStateRepo": {
+      "load": {
+        "params": [{"name":"source","ts":"string","json":["string"]}],
+        "returns": {
+          "ts": "{ hasOfferedImport: boolean; lastCheckTimestamp: string | null; } | null",
+          "json": ["null","object"],
+          "fields": {
+            "hasOfferedImport": {"ts":"boolean","json":["boolean"],"optional":false},
+            "lastCheckTimestamp": {"ts":"string | null","json":["null","string"],"optional":false}
+          }
+        }
+      },
+      "save": {
+        "params": [
+          {"name":"source","ts":"string","json":["string"]},
+          {"name":"hasOfferedImport","ts":"boolean","json":["boolean"]},
+          {"name":"lastCheckTimestamp","ts":"string | null","json":["null","string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "dashboardsRepo": {
+      "loadByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedDashboard[]","json":["array"],"ref":"PersistedDashboard"}
+      },
+      "save": {
+        "params": [
+          {
+            "name": "dashboard",
+            "ts": "PersistedDashboard",
+            "json": ["object"],
+            "ref": "PersistedDashboard"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [{"name":"id","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "dashboardVersionsRepo": {
+      "loadByDashboard": {
+        "params": [{"name":"dashboardId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedDashboardVersion[]","json":["array"],"ref":"PersistedDashboardVersion"}
+      },
+      "loadByProject": {
+        "params": [{"name":"projectId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedDashboardVersion[]","json":["array"],"ref":"PersistedDashboardVersion"}
+      },
+      "insert": {
+        "params": [
+          {
+            "name": "version",
+            "ts": "PersistedDashboardVersion",
+            "json": ["object"],
+            "ref": "PersistedDashboardVersion"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "pruneOldVersions": {
+        "params": [
+          {"name":"dashboardId","ts":"string","json":["string"]},
+          {"name":"keepCount","ts":"number","json":["number"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "aiChatsRepo": {
+      "loadByConnection": {
+        "params": [{"name":"connectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedAIChat[]","json":["array"],"ref":"PersistedAIChat"}
+      },
+      "saveChat": {
+        "params": [{"name":"chat","ts":"PersistedAIChat","json":["object"],"ref":"PersistedAIChat"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeChat": {
+        "params": [{"name":"chatId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeByConnection": {
+        "params": [{"name":"connectionId","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "loadMessages": {
+        "params": [{"name":"chatId","ts":"string","json":["string"]}],
+        "returns": {"ts":"PersistedAIMessage[]","json":["array"],"ref":"PersistedAIMessage"}
+      },
+      "replaceAllMessages": {
+        "params": [
+          {"name":"chatId","ts":"string","json":["string"]},
+          {
+            "name": "messages",
+            "ts": "PersistedAIMessage[]",
+            "json": ["array"],
+            "ref": "PersistedAIMessage"
+          }
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    },
+    "vaultStateRepo": {
+      "load": {
+        "params": [],
+        "returns": {"ts":"PersistedVaultState | null","json":["null","object"],"ref":"PersistedVaultState"}
+      },
+      "save": {
+        "params": [{"name":"state","ts":"PersistedVaultState","json":["object"],"ref":"PersistedVaultState"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "reset": {"params":[],"returns":{"ts":"void","json":["absent"]}}
+    },
+    "userCredentialsRepo": {
+      "load": {
+        "params": [
+          {"name":"scope","ts":"string","json":["string"]},
+          {"name":"key","ts":"string","json":["string"]}
+        ],
+        "returns": {"ts":"PersistedCredential | null","json":["null","object"],"ref":"PersistedCredential"}
+      },
+      "save": {
+        "params": [{"name":"cred","ts":"PersistedCredential","json":["object"],"ref":"PersistedCredential"}],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "remove": {
+        "params": [
+          {"name":"scope","ts":"string","json":["string"]},
+          {"name":"key","ts":"string","json":["string"]}
+        ],
+        "returns": {"ts":"void","json":["absent"]}
+      },
+      "removeAllForKey": {
+        "params": [{"name":"key","ts":"string","json":["string"]}],
+        "returns": {"ts":"void","json":["absent"]}
+      }
+    }
+  },
+  "types": {
+    "PersistedProject": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "description": {"ts":"string | undefined","json":["string"],"optional":true},
+        "createdAt": {"ts":"string","json":["string"],"optional":false},
+        "updatedAt": {"ts":"string","json":["string"],"optional":false},
+        "customLabels": {"ts":"ConnectionLabel[]","json":["array"],"ref":"ConnectionLabel","optional":false},
+        "gitRepoPath": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "ConnectionLabel": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "isPredefined": {"ts":"boolean","json":["boolean"],"optional":false},
+        "color": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedConnection": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "type": {
+          "ts": "DatabaseType",
+          "json": ["string"],
+          "enum": ["postgres","mysql","sqlite","mariadb","mssql","duckdb"],
+          "optional": false
+        },
+        "host": {"ts":"string","json":["string"],"optional":false},
+        "port": {"ts":"number","json":["number"],"optional":false},
+        "databaseName": {"ts":"string","json":["string"],"optional":false},
+        "username": {"ts":"string","json":["string"],"optional":false},
+        "sslMode": {"ts":"string | undefined","json":["string"],"optional":true},
+        "connectionString": {"ts":"string | undefined","json":["string"],"optional":true},
+        "lastConnected": {"ts":"Date | undefined","json":["Date"],"optional":true},
+        "sshTunnel": {
+          "ts": "SSHTunnelConfig | undefined",
+          "json": ["object"],
+          "ref": "SSHTunnelConfig",
+          "optional": true
+        },
+        "savePassword": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "saveSshPassword": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "saveSshKeyPassphrase": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "projectId": {"ts":"string","json":["string"],"optional":false},
+        "labelIds": {"ts":"string[]","json":["array"],"optional":false},
+        "isLocalOnly": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "sharedConnectionId": {"ts":"string | undefined","json":["string"],"optional":true},
+        "aiShareSchema": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "aiShareData": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "activeAIProviderId": {"ts":"string | undefined","json":["string"],"optional":true},
+        "activeAIModel": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "SSHTunnelConfig": {
+      "fields": {
+        "enabled": {"ts":"boolean","json":["boolean"],"optional":false},
+        "host": {"ts":"string","json":["string"],"optional":false},
+        "port": {"ts":"number","json":["number"],"optional":false},
+        "username": {"ts":"string","json":["string"],"optional":false},
+        "authMethod": {"ts":"SSHAuthMethod","json":["string"],"enum":["password","key"],"optional":false},
+        "keyPath": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedConnectionOverride": {
+      "fields": {
+        "sharedConnectionId": {"ts":"string","json":["string"],"optional":false},
+        "username": {"ts":"string | undefined","json":["string"],"optional":true},
+        "hostOverride": {"ts":"string | undefined","json":["string"],"optional":true},
+        "portOverride": {"ts":"number | undefined","json":["number"],"optional":true},
+        "savePassword": {"ts":"boolean","json":["boolean"],"optional":false},
+        "saveSshPassword": {"ts":"boolean","json":["boolean"],"optional":false},
+        "saveSshKeyPassphrase": {"ts":"boolean","json":["boolean"],"optional":false}
+      }
+    },
+    "PersistedProjectState": {
+      "fields": {
+        "projectId": {"ts":"string","json":["string"],"optional":false},
+        "queryTabs": {"ts":"PersistedQueryTab[]","json":["array"],"ref":"PersistedQueryTab","optional":false},
+        "schemaTabs": {"ts":"PersistedSchemaTab[]","json":["array"],"ref":"PersistedSchemaTab","optional":false},
+        "explainTabs": {"ts":"PersistedExplainTab[]","json":["array"],"ref":"PersistedExplainTab","optional":false},
+        "erdTabs": {"ts":"PersistedErdTab[]","json":["array"],"ref":"PersistedErdTab","optional":false},
+        "statisticsTabs": {
+          "ts": "PersistedStatisticsTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedStatisticsTab",
+          "optional": true
+        },
+        "workflowTabs": {
+          "ts": "PersistedWorkflowTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedWorkflowTab",
+          "optional": true
+        },
+        "tabOrder": {"ts":"string[]","json":["array"],"optional":false},
+        "connectionOrder": {"ts":"string[] | undefined","json":["array"],"optional":true},
+        "activeQueryTabId": {"ts":"string | null","json":["null","string"],"optional":false},
+        "activeSchemaTabId": {"ts":"string | null","json":["null","string"],"optional":false},
+        "activeExplainTabId": {"ts":"string | null","json":["null","string"],"optional":false},
+        "activeErdTabId": {"ts":"string | null","json":["null","string"],"optional":false},
+        "activeStatisticsTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "activeWorkflowTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "activeView": {
+          "ts": "ActiveViewType",
+          "json": ["string"],
+          "enum": [
+            "query",
+            "schema",
+            "explain",
+            "erd",
+            "statistics",
+            "workflow",
+            "visualize",
+            "connection",
+            "dashboard",
+            "starter",
+            "settings",
+            "createTable",
+            "data",
+            "extensionsDuckdb"
+          ],
+          "optional": false
+        },
+        "activeConnectionId": {"ts":"string | null","json":["null","string"],"optional":false},
+        "starterTabs": {
+          "ts": "PersistedStarterTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedStarterTab",
+          "optional": true
+        },
+        "activeStarterTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "savedWorkflows": {"ts":"SavedWorkflow[] | undefined","json":["array"],"ref":"SavedWorkflow","optional":true},
+        "connectionTabs": {
+          "ts": "PersistedConnectionTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedConnectionTab",
+          "optional": true
+        },
+        "activeConnectionTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "dashboardTabs": {
+          "ts": "PersistedDashboardTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedDashboardTab",
+          "optional": true
+        },
+        "activeDashboardTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "starredSharedQueryIds": {"ts":"string[] | undefined","json":["array"],"optional":true},
+        "starredSharedDashboardIds": {"ts":"string[] | undefined","json":["array"],"optional":true},
+        "createTableTabs": {
+          "ts": "PersistedCreateTableTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedCreateTableTab",
+          "optional": true
+        },
+        "activeCreateTableTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "dataTabs": {
+          "ts": "PersistedDataTab[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedDataTab",
+          "optional": true
+        },
+        "activeDataTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "extensionsDuckdbTabs": {
+          "ts": "{ id: string; name: string; connectionId: string; }[] | undefined",
+          "json": ["array"],
+          "fields": {
+            "id": {"ts":"string","json":["string"],"optional":false},
+            "name": {"ts":"string","json":["string"],"optional":false},
+            "connectionId": {"ts":"string","json":["string"],"optional":false}
+          },
+          "optional": true
+        },
+        "activeExtensionsDuckdbTabId": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "paneLayout": {
+          "ts": "{ panes: { id: string; tabIds: string[]; activeTabId: string | null; }[]; activePaneId: string; } | undefined",
+          "json": ["object"],
+          "fields": {
+            "panes": {
+              "ts": "{ id: string; tabIds: string[]; activeTabId: string | null; }[]",
+              "json": ["array"],
+              "fields": {
+                "id": {"ts":"string","json":["string"],"optional":false},
+                "tabIds": {"ts":"string[]","json":["array"],"optional":false},
+                "activeTabId": {"ts":"string | null","json":["null","string"],"optional":false}
+              },
+              "optional": false
+            },
+            "activePaneId": {"ts":"string","json":["string"],"optional":false}
+          },
+          "optional": true
+        }
+      }
+    },
+    "PersistedQueryTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "query": {"ts":"string","json":["string"],"optional":false},
+        "queryId": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedSchemaTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "tableName": {"ts":"string","json":["string"],"optional":false},
+        "schemaName": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedExplainTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "sourceQuery": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedErdTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedStatisticsTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedWorkflowTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedStarterTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "type": {
+          "ts": "\"getting-started\" | \"migration-tips\"",
+          "json": ["string"],
+          "enum": ["getting-started","migration-tips"],
+          "optional": false
+        },
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "closable": {"ts":"boolean","json":["boolean"],"optional":false}
+      }
+    },
+    "SavedWorkflow": {
+      "opaque": true,
+      "note": "stored as JSON text (saved_canvases.data via toStorable); Rust keeps it as opaque JSON"
+    },
+    "PersistedConnectionTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedDashboardTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "dashboardId": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedCreateTableTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "tableDefinition": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedDataTab": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false},
+        "tableName": {"ts":"string","json":["string"],"optional":false},
+        "schemaName": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedSavedQuery": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "query": {"ts":"string","json":["string"],"optional":false},
+        "projectId": {"ts":"string","json":["string"],"optional":false},
+        "createdAt": {"ts":"string","json":["string"],"optional":false},
+        "updatedAt": {"ts":"string","json":["string"],"optional":false},
+        "parameters": {
+          "ts": "PersistedQueryParameter[] | undefined",
+          "json": ["array"],
+          "ref": "PersistedQueryParameter",
+          "optional": true
+        },
+        "starred": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "shared": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "description": {"ts":"string | undefined","json":["string"],"optional":true},
+        "databaseType": {"ts":"string | undefined","json":["string"],"optional":true},
+        "tags": {"ts":"string[] | undefined","json":["array"],"optional":true},
+        "folder": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedQueryParameter": {
+      "fields": {
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "type": {
+          "ts": "\"number\" | \"boolean\" | \"text\" | \"date\" | \"datetime\"",
+          "json": ["string"],
+          "enum": ["number","boolean","text","date","datetime"],
+          "optional": false
+        },
+        "defaultValue": {"ts":"string | undefined","json":["string"],"optional":true},
+        "description": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedQueryVersion": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "queryId": {"ts":"string","json":["string"],"optional":false},
+        "version": {"ts":"number","json":["number"],"optional":false},
+        "snapshot": {"ts":"string | null","json":["null","string"],"optional":false},
+        "diff": {"ts":"string | null","json":["null","string"],"optional":false},
+        "createdAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedQueryHistoryItem": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "query": {"ts":"string","json":["string"],"optional":false},
+        "timestamp": {"ts":"string","json":["string"],"optional":false},
+        "executionTime": {"ts":"number","json":["number"],"optional":false},
+        "rowCount": {"ts":"number","json":["number"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false},
+        "favorite": {"ts":"boolean","json":["boolean"],"optional":false},
+        "connectionLabelsSnapshot": {"ts":"ConnectionLabel[]","json":["array"],"ref":"ConnectionLabel","optional":false},
+        "connectionNameSnapshot": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedSharedQueryRepo": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "path": {"ts":"string","json":["string"],"optional":false},
+        "remoteUrl": {"ts":"string","json":["string"],"optional":false},
+        "branch": {"ts":"string","json":["string"],"optional":false},
+        "lastSyncAt": {"ts":"string | null","json":["null","string"],"optional":false},
+        "syncStatus": {
+          "ts": "RepoSyncStatus",
+          "json": ["string"],
+          "enum": ["synced","ahead","behind","diverged","error","uninitialized"],
+          "optional": false
+        },
+        "credentialsId": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedDashboard": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "projectId": {"ts":"string","json":["string"],"optional":false},
+        "name": {"ts":"string","json":["string"],"optional":false},
+        "viewport": {"ts":"string","json":["string"],"optional":false},
+        "widgets": {"ts":"string","json":["string"],"optional":false},
+        "dateFilter": {"ts":"string | null | undefined","json":["null","string"],"optional":true},
+        "starred": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "shared": {"ts":"boolean | undefined","json":["boolean"],"optional":true},
+        "description": {"ts":"string | undefined","json":["string"],"optional":true},
+        "createdAt": {"ts":"string","json":["string"],"optional":false},
+        "updatedAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedDashboardVersion": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "dashboardId": {"ts":"string","json":["string"],"optional":false},
+        "version": {"ts":"number","json":["number"],"optional":false},
+        "snapshot": {"ts":"string","json":["string"],"optional":false},
+        "createdAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedAIChat": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "connectionId": {"ts":"string","json":["string"],"optional":false},
+        "title": {"ts":"string","json":["string"],"optional":false},
+        "createdAt": {"ts":"string","json":["string"],"optional":false},
+        "updatedAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedAIMessage": {
+      "fields": {
+        "id": {"ts":"string","json":["string"],"optional":false},
+        "chatId": {"ts":"string","json":["string"],"optional":false},
+        "role": {
+          "ts": "\"user\" | \"assistant\"",
+          "json": ["string"],
+          "enum": ["user","assistant"],
+          "optional": false
+        },
+        "content": {"ts":"string","json":["string"],"optional":false},
+        "timestamp": {"ts":"string","json":["string"],"optional":false},
+        "query": {"ts":"string | undefined","json":["string"],"optional":true},
+        "dashboardId": {"ts":"string | undefined","json":["string"],"optional":true}
+      }
+    },
+    "PersistedVaultState": {
+      "fields": {
+        "salt": {"ts":"string","json":["string"],"optional":false},
+        "kdfParams": {
+          "ts": "{ version: number; t: number; m: number; p: number; }",
+          "json": ["object"],
+          "fields": {
+            "version": {"ts":"number","json":["number"],"optional":false},
+            "t": {"ts":"number","json":["number"],"optional":false},
+            "m": {"ts":"number","json":["number"],"optional":false},
+            "p": {"ts":"number","json":["number"],"optional":false}
+          },
+          "optional": false
+        },
+        "verifier": {"ts":"string","json":["string"],"optional":false},
+        "verifierNonce": {"ts":"string","json":["string"],"optional":false},
+        "createdAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    },
+    "PersistedCredential": {
+      "fields": {
+        "scope": {"ts":"string","json":["string"],"optional":false},
+        "key": {"ts":"string","json":["string"],"optional":false},
+        "nonce": {"ts":"string","json":["string"],"optional":false},
+        "ciphertext": {"ts":"string","json":["string"],"optional":false},
+        "updatedAt": {"ts":"string","json":["string"],"optional":false}
+      }
+    }
+  },
+  "observed": {
+    "projectsRepo.loadAll": {
+      "samples": 8,
+      "keys": {
+        "id": {"present":8,"kinds":["string"],"always":true},
+        "name": {"present":8,"kinds":["string"],"always":true},
+        "description": {"present":2,"kinds":["string"],"always":false},
+        "createdAt": {"present":8,"kinds":["string"],"always":true},
+        "updatedAt": {"present":8,"kinds":["string"],"always":true},
+        "gitRepoPath": {"present":1,"kinds":["string"],"always":false},
+        "customLabels": {"present":8,"kinds":["array"],"always":true}
+      }
+    },
+    "connectionsRepo.loadAll": {
+      "samples": 9,
+      "keys": {
+        "id": {"present":9,"kinds":["string"],"always":true},
+        "projectId": {"present":9,"kinds":["string"],"always":true},
+        "name": {"present":9,"kinds":["string"],"always":true},
+        "type": {"present":9,"kinds":["string"],"always":true},
+        "host": {"present":9,"kinds":["string"],"always":true},
+        "port": {"present":9,"kinds":["number"],"always":true},
+        "databaseName": {"present":9,"kinds":["string"],"always":true},
+        "username": {"present":9,"kinds":["string"],"always":true},
+        "savePassword": {"present":9,"kinds":["boolean"],"always":true},
+        "saveSshPassword": {"present":9,"kinds":["boolean"],"always":true},
+        "saveSshKeyPassphrase": {"present":9,"kinds":["boolean"],"always":true},
+        "labelIds": {"present":9,"kinds":["array"],"always":true},
+        "sslMode": {"present":1,"kinds":["string"],"always":false},
+        "connectionString": {"present":1,"kinds":["string"],"always":false},
+        "lastConnected": {"present":4,"kinds":["Date"],"always":false},
+        "sshTunnel": {"present":2,"kinds":["object","null"],"always":false},
+        "isLocalOnly": {"present":1,"kinds":["boolean"],"always":false},
+        "sharedConnectionId": {"present":1,"kinds":["string"],"always":false},
+        "aiShareSchema": {"present":3,"kinds":["boolean"],"always":false},
+        "aiShareData": {"present":2,"kinds":["boolean"],"always":false},
+        "activeAIProviderId": {"present":1,"kinds":["string"],"always":false},
+        "activeAIModel": {"present":1,"kinds":["string"],"always":false}
+      }
+    },
+    "connectionOverridesRepo.load": {
+      "samples": 2,
+      "keys": {
+        "sharedConnectionId": {"present":2,"kinds":["string"],"always":true},
+        "username": {"present":1,"kinds":["string"],"always":false},
+        "hostOverride": {"present":1,"kinds":["string"],"always":false},
+        "portOverride": {"present":1,"kinds":["number"],"always":false},
+        "savePassword": {"present":2,"kinds":["boolean"],"always":true},
+        "saveSshPassword": {"present":2,"kinds":["boolean"],"always":true},
+        "saveSshKeyPassphrase": {"present":2,"kinds":["boolean"],"always":true}
+      }
+    },
+    "connectionOverridesRepo.loadAll": {
+      "samples": 2,
+      "keys": {
+        "sharedConnectionId": {"present":2,"kinds":["string"],"always":true},
+        "username": {"present":1,"kinds":["string"],"always":false},
+        "hostOverride": {"present":2,"kinds":["string"],"always":true},
+        "portOverride": {"present":1,"kinds":["number"],"always":false},
+        "savePassword": {"present":2,"kinds":["boolean"],"always":true},
+        "saveSshPassword": {"present":2,"kinds":["boolean"],"always":true},
+        "saveSshKeyPassphrase": {"present":2,"kinds":["boolean"],"always":true}
+      }
+    },
+    "projectStateRepo.load": {
+      "samples": 7,
+      "keys": {
+        "projectId": {"present":7,"kinds":["string"],"always":true},
+        "queryTabs": {"present":7,"kinds":["array"],"always":true},
+        "schemaTabs": {"present":7,"kinds":["array"],"always":true},
+        "explainTabs": {"present":7,"kinds":["array"],"always":true},
+        "erdTabs": {"present":7,"kinds":["array"],"always":true},
+        "statisticsTabs": {"present":7,"kinds":["array"],"always":true},
+        "workflowTabs": {"present":7,"kinds":["array"],"always":true},
+        "tabOrder": {"present":7,"kinds":["array"],"always":true},
+        "connectionOrder": {"present":7,"kinds":["array","null"],"always":true},
+        "activeQueryTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeSchemaTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeExplainTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeErdTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeStatisticsTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeWorkflowTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "activeView": {"present":7,"kinds":["string"],"always":true},
+        "activeConnectionId": {"present":7,"kinds":["string","null"],"always":true},
+        "starterTabs": {"present":7,"kinds":["array"],"always":true},
+        "activeStarterTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "savedWorkflows": {"present":7,"kinds":["array"],"always":true},
+        "dashboardTabs": {"present":7,"kinds":["array"],"always":true},
+        "activeDashboardTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "createTableTabs": {"present":7,"kinds":["array"],"always":true},
+        "activeCreateTableTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "dataTabs": {"present":7,"kinds":["array"],"always":true},
+        "activeDataTabId": {"present":7,"kinds":["string","null"],"always":true},
+        "starredSharedQueryIds": {"present":7,"kinds":["array"],"always":true},
+        "starredSharedDashboardIds": {"present":7,"kinds":["array"],"always":true},
+        "paneLayout": {"present":1,"kinds":["object"],"always":false}
+      }
+    },
+    "savedQueriesRepo.loadByProject": {
+      "samples": 8,
+      "keys": {
+        "id": {"present":8,"kinds":["string"],"always":true},
+        "projectId": {"present":8,"kinds":["string"],"always":true},
+        "name": {"present":8,"kinds":["string"],"always":true},
+        "query": {"present":8,"kinds":["string"],"always":true},
+        "parameters": {"present":2,"kinds":["array"],"always":false},
+        "starred": {"present":8,"kinds":["boolean"],"always":true},
+        "shared": {"present":8,"kinds":["boolean"],"always":true},
+        "description": {"present":1,"kinds":["string"],"always":false},
+        "databaseType": {"present":1,"kinds":["string"],"always":false},
+        "tags": {"present":3,"kinds":["array","null"],"always":false},
+        "folder": {"present":1,"kinds":["string"],"always":false},
+        "createdAt": {"present":8,"kinds":["string"],"always":true},
+        "updatedAt": {"present":8,"kinds":["string"],"always":true}
+      }
+    },
+    "queryVersionsRepo.loadByQuery": {
+      "samples": 10,
+      "keys": {
+        "id": {"present":10,"kinds":["string"],"always":true},
+        "queryId": {"present":10,"kinds":["string"],"always":true},
+        "version": {"present":10,"kinds":["number"],"always":true},
+        "snapshot": {"present":10,"kinds":["string","null"],"always":true},
+        "diff": {"present":10,"kinds":["null","string"],"always":true},
+        "createdAt": {"present":10,"kinds":["string"],"always":true}
+      }
+    },
+    "queryVersionsRepo.loadByProject": {
+      "samples": 3,
+      "keys": {
+        "id": {"present":3,"kinds":["string"],"always":true},
+        "queryId": {"present":3,"kinds":["string"],"always":true},
+        "version": {"present":3,"kinds":["number"],"always":true},
+        "snapshot": {"present":3,"kinds":["string"],"always":true},
+        "diff": {"present":3,"kinds":["null"],"always":true},
+        "createdAt": {"present":3,"kinds":["string"],"always":true}
+      }
+    },
+    "queryHistoryRepo.loadByConnection": {
+      "samples": 9,
+      "keys": {
+        "id": {"present":9,"kinds":["string"],"always":true},
+        "query": {"present":9,"kinds":["string"],"always":true},
+        "timestamp": {"present":9,"kinds":["string"],"always":true},
+        "executionTime": {"present":9,"kinds":["number"],"always":true},
+        "rowCount": {"present":9,"kinds":["number"],"always":true},
+        "connectionId": {"present":9,"kinds":["string"],"always":true},
+        "favorite": {"present":9,"kinds":["boolean"],"always":true},
+        "connectionLabelsSnapshot": {"present":9,"kinds":["array"],"always":true},
+        "connectionNameSnapshot": {"present":9,"kinds":["string"],"always":true}
+      }
+    },
+    "sharedReposRepo.loadAll": {
+      "samples": 5,
+      "keys": {
+        "repos": {"present":5,"kinds":["array"],"always":true},
+        "activeRepoId": {"present":5,"kinds":["string","null"],"always":true}
+      }
+    },
+    "sharedReposRepo.loadAll repos[]": {
+      "samples": 4,
+      "keys": {
+        "id": {"present":4,"kinds":["string"],"always":true},
+        "name": {"present":4,"kinds":["string"],"always":true},
+        "path": {"present":3,"kinds":["string"],"always":false},
+        "remoteUrl": {"present":3,"kinds":["string"],"always":false},
+        "branch": {"present":3,"kinds":["string"],"always":false},
+        "lastSyncAt": {"present":3,"kinds":["string","null"],"always":false},
+        "syncStatus": {"present":3,"kinds":["string"],"always":false},
+        "credentialsId": {"present":1,"kinds":["string"],"always":false}
+      }
+    },
+    "themeRepo.loadPreferences": {
+      "samples": 2,
+      "keys": {
+        "lightThemeId": {"present":2,"kinds":["string"],"always":true},
+        "darkThemeId": {"present":2,"kinds":["string"],"always":true}
+      }
+    },
+    "themeRepo.loadUserThemes": {
+      "samples": 4,
+      "keys": {
+        "id": {"present":4,"kinds":["string"],"always":true},
+        "name": {"present":3,"kinds":["string"],"always":false},
+        "mode": {"present":1,"kinds":["string"],"always":false},
+        "colors": {"present":1,"kinds":["object"],"always":false},
+        "nested": {"present":1,"kinds":["array"],"always":false}
+      }
+    },
+    "licenseRepo.load": {
+      "samples": 2,
+      "keys": {
+        "key": {"present":1,"kinds":["string"],"always":false},
+        "status": {"present":2,"kinds":["string"],"always":true},
+        "validatedAt": {"present":1,"kinds":["string"],"always":false},
+        "nested": {"present":1,"kinds":["object"],"always":false}
+      }
+    },
+    "onboardingRepo.load": {
+      "samples": 2,
+      "keys": {
+        "key": {"present":1,"kinds":["string"],"always":false},
+        "status": {"present":2,"kinds":["string"],"always":true},
+        "validatedAt": {"present":1,"kinds":["string"],"always":false},
+        "nested": {"present":1,"kinds":["object"],"always":false}
+      }
+    },
+    "tutorialRepo.loadAll": {
+      "samples": 4,
+      "keys": {
+        "lessonId": {"present":4,"kinds":["string"],"always":true},
+        "challengeId": {"present":4,"kinds":["string"],"always":true},
+        "state": {"present":4,"kinds":["null","string"],"always":true}
+      }
+    },
+    "importStateRepo.load": {
+      "samples": 3,
+      "keys": {
+        "hasOfferedImport": {"present":3,"kinds":["boolean"],"always":true},
+        "lastCheckTimestamp": {"present":3,"kinds":["null","string"],"always":true}
+      }
+    },
+    "dashboardsRepo.loadByProject": {
+      "samples": 7,
+      "keys": {
+        "id": {"present":7,"kinds":["string"],"always":true},
+        "projectId": {"present":7,"kinds":["string"],"always":true},
+        "name": {"present":7,"kinds":["string"],"always":true},
+        "viewport": {"present":7,"kinds":["string"],"always":true},
+        "widgets": {"present":7,"kinds":["string"],"always":true},
+        "dateFilter": {"present":7,"kinds":["string","null"],"always":true},
+        "starred": {"present":7,"kinds":["boolean"],"always":true},
+        "shared": {"present":7,"kinds":["boolean"],"always":true},
+        "description": {"present":1,"kinds":["string"],"always":false},
+        "createdAt": {"present":7,"kinds":["string"],"always":true},
+        "updatedAt": {"present":7,"kinds":["string"],"always":true}
+      }
+    },
+    "dashboardVersionsRepo.loadByDashboard": {
+      "samples": 7,
+      "keys": {
+        "id": {"present":7,"kinds":["string"],"always":true},
+        "dashboardId": {"present":7,"kinds":["string"],"always":true},
+        "version": {"present":7,"kinds":["number"],"always":true},
+        "snapshot": {"present":7,"kinds":["string"],"always":true},
+        "createdAt": {"present":7,"kinds":["string"],"always":true}
+      }
+    },
+    "dashboardVersionsRepo.loadByProject": {
+      "samples": 3,
+      "keys": {
+        "id": {"present":3,"kinds":["string"],"always":true},
+        "dashboardId": {"present":3,"kinds":["string"],"always":true},
+        "version": {"present":3,"kinds":["number"],"always":true},
+        "snapshot": {"present":3,"kinds":["string"],"always":true},
+        "createdAt": {"present":3,"kinds":["string"],"always":true}
+      }
+    },
+    "aiChatsRepo.loadByConnection": {
+      "samples": 4,
+      "keys": {
+        "id": {"present":4,"kinds":["string"],"always":true},
+        "connectionId": {"present":4,"kinds":["string"],"always":true},
+        "title": {"present":4,"kinds":["string"],"always":true},
+        "createdAt": {"present":4,"kinds":["string"],"always":true},
+        "updatedAt": {"present":4,"kinds":["string"],"always":true}
+      }
+    },
+    "aiChatsRepo.loadMessages": {
+      "samples": 6,
+      "keys": {
+        "id": {"present":6,"kinds":["string"],"always":true},
+        "chatId": {"present":6,"kinds":["string"],"always":true},
+        "role": {"present":6,"kinds":["string"],"always":true},
+        "content": {"present":6,"kinds":["string"],"always":true},
+        "timestamp": {"present":6,"kinds":["string"],"always":true},
+        "query": {"present":1,"kinds":["string"],"always":false},
+        "dashboardId": {"present":1,"kinds":["string"],"always":false}
+      }
+    },
+    "vaultStateRepo.load": {
+      "samples": 2,
+      "keys": {
+        "salt": {"present":2,"kinds":["string"],"always":true},
+        "kdfParams": {"present":2,"kinds":["object"],"always":true},
+        "verifier": {"present":2,"kinds":["string"],"always":true},
+        "verifierNonce": {"present":2,"kinds":["string"],"always":true},
+        "createdAt": {"present":2,"kinds":["string"],"always":true}
+      }
+    },
+    "userCredentialsRepo.load": {
+      "samples": 4,
+      "keys": {
+        "scope": {"present":4,"kinds":["string"],"always":true},
+        "key": {"present":4,"kinds":["string"],"always":true},
+        "nonce": {"present":4,"kinds":["string"],"always":true},
+        "ciphertext": {"present":4,"kinds":["string"],"always":true},
+        "updatedAt": {"present":4,"kinds":["string"],"always":true}
+      }
+    }
+  }
+}

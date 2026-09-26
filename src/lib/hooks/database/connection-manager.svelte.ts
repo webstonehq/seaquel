@@ -117,7 +117,8 @@ export class ConnectionManager {
             sslMode: persisted.sslMode,
             connectionString: persisted.connectionString,
             lastConnected: persisted.lastConnected ? new Date(persisted.lastConnected) : undefined,
-            sshTunnel: persisted.sshTunnel,
+            // A stored JSON `null` loads as `null`.
+            sshTunnel: persisted.sshTunnel ?? undefined,
             savePassword: persisted.savePassword,
             saveSshPassword: persisted.saveSshPassword,
             saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
@@ -675,7 +676,8 @@ export class ConnectionManager {
    */
   async addDemoConnection(providerConnectionId: string): Promise<string> {
     const connectionId = "demo-connection";
-    const projectId = this.state.activeProjectId || DEFAULT_PROJECT_ID;
+    const persisted = this.state.connections.find((c) => c.id === connectionId);
+    const projectId = persisted?.projectId ?? (this.state.activeProjectId || DEFAULT_PROJECT_ID);
 
     const newConnection: DatabaseConnection = {
       id: connectionId,
@@ -693,17 +695,27 @@ export class ConnectionManager {
     };
 
     // Check if connection already exists (from persisted storage) and update it,
-    // otherwise add new connection
-    const existingIndex = this.state.connections.findIndex((c) => c.id === connectionId);
-    if (existingIndex >= 0) {
-      // Update existing connection with providerConnectionId
-      this.state.connections = this.state.connections.map((c) =>
-        c.id === connectionId ? newConnection : c,
-      );
-    } else {
-      // Add new connection
-      this.state.connections = [...this.state.connections, newConnection];
-    }
+    // otherwise add new connection. A persisted row keeps the user's edits
+    // (labels, AI model) and its project.
+    const existing = persisted;
+    const connection: DatabaseConnection = existing
+      ? {
+          ...newConnection,
+          labelIds: existing.labelIds,
+          activeAIProviderId: existing.activeAIProviderId,
+          activeAIModel: existing.activeAIModel,
+          aiShareSchema: existing.aiShareSchema,
+          aiShareData: existing.aiShareData,
+        }
+      : newConnection;
+    this.state.connections = existing
+      ? this.state.connections.map((c) => (c.id === connectionId ? connection : c))
+      : [...this.state.connections, connection];
+
+    // Save the row (an upsert, so every load is safe): history, AI chats and
+    // the other rows that reference this connection need it, now that the
+    // demo's foreign keys hold.
+    await this.persistence.persistConnection(connection);
 
     this.stateRestoration.initializeConnectionMaps(connectionId);
     this.appendToOrder(projectId, connectionId);

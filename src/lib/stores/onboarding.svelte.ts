@@ -1,4 +1,5 @@
-import { getDatabase, onboardingRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
+import { skipUnloadedSave } from "$lib/storage/load-guard";
 
 export type UserBackground = "none" | "datagrip" | "dbeaver";
 
@@ -19,14 +20,17 @@ class OnboardingStore {
   dismissedHints = $state<string[]>([]);
   learnEnabled = $state(true);
 
+  /**
+   * True once the stored state was read. Saving writes the whole record, so
+   * until then a save would reset the wizard, hints and Learn setting.
+   */
   private initialized = false;
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
     try {
-      const db = await getDatabase();
-      const persisted = (await onboardingRepo.load(db)) as PersistedOnboardingState | null;
+      const persisted = (await getStorage().onboarding.load()) as PersistedOnboardingState | null;
 
       if (persisted) {
         this.isFirstRun = persisted.isFirstRun;
@@ -39,8 +43,8 @@ class OnboardingStore {
 
       this.initialized = true;
     } catch (error) {
+      // Stay uninitialized: a later `initialize` retries, and saves are off.
       console.error("Failed to load onboarding state:", error);
-      this.initialized = true;
     }
   }
 
@@ -77,8 +81,11 @@ class OnboardingStore {
   }
 
   private async persist(): Promise<void> {
+    if (!this.initialized) {
+      skipUnloadedSave("onboarding state");
+      return;
+    }
     try {
-      const db = await getDatabase();
       const state: PersistedOnboardingState = {
         isFirstRun: this.isFirstRun,
         userBackground: this.userBackground,
@@ -87,7 +94,7 @@ class OnboardingStore {
         dismissedHints: this.dismissedHints,
         learnEnabled: this.learnEnabled,
       };
-      await onboardingRepo.save(db, state);
+      await getStorage().onboarding.save(state);
     } catch (error) {
       console.error("Failed to persist onboarding state:", error);
     }

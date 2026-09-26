@@ -1,17 +1,5 @@
 import type { SqliteDatabase } from "../sqlite-types";
-
-/**
- * Singleton row that tells the browser everything it needs to re-derive the
- * Vault Key from a passphrase. `salt` and `verifier*` are base64-encoded so
- * they can travel unchanged through the JSON `/api/storage/*` pipe.
- */
-export interface PersistedVaultState {
-  salt: string; // base64
-  kdfParams: { version: number; t: number; m: number; p: number };
-  verifier: string; // base64 ciphertext (verifier plaintext under VK)
-  verifierNonce: string; // base64
-  createdAt: string;
-}
+import type { PersistedVaultState } from "../client";
 
 interface Row {
   salt: string;

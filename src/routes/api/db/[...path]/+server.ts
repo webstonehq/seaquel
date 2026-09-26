@@ -27,11 +27,19 @@ const RUST_BASE_URL = process.env.SEAQUEL_RUST_URL ?? "http://127.0.0.1:8788";
 // Paths whose request body carries a connection_id we must validate + strip.
 const VALIDATED_PATHS = new Set(["disconnect", "query", "execute", "transaction", "engine"]);
 
+// Every path this proxy forwards, matched exactly. SvelteKit decodes `%2F`
+// in `params.path` and `fetch` normalises `..`, so without this
+// `/api/db/x%2F..%2Fquery` would reach Rust's `/api/db/query` without the
+// connection_id check, and `x%2F..%2F..%2F..%2Frpc` would reach `/rpc`.
+// `stream` isn't here: it's a WebSocket, which server.js proxies.
+const FORWARDED_PATHS = new Set(["connect", "test", ...VALIDATED_PATHS]);
+
 const forward: RequestHandler = async ({ locals, params, request, url }) => {
   if (!locals.user) throw error(401, "unauthorized");
 
   const userId = locals.user.id;
   const upstreamPath = params.path ?? "";
+  if (!FORWARDED_PATHS.has(upstreamPath)) throw error(404, "not found");
   const upstreamUrl = `${RUST_BASE_URL}/api/db/${upstreamPath}${url.search}`;
   const method = request.method;
 

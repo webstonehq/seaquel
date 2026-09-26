@@ -4,17 +4,21 @@
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte.js";
-	import { getDatabase } from "$lib/storage/db";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
 	import { page } from "$app/state";
+	import { errorToast } from "$lib/utils/toast";
 
 	const db = useDatabase();
 
 	async function handleAIToggle(checked: boolean) {
-		const database = await getDatabase();
-		await aiSettingsStore.setEnabled(database, checked);
+		try {
+			await aiSettingsStore.setEnabled(checked);
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+			return;
+		}
 		if (!checked && db.state.isAIOpen) {
 			db.ui.toggleAI();
 		}

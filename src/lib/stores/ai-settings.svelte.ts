@@ -1,8 +1,8 @@
-import type { SqliteDatabase } from "$lib/storage";
-import { appStateRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import { getKeyringService } from "$lib/services/keyring";
 import { DEFAULT_AI_SETTINGS, type AISettings, type AIProvider } from "$lib/types/ai";
 import { log } from "$lib/utils/logger";
+import { NotLoadedError } from "$lib/storage/load-guard";
 
 const ANTHROPIC_API_VERSION = "2023-06-01";
 
@@ -10,13 +10,26 @@ const AI_SETTINGS_KEY = "aiSettings";
 
 class AISettingsStore {
   settings = $state<AISettings>({ ...DEFAULT_AI_SETTINGS });
+  /**
+   * True once the stored settings were read. Saving writes the whole record,
+   * so until then a save would replace the stored providers with defaults.
+   */
+  private loaded = false;
 
   getProvider(id: string): AIProvider | null {
     return this.settings.providers.find((p) => p.id === id) ?? null;
   }
 
-  async initialize(db: SqliteDatabase): Promise<void> {
-    const raw = await appStateRepo.get(db, AI_SETTINGS_KEY);
+  /** Loads the stored settings. A failed read leaves the store unloaded. */
+  async initialize(): Promise<void> {
+    let raw: string | null;
+    try {
+      raw = await getStorage().appState.get(AI_SETTINGS_KEY);
+    } catch (err) {
+      void log.error("[AI] Failed to load AI settings; saving is off until they load:", err);
+      return;
+    }
+    this.loaded = true;
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -38,22 +51,34 @@ class AISettingsStore {
     }
   }
 
-  private async persistSettings(db: SqliteDatabase, settings: AISettings): Promise<void> {
-    this.settings = settings;
-    await appStateRepo.set(db, AI_SETTINGS_KEY, JSON.stringify(settings));
+  /**
+   * Before a change: the settings must have loaded, or load now. Throws
+   * `NotLoadedError` if they can't, so the change isn't saved over them.
+   */
+  private async ensureLoaded(): Promise<void> {
+    if (!this.loaded) await this.initialize();
+    if (!this.loaded) throw new NotLoadedError("AI settings");
   }
 
-  async addProvider(db: SqliteDatabase, config: AIProvider, apiKey?: string): Promise<void> {
+  private async persistSettings(settings: AISettings): Promise<void> {
+    if (!this.loaded) throw new NotLoadedError("AI settings");
+    this.settings = settings;
+    await getStorage().appState.set(AI_SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  async addProvider(config: AIProvider, apiKey?: string): Promise<void> {
+    await this.ensureLoaded();
     const providers = [...this.settings.providers, config];
-    await this.persistSettings(db, { ...this.settings, providers });
+    await this.persistSettings({ ...this.settings, providers });
     if (apiKey) {
       await getKeyringService().setAIApiKeyForProvider(config.id, apiKey);
     }
   }
 
-  async updateProvider(db: SqliteDatabase, config: AIProvider, apiKey?: string): Promise<void> {
+  async updateProvider(config: AIProvider, apiKey?: string): Promise<void> {
+    await this.ensureLoaded();
     const providers = this.settings.providers.map((p) => (p.id === config.id ? config : p));
-    await this.persistSettings(db, { ...this.settings, providers });
+    await this.persistSettings({ ...this.settings, providers });
     if (apiKey !== undefined) {
       const keyring = getKeyringService();
       if (apiKey === "") {
@@ -64,21 +89,23 @@ class AISettingsStore {
     }
   }
 
-  async deleteProvider(db: SqliteDatabase, id: string): Promise<void> {
+  async deleteProvider(id: string): Promise<void> {
+    await this.ensureLoaded();
     const providers = this.settings.providers.filter((p) => p.id !== id);
-    await this.persistSettings(db, { ...this.settings, providers });
+    await this.persistSettings({ ...this.settings, providers });
     await getKeyringService().deleteAIApiKeyForProvider(id);
   }
 
-  async setEnabled(db: SqliteDatabase, enabled: boolean): Promise<void> {
-    await this.persistSettings(db, { ...this.settings, enabled });
+  async setEnabled(enabled: boolean): Promise<void> {
+    await this.ensureLoaded();
+    await this.persistSettings({ ...this.settings, enabled });
   }
 
   async savePrivacySettings(
-    db: SqliteDatabase,
     patch: Pick<AISettings, "shareSchemaGlobally" | "shareDataGlobally">,
   ): Promise<void> {
-    await this.persistSettings(db, { ...this.settings, ...patch });
+    await this.ensureLoaded();
+    await this.persistSettings({ ...this.settings, ...patch });
   }
 
   /**

@@ -1,12 +1,20 @@
 use arboard::Clipboard;
 use image::ImageReader;
 use log::{debug, error, info};
+use seaquel_core::secrets::{KeychainStore, SecretStore};
+use seaquel_core::storage::{LEGACY_STORAGE, STORAGE_CORRUPT};
+use seaquel_core::{Core, CoreError, Workspace, WorkspaceSpec};
+use seaquel_rpc::{Request, Response, RpcError};
+use std::borrow::Cow;
 use std::fs;
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::ipc::InvokeBody;
 use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
 use tauri_plugin_updater::UpdaterExt;
+use tokio::sync::OnceCell;
 
 mod db;
 mod git;
@@ -41,10 +49,115 @@ struct PendingUpdate {
     bytes: Mutex<Option<Vec<u8>>>,
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+/// The desktop's workspace. Storage opens on the first `core_call` that
+/// needs it, not at startup:
+///
+/// - a failure that retrying can't fix (`LEGACY_STORAGE`, `STORAGE_CORRUPT`,
+///   or `NO_DATA_DIR`) is kept, and every storage call answers with it so the
+///   UI can show its blocking error screen;
+/// - any other failure is returned, and the next storage call tries again.
+///
+/// Secret calls use the keychain alone, so they work whatever storage does.
+struct DesktopWorkspace {
+    /// `seaquel_storage::data_dir(identifier)`, or why there is none.
+    data_dir: Result<PathBuf, RpcError>,
+    secrets: Arc<dyn SecretStore>,
+    /// Set once storage opens, or once it fails for good.
+    workspace: OnceCell<Result<Arc<Workspace>, RpcError>>,
+}
+
+impl DesktopWorkspace {
+    fn new(data_dir: Result<PathBuf, RpcError>, secrets: Arc<dyn SecretStore>) -> Self {
+        Self {
+            data_dir,
+            secrets,
+            workspace: OnceCell::new(),
+        }
+    }
+
+    /// The open workspace, opening it if this is the first call to need it
+    /// or the last attempt failed in a way worth retrying.
+    async fn workspace(&self, core: &Core) -> Result<Arc<Workspace>, RpcError> {
+        let data_dir = self.data_dir.as_ref().map_err(Clone::clone)?;
+        let opened = self
+            .workspace
+            .get_or_try_init(|| async {
+                let spec = WorkspaceSpec::new(data_dir).with_secrets(self.secrets.clone());
+                match core.open_workspace(spec).await {
+                    Ok(ws) => {
+                        info!(activity = "workspace.open", data_dir = data_dir.display().to_string().as_str(); "Workspace open");
+                        Ok(Ok(ws))
+                    }
+                    Err(e) if e.code == LEGACY_STORAGE || e.code == STORAGE_CORRUPT => {
+                        error!(activity = "workspace.open", code = e.code.as_str(); "Workspace can't be opened: {}", e.message);
+                        Ok(Err(RpcError::from(e)))
+                    }
+                    Err(e) => {
+                        error!(activity = "workspace.open", code = e.code.as_str(); "Workspace failed to open, will retry: {}", e.message);
+                        Err(RpcError::from(e))
+                    }
+                }
+            })
+            .await?;
+        opened.clone()
+    }
+
+    async fn call(&self, core: &Core, req: Request) -> Result<Response, RpcError> {
+        match req {
+            Request::Secret(r) => seaquel_rpc::dispatch_secret(Some(&*self.secrets), r)
+                .await
+                .map(Response::Secret),
+            req => {
+                let ws = self.workspace(core).await?;
+                seaquel_rpc::dispatch_workspace(core, &ws, req).await
+            }
+        }
+    }
+}
+
+/// The request's JSON bytes. The frontend sends them as a `Uint8Array`
+/// (`invoke("core_call", bytes)`), which reaches Rust untouched as
+/// `InvokeBody::Raw` over the `ipc://` protocol. When the webview blocks that
+/// protocol, Tauri falls back to `postMessage`, where the same `Uint8Array`
+/// arrives as a JSON array of numbers; that is accepted too. A plain object
+/// is refused: Tauri would already have parsed it into a
+/// `serde_json::Value`, which sorts the keys inside stored JSON.
+fn core_call_body(body: &InvokeBody) -> Result<Cow<'_, [u8]>, RpcError> {
+    match body {
+        InvokeBody::Raw(bytes) => Ok(Cow::Borrowed(bytes)),
+        InvokeBody::Json(serde_json::Value::Array(items)) => items
+            .iter()
+            .map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .map(Cow::Owned)
+            .ok_or_else(|| {
+                RpcError::invalid_argument("core_call: the body array must hold bytes (0-255)")
+            }),
+        InvokeBody::Json(_) => Err(RpcError::invalid_argument(
+            "core_call takes the request's UTF-8 JSON as bytes (a Uint8Array), not as an \
+             object: parsing an object would reorder the keys inside stored JSON",
+        )),
+    }
+}
+
+/// The workspace RPC (`seaquel_rpc::Request`). The body is the request's
+/// JSON as bytes; see [`core_call_body`].
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust! Yep", name)
+async fn core_call(
+    request: tauri::ipc::Request<'_>,
+    core: State<'_, Core>,
+    workspace: State<'_, DesktopWorkspace>,
+) -> Result<Response, RpcError> {
+    handle_core_call(&core, &workspace, request.body()).await
+}
+
+async fn handle_core_call(
+    core: &Core,
+    workspace: &DesktopWorkspace,
+    body: &InvokeBody,
+) -> Result<Response, RpcError> {
+    let req = seaquel_rpc::parse_request(&core_call_body(body)?)?;
+    workspace.call(core, req).await
 }
 
 #[tauri::command]
@@ -227,30 +340,23 @@ fn clear_log_file(app: tauri::AppHandle) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// The data dir the UI shows: `SEAQUEL_DATA_DIR`, or the platform's data dir
+/// plus this build's identifier (`seaquel_storage::data_dir`). Created if
+/// it's missing.
 #[tauri::command]
 fn get_data_dir(app: tauri::AppHandle) -> Result<String, CommandError> {
-    if let Ok(custom_dir) = std::env::var("SEAQUEL_DATA_DIR") {
-        let path = std::path::PathBuf::from(&custom_dir);
-        if !path.exists() {
-            std::fs::create_dir_all(&path).map_err(|e| CommandError {
-                message: format!("Failed to create data dir: {}", e),
-                code: "DIR_ERROR".to_string(),
-            })?;
-        }
-        Ok(custom_dir)
-    } else {
-        let path = app.path().app_data_dir().map_err(|e| CommandError {
-            message: format!("Failed to get app data dir: {}", e),
+    let path =
+        seaquel_core::storage::data_dir(&app.config().identifier).map_err(|e| CommandError {
+            message: e.to_string(),
+            code: e.code().to_string(),
+        })?;
+    if !path.exists() {
+        std::fs::create_dir_all(&path).map_err(|e| CommandError {
+            message: format!("Failed to create data dir: {}", e),
             code: "DIR_ERROR".to_string(),
         })?;
-        if !path.exists() {
-            std::fs::create_dir_all(&path).map_err(|e| CommandError {
-                message: format!("Failed to create data dir: {}", e),
-                code: "DIR_ERROR".to_string(),
-            })?;
-        }
-        Ok(path.to_string_lossy().to_string())
     }
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -426,26 +532,27 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     info!(activity = "app.startup"; "Seaquel starting");
+    let logger = tauri_plugin_log::Builder::new()
+        .format(logging::make_logfmt_formatter(TimezoneStrategy::UseLocal))
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir {
+                file_name: Some("seaquel".into()),
+            }),
+            Target::new(TargetKind::Webview)
+                .filter(|metadata| metadata.level() <= log::Level::Info),
+        ])
+        .level(log::LevelFilter::Info)
+        .level_for("seaquel_lib", log::LevelFilter::Trace)
+        // DB activity (queries, streams, cancels) is logged by the core crate.
+        .level_for("seaquel_core", log::LevelFilter::Trace)
+        .max_file_size(5_000_000)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll);
+    // Workspace calls log their method names at debug; dev builds show them.
+    #[cfg(debug_assertions)]
+    let logger = logger.level_for("seaquel_rpc", log::LevelFilter::Debug);
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .format(logging::make_logfmt_formatter(TimezoneStrategy::UseLocal))
-                .targets([
-                    Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::LogDir {
-                        file_name: Some("seaquel".into()),
-                    }),
-                    Target::new(TargetKind::Webview)
-                        .filter(|metadata| metadata.level() <= log::Level::Info),
-                ])
-                .level(log::LevelFilter::Info)
-                .level_for("seaquel_lib", log::LevelFilter::Trace)
-                // DB activity (queries, streams, cancels) is logged by the core crate.
-                .level_for("seaquel_core", log::LevelFilter::Trace)
-                .max_file_size(5_000_000)
-                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
-                .build(),
-        )
+        .plugin(logger.build())
         .plugin(tauri_plugin_os::init())
         .manage(TunnelManager::new())
         .manage(seaquel_core::with_default_plugins().build())
@@ -454,14 +561,12 @@ pub fn run() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
-            greet,
+            core_call,
             copy_image_to_clipboard,
             open_path,
             get_data_dir,
@@ -569,6 +674,13 @@ pub fn run() {
                 }
             });
 
+            // Before any command can run, so `core_call` always finds it.
+            // Storage itself opens on the first call that needs it.
+            let data_dir = seaquel_core::storage::data_dir(&app.config().identifier)
+                .map_err(|e| RpcError::from(CoreError::from(e)));
+            let keychain = KeychainStore::new(seaquel_core::secrets::DESKTOP_SERVICE);
+            app.manage(DesktopWorkspace::new(data_dir, Arc::new(keychain)));
+
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = check_for_update(handle).await;
@@ -622,4 +734,135 @@ async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BODY: &str = r#"{"method":"storage","params":{"method":"onboardingSave","params":{"data":{"z":1e+21,"a":1}}}}"#;
+
+    #[test]
+    fn core_call_takes_raw_bytes_as_they_are() {
+        let body = InvokeBody::Raw(BODY.as_bytes().to_vec());
+        assert_eq!(&*core_call_body(&body).unwrap(), BODY.as_bytes());
+    }
+
+    #[test]
+    fn core_call_takes_the_post_message_byte_array() {
+        let numbers = BODY.bytes().map(serde_json::Value::from).collect();
+        let body = InvokeBody::Json(serde_json::Value::Array(numbers));
+        assert_eq!(&*core_call_body(&body).unwrap(), BODY.as_bytes());
+
+        let body = InvokeBody::Json(serde_json::json!([1, 256]));
+        assert_eq!(core_call_body(&body).unwrap_err().code, "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn core_call_refuses_a_parsed_object() {
+        let body = InvokeBody::Json(serde_json::from_str(BODY).unwrap());
+        let err = core_call_body(&body).unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT");
+        assert!(err.message.contains("Uint8Array"), "{}", err.message);
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+    use seaquel_core::secrets::MemoryStore;
+
+    fn body(json: &str) -> InvokeBody {
+        InvokeBody::Raw(json.as_bytes().to_vec())
+    }
+
+    const LOAD: &str = r#"{"method":"storage","params":{"method":"projectsLoadAll"}}"#;
+    const SET: &str =
+        r#"{"method":"secret","params":{"method":"set","params":{"key":"db:c1","value":"pw"}}}"#;
+    const GET: &str = r#"{"method":"secret","params":{"method":"get","params":{"key":"db:c1"}}}"#;
+
+    fn call(core: &Core, ws: &DesktopWorkspace, json: &str) -> Result<serde_json::Value, RpcError> {
+        tauri::async_runtime::block_on(handle_core_call(core, ws, &body(json)))
+            .map(|res| serde_json::to_value(res).unwrap())
+    }
+
+    fn desktop(dir: PathBuf) -> DesktopWorkspace {
+        DesktopWorkspace::new(Ok(dir), Arc::new(MemoryStore::new()))
+    }
+
+    fn secrets_still_work(core: &Core, ws: &DesktopWorkspace) {
+        call(core, ws, SET).unwrap();
+        assert_eq!(call(core, ws, GET).unwrap()["result"]["result"], "pw");
+    }
+
+    #[test]
+    fn storage_opens_on_the_first_call() {
+        let core = Core::builder().build();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        assert!(!tmp.path().join("data").exists());
+        let res = call(&core, &ws, LOAD).unwrap();
+        assert_eq!(res["result"]["result"], serde_json::json!([]));
+        assert!(tmp.path().join("data/seaquel.db").is_file());
+        secrets_still_work(&core, &ws);
+    }
+
+    #[test]
+    fn legacy_storage_is_remembered_and_secrets_still_work() {
+        let core = Core::builder().build();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("projects.json"), "{}").unwrap();
+        let ws = desktop(tmp.path().to_path_buf());
+
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "LEGACY_STORAGE");
+        secrets_still_work(&core, &ws);
+        // Fixing the dir doesn't help until restart: the answer is kept.
+        std::fs::remove_file(tmp.path().join("projects.json")).unwrap();
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "LEGACY_STORAGE");
+        assert!(!tmp.path().join("seaquel.db").exists());
+    }
+
+    #[test]
+    fn corrupt_storage_is_remembered() {
+        let core = Core::builder().build();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("seaquel.db"), "not sqlite").unwrap();
+        let ws = desktop(tmp.path().to_path_buf());
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "STORAGE_CORRUPT");
+        secrets_still_work(&core, &ws);
+        std::fs::remove_file(tmp.path().join("seaquel.db")).unwrap();
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "STORAGE_CORRUPT");
+    }
+
+    #[test]
+    fn a_transient_failure_is_retried() {
+        let core = Core::builder().build();
+        let tmp = tempfile::tempdir().unwrap();
+        // A file where the data dir's parent should be: the open fails with
+        // an I/O error.
+        let blocker = tmp.path().join("blocker");
+        std::fs::write(&blocker, "").unwrap();
+        let ws = desktop(blocker.join("data"));
+
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "STORAGE_ERROR");
+        secrets_still_work(&core, &ws);
+        std::fs::remove_file(&blocker).unwrap();
+        let res = call(&core, &ws, LOAD).unwrap();
+        assert_eq!(res["result"]["result"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn no_data_dir_fails_storage_calls_only() {
+        let core = Core::builder().build();
+        let ws = DesktopWorkspace::new(
+            Err(RpcError::from(CoreError::from(
+                seaquel_core::storage::StorageError::NoDataDir,
+            ))),
+            Arc::new(MemoryStore::new()),
+        );
+        let err = call(&core, &ws, LOAD).unwrap_err();
+        assert_eq!(err.code, "NO_DATA_DIR");
+        assert!(err.message.contains("SEAQUEL_DATA_DIR"), "{}", err.message);
+        secrets_still_work(&core, &ws);
+    }
 }

@@ -1,0 +1,1145 @@
+{
+  "repo": "connectionsRepo",
+  "source": "src/lib/storage/repos/connections-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "connections/save-full-and-load",
+      "description": "Every optional column set: SSH tunnel JSON, lastConnected Date, all flags true, AI settings, labels, unicode.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Prod 🐘 Ünïcødé",
+              "type": "mysql",
+              "host": "db.example.com",
+              "port": 3306,
+              "databaseName": "données",
+              "username": "админ",
+              "projectId": "p1",
+              "labelIds": ["lbl-prod","lbl-2"],
+              "sslMode": "require",
+              "connectionString": "mysql://админ@db.example.com:3306/données",
+              "lastConnected": {"$date":"2026-02-03T04:05:06.789Z"},
+              "sshTunnel": {
+                "enabled": true,
+                "host": "bastion",
+                "port": 22,
+                "username": "ubuntu",
+                "authMethod": "key",
+                "keyPath": "~/.ssh/id_ed25519"
+              },
+              "savePassword": true,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": true,
+              "isLocalOnly": true,
+              "sharedConnectionId": "shared-1",
+              "aiShareSchema": true,
+              "aiShareData": true,
+              "activeAIProviderId": "anthropic",
+              "activeAIModel": "claude-x"
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c1",
+              "projectId": "p1",
+              "name": "Prod 🐘 Ünïcødé",
+              "type": "mysql",
+              "host": "db.example.com",
+              "port": 3306,
+              "databaseName": "données",
+              "username": "админ",
+              "sslMode": "require",
+              "connectionString": "mysql://админ@db.example.com:3306/données",
+              "lastConnected": {"$date":"2026-02-03T04:05:06.789Z"},
+              "sshTunnel": {
+                "enabled": true,
+                "host": "bastion",
+                "port": 22,
+                "username": "ubuntu",
+                "authMethod": "key",
+                "keyPath": "~/.ssh/id_ed25519"
+              },
+              "savePassword": true,
+              "saveSshPassword": true,
+              "saveSshKeyPassphrase": true,
+              "isLocalOnly": true,
+              "sharedConnectionId": "shared-1",
+              "aiShareSchema": true,
+              "aiShareData": true,
+              "activeAIProviderId": "anthropic",
+              "activeAIModel": "claude-x",
+              "labelIds": ["lbl-2","lbl-prod"]
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c1",
+              "p1",
+              "Prod 🐘 Ünïcødé",
+              "mysql",
+              "db.example.com",
+              3306,
+              "données",
+              "админ",
+              "require",
+              "mysql://админ@db.example.com:3306/données",
+              "2026-02-03T04:05:06.789Z",
+              "{\"enabled\":true,\"host\":\"bastion\",\"port\":22,\"username\":\"ubuntu\",\"authMethod\":\"key\",\"keyPath\":\"~/.ssh/id_ed25519\"}",
+              1,
+              1,
+              1,
+              1,
+              "shared-1",
+              1,
+              1,
+              "anthropic",
+              "claude-x"
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "text",
+              "integer",
+              "integer",
+              "text",
+              "text"
+            ]
+          ]
+        },
+        "connection_labels": {
+          "columns": ["connection_id","label_id"],
+          "rows": [["c1","lbl-2"],["c1","lbl-prod"]],
+          "types": [["text","text"],["text","text"]]
+        }
+      }
+    },
+    {
+      "name": "connections/save-minimal-and-load",
+      "description": "Only required fields: every optional column stored as NULL or 0, and the flags load as false (save*) or absent (isLocalOnly, aiShare*).",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "sqlite",
+              "host": "",
+              "port": 0,
+              "databaseName": "/tmp/a.db",
+              "username": "",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c1",
+              "projectId": "p1",
+              "name": "Connection c1",
+              "type": "sqlite",
+              "host": "",
+              "port": 0,
+              "databaseName": "/tmp/a.db",
+              "username": "",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "labelIds": []
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c1",
+              "p1",
+              "Connection c1",
+              "sqlite",
+              "",
+              0,
+              "/tmp/a.db",
+              "",
+              null,
+              null,
+              null,
+              null,
+              0,
+              0,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "null",
+              "null",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "null",
+              "null",
+              "null",
+              "null"
+            ]
+          ]
+        },
+        "connection_labels": {"columns":["connection_id","label_id"],"rows":[],"types":[]}
+      }
+    },
+    {
+      "name": "connections/save-false-flags",
+      "description": "Flags explicitly false: save* load false, isLocalOnly false loads absent, aiShareSchema false loads false (0), aiShareData null loads absent.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": [],
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "isLocalOnly": false,
+              "aiShareSchema": false,
+              "aiShareData": null,
+              "sshTunnel": null,
+              "lastConnected": null,
+              "sslMode": null
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c1",
+              "projectId": "p1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "aiShareSchema": false,
+              "labelIds": []
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c1",
+              "p1",
+              "Connection c1",
+              "postgres",
+              "localhost",
+              5432,
+              "app",
+              "me",
+              null,
+              null,
+              null,
+              null,
+              0,
+              0,
+              0,
+              0,
+              null,
+              0,
+              null,
+              null,
+              null
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "null",
+              "null",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "integer",
+              "null",
+              "null",
+              "null"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "connections/save-twice-upserts-and-replaces-labels",
+      "description": "A second save updates the row (ON CONFLICT DO UPDATE) and replaces its labels.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": ["a","b"],
+              "sslMode": "disable"
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Renamed",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 6543,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": ["c"]
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c1",
+              "projectId": "p1",
+              "name": "Renamed",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 6543,
+              "databaseName": "app",
+              "username": "me",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "labelIds": ["c"]
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c1",
+              "p1",
+              "Renamed",
+              "postgres",
+              "localhost",
+              6543,
+              "app",
+              "me",
+              null,
+              null,
+              null,
+              null,
+              0,
+              0,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "null",
+              "null",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "null",
+              "null",
+              "null",
+              "null"
+            ]
+          ]
+        },
+        "connection_labels": {"columns":["connection_id","label_id"],"rows":[["c1","c"]],"types":[["text","text"]]}
+      }
+    },
+    {
+      "name": "connections/load-stored-quirks",
+      "description": "Rows as older builds or hand edits left them: bad and empty ssh_tunnel JSON, a non-ISO last_connected (read as UTC here: TZ=UTC), flag values other than 0/1.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "sql": "INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected, save_password, is_local_only, ai_share_schema, ai_share_data)\n       VALUES ('c-bad', 'p1', 'Bad', 'postgres', 'h', 1, 'd', 'u', '{not json', '2024-01-02 03:04:05', 2, 2, 2, 0)",
+          "params": []
+        },
+        {
+          "sql": "INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected)\n       VALUES ('c-empty', 'p1', 'Empty', 'postgres', 'h', 1, 'd', 'u', '', 'not a date')",
+          "params": []
+        },
+        {
+          "sql": "INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected)\n       VALUES ('c-null-json', 'p1', 'NullJson', 'postgres', 'h', 1, 'd', 'u', 'null', '2024-06-01T00:00:00Z')",
+          "params": []
+        },
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c-bad",
+              "projectId": "p1",
+              "name": "Bad",
+              "type": "postgres",
+              "host": "h",
+              "port": 1,
+              "databaseName": "d",
+              "username": "u",
+              "lastConnected": {"$date":"2024-01-02T03:04:05.000Z"},
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "aiShareSchema": false,
+              "aiShareData": false,
+              "labelIds": []
+            },
+            {
+              "id": "c-empty",
+              "projectId": "p1",
+              "name": "Empty",
+              "type": "postgres",
+              "host": "h",
+              "port": 1,
+              "databaseName": "d",
+              "username": "u",
+              "lastConnected": {"$date":null},
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "labelIds": []
+            },
+            {
+              "id": "c-null-json",
+              "projectId": "p1",
+              "name": "NullJson",
+              "type": "postgres",
+              "host": "h",
+              "port": 1,
+              "databaseName": "d",
+              "username": "u",
+              "lastConnected": {"$date":"2024-06-01T00:00:00.000Z"},
+              "sshTunnel": null,
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "labelIds": []
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c-bad",
+              "p1",
+              "Bad",
+              "postgres",
+              "h",
+              1,
+              "d",
+              "u",
+              null,
+              null,
+              "2024-01-02 03:04:05",
+              "{not json",
+              2,
+              0,
+              0,
+              2,
+              null,
+              2,
+              0,
+              null,
+              null
+            ],
+            [
+              "c-empty",
+              "p1",
+              "Empty",
+              "postgres",
+              "h",
+              1,
+              "d",
+              "u",
+              null,
+              null,
+              "not a date",
+              "",
+              0,
+              0,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            [
+              "c-null-json",
+              "p1",
+              "NullJson",
+              "postgres",
+              "h",
+              1,
+              "d",
+              "u",
+              null,
+              null,
+              "2024-06-01T00:00:00Z",
+              "null",
+              0,
+              0,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "text",
+              "text",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "integer",
+              "integer",
+              "null",
+              "null"
+            ],
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "text",
+              "text",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "null",
+              "null",
+              "null",
+              "null"
+            ],
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "text",
+              "text",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "null",
+              "null",
+              "null",
+              "null"
+            ]
+          ]
+        }
+      },
+      "notes": "lastConnected loads as a JS Date: an unparseable string gives an Invalid Date, recorded as {\"$date\": null}; a valid one is re-serialised by toISOString (milliseconds and Z added)."
+    },
+    {
+      "name": "connections/remove-cascades",
+      "description": "Removing a connection deletes its labels, query history, AI chats and their messages. Other connections keep theirs.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": ["x"]
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c2",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": ["x"]
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "h1",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c2",
+            [
+              {
+                "id": "h2",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c2",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "aiChatsRepo.saveChat",
+          "args": [
+            {
+              "id": "chat1",
+              "connectionId": "c1",
+              "title": "T",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-02T03:04:05.000Z"
+            }
+          ]
+        },
+        {
+          "call": "aiChatsRepo.replaceAllMessages",
+          "args": [
+            "chat1",
+            [
+              {
+                "id": "m1",
+                "chatId": "chat1",
+                "role": "user",
+                "content": "x",
+                "timestamp": "2026-01-02T03:04:05.000Z"
+              }
+            ]
+          ]
+        },
+        {"call":"connectionsRepo.remove","args":["c1"]},
+        {
+          "call": "connectionsRepo.loadAll",
+          "args": [],
+          "result": [
+            {
+              "id": "c2",
+              "projectId": "p1",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "savePassword": false,
+              "saveSshPassword": false,
+              "saveSshKeyPassphrase": false,
+              "labelIds": ["x"]
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [
+            [
+              "c2",
+              "p1",
+              "Connection c2",
+              "postgres",
+              "localhost",
+              5432,
+              "app",
+              "me",
+              null,
+              null,
+              null,
+              null,
+              0,
+              0,
+              0,
+              0,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          ],
+          "types": [
+            [
+              "text",
+              "text",
+              "text",
+              "text",
+              "text",
+              "integer",
+              "text",
+              "text",
+              "null",
+              "null",
+              "null",
+              "null",
+              "integer",
+              "integer",
+              "integer",
+              "integer",
+              "null",
+              "null",
+              "null",
+              "null",
+              "null"
+            ]
+          ]
+        },
+        "connection_labels": {"columns":["connection_id","label_id"],"rows":[["c2","x"]],"types":[["text","text"]]},
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [["h2","c2","SELECT 1","2026-01-02T03:04:05.000Z",12,1,0,"[]","Local"]],
+          "types": [["text","text","text","text","real","integer","integer","text","text"]]
+        },
+        "ai_chats": {"columns":["id","connection_id","title","created_at","updated_at"],"rows":[],"types":[]},
+        "ai_messages": {
+          "columns": ["id","chat_id","role","content","timestamp","query","dashboard_id"],
+          "rows": [],
+          "types": []
+        }
+      }
+    },
+    {
+      "name": "connections/save-missing-project",
+      "description": "The project doesn't exist: the upsert fails on the foreign key and nothing is written.",
+      "steps": [
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "nope",
+              "labelIds": ["a"]
+            }
+          ],
+          "error": {"message":"FOREIGN KEY constraint failed","code":"SQLITE_CONSTRAINT_FOREIGNKEY"}
+        },
+        {"call":"connectionsRepo.loadAll","args":[],"result":[]}
+      ],
+      "rows": {
+        "connections": {
+          "columns": [
+            "id",
+            "project_id",
+            "name",
+            "type",
+            "host",
+            "port",
+            "database_name",
+            "username",
+            "ssl_mode",
+            "connection_string",
+            "last_connected",
+            "ssh_tunnel",
+            "save_password",
+            "save_ssh_password",
+            "save_ssh_key_passphrase",
+            "is_local_only",
+            "shared_connection_id",
+            "ai_share_schema",
+            "ai_share_data",
+            "active_ai_provider_id",
+            "active_ai_model"
+          ],
+          "rows": [],
+          "types": []
+        },
+        "connection_labels": {"columns":["connection_id","label_id"],"rows":[],"types":[]}
+      }
+    }
+  ]
+}

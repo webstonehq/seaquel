@@ -3,18 +3,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const storage = new Map<string, string | null>();
 let failLoad = false;
 
-vi.mock("$lib/storage", () => ({
-  getDatabase: vi.fn(async () => ({})),
-  appStateRepo: {
-    get: vi.fn(async (_db: unknown, key: string) => {
+vi.mock("$lib/storage", () => {
+  const appState = {
+    get: vi.fn(async (key: string) => {
       if (failLoad) throw new Error("db unavailable");
       return storage.get(key) ?? null;
     }),
-    set: vi.fn(async (_db: unknown, key: string, value: string | null) => {
+    set: vi.fn(async (key: string, value: string | null) => {
       storage.set(key, value);
     }),
-  },
-}));
+  };
+  return { getStorage: () => ({ appState }) };
+});
 
 const license = { status: "personal" };
 vi.mock("./license.svelte.js", () => ({ licenseStore: license }));

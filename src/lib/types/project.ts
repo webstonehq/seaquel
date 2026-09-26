@@ -108,10 +108,10 @@ export interface PersistedProjectState {
   statisticsTabs?: import("./persisted").PersistedStatisticsTab[];
   /** Workflow tabs */
   workflowTabs?: import("./persisted").PersistedWorkflowTab[];
-  /** Ordered list of all tab IDs for drag-drop ordering */
-  tabOrder: string[];
+  /** Ordered list of all tab IDs for drag-drop ordering (`null` when stored JSON `null`) */
+  tabOrder: string[] | null;
   /** Ordered list of connection IDs for drag-drop ordering (per project) */
-  connectionOrder?: string[];
+  connectionOrder?: string[] | null;
   /** Currently active query tab */
   activeQueryTabId: string | null;
   /** Currently active schema tab */
@@ -143,9 +143,9 @@ export interface PersistedProjectState {
   /** Currently active dashboard tab */
   activeDashboardTabId?: string | null;
   /** IDs of shared queries that are starred */
-  starredSharedQueryIds?: string[];
+  starredSharedQueryIds?: string[] | null;
   /** IDs of shared dashboards that are starred */
-  starredSharedDashboardIds?: string[];
+  starredSharedDashboardIds?: string[] | null;
   /** Create table tabs */
   createTableTabs?: import("./persisted").PersistedCreateTableTab[];
   /** Currently active create table tab */
@@ -162,5 +162,5 @@ export interface PersistedProjectState {
   paneLayout?: {
     panes: { id: string; tabIds: string[]; activeTabId: string | null }[];
     activePaneId: string;
-  };
+  } | null;
 }

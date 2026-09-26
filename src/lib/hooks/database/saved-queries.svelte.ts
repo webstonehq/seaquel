@@ -296,10 +296,8 @@ export class SavedQueryManager {
   }
 
   private async pruneIfNeeded(queryId: string, projectId: string): Promise<void> {
-    const { getDatabase } = await import("$lib/storage/db");
-    const { appStateRepo } = await import("$lib/storage/repository");
-    const db = await getDatabase();
-    const limitStr = await appStateRepo.get(db, "query_version_limit");
+    const { getStorage } = await import("$lib/storage");
+    const limitStr = await getStorage().appState.get("query_version_limit");
     const limit = limitStr ? parseInt(limitStr, 10) : 100;
     await this.persistence.pruneQueryVersions(queryId, limit);
 

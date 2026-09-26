@@ -1,20 +1,7 @@
 import type { SqliteDatabase } from "../sqlite-types";
+import type { PersistedDashboard } from "../client";
 import { createRepo, col, nullable, bool } from "../create-repo";
 import type { ColumnDef } from "../create-repo";
-
-export interface PersistedDashboard {
-  id: string;
-  projectId: string;
-  name: string;
-  viewport: string; // JSON: { x, y, zoom }
-  widgets: string; // JSON blob
-  dateFilter?: string | null;
-  starred?: boolean;
-  shared?: boolean;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 /** Passes through on read; coerces `undefined` to `null` on write. */
 function nullablePassthrough(dbColumn: string): ColumnDef {

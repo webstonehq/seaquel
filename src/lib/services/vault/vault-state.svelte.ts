@@ -8,9 +8,7 @@
  * The key is **never** stored in sessionStorage or localStorage — a new tab
  * or a page reload always starts with the vault locked.
  */
-import { getDatabase } from "$lib/storage";
-import type { SqliteDatabase } from "$lib/storage/sqlite-types";
-import { vaultStateRepo } from "$lib/storage/repos/vault-state-repo";
+import { getStorage } from "$lib/storage";
 import {
   DEFAULT_KDF_PARAMS,
   VERIFIER_PLAINTEXT,
@@ -60,7 +58,6 @@ export class Vault {
 
   private key: CryptoKey | null = null;
   private waiters: Waiter[] = [];
-  private dbPromise: Promise<SqliteDatabase> | null = null;
   private refreshPromise: Promise<void> | null = null;
 
   // Rate limiting on unlock attempts. Exponential backoff caps at 30s so the
@@ -102,14 +99,11 @@ export class Vault {
     }
   }
 
-  private async db(): Promise<SqliteDatabase> {
-    this.dbPromise ??= getDatabase();
-    return this.dbPromise;
-  }
-
   /**
    * Read `vault_state` to determine if the vault is `uninitialized` or
-   * `locked`. Idempotent; safe to call from multiple places.
+   * `locked`. Idempotent; safe to call from multiple places, and never
+   * rejects: a failed read is logged and leaves `status` as it was
+   * (`unknown` at first), so `void vault.refresh()` is safe.
    */
   async refresh(): Promise<void> {
     if (this.status === "unlocked") return;
@@ -117,10 +111,20 @@ export class Vault {
     await this.refreshPromise;
   }
 
+  /**
+   * `refresh`, then fail if the state is still unknown: setup and unlock
+   * must not guess whether a vault exists.
+   */
+  private async refreshOrThrow(): Promise<void> {
+    await this.refresh();
+    if (this.status === "unknown") {
+      throw new Error("Couldn't read the vault state. Reload the page and try again.");
+    }
+  }
+
   private async doRefresh(): Promise<void> {
     try {
-      const db = await this.db();
-      const row = await vaultStateRepo.load(db);
+      const row = await getStorage().vaultState.load();
       if (this.key) {
         // Already unlocked — don't clobber.
         this.status = "unlocked";
@@ -129,6 +133,8 @@ export class Vault {
       } else {
         this.status = "locked";
       }
+    } catch (error) {
+      console.error("Failed to read the vault state:", error);
     } finally {
       this.refreshPromise = null;
     }
@@ -140,7 +146,7 @@ export class Vault {
    * setup/unlock completes, or rejects when the user cancels.
    */
   async ensureUnlocked(): Promise<CryptoKey> {
-    if (this.status === "unknown") await this.refresh();
+    if (this.status === "unknown") await this.refreshOrThrow();
     if (this.status === "unlocked" && this.key) return this.key;
     return new Promise<CryptoKey>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
@@ -152,17 +158,21 @@ export class Vault {
    * First-time setup: creates the `vault_state` row, derives VK, caches it.
    */
   async setup(passphrase: string, params: KdfParams = DEFAULT_KDF_PARAMS): Promise<void> {
-    if (this.status === "unknown") await this.refresh();
+    if (this.status === "unknown") await this.refreshOrThrow();
     if (this.status === "locked" || this.status === "unlocked") {
       throw new Error("vault already initialized — use unlock() instead");
     }
+    // Only a read that found no vault_state row allows a new one: saving it
+    // replaces the stored salt and verifier, orphaning every credential.
+    if (this.status !== "uninitialized") {
+      throw new Error("vault state unknown — refusing to create a new vault");
+    }
 
-    const db = await this.db();
     const salt = randomSalt();
     const key = await deriveVaultKey(passphrase, salt, params);
     const verifier = await encrypt(key, VERIFIER_PLAINTEXT);
 
-    await vaultStateRepo.save(db, {
+    await getStorage().vaultState.save({
       salt: toBase64(salt),
       kdfParams: params,
       verifier: toBase64(verifier.ciphertext),
@@ -182,7 +192,7 @@ export class Vault {
    * ciphertext.
    */
   async unlock(passphrase: string): Promise<void> {
-    if (this.status === "unknown") await this.refresh();
+    if (this.status === "unknown") await this.refreshOrThrow();
     if (this.status === "uninitialized") {
       throw new Error("vault not initialized — use setup() instead");
     }
@@ -196,8 +206,7 @@ export class Vault {
       await new Promise<void>((r) => setTimeout(r, wait));
     }
 
-    const db = await this.db();
-    const row = await vaultStateRepo.load(db);
+    const row = await getStorage().vaultState.load();
     if (!row) {
       this.status = "uninitialized";
       throw new Error("vault not initialized");
@@ -256,8 +265,7 @@ export class Vault {
    * `user_credentials`. Used when the user forgets the passphrase.
    */
   async reset(): Promise<void> {
-    const db = await this.db();
-    await vaultStateRepo.reset(db);
+    await getStorage().vaultState.reset();
     this.key = null;
     this.status = "uninitialized";
     this.clearIdleTimer();

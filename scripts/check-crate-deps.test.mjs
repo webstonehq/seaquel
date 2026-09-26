@@ -1,5 +1,14 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { checkCrateDeps } from "./check-crate-deps.mjs";
+
+const INFRA = [
+  "seaquel-storage",
+  "seaquel-secrets",
+  "seaquel-ssh",
+  "seaquel-git",
+  "seaquel-license",
+];
 
 /** A `cargo metadata` package; string deps are normal dependencies. */
 const pkg = (name, ...deps) => ({
@@ -126,8 +135,60 @@ describe("checkCrateDeps", () => {
   });
 
   it("requires every crate to be classified", () => {
-    expect(checkCrateDeps([pkg("seaquel-storage")])).toEqual([
-      "seaquel-storage: unclassified crate. Add it to scripts/check-crate-deps.mjs.",
+    expect(checkCrateDeps([pkg("seaquel-workspace")])).toEqual([
+      "seaquel-workspace: unclassified crate. Add it to scripts/check-crate-deps.mjs.",
     ]);
   });
+
+  it("accepts the phase 3 infrastructure crates behind Core", () => {
+    const packages = [
+      pkg("seaquel-runtime"),
+      pkg("seaquel-types"),
+      ...INFRA.map((name) => pkg(name, "seaquel-runtime", "seaquel-types")),
+      pkg("seaquel-core", "seaquel-runtime", ...INFRA),
+      pkg("seaquel-server", "seaquel-core", "seaquel-runtime"),
+      pkg("seaquel", "seaquel-core", "seaquel-runtime"),
+    ];
+    expect(checkCrateDeps(packages)).toEqual([]);
+  });
+
+  it("rejects an interface naming an infrastructure crate", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-server", "seaquel-core", "seaquel-license"),
+      pkg("seaquel", "seaquel-core", "seaquel-secrets"),
+      pkg("seaquel-core"),
+      pkg("seaquel-license"),
+      pkg("seaquel-secrets"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-server -> seaquel-license: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+      "seaquel -> seaquel-secrets: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+    ]);
+  });
+
+  it("rejects an infrastructure crate naming an engine", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-storage", "seaquel-engine-sqlite"),
+      pkg("seaquel-engine-sqlite"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-storage -> seaquel-engine-sqlite: reach engines through EngineRegistry, never by crate name",
+    ]);
+  });
+
+  it("rejects seaquel-server depending on seaquel-license in this workspace's metadata", () => {
+    const metadata = execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const { packages } = JSON.parse(metadata);
+    expect(checkCrateDeps(packages)).toEqual([]);
+
+    const tampered = structuredClone(packages);
+    const server = tampered.find((p) => p.name === "seaquel-server");
+    server.dependencies.push({ name: "seaquel-license", kind: null });
+    expect(checkCrateDeps(tampered)).toEqual([
+      "seaquel-server -> seaquel-license: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+    ]);
+  }, 60_000);
 });

@@ -11,6 +11,7 @@ ts = ["dep:ts-rs"]
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
+# raw_value: storage row types keep JSON columns as the text that came in.
+serde_json = { workspace = true, features = ["raw_value"] }
 base64 = { workspace = true }
 ts-rs = { workspace = true, optional = true }

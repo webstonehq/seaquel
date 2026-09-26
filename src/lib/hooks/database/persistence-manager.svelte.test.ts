@@ -13,25 +13,14 @@ import type { DatabaseConnection } from "$lib/types";
 const saved: Array<Record<string, unknown>> = [];
 const keyringCalls: string[] = [];
 
-vi.mock("$lib/storage", () => ({
-  getDatabase: vi.fn(async () => ({})),
-  connectionsRepo: {
-    save: vi.fn(async (_db: unknown, connection: Record<string, unknown>) => {
+vi.mock("$lib/storage", () => {
+  const connections = {
+    save: vi.fn(async (connection: Record<string, unknown>) => {
       saved.push(connection);
     }),
-  },
-  projectsRepo: {},
-  appStateRepo: {},
-  projectStateRepo: {},
-  savedQueriesRepo: {},
-  queryHistoryRepo: {},
-  queryVersionsRepo: {},
-  sharedReposRepo: {},
-  dashboardsRepo: {},
-  dashboardVersionsRepo: {},
-  connectionOverridesRepo: {},
-  aiChatsRepo: {},
-}));
+  };
+  return { getStorage: () => ({ connections }) };
+});
 
 vi.mock("$lib/services/keyring", () => ({
   getKeyringService: () => ({

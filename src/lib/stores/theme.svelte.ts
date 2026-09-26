@@ -1,9 +1,10 @@
-import { getDatabase, themeRepo } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 import { mode } from "mode-watcher";
 import type { Theme, ThemePreferences, ThemeExport } from "$lib/types/theme";
 import { BUILT_IN_THEMES, DEFAULT_PREFERENCES } from "$lib/themes/presets";
 import { applyTheme, cacheThemeColors } from "$lib/themes/apply";
 import { validateThemeColors } from "$lib/themes/color-utils";
+import { skipUnloadedSave } from "$lib/storage/load-guard";
 
 /**
  * Theme store - manages theme preferences, user themes, and theme application
@@ -12,7 +13,13 @@ class ThemeStore {
   // Reactive state
   preferences = $state<ThemePreferences>({ ...DEFAULT_PREFERENCES });
   userThemes = $state<Theme[]>([]);
+  /** True once `initialize` has run, whether or not the load worked: the theme can be applied. */
   isLoaded = $state(false);
+  /**
+   * True only once the stored preferences and user themes were read. Saving
+   * replaces every user theme, so until then it would delete them.
+   */
+  private persistable = false;
 
   // Persistence timer for debouncing
   private persistenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -46,9 +53,7 @@ class ThemeStore {
    */
   async initialize(): Promise<void> {
     try {
-      const db = await getDatabase();
-
-      const prefs = await themeRepo.loadPreferences(db);
+      const prefs = await getStorage().themes.loadPreferences();
       if (prefs) {
         this.preferences = {
           lightThemeId: prefs.lightThemeId,
@@ -56,14 +61,16 @@ class ThemeStore {
         };
       }
 
-      const userThemes = (await themeRepo.loadUserThemes(db)) as Theme[];
+      const userThemes = (await getStorage().themes.loadUserThemes()) as Theme[];
       if (userThemes.length > 0) {
         this.userThemes = userThemes;
       }
 
+      this.persistable = true;
       this.isLoaded = true;
     } catch (error) {
       console.error("Failed to load theme preferences:", error);
+      // Built-in themes still apply; saving stays off.
       this.isLoaded = true;
     }
   }
@@ -268,14 +275,16 @@ class ThemeStore {
   }
 
   private async persist(): Promise<void> {
+    if (!this.persistable) {
+      skipUnloadedSave("themes");
+      return;
+    }
     try {
-      const db = await getDatabase();
-      await themeRepo.savePreferences(
-        db,
+      await getStorage().themes.savePreferences(
         this.preferences.lightThemeId,
         this.preferences.darkThemeId,
       );
-      await themeRepo.saveUserThemes(db, this.userThemes);
+      await getStorage().themes.saveUserThemes(this.userThemes);
     } catch (error) {
       console.error("Failed to persist theme settings:", error);
     }

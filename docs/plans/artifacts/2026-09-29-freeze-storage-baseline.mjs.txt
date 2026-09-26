@@ -1,0 +1,1811 @@
+#!/usr/bin/env node
+// Phase 3, Task 2: freeze what the TypeScript metadata storage does before
+// `seaquel-storage` replaces it. It ran once, from the repo root, at fecb1b4:
+//
+//   node scripts/freeze-storage-baseline.mjs
+//
+// This reference copy lives in docs/plans/artifacts/ as .mjs.txt. To rerun it,
+// copy it anywhere as .mjs and run it from the repo root; it needs a tree that
+// still has the TS storage code (anything before phase 3's Task 8).
+//
+// It writes crates/seaquel-storage/tests/fixtures/{schemas,repos,upgrades,row-shapes.json}.
+// The fixtures README says what each file holds and when one may change.
+//
+// How it runs the real code: each release's `src/lib` is taken with
+// `git archive <tag>` (today's tree is used in place), bundled with esbuild
+// (types stripped, `$lib` resolved; `$lib/storage` inside MigrationManager is
+// pointed at the real repositories with `getDatabase` returning the handle
+// under test), and run against better-sqlite3 through the same adapter the
+// web server uses (`src/lib/server/storage.ts`). The repository cases run
+// through the real `openUserDb` from that file, and again through the demo's
+// real `WebSqliteDatabase` (sql.js) to catch backend differences.
+
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+
+process.env.TZ = "UTC"; // `new Date("2024-01-02 03:04:05")` is local time; pin it.
+
+const REPO = process.cwd();
+if (!fs.existsSync(path.join(REPO, "src/lib/storage/schema.ts"))) {
+  console.error("Run from the repo root.");
+  process.exit(1);
+}
+const require = createRequire(path.join(REPO, "package.json"));
+const esbuild = require("esbuild");
+const Database = require("better-sqlite3");
+const ts = require("typescript");
+
+const OUT = path.join(REPO, "crates/seaquel-storage/tests/fixtures");
+const WORK = fs.mkdtempSync(path.join(os.tmpdir(), "freeze-storage-"));
+// Bundles live in WORK; this lets them (and better-sqlite3's createRequire)
+// resolve packages from the repo.
+fs.symlinkSync(path.join(REPO, "node_modules"), path.join(WORK, "node_modules"), "dir");
+
+const TAGS = ["v2026.4.5-beta.1", "v2026.4.5", "v2026.4.8", "v2026.9.1", "v2026.9.2"];
+// The version row each release's db.ts inserted into a fresh file, before its
+// MigrationManager ran. Checked against the tag's db.ts text below.
+const FRESH_VERSION_CONST = {
+  "v2026.4.5-beta.1": "SCHEMA_VERSION",
+  "v2026.4.5": "CURRENT_STORAGE_VERSION",
+  "v2026.4.8": "CURRENT_STORAGE_VERSION",
+  "v2026.9.1": "CURRENT_STORAGE_VERSION",
+  "v2026.9.2": "CURRENT_STORAGE_VERSION",
+  current: "CURRENT_STORAGE_VERSION",
+};
+const FIXED_MIGRATED_AT = "2000-01-01 00:00:00";
+const HEAD = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+
+const log = (...a) => console.log("[freeze]", ...a);
+/** JSON with every value that fits in ~100 columns kept on one line. */
+function compactJson(value, indent = "") {
+  const flat = JSON.stringify(value);
+  if (flat === undefined) return "null";
+  if (flat.length + indent.length <= 100 || value === null || typeof value !== "object") return flat;
+  const inner = indent + "  ";
+  if (Array.isArray(value)) {
+    return `[\n${value.map((v) => inner + compactJson(v, inner)).join(",\n")}\n${indent}]`;
+  }
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+  return `{\n${entries.map(([k, v]) => `${inner}${JSON.stringify(k)}: ${compactJson(v, inner)}`).join(",\n")}\n${indent}}`;
+}
+const writeJson = (file, value) => {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, compactJson(value) + "\n");
+};
+
+// ---------------------------------------------------------------------------
+// Bundling
+// ---------------------------------------------------------------------------
+
+function materialize(tree) {
+  if (tree === "current") return REPO;
+  const dir = path.join(WORK, "trees", tree);
+  fs.mkdirSync(dir, { recursive: true });
+  const tar = execFileSync("git", ["archive", tree, "src/lib"], { cwd: REPO, maxBuffer: 1 << 30 });
+  execFileSync("tar", ["-x", "-C", dir], { input: tar });
+  return dir;
+}
+
+async function bundle(tree, root, extraExports = "") {
+  const lib = path.join(root, "src/lib");
+  const shimDir = path.join(WORK, "shims", tree);
+  fs.mkdirSync(shimDir, { recursive: true });
+  const storageShim = path.join(shimDir, "storage.ts");
+  fs.writeFileSync(
+    storageShim,
+    `export * from ${JSON.stringify(path.join(lib, "storage/repository.ts"))};\n` +
+      `export * from ${JSON.stringify(path.join(lib, "storage/schema.ts"))};\n` +
+      `export async function getDatabase() { return (globalThis as any).__FREEZE_DB__; }\n`,
+  );
+  const loggerShim = path.join(shimDir, "logger.ts");
+  fs.writeFileSync(
+    loggerShim,
+    `const noop = () => Promise.resolve();\nexport const log = { info: noop, warn: noop, error: noop, debug: noop, trace: noop };\n`,
+  );
+  const entry = path.join(shimDir, "entry.ts");
+  fs.writeFileSync(
+    entry,
+    `export * as schema from ${JSON.stringify(path.join(lib, "storage/schema.ts"))};\n` +
+      `export * as repos from ${JSON.stringify(path.join(lib, "storage/repository.ts"))};\n` +
+      `export { MigrationManager } from ${JSON.stringify(path.join(lib, "hooks/database/migration.svelte.ts"))};\n` +
+      extraExports,
+  );
+  const sqlWasm = path.join(REPO, "node_modules/sql.js/dist/sql-wasm.wasm");
+  const outfile = path.join(WORK, `bundle-${tree}.mjs`);
+  await esbuild.build({
+    entryPoints: [entry],
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node20",
+    external: ["better-sqlite3", "sql.js"],
+    logLevel: "error",
+    plugins: [
+      {
+        name: "seaquel-freeze",
+        setup(build) {
+          build.onResolve({ filter: /^\$lib(\/.*)?$/ }, async (args) => {
+            if (args.path === "$lib/storage") return { path: storageShim };
+            if (args.path === "$lib/utils/logger") return { path: loggerShim };
+            const rest = args.path.slice("$lib".length) || "/index";
+            return build.resolve("." + rest, { resolveDir: lib, kind: args.kind });
+          });
+          build.onResolve({ filter: /\?url$/ }, (args) => ({ path: args.path, namespace: "url" }));
+          build.onLoad({ filter: /.*/, namespace: "url" }, () => ({
+            contents: `export default ${JSON.stringify(sqlWasm)};`,
+            loader: "js",
+          }));
+        },
+      },
+    ],
+  });
+  return import(pathToFileURL(outfile).href);
+}
+
+// ---------------------------------------------------------------------------
+// The SqliteDatabase adapter, copied from src/lib/server/storage.ts (it isn't
+// exported). Only used for the schema runs; the repository cases use the real
+// one through openUserDb.
+// ---------------------------------------------------------------------------
+
+function adapter(db) {
+  return {
+    async execute(sql, params = []) {
+      return db.prepare(sql).run(...params).changes;
+    },
+    async query(sql, params = []) {
+      return db.prepare(sql).all(...params);
+    },
+    async transaction(statements) {
+      const tx = db.transaction((stmts) => {
+        for (const { sql, params = [] } of stmts) db.prepare(sql).run(...params);
+      });
+      tx(statements);
+    },
+    async close() {},
+  };
+}
+
+/** The persistence methods MigrationManager calls, as PersistenceManager implements them. */
+function fakePersistence(a, mod) {
+  return {
+    async getStorageVersion() {
+      try {
+        const rows = await a.query("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
+        return rows.length > 0 ? rows[0].version : 0;
+      } catch {
+        return 0;
+      }
+    },
+    async setStorageVersion(version) {
+      await a.execute("INSERT INTO schema_version (version) VALUES (?)", [version]);
+    },
+    async loadPersistedConnections() {
+      try {
+        return await mod.repos.connectionsRepo.loadAll(a);
+      } catch {
+        return [];
+      }
+    },
+    // No legacy JSON files exist in these runs.
+    async loadLegacyConnectionState() {
+      return null;
+    },
+    async removeLegacyConnectionState() {},
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Schema dumps and comparison
+// ---------------------------------------------------------------------------
+
+function dumpSchema(db, header) {
+  const objs = db
+    .prepare(
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+    )
+    .all();
+  const lines = [header, ""];
+  for (const o of objs) lines.push(`${o.sql};`, "");
+  const versions = db.prepare("SELECT version FROM schema_version ORDER BY rowid").all();
+  for (const v of versions) {
+    lines.push(
+      `INSERT INTO schema_version (version, migrated_at) VALUES (${v.version}, '${FIXED_MIGRATED_AT}');`,
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
+const norm = (s) => (s ?? "").replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")").trim();
+
+/** Structural description of a database's schema, for comparing two files. */
+function describeSchema(db) {
+  const out = { tables: {}, indexes: {} };
+  const tables = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all();
+  for (const t of tables) {
+    out.tables[t.name] = {
+      columns: db
+        .prepare(`SELECT cid, name, type, "notnull", dflt_value, pk, hidden FROM pragma_table_xinfo(?)`)
+        .all(t.name),
+      foreignKeys: db
+        .prepare(`SELECT id, seq, "table", "from", "to", on_update, on_delete, "match" FROM pragma_foreign_key_list(?)`)
+        .all(t.name),
+      indexes: db
+        .prepare(`SELECT name, "unique", origin, partial FROM pragma_index_list(?) ORDER BY name`)
+        .all(t.name)
+        .map((i) => ({
+          ...i,
+          columns: db.prepare(`SELECT seqno, name FROM pragma_index_xinfo(?) WHERE key = 1`).all(i.name),
+          desc: db.prepare(`SELECT name, "desc" FROM pragma_index_xinfo(?) WHERE key = 1`).all(i.name),
+        })),
+      sql: norm(t.sql),
+    };
+  }
+  for (const i of db
+    .prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name")
+    .all()) {
+    out.indexes[i.name] = { table: i.tbl_name, sql: norm(i.sql) };
+  }
+  return out;
+}
+
+function diffSchemas(fresh, upgraded) {
+  const diffs = [];
+  const tn = new Set([...Object.keys(fresh.tables), ...Object.keys(upgraded.tables)]);
+  for (const name of [...tn].sort()) {
+    const f = fresh.tables[name];
+    const u = upgraded.tables[name];
+    if (!f) {
+      diffs.push({ table: name, kind: "extra-table", upgraded: u.sql });
+      continue;
+    }
+    if (!u) {
+      diffs.push({ table: name, kind: "missing-table", fresh: f.sql });
+      continue;
+    }
+    const fcols = f.columns.map((c) => c.name);
+    const ucols = u.columns.map((c) => c.name);
+    if (JSON.stringify(fcols) !== JSON.stringify(ucols)) {
+      const sameSet = JSON.stringify([...fcols].sort()) === JSON.stringify([...ucols].sort());
+      diffs.push({
+        table: name,
+        kind: sameSet ? "column-order" : "column-set",
+        fresh: fcols,
+        upgraded: ucols,
+      });
+    }
+    for (const fc of f.columns) {
+      const uc = u.columns.find((c) => c.name === fc.name);
+      if (!uc) continue;
+      for (const k of ["type", "notnull", "dflt_value", "pk", "hidden"]) {
+        if (fc[k] !== uc[k]) {
+          diffs.push({ table: name, column: fc.name, kind: `column-${k}`, fresh: fc[k], upgraded: uc[k] });
+        }
+      }
+    }
+    const fk = (l) => l.map(({ id, ...r }) => JSON.stringify(r)).sort();
+    if (JSON.stringify(fk(f.foreignKeys)) !== JSON.stringify(fk(u.foreignKeys))) {
+      diffs.push({
+        table: name,
+        kind: "foreign-keys",
+        fresh: f.foreignKeys.map(({ id, seq, ...r }) => r),
+        upgraded: u.foreignKeys.map(({ id, seq, ...r }) => r),
+      });
+    }
+    if (JSON.stringify(f.indexes) !== JSON.stringify(u.indexes)) {
+      diffs.push({ table: name, kind: "indexes", fresh: f.indexes, upgraded: u.indexes });
+    }
+    if (f.sql !== u.sql) diffs.push({ table: name, kind: "create-sql-text", fresh: f.sql, upgraded: u.sql });
+  }
+  const inames = new Set([...Object.keys(fresh.indexes), ...Object.keys(upgraded.indexes)]);
+  for (const name of [...inames].sort()) {
+    const f = fresh.indexes[name];
+    const u = upgraded.indexes[name];
+    if (!f) diffs.push({ index: name, kind: "extra-index", upgraded: u.sql });
+    else if (!u) diffs.push({ index: name, kind: "missing-index", fresh: f.sql });
+    else if (f.sql !== u.sql) diffs.push({ index: name, kind: "index-sql", fresh: f.sql, upgraded: u.sql });
+  }
+  return diffs;
+}
+
+/** What today's db.ts does to an existing file (desktop and demo), minus the legacy-JSON re-import. */
+async function upgradeWithCurrent(file, mod) {
+  const db = new Database(file);
+  const a = adapter(db);
+  globalThis.__FREEZE_DB__ = a;
+  try {
+    db.pragma("journal_mode = WAL");
+    db.pragma("busy_timeout = 5000");
+    db.pragma("foreign_keys = ON");
+    const fresh = await mod.schema.initializeSchema(a);
+    if (fresh) throw new Error("expected an existing schema");
+    await new mod.MigrationManager(fakePersistence(a, mod)).migrateIfNeeded();
+    return { db };
+  } catch (e) {
+    return { db, error: String(e?.message ?? e) };
+  }
+}
+
+async function freezeSchemas(mods) {
+  const schemaDir = path.join(OUT, "schemas");
+  fs.mkdirSync(path.join(schemaDir, "upgraded"), { recursive: true });
+  const fresh = {};
+  for (const tree of [...TAGS, "current"]) {
+    const mod = mods[tree];
+    const dbText = tree === "current"
+      ? fs.readFileSync(path.join(REPO, "src/lib/storage/db.ts"), "utf8")
+      : execFileSync("git", ["show", `${tree}:src/lib/storage/db.ts`], { cwd: REPO, encoding: "utf8" });
+    const constName = FRESH_VERSION_CONST[tree];
+    if (!new RegExp(`INSERT INTO schema_version \\(version\\) VALUES \\(\\?\\)",\\s*\\[\\s*${constName}`).test(dbText)) {
+      throw new Error(`${tree}: db.ts doesn't insert ${constName}`);
+    }
+    const file = path.join(WORK, `fresh-${tree}.db`);
+    const db = new Database(file);
+    const a = adapter(db);
+    globalThis.__FREEZE_DB__ = a;
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    const isFresh = await mod.schema.initializeSchema(a);
+    if (!isFresh) throw new Error(`${tree}: initializeSchema didn't report a fresh file`);
+    await a.execute("INSERT INTO schema_version (version) VALUES (?)", [mod.schema[constName]]);
+    await new mod.MigrationManager(fakePersistence(a, mod)).migrateIfNeeded();
+    // Data the first launch wrote (beta.1's MigrationManager creates the default
+    // project). Timestamps are "now", so they're masked.
+    const firstLaunchRows = {};
+    for (const t of ["projects", "app_state", "project_state"]) {
+      const rows = db.prepare(`SELECT * FROM ${t}`).all().map((r) => {
+        for (const k of ["created_at", "updated_at"]) if (k in r) r[k] = "<first launch time>";
+        return r;
+      });
+      if (rows.length) firstLaunchRows[t] = rows;
+    }
+    const header =
+      `-- Frozen: the schema a fresh metadata database had after its first launch on ${tree === "current" ? `today's tree (${HEAD})` : tree}.\n` +
+      `-- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt from that release's schema.ts, db.ts and\n` +
+      `-- MigrationManager; migrated_at is fixed. See ../README.md.`;
+    fs.writeFileSync(path.join(schemaDir, `${tree}.sql`), dumpSchema(db, header));
+    fresh[tree] = { describe: describeSchema(db), firstLaunchRows };
+    db.close();
+    log(`schema ${tree}: ${Object.keys(fresh[tree].describe.tables).length} tables`);
+  }
+
+  // Today's web path (openUserDb) must agree with the desktop/demo path.
+  const current = mods.current;
+  process.env.DATA_DIR = path.join(WORK, "web-schema-check");
+  const raw = await current.openUserDb("schema-check");
+  const webDescribe = describeSchema(raw);
+  const webDiffs = diffSchemas(fresh.current.describe, webDescribe);
+  if (webDiffs.length) throw new Error("openUserDb schema differs: " + JSON.stringify(webDiffs));
+  current.closeAllUserDbs();
+
+  // Upgrade each old dump with today's code. beta.1 also goes through
+  // v2026.4.5's code first, the path its users took if they updated then.
+  const report = {};
+  for (const [tag, via] of [...TAGS.map((t) => [t, null]), ["v2026.4.5-beta.1", "v2026.4.5"]]) {
+    const label = via ? `${tag}-via-${via}` : tag;
+    const file = path.join(WORK, `upgrade-${label}.db`);
+    const seed = new Database(file);
+    seed.exec(fs.readFileSync(path.join(schemaDir, `${tag}.sql`), "utf8"));
+    seed.close();
+    let viaError = null;
+    if (via) {
+      const r = await upgradeWithCurrent(file, mods[via]);
+      viaError = r.error ?? null;
+      r.db.close();
+    }
+    const first = await upgradeWithCurrent(file, current);
+    const after1 = first.db ? dumpSchema(first.db, "") : null;
+    first.db.close();
+    const second = await upgradeWithCurrent(file, current);
+    const after2 = dumpSchema(second.db, "");
+    const describe = describeSchema(second.db);
+    const header =
+      `-- Frozen: ${tag}.sql after ${via ? `${via}'s upgrade path and then ` : ""}today's upgrade path (initializeSchema's upgradeSchema, then MigrationManager).\n` +
+      (first.error ? `-- Today's upgrade FAILS on this file (${first.error}); this is the state it leaves behind.\n` : "") +
+      `-- Made by docs/plans/artifacts/2026-09-29-freeze-storage-baseline.mjs.txt; migrated_at is fixed. See ../../README.md.`;
+    fs.writeFileSync(path.join(schemaDir, "upgraded", `${label}.sql`), dumpSchema(second.db, header));
+    second.db.close();
+    report[label] = {
+      viaError,
+      firstRunError: first.error ?? null,
+      secondRunError: second.error ?? null,
+      secondRunChangedSchema: after1 !== after2,
+      differencesFromFresh: diffSchemas(fresh.current.describe, describe),
+    };
+    log(
+      `upgrade ${label}: ${report[label].differencesFromFresh.length} differences` +
+        (first.error ? `, first run failed: ${first.error}` : "") +
+        (second.error ? `, second run failed: ${second.error}` : ""),
+    );
+  }
+  writeJson(path.join(schemaDir, "upgrade-differences.json"), {
+    note: "Differences between each release's schema after today's upgrade path and a fresh file from today's tree. Made by freeze-storage-baseline.mjs. Frozen.",
+    firstLaunchRows: Object.fromEntries(Object.entries(fresh).map(([k, v]) => [k, v.firstLaunchRows])),
+    upgrades: report,
+  });
+  return report;
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade with data: the beta.1 moves (connection_id -> project_id, canvas -> workflow)
+// ---------------------------------------------------------------------------
+
+async function freezeDataUpgrade(mods) {
+  const tag = "v2026.4.5-beta.1";
+  const seedSql = [
+    "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('default', 'Seaquel', '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z')",
+    "INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ('proj-b', 'Zweites Projekt', 'ü', '2026-03-02T00:00:00.000Z', '2026-03-02T00:00:00.000Z')",
+    "INSERT INTO connections (id, project_id, name, type, host, port, database_name, username) VALUES ('conn-a', 'default', 'Local PG', 'postgres', 'localhost', 5432, 'app', 'me')",
+    "INSERT INTO connections (id, project_id, name, type, host, port, database_name, username) VALUES ('conn-b', 'proj-b', 'Other', 'sqlite', '', 0, '/tmp/x.db', '')",
+    "INSERT INTO saved_queries (id, connection_id, name, query, parameters, created_at, updated_at) VALUES ('sq-a', 'conn-a', 'Users', 'SELECT * FROM users', NULL, '2026-03-03T00:00:00.000Z', '2026-03-03T00:00:00.000Z')",
+    "INSERT INTO saved_queries (id, connection_id, name, query, parameters, created_at, updated_at) VALUES ('sq-b', 'conn-b', 'Größe', 'SELECT 1', '[{\"name\":\"x\",\"type\":\"text\"}]', '2026-03-03T00:00:00.000Z', '2026-03-03T00:00:00.000Z')",
+    "INSERT INTO dashboards (id, connection_id, name, created_at, updated_at) VALUES ('dash-a', 'conn-a', 'KPIs', '2026-03-04T00:00:00.000Z', '2026-03-04T00:00:00.000Z')",
+    // beta.1's dashboards.connection_id had no foreign key, so orphans could exist.
+    "INSERT INTO dashboards (id, connection_id, name, created_at, updated_at) VALUES ('dash-orphan', 'conn-gone', 'Orphan', '2026-03-04T00:00:00.000Z', '2026-03-04T00:00:00.000Z')",
+    "INSERT INTO project_state (project_id, active_view, active_canvas_tab_id, tab_order) VALUES ('default', 'canvas', 'tab-canvas', '[\"tab-canvas\"]')",
+    "INSERT INTO project_state (project_id, active_view, tab_order) VALUES ('proj-b', 'query', '[]')",
+  ];
+  const run = async (via) => {
+    const file = path.join(WORK, `data-upgrade-${via ?? "direct"}.db`);
+    const seed = new Database(file);
+    seed.exec(fs.readFileSync(path.join(OUT, "schemas", `${tag}.sql`), "utf8"));
+    seed.pragma("foreign_keys = ON");
+    for (const s of seedSql) seed.exec(s);
+    seed.close();
+    let viaError = null;
+    if (via) {
+      const r = await upgradeWithCurrent(file, mods[via]);
+      viaError = r.error ?? null;
+      r.db.close();
+    }
+    const res = await upgradeWithCurrent(file, mods.current);
+    const rows = {};
+    for (const t of ["projects", "connections", "saved_queries", "dashboards", "project_state", "schema_version"]) {
+      rows[t] = dumpRows(res.db, t, t === "schema_version" ? ["migrated_at"] : []);
+    }
+    res.db.close();
+    return { viaError, error: res.error ?? null, rowsAfter: rows };
+  };
+  const direct = await run(null);
+  const viaRelease = await run("v2026.4.5");
+  writeJson(path.join(OUT, "upgrades", `${tag}-data.json`), {
+    note: `A ${tag} file with data, upgraded by today's code directly and after v2026.4.5's code. Frozen; see ../README.md.`,
+    base: `schemas/${tag}.sql`,
+    seedSql,
+    direct,
+    viaV2026_4_5: viaRelease,
+  });
+  log(`data upgrade ${tag}: direct ${direct.error ?? "ok"}; via v2026.4.5 ${viaRelease.viaError ?? "ok"} then ${viaRelease.error ?? "ok"}`);
+}
+
+function dumpRows(db, table, skip = []) {
+  const cols = db
+    .prepare(`SELECT name FROM pragma_table_info(?)`)
+    .all(table)
+    .map((c) => c.name)
+    .filter((c) => !skip.includes(c));
+  const q = (c) => `"${c}"`;
+  const sel = [...cols.map(q), ...cols.map((c) => `typeof(${q(c)})`)].join(", ");
+  const order = cols.map((_, i) => i + 1).join(", ");
+  const raw = db.prepare(`SELECT ${sel} FROM ${q(table)} ORDER BY ${order}`).raw().all();
+  return {
+    columns: cols,
+    rows: raw.map((r) => r.slice(0, cols.length)),
+    types: raw.map((r) => r.slice(cols.length)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Repository cases
+// ---------------------------------------------------------------------------
+
+let SqlDecimal;
+let toStorable;
+
+/** JSON form of a JS value as the fixtures record it. */
+function enc(v) {
+  if (v === undefined) return undefined;
+  if (v instanceof Date) return { $date: Number.isNaN(v.getTime()) ? null : v.toISOString() };
+  if (
+    typeof v === "bigint" ||
+    v instanceof Uint8Array ||
+    v instanceof SqlDecimal ||
+    (typeof v === "number" && !Number.isFinite(v))
+  ) {
+    return toStorable(v);
+  }
+  if (Array.isArray(v)) return v.map((x) => (x === undefined ? null : enc(x)));
+  if (v !== null && typeof v === "object") {
+    if ("$sq" in v) return { $sq: "json", v };
+    const out = {};
+    for (const [k, x] of Object.entries(v)) if (x !== undefined) out[k] = enc(x);
+    return out;
+  }
+  return v;
+}
+
+const ALL_TABLES = [
+  "projects",
+  "project_labels",
+  "app_state",
+  "connections",
+  "connection_labels",
+  "project_state",
+  "tabs",
+  "saved_queries",
+  "query_versions",
+  "query_history",
+  "shared_repos",
+  "saved_canvases",
+  "theme_preferences",
+  "user_themes",
+  "license_state",
+  "onboarding_state",
+  "tutorial_progress",
+  "import_state",
+  "connection_overrides",
+  "dashboards",
+  "dashboard_versions",
+  "ai_chats",
+  "vault_state",
+  "user_credentials",
+  "ai_messages",
+];
+
+/** Rows through the SqliteDatabase interface, so both backends dump the same way. */
+async function dumpRowsVia(a, table) {
+  const cols = (await a.query(`SELECT name FROM pragma_table_info('${table}')`)).map((c) => c.name);
+  const q = (c) => `"${c}"`;
+  const sel = [...cols.map((c, i) => `${q(c)} AS v${i}`), ...cols.map((c, i) => `typeof(${q(c)}) AS t${i}`)].join(", ");
+  const order = cols.map((_, i) => i + 1).join(", ");
+  const res = await a.query(`SELECT ${sel} FROM ${q(table)} ORDER BY ${order}`);
+  return {
+    columns: cols,
+    rows: res.map((r) => cols.map((_, i) => r[`v${i}`])),
+    types: res.map((r) => cols.map((_, i) => r[`t${i}`])),
+  };
+}
+
+async function runCase(c, a, repos) {
+  const steps = [];
+  const h = {
+    async call(name, ...args) {
+      const [repo, method] = name.split(".");
+      const target = repos[repo];
+      if (!target || typeof target[method] !== "function") throw new Error(`no ${name}`);
+      const step = { call: name, args: enc(args) };
+      try {
+        const result = await target[method](a, ...args);
+        if (result !== undefined) step.result = enc(result);
+      } catch (e) {
+        step.error = { message: String(e?.message ?? e), code: e?.code };
+      }
+      steps.push(step);
+      return step.result;
+    },
+    async sql(sql, params = []) {
+      await a.execute(sql, params);
+      steps.push({ sql, params });
+    },
+  };
+  await c.run(h);
+  const rows = {};
+  for (const t of c.tables) rows[t] = await dumpRowsVia(a, t);
+  return { steps, rows };
+}
+
+const MASKS = [[/workflow-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "workflow-<random-uuid>"]];
+function mask(value) {
+  let s = JSON.stringify(value);
+  for (const [re, rep] of MASKS) s = s.replace(re, rep);
+  return JSON.parse(s);
+}
+
+async function freezeRepos(mods) {
+  const cur = mods.current;
+  SqlDecimal = cur.SqlDecimal;
+  toStorable = cur.toStorable;
+  const allCases = buildCases(cur);
+
+  // better-sqlite3 through the web server's real openUserDb.
+  process.env.DATA_DIR = path.join(WORK, "web");
+  // sql.js through the demo's real WebSqliteDatabase; localStorage is a Map.
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+    clear: () => store.clear(),
+  };
+
+  const byRepo = {};
+  const backendDiffs = [];
+  let n = 0;
+  for (const c of allCases) {
+    n++;
+    const web = await cur.userStorage(`case-${n}`);
+    const primary = mask(await runCase(c, web, cur.repos));
+
+    store.clear();
+    const demo = await new cur.WebSqliteProvider().open("seaquel.db");
+    // What db.ts does for the demo on a fresh file (minus the legacy-JSON import).
+    await demo.execute("PRAGMA journal_mode=WAL");
+    await demo.execute("PRAGMA foreign_keys=ON");
+    if (!(await cur.schema.initializeSchema(demo))) throw new Error("demo db not fresh");
+    await demo.execute("INSERT INTO schema_version (version) VALUES (?)", [cur.schema.CURRENT_STORAGE_VERSION]);
+    const secondary = mask(await runCase(c, demo, cur.repos));
+    await demo.close();
+
+    const cmp = (x) =>
+      JSON.stringify({
+        steps: x.steps.map(({ error, ...s }) => ({ ...s, error: error ? true : undefined })),
+        rows: x.rows,
+      });
+    const entry = { name: c.name, description: c.description, ...primary };
+    if (c.notes) entry.notes = c.notes;
+    if (cmp(primary) !== cmp(secondary)) {
+      backendDiffs.push({ case: c.name, betterSqlite3: primary, sqlJs: secondary });
+      const steps = primary.steps
+        .map((s, i) => [s, secondary.steps[i], i])
+        .filter(([a, b]) => JSON.stringify({ ...a, error: !!a.error }) !== JSON.stringify({ ...b, error: !!b.error }))
+        .map(([, , i]) => i);
+      const tables = Object.keys(primary.rows).filter((t) => JSON.stringify(primary.rows[t]) !== JSON.stringify(secondary.rows[t]));
+      entry.demoDiffers = { steps, tables };
+    }
+    (byRepo[c.repo] ??= []).push(entry);
+  }
+  cur.closeAllUserDbs();
+
+  const repoFiles = {
+    projectsRepo: "projects",
+    appStateRepo: "app-state",
+    connectionsRepo: "connections",
+    connectionOverridesRepo: "connection-overrides",
+    projectStateRepo: "project-state",
+    savedQueriesRepo: "saved-queries",
+    queryVersionsRepo: "query-versions",
+    queryHistoryRepo: "query-history",
+    sharedReposRepo: "shared-repos",
+    themeRepo: "themes",
+    licenseRepo: "license",
+    onboardingRepo: "onboarding",
+    tutorialRepo: "tutorial",
+    importStateRepo: "import-state",
+    dashboardsRepo: "dashboards",
+    dashboardVersionsRepo: "dashboard-versions",
+    aiChatsRepo: "ai-chats",
+    vaultStateRepo: "vault-state",
+    userCredentialsRepo: "user-credentials",
+  };
+  const counts = {};
+  for (const [repo, file] of Object.entries(repoFiles)) {
+    const list = byRepo[repo] ?? [];
+    if (!list.length) throw new Error(`no cases for ${repo}`);
+    counts[repo] = list.length;
+    writeJson(path.join(OUT, "repos", `${file}.json`), {
+      repo,
+      source: `src/lib/storage/repos/${file === "themes" ? "themes" : file}-repo.ts`,
+      note: "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+      cases: list,
+    });
+  }
+  log("cases per repo:", JSON.stringify(counts));
+  return { byRepo, counts, backendDiffs };
+}
+
+// ---------------------------------------------------------------------------
+// Row shapes: the declared TS types of what each repository method takes and
+// returns, plus what the recorded cases actually returned.
+// ---------------------------------------------------------------------------
+
+const OPAQUE = new Set(["SavedWorkflow"]);
+
+function freezeRowShapes(byRepo) {
+  const lib = path.join(REPO, "src/lib");
+  const probe = path.join(WORK, "shape-probe.ts");
+  fs.writeFileSync(probe, `export * as repos from ${JSON.stringify(path.join(lib, "storage/repository.ts"))};\n`);
+  const program = ts.createProgram([probe], {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    allowImportingTsExtensions: true,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: ts.ScriptTarget.ES2022,
+    baseUrl: REPO,
+    paths: { $lib: [lib], "$lib/*": [lib + "/*"] },
+  });
+  const checker = program.getTypeChecker();
+  const sf = program.getSourceFile(probe);
+  const modSym = checker.getSymbolAtLocation(sf).exports.get("repos");
+  const reposType = checker.getTypeOfSymbolAtLocation(modSym, sf);
+
+  const named = {};
+  const str = (t) => checker.typeToString(t, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseFullyQualifiedType).replace(/import\("[^"]+"\)\./g, "");
+
+  function jsonKinds(t, seen = new Set()) {
+    if (t.isUnion()) return [...new Set(t.types.flatMap((x) => jsonKinds(x, seen)))];
+    const f = t.flags;
+    if (f & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return ["any"];
+    if (f & ts.TypeFlags.StringLike) return ["string"];
+    if (f & ts.TypeFlags.NumberLike) return ["number"];
+    if (f & ts.TypeFlags.BooleanLike) return ["boolean"];
+    if (f & ts.TypeFlags.Null) return ["null"];
+    if (f & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return ["absent"];
+    const sym = t.getSymbol();
+    if (sym?.name === "Date") return ["Date"];
+    if (checker.isArrayType(t)) return ["array"];
+    return ["object"];
+  }
+
+  function describe(t, depth = 0) {
+    const nonNull = checker.getNonNullableType(t);
+    const base = checker.isArrayType(nonNull) ? checker.getTypeArguments(nonNull)[0] : nonNull;
+    const out = { ts: str(t), json: jsonKinds(t) };
+    const lits = (nonNull.isUnion() ? nonNull.types : [nonNull]).filter((x) => x.isStringLiteral());
+    if (lits.length && lits.length === (nonNull.isUnion() ? nonNull.types.length : 1)) out.enum = lits.map((x) => x.value);
+    for (const part of base.isUnion() ? base.types : [base]) {
+      if (!(part.flags & ts.TypeFlags.Object) || checker.isArrayType(part)) continue;
+      const sym = part.aliasSymbol ?? part.getSymbol();
+      const name = sym?.name;
+      if (name === "Date" || name === "Promise") continue;
+      if (name && OPAQUE.has(name)) {
+        named[name] ??= { opaque: true, note: "stored as JSON text (saved_canvases.data via toStorable); Rust keeps it as opaque JSON" };
+        out.ref = name;
+      } else if (name && name !== "__type" && name !== "__object") {
+        if (!named[name]) {
+          named[name] = { fields: {} };
+          named[name].fields = fields(part, depth + 1);
+        }
+        out.ref = name;
+      } else if (depth < 6) {
+        out.fields = fields(part, depth + 1);
+      }
+    }
+    return out;
+  }
+
+  function fields(t, depth) {
+    const res = {};
+    for (const p of checker.getPropertiesOfType(t)) {
+      const decl = p.valueDeclaration ?? p.declarations?.[0];
+      const pt = checker.getTypeOfSymbolAtLocation(p, decl ?? sf);
+      if (pt.getCallSignatures().length) continue;
+      const d = describe(pt, depth);
+      d.optional = (p.flags & ts.SymbolFlags.Optional) !== 0;
+      d.json = d.json.filter((k) => k !== "absent" || !d.optional);
+      res[p.name] = d;
+    }
+    return res;
+  }
+
+  const repos = {};
+  for (const repoSym of checker.getPropertiesOfType(reposType)) {
+    const repoType = checker.getTypeOfSymbolAtLocation(repoSym, sf);
+    const methods = {};
+    for (const m of checker.getPropertiesOfType(repoType)) {
+      const mt = checker.getTypeOfSymbolAtLocation(m, sf);
+      const sig = mt.getCallSignatures()[0];
+      if (!sig) continue;
+      let ret = sig.getReturnType();
+      if (ret.getSymbol()?.name === "Promise") ret = checker.getTypeArguments(ret)[0];
+      methods[m.name] = {
+        params: sig.parameters.slice(1).map((p) => {
+          const pt = checker.getTypeOfSymbolAtLocation(p, sf);
+          return { name: p.name, ...describe(pt) };
+        }),
+        returns: describe(ret),
+      };
+    }
+    repos[repoSym.name] = methods;
+  }
+
+  // Observed: which keys the recorded loads returned, and their JSON kinds.
+  const observed = {};
+  const kind = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : v && typeof v === "object" && "$date" in v ? "Date" : typeof v);
+  const visit = (key, obj, prefix = "") => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj) || "$date" in obj) return;
+    const o = (observed[key] ??= { samples: 0, keys: {} });
+    if (!prefix) o.samples++;
+    for (const [k, v] of Object.entries(obj)) {
+      const e = (o.keys[prefix + k] ??= { present: 0, kinds: [] });
+      e.present++;
+      if (!e.kinds.includes(kind(v))) e.kinds.push(kind(v));
+    }
+  };
+  for (const cases of Object.values(byRepo)) {
+    for (const c of cases) {
+      for (const s of c.steps) {
+        if (!s.call || s.result === undefined) continue;
+        const items = Array.isArray(s.result) ? s.result : [s.result];
+        for (const it of items) visit(s.call, it);
+        if (s.call === "sharedReposRepo.loadAll") for (const r of s.result.repos) visit("sharedReposRepo.loadAll repos[]", r);
+      }
+    }
+  }
+  for (const o of Object.values(observed)) {
+    for (const e of Object.values(o.keys)) e.always = e.present === o.samples;
+  }
+
+  writeJson(path.join(OUT, "row-shapes.json"), {
+    note:
+      "Frozen. `repos`: each repository method's declared parameters and result, from the TypeScript checker over src/lib/storage/repository.ts (the db argument dropped). `types`: the named types they use. `json` lists the JSON kinds a value can take; `absent` means the key may be missing, `Date` means a JS Date (an ISO string on the wire). `observed`: the keys each load returned across the recorded cases, with `always` when every sample had it. Task 4's ts-rs types must regenerate to the same shapes.",
+    repos,
+    types: named,
+    observed,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main() {
+  log("work dir", WORK);
+  const mods = {};
+  for (const tree of TAGS) mods[tree] = await bundle(tree, materialize(tree));
+  const lib = path.join(REPO, "src/lib");
+  mods.current = await bundle(
+    "current",
+    REPO,
+    `export { openUserDb, userStorage, closeAllUserDbs } from ${JSON.stringify(path.join(lib, "server/storage.ts"))};\n` +
+      `export { WebSqliteProvider } from ${JSON.stringify(path.join(lib, "storage/web-sqlite.ts"))};\n` +
+      `export { SqlDecimal, toStorable } from ${JSON.stringify(path.join(lib, "values.ts"))};\n` +
+      `export { default as DiffMatchPatch } from "diff-match-patch";\n`,
+  );
+  fs.rmSync(path.join(OUT, "schemas"), { recursive: true, force: true });
+  fs.rmSync(path.join(OUT, "repos"), { recursive: true, force: true });
+  fs.rmSync(path.join(OUT, "upgrades"), { recursive: true, force: true });
+
+  const upgrades = await freezeSchemas(mods);
+  await freezeDataUpgrade(mods);
+  const { byRepo, counts, backendDiffs } = await freezeRepos(mods);
+  freezeRowShapes(byRepo);
+  log(`backend differences (better-sqlite3 vs sql.js): ${backendDiffs.length} cases (marked demoDiffers in the fixtures)`);
+  for (const d of backendDiffs) log("  differs:", d.case);
+  log("total cases:", Object.values(counts).reduce((x, y) => x + y, 0));
+  void upgrades;
+  if (process.env.FREEZE_KEEP_WORK) {
+    writeJson(path.join(WORK, "backend-diffs.json"), backendDiffs);
+    log("kept", WORK);
+  } else {
+    fs.unlinkSync(path.join(WORK, "node_modules")); // the symlink, never the repo's packages
+    fs.rmSync(WORK, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The cases
+// ---------------------------------------------------------------------------
+
+function buildCases(cur) {
+  const T0 = "2026-01-02T03:04:05.000Z";
+  const T1 = "2026-01-03T00:00:00.000Z";
+  const T2 = "2026-01-04T12:30:00.000Z";
+  const dmp = new cur.DiffMatchPatch();
+  const patch = (a, b) => dmp.patch_toText(dmp.patch_make(a, b));
+
+  const project = (id, extra = {}) => ({
+    id,
+    name: `Project ${id}`,
+    createdAt: T0,
+    updatedAt: T1,
+    customLabels: [],
+    ...extra,
+  });
+  const connection = (id, projectId, extra = {}) => ({
+    id,
+    name: `Connection ${id}`,
+    type: "postgres",
+    host: "localhost",
+    port: 5432,
+    databaseName: "app",
+    username: "me",
+    projectId,
+    labelIds: [],
+    ...extra,
+  });
+  const savedQuery = (id, projectId, extra = {}) => ({
+    id,
+    name: `Query ${id}`,
+    query: "SELECT 1",
+    projectId,
+    createdAt: T0,
+    updatedAt: T1,
+    ...extra,
+  });
+  const emptyState = (projectId, extra = {}) => ({
+    projectId,
+    queryTabs: [],
+    schemaTabs: [],
+    explainTabs: [],
+    erdTabs: [],
+    tabOrder: [],
+    activeQueryTabId: null,
+    activeSchemaTabId: null,
+    activeExplainTabId: null,
+    activeErdTabId: null,
+    activeView: "query",
+    activeConnectionId: null,
+    ...extra,
+  });
+  const dashboard = (id, projectId, extra = {}) => ({
+    id,
+    projectId,
+    name: `Dashboard ${id}`,
+    viewport: '{"x":0,"y":0,"zoom":1}',
+    widgets: "[]",
+    createdAt: T0,
+    updatedAt: T1,
+    ...extra,
+  });
+  const historyItem = (id, connectionId, extra = {}) => ({
+    id,
+    query: "SELECT 1",
+    timestamp: T0,
+    executionTime: 12,
+    rowCount: 1,
+    connectionId,
+    favorite: false,
+    connectionLabelsSnapshot: [],
+    connectionNameSnapshot: "Local",
+    ...extra,
+  });
+  const withProject = async (h, id = "p1") => h.call("projectsRepo.save", project(id));
+  const withConnection = async (h, id = "c1", projectId = "p1") => h.call("connectionsRepo.save", connection(id, projectId));
+
+  const cases = [];
+  const add = (repo, name, description, tables, run, notes) =>
+    cases.push({ repo, name, description, tables, run, notes });
+
+  // --- projectsRepo -------------------------------------------------------
+  add("projectsRepo", "projects/save-full-and-load", "Every column set, unicode, two labels (predefined and custom).", ["projects", "project_labels"], async (h) => {
+    await h.call("projectsRepo.save", project("p1", {
+      name: "Projekt Ünïcødé 🚀",
+      description: "Beschreibung — naïve café 日本語",
+      gitRepoPath: "/Users/me/repos/shared queries",
+      customLabels: [
+        { id: "lbl-prod", name: "Production", isPredefined: true, color: "#ef4444" },
+        { id: "lbl-2", name: "Données 🧪", isPredefined: false, color: "#22c55e" },
+      ],
+    }));
+    await h.call("projectsRepo.loadAll");
+  });
+  add("projectsRepo", "projects/save-minimal-and-load", "Optional description and gitRepoPath unset, no labels.", ["projects", "project_labels"], async (h) => {
+    await h.call("projectsRepo.save", project("p1"));
+    await h.call("projectsRepo.loadAll");
+  });
+  add("projectsRepo", "projects/save-null-optionals", "description and gitRepoPath passed as null: stored NULL, loaded as absent.", ["projects"], async (h) => {
+    await h.call("projectsRepo.save", project("p1", { description: null, gitRepoPath: null }));
+    await h.call("projectsRepo.loadAll");
+  });
+  add("projectsRepo", "projects/save-twice-replaces-labels", "A second save updates the row in place and replaces the label set.", ["projects", "project_labels"], async (h) => {
+    await h.call("projectsRepo.save", project("p1", { description: "old", customLabels: [
+      { id: "a", name: "A", isPredefined: false, color: "#000000" },
+      { id: "b", name: "B", isPredefined: true, color: "#111111" },
+    ] }));
+    await h.call("projectsRepo.save", project("p1", { name: "Renamed", updatedAt: T2, customLabels: [
+      { id: "b", name: "B2", isPredefined: false, color: "#222222" },
+    ] }));
+    await h.call("projectsRepo.loadAll");
+  });
+  add("projectsRepo", "projects/save-all-and-load-all", "saveAll with three projects; loadAll returns them in insertion order.", ["projects", "project_labels"], async (h) => {
+    await h.call("projectsRepo.saveAll", [
+      project("p-b", { name: "Bravo" }),
+      project("p-a", { name: "Alpha", customLabels: [{ id: "l", name: "L", isPredefined: false, color: "#abcdef" }] }),
+      project("p-c", { name: "Charlie", description: "" }),
+    ]);
+    await h.call("projectsRepo.loadAll");
+  });
+  add("projectsRepo", "projects/remove-cascades", "Removing a project deletes its labels, connections (and their labels, history, AI chats and messages), project state, tabs, canvases, saved queries (and versions), dashboards (and versions). The other project and the non-project tables stay.", ALL_TABLES, async (h) => {
+    await h.call("projectsRepo.save", project("p1", { customLabels: [{ id: "l1", name: "L", isPredefined: false, color: "#fff000" }] }));
+    await h.call("projectsRepo.save", project("p2"));
+    await h.call("connectionsRepo.save", connection("c1", "p1", { labelIds: ["l1"] }));
+    await h.call("connectionsRepo.save", connection("c2", "p2"));
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("h1", "c1")]);
+    await h.call("queryHistoryRepo.replaceAll", "c2", [historyItem("h2", "c2")]);
+    await h.call("aiChatsRepo.saveChat", { id: "chat1", connectionId: "c1", title: "Chat", createdAt: T0, updatedAt: T0 });
+    await h.call("aiChatsRepo.replaceAllMessages", "chat1", [{ id: "m1", chatId: "chat1", role: "user", content: "hi", timestamp: T0 }]);
+    await h.call("projectStateRepo.save", emptyState("p1", {
+      queryTabs: [{ id: "t1", name: "Q", query: "SELECT 1" }],
+      tabOrder: ["t1"],
+      savedWorkflows: [{ id: "wf1", name: "W", projectId: "p1", nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, createdAt: T0, updatedAt: T0 }],
+    }));
+    await h.call("projectStateRepo.save", emptyState("p2"));
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q1", "p1")]);
+    await h.call("savedQueriesRepo.saveAll", "p2", [savedQuery("q2", "p2")]);
+    await h.call("queryVersionsRepo.insert", { id: "v1", queryId: "q1", version: 1, snapshot: "SELECT 1", diff: null, createdAt: T0 });
+    await h.call("dashboardsRepo.save", dashboard("d1", "p1"));
+    await h.call("dashboardVersionsRepo.insert", { id: "dv1", dashboardId: "d1", version: 1, snapshot: "{}", createdAt: T0 });
+    await h.call("appStateRepo.set", "k", "v");
+    await h.call("projectsRepo.remove", "p1");
+    await h.call("projectsRepo.loadAll");
+    await h.call("connectionsRepo.loadAll");
+  });
+
+  // --- appStateRepo -------------------------------------------------------
+  add("appStateRepo", "app-state/get-missing", "A missing key reads as null.", ["app_state"], async (h) => {
+    await h.call("appStateRepo.get", "nope");
+  });
+  add("appStateRepo", "app-state/set-get-overwrite", "Set, read, overwrite with unicode, read.", ["app_state"], async (h) => {
+    await h.call("appStateRepo.set", "activeProjectId", "p1");
+    await h.call("appStateRepo.get", "activeProjectId");
+    await h.call("appStateRepo.set", "activeProjectId", "Ünïcødé 🚀 \"quoted\" \n newline");
+    await h.call("appStateRepo.get", "activeProjectId");
+    await h.call("appStateRepo.set", "empty", "");
+    await h.call("appStateRepo.get", "empty");
+  });
+  add("appStateRepo", "app-state/set-null", "Setting null keeps a row whose value is NULL; get returns null.", ["app_state"], async (h) => {
+    await h.call("appStateRepo.set", "k", "v");
+    await h.call("appStateRepo.set", "k", null);
+    await h.call("appStateRepo.get", "k");
+  });
+
+  // --- connectionsRepo ----------------------------------------------------
+  add("connectionsRepo", "connections/save-full-and-load", "Every optional column set: SSH tunnel JSON, lastConnected Date, all flags true, AI settings, labels, unicode.", ["connections", "connection_labels"], async (h) => {
+    await withProject(h);
+    await h.call("connectionsRepo.save", connection("c1", "p1", {
+      name: "Prod 🐘 Ünïcødé",
+      type: "mysql",
+      host: "db.example.com",
+      port: 3306,
+      databaseName: "données",
+      username: "админ",
+      sslMode: "require",
+      connectionString: "mysql://админ@db.example.com:3306/données",
+      lastConnected: new Date("2026-02-03T04:05:06.789Z"),
+      sshTunnel: { enabled: true, host: "bastion", port: 22, username: "ubuntu", authMethod: "key", keyPath: "~/.ssh/id_ed25519" },
+      savePassword: true,
+      saveSshPassword: true,
+      saveSshKeyPassphrase: true,
+      labelIds: ["lbl-prod", "lbl-2"],
+      isLocalOnly: true,
+      sharedConnectionId: "shared-1",
+      aiShareSchema: true,
+      aiShareData: true,
+      activeAIProviderId: "anthropic",
+      activeAIModel: "claude-x",
+    }));
+    await h.call("connectionsRepo.loadAll");
+  });
+  add("connectionsRepo", "connections/save-minimal-and-load", "Only required fields: every optional column stored as NULL or 0, and the flags load as false (save*) or absent (isLocalOnly, aiShare*).", ["connections", "connection_labels"], async (h) => {
+    await withProject(h);
+    await h.call("connectionsRepo.save", connection("c1", "p1", { type: "sqlite", host: "", port: 0, databaseName: "/tmp/a.db", username: "" }));
+    await h.call("connectionsRepo.loadAll");
+  });
+  add("connectionsRepo", "connections/save-false-flags", "Flags explicitly false: save* load false, isLocalOnly false loads absent, aiShareSchema false loads false (0), aiShareData null loads absent.", ["connections"], async (h) => {
+    await withProject(h);
+    await h.call("connectionsRepo.save", connection("c1", "p1", {
+      savePassword: false,
+      saveSshPassword: false,
+      saveSshKeyPassphrase: false,
+      isLocalOnly: false,
+      aiShareSchema: false,
+      aiShareData: null,
+      sshTunnel: null,
+      lastConnected: null,
+      sslMode: null,
+    }));
+    await h.call("connectionsRepo.loadAll");
+  });
+  add("connectionsRepo", "connections/save-twice-upserts-and-replaces-labels", "A second save updates the row (ON CONFLICT DO UPDATE) and replaces its labels.", ["connections", "connection_labels"], async (h) => {
+    await withProject(h);
+    await h.call("connectionsRepo.save", connection("c1", "p1", { labelIds: ["a", "b"], sslMode: "disable" }));
+    await h.call("connectionsRepo.save", connection("c1", "p1", { name: "Renamed", port: 6543, labelIds: ["c"] }));
+    await h.call("connectionsRepo.loadAll");
+  });
+  add("connectionsRepo", "connections/load-stored-quirks", "Rows as older builds or hand edits left them: bad and empty ssh_tunnel JSON, a non-ISO last_connected (read as UTC here: TZ=UTC), flag values other than 0/1.", ["connections"], async (h) => {
+    await withProject(h);
+    await h.sql(
+      `INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected, save_password, is_local_only, ai_share_schema, ai_share_data)
+       VALUES ('c-bad', 'p1', 'Bad', 'postgres', 'h', 1, 'd', 'u', '{not json', '2024-01-02 03:04:05', 2, 2, 2, 0)`,
+    );
+    await h.sql(
+      `INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected)
+       VALUES ('c-empty', 'p1', 'Empty', 'postgres', 'h', 1, 'd', 'u', '', 'not a date')`,
+    );
+    await h.sql(
+      `INSERT INTO connections (id, project_id, name, type, host, port, database_name, username, ssh_tunnel, last_connected)
+       VALUES ('c-null-json', 'p1', 'NullJson', 'postgres', 'h', 1, 'd', 'u', 'null', '2024-06-01T00:00:00Z')`,
+    );
+    await h.call("connectionsRepo.loadAll");
+  }, "lastConnected loads as a JS Date: an unparseable string gives an Invalid Date, recorded as {\"$date\": null}; a valid one is re-serialised by toISOString (milliseconds and Z added).");
+  add("connectionsRepo", "connections/remove-cascades", "Removing a connection deletes its labels, query history, AI chats and their messages. Other connections keep theirs.", ["connections", "connection_labels", "query_history", "ai_chats", "ai_messages"], async (h) => {
+    await withProject(h);
+    await h.call("connectionsRepo.save", connection("c1", "p1", { labelIds: ["x"] }));
+    await h.call("connectionsRepo.save", connection("c2", "p1", { labelIds: ["x"] }));
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("h1", "c1")]);
+    await h.call("queryHistoryRepo.replaceAll", "c2", [historyItem("h2", "c2")]);
+    await h.call("aiChatsRepo.saveChat", { id: "chat1", connectionId: "c1", title: "T", createdAt: T0, updatedAt: T0 });
+    await h.call("aiChatsRepo.replaceAllMessages", "chat1", [{ id: "m1", chatId: "chat1", role: "user", content: "x", timestamp: T0 }]);
+    await h.call("connectionsRepo.remove", "c1");
+    await h.call("connectionsRepo.loadAll");
+  });
+  add("connectionsRepo", "connections/save-missing-project", "The project doesn't exist: the upsert fails on the foreign key and nothing is written.", ["connections", "connection_labels"], async (h) => {
+    await h.call("connectionsRepo.save", connection("c1", "nope", { labelIds: ["a"] }));
+    await h.call("connectionsRepo.loadAll");
+  });
+
+  // --- connectionOverridesRepo --------------------------------------------
+  add("connectionOverridesRepo", "connection-overrides/load-missing", "load of an unknown id is null; loadAll on an empty table is [].", ["connection_overrides"], async (h) => {
+    await h.call("connectionOverridesRepo.load", "nope");
+    await h.call("connectionOverridesRepo.loadAll");
+  });
+  add("connectionOverridesRepo", "connection-overrides/save-full-and-load", "Every column set.", ["connection_overrides"], async (h) => {
+    await h.call("connectionOverridesRepo.save", {
+      sharedConnectionId: "shared-1",
+      username: "ユーザー",
+      hostOverride: "127.0.0.1",
+      portOverride: 15432,
+      savePassword: true,
+      saveSshPassword: true,
+      saveSshKeyPassphrase: true,
+    });
+    await h.call("connectionOverridesRepo.load", "shared-1");
+    await h.call("connectionOverridesRepo.loadAll");
+  });
+  add("connectionOverridesRepo", "connection-overrides/save-minimal", "Optionals unset, flags false.", ["connection_overrides"], async (h) => {
+    await h.call("connectionOverridesRepo.save", { sharedConnectionId: "shared-2", savePassword: false, saveSshPassword: false, saveSshKeyPassphrase: false });
+    await h.call("connectionOverridesRepo.load", "shared-2");
+  });
+  add("connectionOverridesRepo", "connection-overrides/upsert-and-remove", "A second save updates; remove deletes one of two.", ["connection_overrides"], async (h) => {
+    await h.call("connectionOverridesRepo.save", { sharedConnectionId: "a", username: "u1", savePassword: true, saveSshPassword: false, saveSshKeyPassphrase: false });
+    await h.call("connectionOverridesRepo.save", { sharedConnectionId: "b", savePassword: false, saveSshPassword: false, saveSshKeyPassphrase: false });
+    await h.call("connectionOverridesRepo.save", { sharedConnectionId: "a", hostOverride: "h2", savePassword: false, saveSshPassword: true, saveSshKeyPassphrase: false });
+    await h.call("connectionOverridesRepo.remove", "b");
+    await h.call("connectionOverridesRepo.loadAll");
+  });
+
+  // --- projectStateRepo ---------------------------------------------------
+  const fullWorkflow = {
+    id: "wf-1",
+    name: "Flow Ünïcødé",
+    projectId: "p1",
+    nodes: [
+      {
+        id: "n1",
+        type: "result",
+        position: { x: 1.5, y: -2 },
+        data: {
+          columns: ["big", "bytes", "dec", "literal", "num", "nan", "inf"],
+          rows: [[9007199254740993n, new Uint8Array([0, 1, 255]), new cur.SqlDecimal("12.50"), { $sq: "user" }, 1, NaN, -Infinity]],
+        },
+      },
+    ],
+    edges: [{ id: "e1", source: "n1", target: "n1" }],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    createdAt: T0,
+    updatedAt: T1,
+  };
+  add("projectStateRepo", "project-state/load-missing", "No row for the project: null.", ["project_state"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.load", "p1");
+  });
+  add("projectStateRepo", "project-state/save-full-and-load", "Every tab type, every active id, pane layout, orders, starred ids and a saved workflow whose result rows hold bigint, bytes, a decimal, a literal {$sq} object and non-finite numbers.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.save", {
+      projectId: "p1",
+      queryTabs: [
+        { id: "q1", name: "Abfrage 🚀", query: "SELECT 'ü' AS x -- 日本語", queryId: "sq-1" },
+        { id: "q2", name: "Scratch", query: "" },
+      ],
+      schemaTabs: [
+        { id: "s1", tableName: "users", schemaName: "public", connectionId: "c1" },
+        { id: "s2", tableName: "orders", schemaName: "" },
+      ],
+      explainTabs: [{ id: "x1", name: "Explain", sourceQuery: "SELECT * FROM t" }],
+      erdTabs: [{ id: "erd1", name: "ERD", connectionId: "c1" }, { id: "erd2", name: "ERD2" }],
+      statisticsTabs: [{ id: "st1", name: "Stats", connectionId: "c1" }],
+      workflowTabs: [{ id: "w1", name: "Workflow", connectionId: "c1" }],
+      tabOrder: ["q1", "q2", "s1", "s2", "x1", "erd1", "erd2", "st1", "w1", "start1", "dt1", "ct1", "data1"],
+      connectionOrder: ["c2", "c1"],
+      activeQueryTabId: "q1",
+      activeSchemaTabId: "s1",
+      activeExplainTabId: "x1",
+      activeErdTabId: "erd1",
+      activeStatisticsTabId: "st1",
+      activeWorkflowTabId: "w1",
+      activeView: "workflow",
+      activeConnectionId: "c1",
+      starterTabs: [
+        { id: "start1", type: "getting-started", name: "Getting started", closable: true },
+        { id: "start2", type: "migration-tips", name: "Tips", closable: false },
+      ],
+      activeStarterTabId: "start1",
+      savedWorkflows: [fullWorkflow],
+      connectionTabs: [{ id: "conn-tab", name: "not persisted" }],
+      activeConnectionTabId: "conn-tab",
+      dashboardTabs: [{ id: "dt1", name: "Dash", dashboardId: "d1" }],
+      activeDashboardTabId: "dt1",
+      starredSharedQueryIds: ["sq-a", "sq-b"],
+      starredSharedDashboardIds: ["sd-a"],
+      createTableTabs: [{ id: "ct1", connectionId: "c1", name: "New table", tableDefinition: '{"name":"t","columns":[]}' }],
+      activeCreateTableTabId: "ct1",
+      dataTabs: [{ id: "data1", connectionId: "c1", tableName: "users", schemaName: "public" }],
+      activeDataTabId: "data1",
+      extensionsDuckdbTabs: [{ id: "ext1", name: "Extensions", connectionId: "c1" }],
+      activeExtensionsDuckdbTabId: "ext1",
+      paneLayout: {
+        panes: [
+          { id: "pane-1", tabIds: ["q1", "q2"], activeTabId: "q1" },
+          { id: "pane-2", tabIds: [], activeTabId: null },
+        ],
+        activePaneId: "pane-1",
+      },
+    });
+    await h.call("projectStateRepo.load", "p1");
+  }, "connectionTabs, activeConnectionTabId and the extensionsDuckdb fields are not stored. Schema and data tabs store tableName in `name` too. Workflow tabs are stored with tab_type 'canvas'. The load returns savedWorkflows decoded with fromStorable, recorded here with toStorable's tags again.");
+  add("projectStateRepo", "project-state/save-minimal-and-load", "Only the required fields; every optional list and id left out. Loads fill in [] and null, activeDashboardTabId null, paneLayout absent.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.save", emptyState("p1"));
+    await h.call("projectStateRepo.load", "p1");
+  });
+  add("projectStateRepo", "project-state/save-replaces-tabs-and-workflows", "A second save replaces the row (INSERT OR REPLACE), all tabs and all canvases.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.save", emptyState("p1", {
+      queryTabs: [{ id: "a", name: "A", query: "1" }, { id: "b", name: "B", query: "2" }],
+      tabOrder: ["a", "b"],
+      activeQueryTabId: "b",
+      paneLayout: { panes: [{ id: "p", tabIds: ["a", "b"], activeTabId: "b" }], activePaneId: "p" },
+      savedWorkflows: [{ id: "wf-a", name: "A", projectId: "p1", nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, createdAt: T0, updatedAt: T0 }],
+    }));
+    await h.call("projectStateRepo.save", emptyState("p1", {
+      queryTabs: [{ id: "c", name: "C", query: "3" }],
+      tabOrder: ["c"],
+      activeQueryTabId: "c",
+      savedWorkflows: [],
+    }));
+    await h.call("projectStateRepo.load", "p1");
+  });
+  add("projectStateRepo", "project-state/workflow-without-id", "A saved workflow with no id gets `workflow-<random uuid>` as its row id (masked in this fixture).", ["saved_canvases"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.save", emptyState("p1", {
+      savedWorkflows: [{ name: "No id", projectId: "p1", nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, createdAt: T0, updatedAt: T0 }],
+    }));
+    await h.call("projectStateRepo.load", "p1");
+  }, "The id is random; compare it by pattern (`workflow-` + a v4 UUID).");
+  add("projectStateRepo", "project-state/load-stored-quirks", "Rows the save path never writes: a query tab with only shared_query_id, a starter tab with NULL type and closable, unknown tab types, bad JSON in tab_order, connection_order, starred ids and pane_layout, and bad or null canvases.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await withProject(h);
+    await h.sql(
+      `INSERT INTO project_state (project_id, active_view, tab_order, connection_order, starred_shared_query_ids, starred_shared_dashboard_ids, pane_layout)
+       VALUES ('p1', 'canvas', '{bad', 'null', 'nope', '[1', '{bad')`,
+    );
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name, shared_query_id) VALUES ('q1', 'p1', 'query', 'Shared', 'shared-q')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name, saved_query_id, shared_query_id) VALUES ('q2', 'p1', 'query', 'Both', 'saved-q', 'shared-q')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name) VALUES ('st', 'p1', 'starter', 'Starter')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name, closable) VALUES ('st2', 'p1', 'starter', 'Starter2', 2)`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name) VALUES ('v', 'p1', 'visualize', 'Viz')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name) VALUES ('stat', 'p1', 'statistics', 'NoConn')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name) VALUES ('ct', 'p1', 'create_table', 'NoDef')`);
+    await h.sql(`INSERT INTO tabs (id, project_id, tab_type, name) VALUES ('s', 'p1', 'schema', 'NoTable')`);
+    await h.sql(`INSERT INTO saved_canvases (id, project_id, data) VALUES ('bad', 'p1', '{bad')`);
+    await h.sql(`INSERT INTO saved_canvases (id, project_id, data) VALUES ('null', 'p1', 'null')`);
+    await h.sql(`INSERT INTO saved_canvases (id, project_id, data) VALUES ('notag', 'p1', '{"id":"notag","x":{"$sq":"bigint"}}')`);
+    await h.sql(`INSERT INTO saved_canvases (id, project_id, data) VALUES ('badtag', 'p1', '{"id":"badtag","x":{"$sq":"bigint","v":"abc"}}')`);
+    await h.sql(`INSERT INTO saved_canvases (id, project_id, data) VALUES ('ok', 'p1', '{"id":"ok","name":"Ok"}')`);
+    await h.call("projectStateRepo.load", "p1");
+  }, "active_view 'canvas' is returned as is: only upgradeSchema rewrites it. connection_order 'null' parses to null, and the load returns null for connectionOrder (safeJsonParse returns the parsed null, not the fallback). A {$sq} object without `v` is not a tag and loads as a plain object (recorded wrapped in a json tag, as toStorable would); a tag whose value doesn't decode (bigint \"abc\") makes fromStorable throw, and the load drops that canvas.");
+  add("projectStateRepo", "project-state/remove", "remove deletes the state row, its tabs and its canvases; the other project keeps its own.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    for (const p of ["p1", "p2"]) {
+      await h.call("projectStateRepo.save", emptyState(p, {
+        queryTabs: [{ id: "t", name: "T", query: "q" }],
+        savedWorkflows: [{ id: `wf-${p}`, name: "W", projectId: p, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, createdAt: T0, updatedAt: T0 }],
+      }));
+    }
+    await h.call("projectStateRepo.remove", "p1");
+    await h.call("projectStateRepo.load", "p1");
+    await h.call("projectStateRepo.load", "p2");
+  });
+  add("projectStateRepo", "project-state/save-missing-project", "The project doesn't exist: the batch fails on the foreign key and rolls back as a whole.", ["project_state", "tabs", "saved_canvases"], async (h) => {
+    await h.call("projectStateRepo.save", emptyState("nope", { queryTabs: [{ id: "t", name: "T", query: "q" }] }));
+    await h.call("projectStateRepo.load", "nope");
+  });
+  add("projectStateRepo", "project-state/duplicate-tab-id-rolls-back", "Two tabs with the same id violate the tabs primary key; the whole batch (state row included) rolls back and the earlier state survives.", ["project_state", "tabs"], async (h) => {
+    await withProject(h);
+    await h.call("projectStateRepo.save", emptyState("p1", { queryTabs: [{ id: "keep", name: "Keep", query: "1" }], activeQueryTabId: "keep" }));
+    await h.call("projectStateRepo.save", emptyState("p1", {
+      queryTabs: [{ id: "dup", name: "A", query: "1" }],
+      explainTabs: [{ id: "dup", name: "B", sourceQuery: "2" }],
+      activeView: "explain",
+    }));
+    await h.call("projectStateRepo.load", "p1");
+  });
+
+  // --- savedQueriesRepo ---------------------------------------------------
+  add("savedQueriesRepo", "saved-queries/save-all-full-and-minimal", "One query with every optional set (parameters, tags, folder, flags, unicode) and one with none.", ["saved_queries"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [
+      savedQuery("q-full", "p1", {
+        name: "Umsätze 📈",
+        query: "SELECT * FROM orders WHERE region = {{region}} -- 日本語",
+        parameters: [
+          { name: "region", type: "text", defaultValue: "EU", description: "Région" },
+          { name: "n", type: "number" },
+        ],
+        starred: true,
+        shared: true,
+        description: "Beschreibung",
+        databaseType: "postgres",
+        tags: ["finance", "ünïcødé"],
+        folder: "reports/2026",
+      }),
+      savedQuery("q-min", "p1"),
+    ]);
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+  });
+  add("savedQueriesRepo", "saved-queries/empty-arrays-and-false", "parameters and tags as [] are stored as '[]' and load as []; starred/shared false store 0.", ["saved_queries"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1", { parameters: [], tags: [], starred: false, shared: false, description: null, folder: null })]);
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+  });
+  add("savedQueriesRepo", "saved-queries/save-all-replaces-earlier-set", "saveAll with a new set: a kept query is updated in place (its versions survive), a dropped one is deleted with its versions, a new one is inserted.", ["saved_queries", "query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("keep", "p1", { name: "Old name" }), savedQuery("drop", "p1")]);
+    await h.call("queryVersionsRepo.insert", { id: "v-keep", queryId: "keep", version: 1, snapshot: "SELECT 1", diff: null, createdAt: T0 });
+    await h.call("queryVersionsRepo.insert", { id: "v-drop", queryId: "drop", version: 1, snapshot: "SELECT 1", diff: null, createdAt: T0 });
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("keep", "p1", { name: "New name", updatedAt: T2 }), savedQuery("new", "p1")]);
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+  });
+  add("savedQueriesRepo", "saved-queries/save-all-empty-clears-only-that-project", "saveAll with [] deletes every query of that project; another project's stay.", ["saved_queries"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("a", "p1")]);
+    await h.call("savedQueriesRepo.saveAll", "p2", [savedQuery("b", "p2")]);
+    await h.call("savedQueriesRepo.saveAll", "p1", []);
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+    await h.call("savedQueriesRepo.loadByProject", "p2");
+  });
+  add("savedQueriesRepo", "saved-queries/save-all-moves-query-between-projects", "saveAll for p2 with an id that belongs to p1: the upsert rewrites project_id, so the query moves to p2.", ["saved_queries"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("savedQueriesRepo.saveAll", "p2", [savedQuery("q", "p2")]);
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+    await h.call("savedQueriesRepo.loadByProject", "p2");
+  });
+  add("savedQueriesRepo", "saved-queries/remove-by-project", "removeByProject deletes the project's queries and cascades to their versions.", ["saved_queries", "query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", { id: "v", queryId: "q", version: 1, snapshot: "x", diff: null, createdAt: T0 });
+    await h.call("savedQueriesRepo.removeByProject", "p1");
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+  });
+  add("savedQueriesRepo", "saved-queries/load-stored-quirks", "Stored JSON the save path wouldn't write: bad parameters JSON loads absent, tags 'null' loads null, flag 2 loads false.", ["saved_queries"], async (h) => {
+    await withProject(h);
+    await h.sql(
+      `INSERT INTO saved_queries (id, project_id, name, query, parameters, tags, starred, shared, created_at, updated_at)
+       VALUES ('q', 'p1', 'n', 'SELECT 1', '{bad', 'null', 2, 1, 'c', 'u')`,
+    );
+    await h.call("savedQueriesRepo.loadByProject", "p1");
+  });
+
+  // --- queryVersionsRepo --------------------------------------------------
+  const v = (id, queryId, version, snapshot, diff, createdAt = T0) => ({ id, queryId, version, snapshot, diff, createdAt });
+  const texts = ["SELECT 1", "SELECT 1, '🚀'", "SELECT 1, '🚀🚀 café' -- 日本語", "SELECT 2, '🚀 café' -- 日本語", "SELECT 2 -- 🚀"];
+  add("queryVersionsRepo", "query-versions/insert-and-load-by-query", "Versions inserted out of order load in version order; keyframes and deltas.", ["query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", v("v2", "q", 2, null, patch(texts[0], texts[1])));
+    await h.call("queryVersionsRepo.insert", v("v1", "q", 1, texts[0], null));
+    await h.call("queryVersionsRepo.insert", v("v3", "q", 3, null, patch(texts[1], texts[2])));
+    await h.call("queryVersionsRepo.loadByQuery", "q");
+    await h.call("queryVersionsRepo.loadByQuery", "other");
+  });
+  add("queryVersionsRepo", "query-versions/load-by-project", "loadByProject joins saved_queries: ordered by query id then version, other projects excluded.", ["query_versions"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("qb", "p1"), savedQuery("qa", "p1")]);
+    await h.call("savedQueriesRepo.saveAll", "p2", [savedQuery("qc", "p2")]);
+    await h.call("queryVersionsRepo.insert", v("b2", "qb", 2, "x2", null));
+    await h.call("queryVersionsRepo.insert", v("b1", "qb", 1, "x1", null));
+    await h.call("queryVersionsRepo.insert", v("a1", "qa", 1, "y", null));
+    await h.call("queryVersionsRepo.insert", v("c1", "qc", 1, "z", null));
+    await h.call("queryVersionsRepo.loadByProject", "p1");
+  });
+  add("queryVersionsRepo", "query-versions/constraint-errors", "The CHECK (exactly one of snapshot and diff), the UNIQUE (query, version) and the foreign key each reject an insert.", ["query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", v("both-null", "q", 1, null, null));
+    await h.call("queryVersionsRepo.insert", v("both-set", "q", 1, "a", "b"));
+    await h.call("queryVersionsRepo.insert", v("ok", "q", 1, "a", null));
+    await h.call("queryVersionsRepo.insert", v("dup-version", "q", 1, "b", null));
+    await h.call("queryVersionsRepo.insert", v("no-query", "missing", 1, "a", null));
+  });
+  add("queryVersionsRepo", "query-versions/prune-promotes-delta-survivor", "Five versions (keyframe then deltas, with non-ASCII and astral characters), keep 3: versions 1–2 are deleted and version 3, a delta, becomes a keyframe holding its resolved text.", ["query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", v("v1", "q", 1, texts[0], null));
+    for (let i = 1; i < 5; i++) await h.call("queryVersionsRepo.insert", v(`v${i + 1}`, "q", i + 1, null, patch(texts[i - 1], texts[i])));
+    await h.call("queryVersionsRepo.pruneOldVersions", "q", 3);
+    await h.call("queryVersionsRepo.loadByQuery", "q");
+  }, "The promotion applies diff-match-patch patches, which count UTF-16 code units: the Rust port must resolve the same text for astral characters (🚀).");
+  add("queryVersionsRepo", "query-versions/prune-keyframe-survivor", "Keep 2 of 4 where the oldest survivor is already a keyframe: only deletes.", ["query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", v("v1", "q", 1, "a", null));
+    await h.call("queryVersionsRepo.insert", v("v2", "q", 2, null, patch("a", "ab")));
+    await h.call("queryVersionsRepo.insert", v("v3", "q", 3, "abc", null));
+    await h.call("queryVersionsRepo.insert", v("v4", "q", 4, null, patch("abc", "abcd")));
+    await h.call("queryVersionsRepo.pruneOldVersions", "q", 2);
+    await h.call("queryVersionsRepo.loadByQuery", "q");
+  });
+  add("queryVersionsRepo", "query-versions/prune-no-op", "keepCount at or above the number of versions, and keepCount 0, change nothing.", ["query_versions"], async (h) => {
+    await withProject(h);
+    await h.call("savedQueriesRepo.saveAll", "p1", [savedQuery("q", "p1")]);
+    await h.call("queryVersionsRepo.insert", v("v1", "q", 1, "a", null));
+    await h.call("queryVersionsRepo.insert", v("v2", "q", 2, "b", null));
+    await h.call("queryVersionsRepo.pruneOldVersions", "q", 2);
+    await h.call("queryVersionsRepo.pruneOldVersions", "q", 5);
+    await h.call("queryVersionsRepo.pruneOldVersions", "q", 0);
+    await h.call("queryVersionsRepo.loadByQuery", "q");
+  }, "keepCount 0 is a no-op here (sorted[-1] is undefined), unlike dashboardVersionsRepo.pruneOldVersions, where 0 deletes every version.");
+
+  // --- queryHistoryRepo ---------------------------------------------------
+  add("queryHistoryRepo", "query-history/replace-all-and-load", "replaceAll then loadByConnection: newest timestamp first, fractional executionTime, a label snapshot, favorite both ways, unicode.", ["query_history"], async (h) => {
+    await withProject(h);
+    await withConnection(h);
+    await h.call("queryHistoryRepo.replaceAll", "c1", [
+      historyItem("h-old", "c1", { timestamp: T0, executionTime: 0.25, rowCount: 0 }),
+      historyItem("h-new", "c1", {
+        timestamp: T2,
+        query: "SELECT 'Grüße 🚀' -- 日本語",
+        executionTime: 1234.5678,
+        rowCount: 100000,
+        favorite: true,
+        connectionLabelsSnapshot: [{ id: "lbl-prod", name: "Production", isPredefined: true, color: "#ef4444" }],
+        connectionNameSnapshot: "Prod Ünïcødé",
+      }),
+      historyItem("h-mid", "c1", { timestamp: T1, executionTime: 12 }),
+    ]);
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+  });
+  add("queryHistoryRepo", "query-history/replace-all-replaces", "A second replaceAll swaps the connection's history; another connection's stays.", ["query_history"], async (h) => {
+    await withProject(h);
+    await withConnection(h, "c1");
+    await withConnection(h, "c2");
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("a", "c1"), historyItem("b", "c1")]);
+    await h.call("queryHistoryRepo.replaceAll", "c2", [historyItem("z", "c2")]);
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("c", "c1")]);
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+    await h.call("queryHistoryRepo.replaceAll", "c1", []);
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+    await h.call("queryHistoryRepo.loadByConnection", "c2");
+  });
+  add("queryHistoryRepo", "query-history/labels-snapshot-unset-and-bad", "connectionLabelsSnapshot unset stores NULL and loads []; bad JSON loads [].", ["query_history"], async (h) => {
+    await withProject(h);
+    await withConnection(h);
+    const item = historyItem("h1", "c1");
+    delete item.connectionLabelsSnapshot;
+    await h.call("queryHistoryRepo.replaceAll", "c1", [item]);
+    await h.sql(
+      `INSERT INTO query_history (id, connection_id, query, timestamp, execution_time, row_count, favorite, connection_labels_snapshot)
+       VALUES ('h2', 'c1', 'q', '2020-01-01', 1, 1, 0, '{bad')`,
+    );
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+  });
+  add("queryHistoryRepo", "query-history/replace-all-duplicate-id-rolls-back", "Two items with the same id fail the primary key; the batch rolls back and the old history stays.", ["query_history"], async (h) => {
+    await withProject(h);
+    await withConnection(h);
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("old", "c1")]);
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("dup", "c1"), historyItem("dup", "c1")]);
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+  });
+  add("queryHistoryRepo", "query-history/remove-by-connection", "removeByConnection deletes only that connection's history.", ["query_history"], async (h) => {
+    await withProject(h);
+    await withConnection(h, "c1");
+    await withConnection(h, "c2");
+    await h.call("queryHistoryRepo.replaceAll", "c1", [historyItem("a", "c1")]);
+    await h.call("queryHistoryRepo.replaceAll", "c2", [historyItem("b", "c2")]);
+    await h.call("queryHistoryRepo.removeByConnection", "c1");
+    await h.call("queryHistoryRepo.loadByConnection", "c1");
+    await h.call("queryHistoryRepo.loadByConnection", "c2");
+  });
+
+  // --- sharedReposRepo ----------------------------------------------------
+  const repo = (id, extra = {}) => ({
+    id,
+    name: `Repo ${id}`,
+    path: `/Users/me/shared/${id}`,
+    remoteUrl: `git@github.com:acme/${id}.git`,
+    branch: "main",
+    lastSyncAt: null,
+    syncStatus: "synced",
+    ...extra,
+  });
+  add("sharedReposRepo", "shared-repos/save-all-and-load", "Two repos (one with credentialsId and lastSyncAt, unicode) and an active id.", ["shared_repos", "app_state"], async (h) => {
+    await h.call("sharedReposRepo.saveAll", [
+      repo("r1", { name: "Geteilte Abfragen 🚀", lastSyncAt: T1, syncStatus: "ahead", credentialsId: "cred-1" }),
+      repo("r2", { syncStatus: "uninitialized" }),
+    ], "r1");
+    await h.call("sharedReposRepo.loadAll");
+  });
+  add("sharedReposRepo", "shared-repos/save-all-replaces-and-null-active", "A second saveAll replaces the set; a null active id leaves an app_state row whose value is NULL.", ["shared_repos", "app_state"], async (h) => {
+    await h.call("sharedReposRepo.saveAll", [repo("r1"), repo("r2")], "r2");
+    await h.call("sharedReposRepo.saveAll", [repo("r3")], null);
+    await h.call("sharedReposRepo.loadAll");
+    await h.call("sharedReposRepo.saveAll", [], null);
+    await h.call("sharedReposRepo.loadAll");
+  });
+  add("sharedReposRepo", "shared-repos/load-empty-and-bad-rows", "Nothing stored: no repos and a null active id. Bad and null JSON rows are skipped.", ["shared_repos"], async (h) => {
+    await h.call("sharedReposRepo.loadAll");
+    await h.sql(`INSERT INTO shared_repos (id, data) VALUES ('bad', '{bad')`);
+    await h.sql(`INSERT INTO shared_repos (id, data) VALUES ('null', 'null')`);
+    await h.sql(`INSERT INTO shared_repos (id, data) VALUES ('ok', '{"id":"ok","name":"Ok"}')`);
+    await h.call("sharedReposRepo.loadAll");
+  });
+
+  // --- themeRepo ----------------------------------------------------------
+  add("themeRepo", "themes/preferences", "loadPreferences is null until saved; save and overwrite.", ["theme_preferences"], async (h) => {
+    await h.call("themeRepo.loadPreferences");
+    await h.call("themeRepo.savePreferences", "default-light", "default-dark");
+    await h.call("themeRepo.loadPreferences");
+    await h.call("themeRepo.savePreferences", "solarized-light", "ünïcødé-dark");
+    await h.call("themeRepo.loadPreferences");
+  });
+  add("themeRepo", "themes/user-themes", "saveUserThemes replaces the set; loadUserThemes returns the parsed objects.", ["user_themes"], async (h) => {
+    await h.call("themeRepo.loadUserThemes");
+    await h.call("themeRepo.saveUserThemes", [
+      { id: "t1", name: "Nachtblau 🌙", mode: "dark", colors: { background: "#000000", accent: "#ff00ff" }, nested: [1, 2.5, null, true] },
+      { id: "t2", name: "Plain" },
+    ]);
+    await h.call("themeRepo.loadUserThemes");
+    await h.call("themeRepo.saveUserThemes", [{ id: "t3", name: "Only" }]);
+    await h.call("themeRepo.loadUserThemes");
+    await h.call("themeRepo.saveUserThemes", []);
+    await h.call("themeRepo.loadUserThemes");
+  });
+  add("themeRepo", "themes/user-themes-bad-rows", "Bad and null JSON rows are skipped; a JSON scalar is kept.", ["user_themes"], async (h) => {
+    await h.sql(`INSERT INTO user_themes (id, data) VALUES ('a', '{bad')`);
+    await h.sql(`INSERT INTO user_themes (id, data) VALUES ('b', 'null')`);
+    await h.sql(`INSERT INTO user_themes (id, data) VALUES ('c', '42')`);
+    await h.sql(`INSERT INTO user_themes (id, data) VALUES ('d', '{"id":"d"}')`);
+    await h.call("themeRepo.loadUserThemes");
+  });
+
+  // --- licenseRepo / onboardingRepo --------------------------------------
+  for (const [repoName, table, file] of [["licenseRepo", "license_state", "license"], ["onboardingRepo", "onboarding_state", "onboarding"]]) {
+    add(repoName, `${file}/save-and-load`, "load is null until saved; an object round-trips; overwrite.", [table], async (h) => {
+      await h.call(`${repoName}.load`);
+      await h.call(`${repoName}.save`, { key: "SQ-ÄÖÜ-🚀", status: "active", validatedAt: T0, nested: { n: 1.5, list: [] } });
+      await h.call(`${repoName}.load`);
+      await h.call(`${repoName}.save`, { status: "none" });
+      await h.call(`${repoName}.load`);
+    });
+    add(repoName, `${file}/save-scalars-and-null`, "null is stored as 'null' and loads null; a string and a number round-trip; bad stored JSON loads null.", [table], async (h) => {
+      await h.call(`${repoName}.save`, null);
+      await h.call(`${repoName}.load`);
+      await h.call(`${repoName}.save`, "just a string");
+      await h.call(`${repoName}.load`);
+      await h.call(`${repoName}.save`, 7);
+      await h.call(`${repoName}.load`);
+      await h.sql(`UPDATE ${table} SET data = '{bad' WHERE id = 1`);
+      await h.call(`${repoName}.load`);
+    });
+  }
+
+  // --- tutorialRepo -------------------------------------------------------
+  add("tutorialRepo", "tutorial/save-and-load", "Progress with a state and with null; overwrite a pair.", ["tutorial_progress"], async (h) => {
+    await h.call("tutorialRepo.loadAll");
+    await h.call("tutorialRepo.save", "lesson-1", "c1", '{"done":true}');
+    await h.call("tutorialRepo.save", "lesson-1", "c2", null);
+    await h.call("tutorialRepo.save", "lektion-ü", "c1", "état 🚀");
+    await h.call("tutorialRepo.save", "lesson-1", "c1", '{"done":false}');
+    await h.call("tutorialRepo.loadAll");
+  });
+  add("tutorialRepo", "tutorial/remove-lesson-and-all", "removeLesson deletes one lesson's rows; removeAll the rest.", ["tutorial_progress"], async (h) => {
+    await h.call("tutorialRepo.save", "l1", "a", "x");
+    await h.call("tutorialRepo.save", "l1", "b", "y");
+    await h.call("tutorialRepo.save", "l2", "a", "z");
+    await h.call("tutorialRepo.removeLesson", "l1");
+    await h.call("tutorialRepo.loadAll");
+    await h.call("tutorialRepo.removeAll");
+    await h.call("tutorialRepo.loadAll");
+  });
+
+  // --- importStateRepo ----------------------------------------------------
+  add("importStateRepo", "import-state/save-and-load", "null until saved; true with a null timestamp; false with one; overwrite.", ["import_state"], async (h) => {
+    await h.call("importStateRepo.load", "dbeaver");
+    await h.call("importStateRepo.save", "dbeaver", true, null);
+    await h.call("importStateRepo.save", "tableplus", false, T1);
+    await h.call("importStateRepo.load", "dbeaver");
+    await h.call("importStateRepo.load", "tableplus");
+    await h.call("importStateRepo.save", "dbeaver", false, T2);
+    await h.call("importStateRepo.load", "dbeaver");
+  });
+
+  // --- dashboardsRepo -----------------------------------------------------
+  add("dashboardsRepo", "dashboards/save-full-and-minimal", "One dashboard with every column set (unicode, JSON text columns), one minimal (starred/shared unset store 0 and load false, dateFilter unset stores NULL and loads null), one with dateFilter null.", ["dashboards"], async (h) => {
+    await withProject(h);
+    await h.call("dashboardsRepo.save", dashboard("d-full", "p1", {
+      name: "Kennzahlen 📊",
+      viewport: '{"x":10,"y":-5,"zoom":1.25}',
+      widgets: '[{"id":"w1","type":"kpi","title":"Umsatz €"}]',
+      dateFilter: '{"preset":"last7days"}',
+      starred: true,
+      shared: true,
+      description: "Beschreibung",
+    }));
+    await h.call("dashboardsRepo.save", dashboard("d-min", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("d-null", "p1", { dateFilter: null, starred: false, shared: false, description: null }));
+    await h.call("dashboardsRepo.loadByProject", "p1");
+  });
+  add("dashboardsRepo", "dashboards/upsert", "A second save updates in place.", ["dashboards"], async (h) => {
+    await withProject(h);
+    await h.call("dashboardsRepo.save", dashboard("d", "p1", { starred: true, description: "old" }));
+    await h.call("dashboardsRepo.save", dashboard("d", "p1", { name: "Renamed", updatedAt: T2 }));
+    await h.call("dashboardsRepo.loadByProject", "p1");
+  });
+  add("dashboardsRepo", "dashboards/remove-and-remove-by-project", "remove cascades to versions; removeByProject deletes the rest of that project only.", ["dashboards", "dashboard_versions"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    await h.call("dashboardsRepo.save", dashboard("d1", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("d2", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("d3", "p2"));
+    await h.call("dashboardVersionsRepo.insert", { id: "v1", dashboardId: "d1", version: 1, snapshot: "{}", createdAt: T0 });
+    await h.call("dashboardVersionsRepo.insert", { id: "v3", dashboardId: "d3", version: 1, snapshot: "{}", createdAt: T0 });
+    await h.call("dashboardsRepo.remove", "d1");
+    await h.call("dashboardsRepo.removeByProject", "p1");
+    await h.call("dashboardsRepo.loadByProject", "p1");
+    await h.call("dashboardsRepo.loadByProject", "p2");
+  });
+  add("dashboardsRepo", "dashboards/load-stored-quirks", "starred is the one nullable flag column (added by upgrade without NOT NULL): NULL loads false; 2 loads false.", ["dashboards"], async (h) => {
+    await withProject(h);
+    await h.sql(`INSERT INTO dashboards (id, project_id, name, starred, created_at, updated_at) VALUES ('a', 'p1', 'A', NULL, 'c', 'u')`);
+    await h.sql(`INSERT INTO dashboards (id, project_id, name, starred, shared, created_at, updated_at) VALUES ('b', 'p1', 'B', 2, 2, 'c', 'u')`);
+    await h.call("dashboardsRepo.loadByProject", "p1");
+  });
+
+  // --- dashboardVersionsRepo ----------------------------------------------
+  const dv = (id, dashboardId, version, snapshot = `{"v":${version}}`) => ({ id, dashboardId, version, snapshot, createdAt: T0 });
+  add("dashboardVersionsRepo", "dashboard-versions/insert-and-load", "loadByDashboard in version order; loadByProject by dashboard id then version; unique violation.", ["dashboard_versions"], async (h) => {
+    await withProject(h, "p1");
+    await withProject(h, "p2");
+    await h.call("dashboardsRepo.save", dashboard("db", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("da", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("dc", "p2"));
+    await h.call("dashboardVersionsRepo.insert", dv("b2", "db", 2, '{"name":"Ünïcødé 🚀"}'));
+    await h.call("dashboardVersionsRepo.insert", dv("b1", "db", 1));
+    await h.call("dashboardVersionsRepo.insert", dv("a1", "da", 1));
+    await h.call("dashboardVersionsRepo.insert", dv("c1", "dc", 1));
+    await h.call("dashboardVersionsRepo.insert", dv("b1-dup", "db", 1));
+    await h.call("dashboardVersionsRepo.loadByDashboard", "db");
+    await h.call("dashboardVersionsRepo.loadByProject", "p1");
+  });
+  add("dashboardVersionsRepo", "dashboard-versions/prune", "Keep 2 of 5: versions 1–3 go. Another dashboard is untouched.", ["dashboard_versions"], async (h) => {
+    await withProject(h);
+    await h.call("dashboardsRepo.save", dashboard("d", "p1"));
+    await h.call("dashboardsRepo.save", dashboard("e", "p1"));
+    for (let i = 1; i <= 5; i++) await h.call("dashboardVersionsRepo.insert", dv(`v${i}`, "d", i));
+    await h.call("dashboardVersionsRepo.insert", dv("e1", "e", 1));
+    await h.call("dashboardVersionsRepo.pruneOldVersions", "d", 2);
+    await h.call("dashboardVersionsRepo.loadByDashboard", "d");
+    await h.call("dashboardVersionsRepo.loadByDashboard", "e");
+  });
+  add("dashboardVersionsRepo", "dashboard-versions/prune-edges", "keepCount at or above the count deletes nothing (the subquery is NULL); keepCount 0 deletes every version.", ["dashboard_versions"], async (h) => {
+    await withProject(h);
+    await h.call("dashboardsRepo.save", dashboard("d", "p1"));
+    await h.call("dashboardVersionsRepo.insert", dv("v1", "d", 1));
+    await h.call("dashboardVersionsRepo.insert", dv("v2", "d", 2));
+    await h.call("dashboardVersionsRepo.pruneOldVersions", "d", 2);
+    await h.call("dashboardVersionsRepo.loadByDashboard", "d");
+    await h.call("dashboardVersionsRepo.pruneOldVersions", "d", 0);
+    await h.call("dashboardVersionsRepo.loadByDashboard", "d");
+  });
+
+  // --- aiChatsRepo --------------------------------------------------------
+  const chat = (id, connectionId, updatedAt, extra = {}) => ({ id, connectionId, title: `Chat ${id}`, createdAt: T0, updatedAt, ...extra });
+  const msg = (id, chatId, timestamp, extra = {}) => ({ id, chatId, role: "user", content: `message ${id}`, timestamp, ...extra });
+  add("aiChatsRepo", "ai-chats/save-and-load-chats", "loadByConnection orders by updated_at, newest first; a second saveChat upserts.", ["ai_chats"], async (h) => {
+    await withProject(h);
+    await withConnection(h, "c1");
+    await withConnection(h, "c2");
+    await h.call("aiChatsRepo.saveChat", chat("old", "c1", T0));
+    await h.call("aiChatsRepo.saveChat", chat("new", "c1", T2, { title: "Frage zu Umsätzen 🚀" }));
+    await h.call("aiChatsRepo.saveChat", chat("mid", "c1", T1));
+    await h.call("aiChatsRepo.saveChat", chat("other", "c2", T1));
+    await h.call("aiChatsRepo.saveChat", chat("old", "c1", T2, { title: "Renamed" }));
+    await h.call("aiChatsRepo.loadByConnection", "c1");
+  });
+  add("aiChatsRepo", "ai-chats/replace-all-messages", "Messages with query and dashboardId set and unset, ordered by timestamp; a second replace swaps the set; another chat's messages stay.", ["ai_messages"], async (h) => {
+    await withProject(h);
+    await withConnection(h);
+    await h.call("aiChatsRepo.saveChat", chat("a", "c1", T0));
+    await h.call("aiChatsRepo.saveChat", chat("b", "c1", T0));
+    await h.call("aiChatsRepo.replaceAllMessages", "a", [
+      msg("m2", "a", T1, { role: "assistant", content: "Here is a query — 日本語 🚀", query: "SELECT 1", dashboardId: "dash-1" }),
+      msg("m1", "a", T0),
+      msg("m3", "a", T2, { query: null, dashboardId: null }),
+    ]);
+    await h.call("aiChatsRepo.replaceAllMessages", "b", [msg("b1", "b", T0)]);
+    await h.call("aiChatsRepo.loadMessages", "a");
+    await h.call("aiChatsRepo.replaceAllMessages", "a", [msg("m4", "a", T0, { content: "" })]);
+    await h.call("aiChatsRepo.loadMessages", "a");
+    await h.call("aiChatsRepo.loadMessages", "b");
+    await h.call("aiChatsRepo.replaceAllMessages", "a", []);
+    await h.call("aiChatsRepo.loadMessages", "a");
+  });
+  add("aiChatsRepo", "ai-chats/replace-all-messages-rolls-back", "A message for another (missing) chat fails the foreign key; the batch rolls back and the earlier messages stay.", ["ai_messages"], async (h) => {
+    await withProject(h);
+    await withConnection(h);
+    await h.call("aiChatsRepo.saveChat", chat("a", "c1", T0));
+    await h.call("aiChatsRepo.replaceAllMessages", "a", [msg("keep", "a", T0)]);
+    await h.call("aiChatsRepo.replaceAllMessages", "a", [msg("new", "a", T0), msg("bad", "missing", T0)]);
+    await h.call("aiChatsRepo.loadMessages", "a");
+  });
+  add("aiChatsRepo", "ai-chats/remove-chat-and-by-connection", "removeChat cascades to its messages; removeByConnection deletes the rest for that connection only.", ["ai_chats", "ai_messages"], async (h) => {
+    await withProject(h);
+    await withConnection(h, "c1");
+    await withConnection(h, "c2");
+    await h.call("aiChatsRepo.saveChat", chat("a", "c1", T0));
+    await h.call("aiChatsRepo.saveChat", chat("b", "c1", T0));
+    await h.call("aiChatsRepo.saveChat", chat("z", "c2", T0));
+    await h.call("aiChatsRepo.replaceAllMessages", "a", [msg("a1", "a", T0)]);
+    await h.call("aiChatsRepo.replaceAllMessages", "z", [msg("z1", "z", T0)]);
+    await h.call("aiChatsRepo.removeChat", "a");
+    await h.call("aiChatsRepo.removeByConnection", "c1");
+    await h.call("aiChatsRepo.loadByConnection", "c1");
+    await h.call("aiChatsRepo.loadByConnection", "c2");
+  });
+
+  // --- vaultStateRepo -----------------------------------------------------
+  const vault = (salt) => ({ salt, kdfParams: { version: 1, t: 3, m: 65536, p: 1 }, verifier: "dmVyaWZpZXI=", verifierNonce: "bm9uY2U=", createdAt: T0 });
+  add("vaultStateRepo", "vault-state/save-and-load", "null until saved; save, load, overwrite.", ["vault_state"], async (h) => {
+    await h.call("vaultStateRepo.load");
+    await h.call("vaultStateRepo.save", vault("c2FsdA=="));
+    await h.call("vaultStateRepo.load");
+    await h.call("vaultStateRepo.save", { ...vault("bmV3"), kdfParams: { version: 2, t: 4, m: 131072, p: 2 } });
+    await h.call("vaultStateRepo.load");
+  });
+  add("vaultStateRepo", "vault-state/reset", "reset deletes the vault row and every credential in one batch.", ["vault_state", "user_credentials"], async (h) => {
+    await h.call("vaultStateRepo.save", vault("c2FsdA=="));
+    await h.call("userCredentialsRepo.save", { scope: "db", key: "c1", nonce: "n", ciphertext: "x", updatedAt: T0 });
+    await h.call("userCredentialsRepo.save", { scope: "license", key: "", nonce: "n", ciphertext: "y", updatedAt: T0 });
+    await h.call("vaultStateRepo.reset");
+    await h.call("vaultStateRepo.load");
+    await h.call("userCredentialsRepo.load", "db", "c1");
+  });
+
+  add("vaultStateRepo", "vault-state/load-bad-kdf-params", "kdf_params is read with a bare JSON.parse, so bad JSON makes load throw (no fallback, unlike the other repositories).", ["vault_state"], async (h) => {
+    await h.sql(`INSERT INTO vault_state (id, salt, kdf_params, verifier, verifier_nonce, created_at) VALUES (1, 's', '{bad', 'v', 'n', 'c')`);
+    await h.call("vaultStateRepo.load");
+  });
+
+  // --- userCredentialsRepo ------------------------------------------------
+  const cred = (scope, key, ciphertext, updatedAt = T0) => ({ scope, key, nonce: "bm9uY2U=", ciphertext, updatedAt });
+  add("userCredentialsRepo", "user-credentials/save-load-overwrite", "Missing is null; save (empty key for a singleton), load, overwrite.", ["user_credentials"], async (h) => {
+    await h.call("userCredentialsRepo.load", "db", "c1");
+    await h.call("userCredentialsRepo.save", cred("db", "c1", "Y2lwaGVy"));
+    await h.call("userCredentialsRepo.save", cred("license", "", "bGljZW5zZQ=="));
+    await h.call("userCredentialsRepo.load", "db", "c1");
+    await h.call("userCredentialsRepo.load", "license", "");
+    await h.call("userCredentialsRepo.save", cred("db", "c1", "bmV3", T2));
+    await h.call("userCredentialsRepo.load", "db", "c1");
+  });
+  add("userCredentialsRepo", "user-credentials/remove-and-remove-all-for-key", "remove deletes one (scope, key); removeAllForKey deletes that key in every scope.", ["user_credentials"], async (h) => {
+    await h.call("userCredentialsRepo.save", cred("db", "c1", "a"));
+    await h.call("userCredentialsRepo.save", cred("ssh", "c1", "b"));
+    await h.call("userCredentialsRepo.save", cred("ssh-key", "c1", "c"));
+    await h.call("userCredentialsRepo.save", cred("db", "c2", "d"));
+    await h.call("userCredentialsRepo.remove", "db", "c1");
+    await h.call("userCredentialsRepo.load", "db", "c1");
+    await h.call("userCredentialsRepo.removeAllForKey", "c1");
+    await h.call("userCredentialsRepo.load", "ssh", "c1");
+    await h.call("userCredentialsRepo.load", "db", "c2");
+  });
+
+  return cases;
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

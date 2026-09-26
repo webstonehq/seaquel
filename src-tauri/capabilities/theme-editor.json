@@ -11,7 +11,6 @@
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-set-focus",
-    "core:event:default",
-    "store:default"
+    "core:event:default"
   ]
 }

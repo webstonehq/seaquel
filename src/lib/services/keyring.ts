@@ -1,6 +1,6 @@
 /**
  * Keyring service for secure credential storage. Three implementations:
- * - Desktop (Tauri): OS-native keychain
+ * - Desktop (Tauri): OS-native keychain, through Core (`seaquel-secrets`)
  *   - macOS: Keychain
  *   - Windows: Credential Manager
  *   - Linux: Secret Service (GNOME Keyring, KWallet)
@@ -11,9 +11,9 @@
  */
 
 import { isTauri, isWeb } from "$lib/utils/environment";
+import { log } from "$lib/utils/logger";
 import { VaultKeyringService } from "$lib/services/vault/vault-keyring";
-
-const SERVICE = "app.seaquel.desktop";
+import { callSecret } from "$lib/storage/rust-client";
 
 export interface KeyringService {
   setDbPassword(connectionId: string, password: string): Promise<void>;
@@ -34,10 +34,6 @@ export interface KeyringService {
   getLicenseKey(): Promise<string | null>;
   deleteLicenseKey(): Promise<void>;
 
-  setAIApiKey(key: string): Promise<void>;
-  getAIApiKey(): Promise<string | null>;
-  deleteAIApiKey(): Promise<void>;
-
   setAIApiKeyForProvider(id: string, key: string): Promise<void>;
   getAIApiKeyForProvider(id: string): Promise<string | null>;
   deleteAIApiKeyForProvider(id: string): Promise<void>;
@@ -56,91 +52,66 @@ export interface KeyringService {
 }
 
 /**
- * Tauri implementation using the native keyring plugin.
+ * Desktop: the OS keychain through Core (`core_call` `Secret::*`), under the
+ * service `app.seaquel.desktop`, with keys `db:<id>`, `ssh:<id>`,
+ * `ssh-key:<id>`, `license-key` and `ai-api-key:<id>`. That's the layout
+ * `tauri-plugin-keyring` used, so existing entries read back unchanged.
+ *
+ * `get*` returns `null` on any failure, as it always has, but logs the error
+ * (never the value) so a locked or broken keychain shows up in the log.
+ * `delete*` doesn't fail either: a missing entry is already fine in Rust, and
+ * other errors are logged. `set*` throws.
  */
 class TauriKeyringService implements KeyringService {
-  private keyringApi: typeof import("tauri-plugin-keyring-api") | null = null;
-  private initPromise: Promise<void> | null = null;
-
-  private async init(): Promise<void> {
-    if (this.keyringApi) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = import("tauri-plugin-keyring-api").then((api) => {
-      this.keyringApi = api;
-    });
-
-    return this.initPromise;
+  private async set(key: string, value: string): Promise<void> {
+    await callSecret({ method: "set", params: { key, value } });
   }
 
-  async setDbPassword(connectionId: string, password: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, `db:${connectionId}`, password);
-  }
-
-  async getDbPassword(connectionId: string): Promise<string | null> {
-    await this.init();
+  private async get(key: string): Promise<string | null> {
     try {
-      return await this.keyringApi!.getPassword(SERVICE, `db:${connectionId}`);
-    } catch {
-      // Entry doesn't exist or keychain error
+      return await callSecret({ method: "get", params: { key } });
+    } catch (error) {
+      void log.warn(`Keychain read failed for ${key}:`, errorMessage(error));
       return null;
     }
   }
 
-  async deleteDbPassword(connectionId: string): Promise<void> {
-    await this.init();
+  private async delete(key: string): Promise<void> {
     try {
-      await this.keyringApi!.deletePassword(SERVICE, `db:${connectionId}`);
-    } catch {
-      // Ignore - entry may not exist
+      await callSecret({ method: "delete", params: { key } });
+    } catch (error) {
+      void log.warn(`Keychain delete failed for ${key}:`, errorMessage(error));
     }
   }
 
-  async setSshPassword(connectionId: string, password: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, `ssh:${connectionId}`, password);
+  setDbPassword(connectionId: string, password: string): Promise<void> {
+    return this.set(`db:${connectionId}`, password);
+  }
+  getDbPassword(connectionId: string): Promise<string | null> {
+    return this.get(`db:${connectionId}`);
+  }
+  deleteDbPassword(connectionId: string): Promise<void> {
+    return this.delete(`db:${connectionId}`);
   }
 
-  async getSshPassword(connectionId: string): Promise<string | null> {
-    await this.init();
-    try {
-      return await this.keyringApi!.getPassword(SERVICE, `ssh:${connectionId}`);
-    } catch {
-      return null;
-    }
+  setSshPassword(connectionId: string, password: string): Promise<void> {
+    return this.set(`ssh:${connectionId}`, password);
+  }
+  getSshPassword(connectionId: string): Promise<string | null> {
+    return this.get(`ssh:${connectionId}`);
+  }
+  deleteSshPassword(connectionId: string): Promise<void> {
+    return this.delete(`ssh:${connectionId}`);
   }
 
-  async deleteSshPassword(connectionId: string): Promise<void> {
-    await this.init();
-    try {
-      await this.keyringApi!.deletePassword(SERVICE, `ssh:${connectionId}`);
-    } catch {
-      // Ignore
-    }
+  setSshKeyPassphrase(connectionId: string, passphrase: string): Promise<void> {
+    return this.set(`ssh-key:${connectionId}`, passphrase);
   }
-
-  async setSshKeyPassphrase(connectionId: string, passphrase: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, `ssh-key:${connectionId}`, passphrase);
+  getSshKeyPassphrase(connectionId: string): Promise<string | null> {
+    return this.get(`ssh-key:${connectionId}`);
   }
-
-  async getSshKeyPassphrase(connectionId: string): Promise<string | null> {
-    await this.init();
-    try {
-      return await this.keyringApi!.getPassword(SERVICE, `ssh-key:${connectionId}`);
-    } catch {
-      return null;
-    }
-  }
-
-  async deleteSshKeyPassphrase(connectionId: string): Promise<void> {
-    await this.init();
-    try {
-      await this.keyringApi!.deletePassword(SERVICE, `ssh-key:${connectionId}`);
-    } catch {
-      // Ignore
-    }
+  deleteSshKeyPassphrase(connectionId: string): Promise<void> {
+    return this.delete(`ssh-key:${connectionId}`);
   }
 
   async deleteAllForConnection(connectionId: string): Promise<void> {
@@ -151,73 +122,24 @@ class TauriKeyringService implements KeyringService {
     ]);
   }
 
-  async setLicenseKey(key: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, "license-key", key);
+  setLicenseKey(key: string): Promise<void> {
+    return this.set("license-key", key);
+  }
+  getLicenseKey(): Promise<string | null> {
+    return this.get("license-key");
+  }
+  deleteLicenseKey(): Promise<void> {
+    return this.delete("license-key");
   }
 
-  async getLicenseKey(): Promise<string | null> {
-    await this.init();
-    try {
-      return await this.keyringApi!.getPassword(SERVICE, "license-key");
-    } catch {
-      return null;
-    }
+  setAIApiKeyForProvider(id: string, key: string): Promise<void> {
+    return this.set(`ai-api-key:${id}`, key);
   }
-
-  async deleteLicenseKey(): Promise<void> {
-    await this.init();
-    try {
-      await this.keyringApi!.deletePassword(SERVICE, "license-key");
-    } catch {
-      // Ignore - entry may not exist
-    }
+  getAIApiKeyForProvider(id: string): Promise<string | null> {
+    return this.get(`ai-api-key:${id}`);
   }
-
-  async setAIApiKey(key: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, "ai-api-key", key);
-  }
-
-  async getAIApiKey(): Promise<string | null> {
-    await this.init();
-    try {
-      return await this.keyringApi!.getPassword(SERVICE, "ai-api-key");
-    } catch {
-      return null;
-    }
-  }
-
-  async deleteAIApiKey(): Promise<void> {
-    await this.init();
-    try {
-      await this.keyringApi!.deletePassword(SERVICE, "ai-api-key");
-    } catch {
-      // Ignore - entry may not exist
-    }
-  }
-
-  async setAIApiKeyForProvider(id: string, key: string): Promise<void> {
-    await this.init();
-    await this.keyringApi!.setPassword(SERVICE, `ai-api-key:${id}`, key);
-  }
-
-  async getAIApiKeyForProvider(id: string): Promise<string | null> {
-    await this.init();
-    try {
-      return await this.keyringApi!.getPassword(SERVICE, `ai-api-key:${id}`);
-    } catch {
-      return null;
-    }
-  }
-
-  async deleteAIApiKeyForProvider(id: string): Promise<void> {
-    await this.init();
-    try {
-      await this.keyringApi!.deletePassword(SERVICE, `ai-api-key:${id}`);
-    } catch {
-      // Ignore
-    }
+  deleteAIApiKeyForProvider(id: string): Promise<void> {
+    return this.delete(`ai-api-key:${id}`);
   }
 
   isAvailable(): boolean {
@@ -225,10 +147,15 @@ class TauriKeyringService implements KeyringService {
   }
 
   isUnlocked(): boolean {
-    // OS keychain is unlocked for the logged-in user — `get*` calls
-    // complete synchronously without further interaction.
+    // The OS keychain is unlocked for the logged-in user, so `get*` calls
+    // complete without further interaction.
     return true;
   }
+}
+
+/** The error's message only. A keychain error never carries the value. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -256,11 +183,6 @@ class NoopKeyringService implements KeyringService {
     return null;
   }
   async deleteLicenseKey(): Promise<void> {}
-  async setAIApiKey(): Promise<void> {}
-  async getAIApiKey(): Promise<string | null> {
-    return null;
-  }
-  async deleteAIApiKey(): Promise<void> {}
   async setAIApiKeyForProvider(): Promise<void> {}
   async getAIApiKeyForProvider(): Promise<string | null> {
     return null;

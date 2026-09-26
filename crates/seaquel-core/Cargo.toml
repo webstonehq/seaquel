@@ -11,6 +11,15 @@ engine-mysql = ["dep:seaquel-engine-mysql"]
 engine-sqlite = ["dep:seaquel-engine-sqlite"]
 engine-mssql = ["dep:seaquel-engine-mssql"]
 engine-duckdb = ["dep:seaquel-engine-duckdb"]
+# Infrastructure (phase 3), off by default. src-tauri will enable storage,
+# secrets, ssh, git and license-desktop; seaquel-server storage and
+# license-server; the browser build none of them.
+storage = ["dep:seaquel-storage"]
+secrets = ["dep:seaquel-secrets"]
+ssh = ["dep:seaquel-ssh"]
+git = ["dep:seaquel-git"]
+license-desktop = ["dep:seaquel-license"]
+license-server = ["dep:seaquel-license"]
 
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
@@ -22,6 +31,11 @@ seaquel-engine-mysql = { path = "../seaquel-engine-mysql", optional = true }
 seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite", optional = true }
 seaquel-engine-mssql = { path = "../seaquel-engine-mssql", optional = true }
 seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", optional = true }
+seaquel-storage = { path = "../seaquel-storage", optional = true }
+seaquel-secrets = { path = "../seaquel-secrets", optional = true }
+seaquel-ssh = { path = "../seaquel-ssh", optional = true }
+seaquel-git = { path = "../seaquel-git", optional = true }
+seaquel-license = { path = "../seaquel-license", optional = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -29,4 +43,8 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Turns on the workspace features for this crate's own tests
+# (tests/workspace.rs), so `cargo test -p seaquel-core` runs them.
+seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets"] }
+tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

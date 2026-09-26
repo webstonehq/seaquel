@@ -2,7 +2,16 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { Switch } from "$lib/components/ui/switch";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
-	import { getDatabase } from "$lib/storage/db";
+	import { errorToast } from "$lib/utils/toast";
+	import type { AISettings } from "$lib/types/ai";
+
+	async function savePrivacy(patch: Pick<AISettings, "shareSchemaGlobally" | "shareDataGlobally">) {
+		try {
+			await aiSettingsStore.savePrivacySettings(patch);
+		} catch (error) {
+			errorToast(error instanceof Error ? error.message : String(error));
+		}
+	}
 </script>
 
 <div class="space-y-6" data-section="ai-privacy">
@@ -24,8 +33,7 @@
 			<Switch
 				checked={aiSettingsStore.settings.shareSchemaGlobally}
 				onCheckedChange={async (checked) => {
-					const sqliteDb = await getDatabase();
-					await aiSettingsStore.savePrivacySettings(sqliteDb, { shareSchemaGlobally: checked, shareDataGlobally: aiSettingsStore.settings.shareDataGlobally });
+					await savePrivacy({ shareSchemaGlobally: checked, shareDataGlobally: aiSettingsStore.settings.shareDataGlobally });
 				}}
 			/>
 		</div>
@@ -40,8 +48,7 @@
 			<Switch
 				checked={aiSettingsStore.settings.shareDataGlobally}
 				onCheckedChange={async (checked) => {
-					const sqliteDb = await getDatabase();
-					await aiSettingsStore.savePrivacySettings(sqliteDb, { shareSchemaGlobally: aiSettingsStore.settings.shareSchemaGlobally, shareDataGlobally: checked });
+					await savePrivacy({ shareSchemaGlobally: aiSettingsStore.settings.shareSchemaGlobally, shareDataGlobally: checked });
 				}}
 			/>
 		</div>

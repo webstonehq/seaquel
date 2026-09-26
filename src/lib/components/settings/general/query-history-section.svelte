@@ -1,19 +1,18 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { m } from "$lib/paraglide/messages.js";
-	import { getDatabase } from "$lib/storage/db";
-	import { appStateRepo } from "$lib/storage/repository";
+	import { getStorage } from "$lib/storage";
 
 	let queryVersionLimit = $state<number>(100);
 	let dashboardVersionLimit = $state<number>(100);
 
 	onMount(async () => {
-		const savedLimit = await appStateRepo.get(await getDatabase(), "query_version_limit");
+		const savedLimit = await getStorage().appState.get("query_version_limit");
 		if (savedLimit) {
 			const parsed = parseInt(savedLimit, 10);
 			if (!isNaN(parsed)) queryVersionLimit = parsed;
 		}
-		const savedDashboardLimit = await appStateRepo.get(await getDatabase(), "dashboard_version_limit");
+		const savedDashboardLimit = await getStorage().appState.get("dashboard_version_limit");
 		if (savedDashboardLimit) {
 			const parsed = parseInt(savedDashboardLimit, 10);
 			if (!isNaN(parsed)) dashboardVersionLimit = parsed;
@@ -38,8 +37,7 @@
 				max="1000"
 				bind:value={queryVersionLimit}
 				onchange={async () => {
-					const db = await getDatabase();
-					await appStateRepo.set(db, "query_version_limit", String(queryVersionLimit));
+					await getStorage().appState.set("query_version_limit", String(queryVersionLimit));
 				}}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
 			/>
@@ -55,8 +53,7 @@
 				max="1000"
 				bind:value={dashboardVersionLimit}
 				onchange={async () => {
-					const db = await getDatabase();
-					await appStateRepo.set(db, "dashboard_version_limit", String(dashboardVersionLimit));
+					await getStorage().appState.set("dashboard_version_limit", String(dashboardVersionLimit));
 				}}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
 			/>

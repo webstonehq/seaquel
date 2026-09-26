@@ -1130,5 +1130,17 @@
   "wasm_error_hint": "Das bedeutet meist, dass die .wasm-Datei nicht heruntergeladen werden konnte (ein Netzwerk- oder Proxy-Problem) oder dass eine Content-Security-Policy WebAssembly nicht zulässt (dafür wird 'wasm-unsafe-eval' in script-src benötigt). Versuchen Sie es erneut, und falls der Fehler weiterhin auftritt, kopieren Sie die Fehlermeldung unten und senden Sie sie uns.",
   "wasm_error_copy": "Fehler kopieren",
   "wasm_error_copied": "Kopiert",
-  "wasm_error_retry": "Erneut versuchen"
+  "wasm_error_retry": "Erneut versuchen",
+  "storage_error_legacy_title": "Seaquel kann Ihre gespeicherten Daten noch nicht lesen",
+  "storage_error_legacy_description": "Ihre Verbindungen, Projekte und Einstellungen wurden von einer Seaquel-Version gespeichert, die älter als 2026.4.5 ist, und diese Version kann dieses Format nicht lesen. Um sie zu übernehmen, installieren Sie eine Version zwischen 2026.4.5 und 2026.9.x, starten Sie diese einmal, damit sie Ihre Daten importiert, und aktualisieren Sie dann wieder auf diese Version.",
+  "storage_error_releases_link": "Eine Version von GitHub herunterladen",
+  "storage_error_corrupt_title": "Seaquel kann seine Datendatei nicht öffnen",
+  "storage_error_corrupt_description": "{path} ist keine lesbare Seaquel-Datenbank, daher können Ihre Verbindungen, Projekte und Einstellungen nicht geladen werden.",
+  "storage_error_corrupt_untouched": "Die Datei wurde nicht verändert.",
+  "storage_error_corrupt_hint_desktop": "Falls Sie eine Sicherungskopie dieser Datei haben, spielen Sie sie zurück. Um ohne gespeicherte Daten neu zu beginnen, beenden Sie Seaquel und verschieben Sie die Datei an einen anderen Ort; Seaquel erstellt beim nächsten Start eine neue.",
+  "storage_error_corrupt_hint_web": "Bitten Sie die Person, die diesen Seaquel-Server betreibt, die Datei aus einer Sicherungskopie wiederherzustellen oder sie zu verschieben.",
+  "storage_error_details": "Details",
+  "storage_error_no_data_dir_title": "Seaquel hat keinen Ort, um seine Daten zu speichern",
+  "storage_error_no_data_dir_description": "Dieses System meldet keinen Datenordner für Seaquel. Legen Sie die Umgebungsvariable SEAQUEL_DATA_DIR auf einen Ordner fest, in den Seaquel schreiben kann, und starten Sie Seaquel dann erneut.",
+  "storage_save_refused": "Einige Ihrer gespeicherten Daten konnten nicht geladen werden, daher speichert Seaquel keine Änderungen daran: Ein Speichern würde jetzt überschreiben, was gespeichert ist. Starten Sie Seaquel neu (oder laden Sie die Seite neu), um das Laden erneut zu versuchen."
 }

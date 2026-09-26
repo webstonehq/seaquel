@@ -94,9 +94,7 @@ async fn fake_server() -> (std::net::SocketAddr, String, Arc<Calls>) {
     let core = seaquel_core::Core::builder()
         .engine(Arc::new(FakeEngine(calls.clone())))
         .build();
-    let app = build_router(AppState {
-        core: Arc::new(core),
-    });
+    let app = build_router(AppState::with_core(Arc::new(core)));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let serve_app = app.clone();

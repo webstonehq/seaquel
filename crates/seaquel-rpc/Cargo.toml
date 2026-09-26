@@ -8,15 +8,25 @@ description = "The engine RPC: EngineRequest/EngineResponse and a dispatcher ont
 # Generates src/lib/types/generated/Engine*.ts when running `cargo test --features ts`.
 # Run it through `npm run types:gen`.
 ts = ["dep:ts-rs", "seaquel-types/ts"]
+# The workspace groups this build serves. Every Request variant exists either
+# way; a group whose feature is off answers NOT_SUPPORTED. They turn on the
+# matching Core features.
+storage = ["seaquel-core/storage"]
+secrets = ["seaquel-core/secrets"]
 
 [dependencies]
 seaquel-core = { path = "../seaquel-core", default-features = false }
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-types = { path = "../seaquel-types" }
+log = { workspace = true }
 serde = { workspace = true }
+# raw_value: storage rows keep their JSON columns as the text that came in.
+serde_json = { workspace = true, features = ["raw_value"] }
 ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Turns on both workspace groups for this crate's own tests.
+seaquel-rpc = { path = ".", features = ["storage", "secrets"] }
 seaquel-runtime = { path = "../seaquel-runtime" }
-serde_json = { workspace = true }
+tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt"] }

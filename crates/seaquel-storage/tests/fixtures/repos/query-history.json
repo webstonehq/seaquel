@@ -1,0 +1,679 @@
+{
+  "repo": "queryHistoryRepo",
+  "source": "src/lib/storage/repos/query-history-repo.ts",
+  "note": "Frozen. Each case runs on a fresh database from today's schema (schema_version 4). See ../README.md for the format.",
+  "cases": [
+    {
+      "name": "query-history/replace-all-and-load",
+      "description": "replaceAll then loadByConnection: newest timestamp first, fractional executionTime, a label snapshot, favorite both ways, unicode.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "h-old",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 0.25,
+                "rowCount": 0,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              },
+              {
+                "id": "h-new",
+                "query": "SELECT 'Grüße 🚀' -- 日本語",
+                "timestamp": "2026-01-04T12:30:00.000Z",
+                "executionTime": 1234.5678,
+                "rowCount": 100000,
+                "connectionId": "c1",
+                "favorite": true,
+                "connectionLabelsSnapshot": [{"id":"lbl-prod","name":"Production","isPredefined":true,"color":"#ef4444"}],
+                "connectionNameSnapshot": "Prod Ünïcødé"
+              },
+              {
+                "id": "h-mid",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-03T00:00:00.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c1"],
+          "result": [
+            {
+              "id": "h-new",
+              "query": "SELECT 'Grüße 🚀' -- 日本語",
+              "timestamp": "2026-01-04T12:30:00.000Z",
+              "executionTime": 1234.5678,
+              "rowCount": 100000,
+              "connectionId": "c1",
+              "favorite": true,
+              "connectionLabelsSnapshot": [{"id":"lbl-prod","name":"Production","isPredefined":true,"color":"#ef4444"}],
+              "connectionNameSnapshot": "Prod Ünïcødé"
+            },
+            {
+              "id": "h-mid",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-03T00:00:00.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            },
+            {
+              "id": "h-old",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 0.25,
+              "rowCount": 0,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [
+            ["h-mid","c1","SELECT 1","2026-01-03T00:00:00.000Z",12,1,0,"[]","Local"],
+            [
+              "h-new",
+              "c1",
+              "SELECT 'Grüße 🚀' -- 日本語",
+              "2026-01-04T12:30:00.000Z",
+              1234.5678,
+              100000,
+              1,
+              "[{\"id\":\"lbl-prod\",\"name\":\"Production\",\"isPredefined\":true,\"color\":\"#ef4444\"}]",
+              "Prod Ünïcødé"
+            ],
+            ["h-old","c1","SELECT 1","2026-01-02T03:04:05.000Z",0.25,0,0,"[]","Local"]
+          ],
+          "types": [
+            ["text","text","text","text","real","integer","integer","text","text"],
+            ["text","text","text","text","real","integer","integer","text","text"],
+            ["text","text","text","text","real","integer","integer","text","text"]
+          ]
+        }
+      }
+    },
+    {
+      "name": "query-history/replace-all-replaces",
+      "description": "A second replaceAll swaps the connection's history; another connection's stays.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c2",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "a",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              },
+              {
+                "id": "b",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c2",
+            [
+              {
+                "id": "z",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c2",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "c",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c1"],
+          "result": [
+            {
+              "id": "c",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            }
+          ]
+        },
+        {"call":"queryHistoryRepo.replaceAll","args":["c1",[]]},
+        {"call":"queryHistoryRepo.loadByConnection","args":["c1"],"result":[]},
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c2"],
+          "result": [
+            {
+              "id": "z",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c2",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [["z","c2","SELECT 1","2026-01-02T03:04:05.000Z",12,1,0,"[]","Local"]],
+          "types": [["text","text","text","text","real","integer","integer","text","text"]]
+        }
+      }
+    },
+    {
+      "name": "query-history/labels-snapshot-unset-and-bad",
+      "description": "connectionLabelsSnapshot unset stores NULL and loads []; bad JSON loads [].",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "h1",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "sql": "INSERT INTO query_history (id, connection_id, query, timestamp, execution_time, row_count, favorite, connection_labels_snapshot)\n       VALUES ('h2', 'c1', 'q', '2020-01-01', 1, 1, 0, '{bad')",
+          "params": []
+        },
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c1"],
+          "result": [
+            {
+              "id": "h1",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            },
+            {
+              "id": "h2",
+              "query": "q",
+              "timestamp": "2020-01-01",
+              "executionTime": 1,
+              "rowCount": 1,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": ""
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [
+            ["h1","c1","SELECT 1","2026-01-02T03:04:05.000Z",12,1,0,null,"Local"],
+            ["h2","c1","q","2020-01-01",1,1,0,"{bad",""]
+          ],
+          "types": [
+            ["text","text","text","text","real","integer","integer","null","text"],
+            ["text","text","text","text","real","integer","integer","text","text"]
+          ]
+        }
+      }
+    },
+    {
+      "name": "query-history/replace-all-duplicate-id-rolls-back",
+      "description": "Two items with the same id fail the primary key; the batch rolls back and the old history stays.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "old",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "dup",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              },
+              {
+                "id": "dup",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ],
+          "error": {
+            "message": "UNIQUE constraint failed: query_history.id",
+            "code": "SQLITE_CONSTRAINT_PRIMARYKEY"
+          }
+        },
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c1"],
+          "result": [
+            {
+              "id": "old",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c1",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [["old","c1","SELECT 1","2026-01-02T03:04:05.000Z",12,1,0,"[]","Local"]],
+          "types": [["text","text","text","text","real","integer","integer","text","text"]]
+        }
+      }
+    },
+    {
+      "name": "query-history/remove-by-connection",
+      "description": "removeByConnection deletes only that connection's history.",
+      "steps": [
+        {
+          "call": "projectsRepo.save",
+          "args": [
+            {
+              "id": "p1",
+              "name": "Project p1",
+              "createdAt": "2026-01-02T03:04:05.000Z",
+              "updatedAt": "2026-01-03T00:00:00.000Z",
+              "customLabels": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c1",
+              "name": "Connection c1",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "connectionsRepo.save",
+          "args": [
+            {
+              "id": "c2",
+              "name": "Connection c2",
+              "type": "postgres",
+              "host": "localhost",
+              "port": 5432,
+              "databaseName": "app",
+              "username": "me",
+              "projectId": "p1",
+              "labelIds": []
+            }
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c1",
+            [
+              {
+                "id": "a",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c1",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {
+          "call": "queryHistoryRepo.replaceAll",
+          "args": [
+            "c2",
+            [
+              {
+                "id": "b",
+                "query": "SELECT 1",
+                "timestamp": "2026-01-02T03:04:05.000Z",
+                "executionTime": 12,
+                "rowCount": 1,
+                "connectionId": "c2",
+                "favorite": false,
+                "connectionLabelsSnapshot": [],
+                "connectionNameSnapshot": "Local"
+              }
+            ]
+          ]
+        },
+        {"call":"queryHistoryRepo.removeByConnection","args":["c1"]},
+        {"call":"queryHistoryRepo.loadByConnection","args":["c1"],"result":[]},
+        {
+          "call": "queryHistoryRepo.loadByConnection",
+          "args": ["c2"],
+          "result": [
+            {
+              "id": "b",
+              "query": "SELECT 1",
+              "timestamp": "2026-01-02T03:04:05.000Z",
+              "executionTime": 12,
+              "rowCount": 1,
+              "connectionId": "c2",
+              "favorite": false,
+              "connectionLabelsSnapshot": [],
+              "connectionNameSnapshot": "Local"
+            }
+          ]
+        }
+      ],
+      "rows": {
+        "query_history": {
+          "columns": [
+            "id",
+            "connection_id",
+            "query",
+            "timestamp",
+            "execution_time",
+            "row_count",
+            "favorite",
+            "connection_labels_snapshot",
+            "connection_name_snapshot"
+          ],
+          "rows": [["b","c2","SELECT 1","2026-01-02T03:04:05.000Z",12,1,0,"[]","Local"]],
+          "types": [["text","text","text","text","real","integer","integer","text","text"]]
+        }
+      }
+    }
+  ]
+}
