@@ -1,7 +1,7 @@
 #![cfg(feature = "engine-sqlite")]
 
 use futures::StreamExt;
-use seaquel_core::{Core, StreamEvent};
+use seaquel_core::{Core, QueryOptions, StreamEvent};
 use seaquel_engine::{BatchStatement, ConnectConfig, Value};
 use serde_json::json;
 use std::path::PathBuf;
@@ -138,6 +138,7 @@ async fn stream_emits_batches_then_done() {
             id,
             "SELECT n FROM nums ORDER BY n".into(),
             vec![],
+            QueryOptions::default(),
         )
         .collect()
         .await;
@@ -166,7 +167,13 @@ async fn stream_emits_batches_then_done() {
 async fn stream_on_an_unknown_connection_emits_one_error() {
     let core = core();
     let events: Vec<StreamEvent> = core
-        .query_stream("q1".into(), "nope".into(), "SELECT 1".into(), vec![])
+        .query_stream(
+            "q1".into(),
+            "nope".into(),
+            "SELECT 1".into(),
+            vec![],
+            QueryOptions::default(),
+        )
         .collect()
         .await;
     assert_eq!(events.len(), 1);
@@ -182,7 +189,13 @@ async fn cancel_ends_the_stream_without_a_terminal_event() {
     let db = TempDb::new();
     let id = connect_with_rows(&core, &db, 200_000).await;
 
-    let mut stream = core.query_stream("q1".into(), id, "SELECT n FROM nums".into(), vec![]);
+    let mut stream = core.query_stream(
+        "q1".into(),
+        id,
+        "SELECT n FROM nums".into(),
+        vec![],
+        QueryOptions::default(),
+    );
     let first = stream.next().await.unwrap();
     assert!(matches!(first, StreamEvent::Batch(_)));
 
@@ -204,7 +217,13 @@ async fn cancel_ends_the_stream_without_a_terminal_event() {
 #[tokio::test]
 async fn dropping_a_stream_unregisters_it() {
     let core = core();
-    let stream = core.query_stream("q1".into(), "nope".into(), "SELECT 1".into(), vec![]);
+    let stream = core.query_stream(
+        "q1".into(),
+        "nope".into(),
+        "SELECT 1".into(),
+        vec![],
+        QueryOptions::default(),
+    );
     assert_eq!(core.running_stream_count(), 1);
     drop(stream);
     assert_eq!(core.running_stream_count(), 0);
@@ -216,8 +235,20 @@ async fn a_reused_query_id_cancels_the_newest_stream() {
     let db = TempDb::new();
     let id = connect_with_rows(&core, &db, 10).await;
 
-    let older = core.query_stream("q".into(), id.clone(), "SELECT n FROM nums".into(), vec![]);
-    let newer = core.query_stream("q".into(), id, "SELECT n FROM nums".into(), vec![]);
+    let older = core.query_stream(
+        "q".into(),
+        id.clone(),
+        "SELECT n FROM nums".into(),
+        vec![],
+        QueryOptions::default(),
+    );
+    let newer = core.query_stream(
+        "q".into(),
+        id,
+        "SELECT n FROM nums".into(),
+        vec![],
+        QueryOptions::default(),
+    );
     drop(older);
     assert_eq!(
         core.running_stream_count(),

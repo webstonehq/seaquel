@@ -52,7 +52,7 @@
 		previewResult && previewResult.length > 0 ? Object.keys(previewResult[0]) : []
 	);
 	// QueryChart takes columnar rows; `previewResult` comes back from
-	// `executeRaw` as row objects (shared with non-streaming consumers).
+	// `runWidgetQuery` (read-only) as row objects (shared with non-streaming consumers).
 	// Convert once reactively so we don't rebuild the array on every render
 	// of the markup below.
 	const columnarPreview = $derived(
@@ -119,7 +119,7 @@
 		isExecuting = true;
 		executeError = undefined;
 		try {
-			previewResult = await db.queries.executeRaw(q);
+			previewResult = await db.dashboards.runWidgetQuery(q);
 			// Auto-configure chart if no config set. Chart helpers take
 			// columnar rows, so we reuse the `columnarPreview` $derived.
 			if (previewResult.length > 0 && chartConfig.yAxis.length === 0) {

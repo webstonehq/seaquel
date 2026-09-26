@@ -1203,6 +1203,16 @@ export class QueryExecutionManager {
     return this.crud.executeRaw(query);
   }
 
+  /** See `QueryCrudManager.executeReadOnly`: AI and dashboard SQL only. */
+  executeReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+    connectionName?: string,
+  ) {
+    return this.crud.executeReadOnly(connectionId, sql, signal, connectionName);
+  }
+
   executeRawDdl(query: string) {
     return this.crud.executeRawDdl(query);
   }

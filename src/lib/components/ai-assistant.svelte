@@ -24,6 +24,7 @@
 	const db = useDatabase();
 	let messageInput = $state("");
 	let allowAllChecked = $state(false);
+	/** Keyed by approval id: one reply can ask for several approvals in turn. */
 	let approvalHandled = $state<Record<string, boolean>>({});
 	let scrollRef = $state<HTMLElement | null>(null);
 	let userScrolledUp = $state(false);
@@ -328,14 +329,15 @@
 								{/if}
 								{/if}
 								{#if message.pendingApproval}
+									{@const approval = message.pendingApproval}
 									<div class="mt-2 space-y-3">
 										<div class="rounded border bg-background p-2 space-y-1">
 											<p class="text-xs font-medium text-muted-foreground">Query to execute:</p>
-											<pre class="text-xs font-mono whitespace-pre-wrap break-all">{message.pendingApproval.query}</pre>
+											<pre class="text-xs font-mono whitespace-pre-wrap break-all">{approval.query}</pre>
 										</div>
 										<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
 											<DatabaseIcon class="size-3" />
-											<span>{message.pendingApproval.connectionName}</span>
+											<span>{approval.connectionName}</span>
 										</div>
 										<div class="flex items-center gap-1.5">
 											<Checkbox id="allow-all-{message.id}" bind:checked={allowAllChecked} />
@@ -343,16 +345,21 @@
 												Allow all queries this session
 											</Label>
 										</div>
+										{#if approval.connectionType === "mssql"}
+											<p class="text-xs text-muted-foreground">{m.ai_allow_all_hint_mssql()}</p>
+										{:else if approval.connectionType === "duckdb"}
+											<p class="text-xs text-muted-foreground">{m.ai_allow_all_hint_duckdb()}</p>
+										{/if}
 										<div class="flex gap-2">
 											<Button
 												size="sm"
 												class="flex-1 gap-1.5"
-												disabled={approvalHandled[message.id] ?? false}
+												disabled={approvalHandled[approval.id] ?? false}
 												onclick={() => {
-													if (approvalHandled[message.id]) return;
-													approvalHandled = { ...approvalHandled, [message.id]: true };
+													if (approvalHandled[approval.id]) return;
+													approvalHandled = { ...approvalHandled, [approval.id]: true };
 													if (allowAllChecked) db.ui.setAIAllowAll();
-													message.pendingApproval?.approve();
+													approval.approve();
 												}}
 											>
 												<CheckCircleIcon class="size-3.5" aria-hidden="true" />
@@ -362,11 +369,11 @@
 												size="sm"
 												variant="outline"
 												class="flex-1 gap-1.5"
-												disabled={approvalHandled[message.id] ?? false}
+												disabled={approvalHandled[approval.id] ?? false}
 												onclick={() => {
-													if (approvalHandled[message.id]) return;
-													approvalHandled = { ...approvalHandled, [message.id]: true };
-													message.pendingApproval?.deny();
+													if (approvalHandled[approval.id]) return;
+													approvalHandled = { ...approvalHandled, [approval.id]: true };
+													approval.deny();
 												}}
 											>
 												<XCircleIcon class="size-3.5" aria-hidden="true" />

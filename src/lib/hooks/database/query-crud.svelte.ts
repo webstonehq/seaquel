@@ -9,6 +9,7 @@ import { describePendingChange } from "./pending-change-description.js";
 import type { SchemaColumn } from "$lib/types";
 import { storeTableMetadata } from "./schema-cache.js";
 import { noRowMatchedMessage } from "./stale-edit.js";
+import { readOnlyError } from "$lib/services/ai/context.js";
 
 type CrudResult = { success: boolean; error?: string; queued?: boolean };
 
@@ -466,6 +467,61 @@ export class QueryCrudManager {
 
     const provider = await this.providers.getForType(connection.type);
     return await provider.select<Record<string, unknown>>(connection.providerConnectionId!, query);
+  }
+
+  /**
+   * Run one query in the read-only mode the database enforces
+   * (`DatabaseProvider.selectReadOnly`). The only way AI and dashboard SQL
+   * reaches a database; never use `executeRaw` for it.
+   *
+   * Runs on `connectionId`, whatever is active. The connection is looked up
+   * on every call, so it follows `reconnect()` (which replaces the object and
+   * its provider id). It refuses, naming the connection, when it was removed
+   * or is disconnected, and runs the token check (`readOnlyError`) against the
+   * connection it looked up, so a connection whose type was edited is checked
+   * as what it is now.
+   *
+   * @param connectionName The name for the "was removed" refusal, which has
+   *   no connection to read it from.
+   * @param signal Aborting it cancels the query and rejects the promise.
+   */
+  async executeReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+    connectionName?: string,
+  ): Promise<Record<string, unknown>[]> {
+    const lookUp = () => {
+      const connection = this.state.connections.find((c) => c.id === connectionId);
+      if (!connection) {
+        throw new Error(
+          connectionName === undefined
+            ? "The connection was removed"
+            : `The connection "${connectionName}" was removed`,
+        );
+      }
+      const providerConnectionId = connection.providerConnectionId;
+      if (!providerConnectionId) {
+        throw new Error(
+          `The connection "${connection.name}" is disconnected; reconnect it and try again`,
+        );
+      }
+      return { connection, providerConnectionId };
+    };
+
+    // Everything that decides where and how the query runs is read after the
+    // last await, so a reconnect or an edit during it can't send the query
+    // to a stale provider id or check it as the old engine.
+    const { type } = lookUp().connection;
+    const provider = await this.providers.getForType(type);
+    const { connection, providerConnectionId } = lookUp();
+    if (connection.type !== type) {
+      throw new Error(`The connection "${connection.name}" changed; try again`);
+    }
+    const refusal = readOnlyError(sql, connection.type);
+    if (refusal) throw new Error(refusal);
+
+    return await provider.selectReadOnly(providerConnectionId, sql, signal);
   }
 
   /**

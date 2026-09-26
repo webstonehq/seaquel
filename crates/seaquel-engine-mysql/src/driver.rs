@@ -1,8 +1,8 @@
 use sqlx::{MySql, Pool};
 
 use seaquel_engine::{
-    ConnectConfig, DatabaseStatistics, DbError, ExplainResult, SchemaColumn, SchemaIndex,
-    SchemaTable, Value,
+    ConnectConfig, DatabaseStatistics, DbError, ExplainResult, QueryResult, SchemaColumn,
+    SchemaIndex, SchemaTable, Value,
 };
 
 use crate::introspect::{self, Flavor};
@@ -36,21 +36,30 @@ impl MysqlDriver {
     }
 }
 
-/// The MySQL error number and SQLSTATE of a server error, from the text
-/// sqlx gives it (`error returned from database: 1142 (42000): …`), which is
-/// all a `DbError` keeps.
-fn server_error(e: &DbError) -> Option<(u16, &str)> {
+/// The MySQL error number, SQLSTATE and message of a server error, from the
+/// text sqlx gives it (`error returned from database: 1142 (42000): …`),
+/// which is all a `DbError` keeps.
+fn server_error(e: &DbError) -> Option<(u16, &str, &str)> {
     let rest = e.message.split_once("error returned from database: ")?.1;
     let (number, rest) = rest.split_once(" (")?;
-    let (sqlstate, _) = rest.split_once("): ")?;
-    Some((number.parse().ok()?, sqlstate))
+    let (sqlstate, message) = rest.split_once("): ")?;
+    Some((number.parse().ok()?, sqlstate, message))
+}
+
+/// ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION (1792), on MySQL and MariaDB
+/// alike, as `READ_ONLY` with the server's message. Anything else as it is.
+fn read_only_refusal(e: DbError) -> DbError {
+    match server_error(&e) {
+        Some((1792, _, message)) => DbError::read_only(message),
+        _ => e,
+    }
 }
 
 /// A read the server refused for lack of privileges: ER_TABLEACCESS_DENIED
 /// (1142), ER_COLUMNACCESS_DENIED (1143) or ER_DBACCESS_DENIED (1044), all
 /// SQLSTATE 42000, on MySQL and MariaDB alike.
 fn is_permission_error(e: &DbError) -> bool {
-    matches!(server_error(e), Some((1142 | 1143 | 1044, "42000")))
+    matches!(server_error(e), Some((1142 | 1143 | 1044, "42000", _)))
 }
 
 seaquel_engine::impl_sqlx_driver!(
@@ -121,6 +130,53 @@ seaquel_engine::impl_sqlx_driver!(
                 .await?;
             introspect::parse_explain(&r, analyze, self.flavor)
         }
+    },
+    read_only = {
+        /// A read-only session and transaction (AI safety plan, Decision 1)
+        /// on a pooled connection that is closed afterwards, never returned:
+        /// the setting, `SET SESSION` changes and `GET_LOCK` locks would
+        /// survive a rollback.
+        ///
+        /// `START TRANSACTION READ ONLY` alone doesn't stop DDL, which commits
+        /// the transaction and then runs; the session setting covers the
+        /// statement after that commit (`SET SESSION TRANSACTION READ ONLY`
+        /// sets the session's `transaction_read_only`, or `tx_read_only` on
+        /// older servers). The session setting alone doesn't
+        /// stop a procedure that switches it off before it writes, because
+        /// `CALL` runs each statement of a procedure as its own; the
+        /// transaction does, unless the procedure commits it first (a gap,
+        /// see `tests/read_only.rs`). The user's SQL goes through
+        /// `fetch_capped`, a prepared statement, so it is one statement.
+        ///
+        /// Taking the connection from the pool means a pool at its limit
+        /// makes this wait, like any other query, instead of opening more.
+        async fn query_read_only(
+            &self,
+            sql: &str,
+            params: Vec<Value>,
+        ) -> Result<QueryResult, DbError> {
+            let mut conn = self.pool.acquire().await.map_err(DbError::query_error)?;
+            // Before the first statement, so an error or a dropped future
+            // closes it too.
+            conn.close_on_drop();
+            for setup in [
+                // Not `SET SESSION transaction_read_only = 1`: MariaDB 10.x
+                // and MySQL before 5.7.20 call that variable `tx_read_only`.
+                // This form works on MySQL 5.6.5+ and MariaDB 10.0+.
+                "SET SESSION TRANSACTION READ ONLY",
+                "START TRANSACTION READ ONLY",
+            ] {
+                sqlx::Executor::execute(&mut *conn, setup)
+                    .await
+                    .map_err(DbError::query_error)?;
+            }
+            let result = fetch_capped(&mut *conn, sql, &params).await;
+            // The server rolls the transaction back when the connection goes.
+            // Closing now rather than on drop frees its locks as soon as it
+            // does.
+            let _ = conn.close().await;
+            result.map_err(read_only_refusal)
+        }
     }
 );
 
@@ -144,5 +200,21 @@ mod tests {
         assert!(!is_permission_error(&DbError::query_error(
             "pool timed out: access denied"
         )));
+    }
+
+    #[test]
+    fn read_only_refusals() {
+        let e = read_only_refusal(DbError::query_error(
+            "error returned from database: 1792 (25006): Cannot execute statement in a READ ONLY transaction.",
+        ));
+        assert_eq!(e.code, "READ_ONLY");
+        assert_eq!(
+            e.message,
+            "Cannot execute statement in a READ ONLY transaction."
+        );
+        let other = read_only_refusal(DbError::query_error(
+            "error returned from database: 1064 (42000): You have an error in your SQL syntax",
+        ));
+        assert_eq!(other.code, "QUERY_ERROR");
     }
 }

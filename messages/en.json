@@ -116,6 +116,8 @@
   "ai_new_chat": "New chat",
   "ai_delete_chat": "Delete chat",
   "ai_jump_to_message": "Jump to message",
+  "ai_allow_all_hint_mssql": "SQL Server has no read-only mode; use a read-only login",
+  "ai_allow_all_hint_duckdb": "DuckDB queries can read files and URLs",
   "batch_unsaved_title": "Unsaved Changes",
   "batch_unsaved_description_singular": "{count} query has unsaved changes. Discard all changes?",
   "batch_unsaved_description_plural": "{count} queries have unsaved changes. Discard all changes?",

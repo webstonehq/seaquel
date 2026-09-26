@@ -9,7 +9,8 @@
 //!
 //! Engines whose introspection runs in Rust also call [`run_introspection`],
 //! with [`IntrospectionExpect`] saying what they can report, and engines with
-//! native values check them with [`run_typed_cells`].
+//! native values check them with [`run_typed_cells`]. Every engine checks its
+//! `query_read_only` with [`run_read_only`] and its own [`ReadOnlySpec`].
 //!
 //! This is the seed of the conformance suite planned for phase 1.
 
@@ -938,5 +939,571 @@ pub async fn run_unique_checkbox<F, Fut>(
         .expect("metadata");
     for name in unique {
         assert_eq!(flags(&columns, name), (false, false), "{name} after {sql}");
+    }
+}
+
+// ── Read-only queries ────────────────────────────────────────────────────────
+
+/// A check [`run_read_only`] runs on the driver's normal methods (`query`,
+/// `execute`), never through `query_read_only`.
+#[derive(Clone)]
+pub enum Check {
+    /// `execute(sql)` must succeed: the pool or session still writes.
+    Executes(String),
+    /// `query(sql)` must return exactly `rows`. Cells compare with
+    /// [`same_value`], except that an expected `Value::Int` also matches any
+    /// cell whose `as_i64` is that integer (a MySQL `DECIMAL` count, a
+    /// setting read as text).
+    Rows { sql: String, rows: Vec<Vec<Value>> },
+    /// Nothing exists at this path: a file the attack tried to write (SQLite
+    /// and DuckDB, whose files the test can see).
+    NoFile(std::path::PathBuf),
+    /// Anything else, e.g. "no pooled session holds advisory lock 7". Gets
+    /// the driver the harness opened; `Err` is the failure to report.
+    Custom { name: String, check: CustomCheck },
+    /// `check`, `n` copies at once. See [`Check::on_connections`].
+    OnConnections { n: usize, check: Box<Check> },
+}
+
+/// See [`Check::Custom`].
+pub type CustomCheck = std::sync::Arc<
+    dyn Fn(std::sync::Arc<dyn Driver>) -> futures::future::BoxFuture<'static, Result<(), String>>
+        + Send
+        + Sync,
+>;
+
+impl Check {
+    pub fn executes(sql: impl Into<String>) -> Self {
+        Check::Executes(sql.into())
+    }
+
+    pub fn rows(sql: impl Into<String>, rows: Vec<Vec<Value>>) -> Self {
+        Check::Rows {
+            sql: sql.into(),
+            rows,
+        }
+    }
+
+    /// `query(sql)` returns one cell, the integer `n`: a row count, a
+    /// sequence's value.
+    pub fn count(sql: impl Into<String>, n: i64) -> Self {
+        Check::rows(sql, vec![vec![Value::Int(n)]])
+    }
+
+    /// `query(sql)` returns one cell equal to `value`: a setting.
+    pub fn value(sql: impl Into<String>, value: impl Into<Value>) -> Self {
+        Check::rows(sql, vec![vec![value.into()]])
+    }
+
+    pub fn no_file(path: impl Into<std::path::PathBuf>) -> Self {
+        Check::NoFile(path.into())
+    }
+
+    /// Run `n` copies of `check` concurrently (`join_all`), so each holds
+    /// its own connection and together they reach `n` distinct pooled
+    /// connections. **This is how a pooled engine checks its pool**: a
+    /// check run once lands on whichever idle connection the pool hands out
+    /// next (sqlx rotates idle connections, but nothing guarantees which), so
+    /// a session left read-only on one connection can go unseen. Set `n` to
+    /// the pool's size, or at least the number of connections the test can
+    /// have opened. Make each copy hold its connection for a moment (e.g.
+    /// `SELECT …, pg_sleep(0.05)`) if the copies could otherwise finish
+    /// one after another on the same connection. Every failing copy is
+    /// reported.
+    pub fn on_connections(n: usize, check: Check) -> Self {
+        Check::OnConnections {
+            n,
+            check: Box::new(check),
+        }
+    }
+
+    pub fn custom<F, Fut>(name: impl Into<String>, check: F) -> Self
+    where
+        F: Fn(std::sync::Arc<dyn Driver>) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        Check::Custom {
+            name: name.into(),
+            check: std::sync::Arc::new(move |driver| Box::pin(check(driver))),
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            Check::Executes(sql) => format!("executes {sql:?}"),
+            Check::Rows { sql, .. } => format!("rows of {sql:?}"),
+            Check::NoFile(path) => format!("no file at {}", path.display()),
+            Check::Custom { name, .. } => name.clone(),
+            Check::OnConnections { n, check } => {
+                format!("on {n} connections at once, {}", check.describe())
+            }
+        }
+    }
+
+    /// What's wrong, if anything.
+    fn run<'a>(
+        &'a self,
+        driver: &'a std::sync::Arc<dyn Driver>,
+    ) -> futures::future::BoxFuture<'a, Option<String>> {
+        Box::pin(self.run_inner(driver))
+    }
+
+    async fn run_inner(&self, driver: &std::sync::Arc<dyn Driver>) -> Option<String> {
+        match self {
+            Check::Executes(sql) => match driver.execute(sql, vec![]).await {
+                Ok(_) => None,
+                Err(e) => Some(format!("execute failed: {e:?}")),
+            },
+            Check::Rows { sql, rows } => match driver.query(sql, vec![]).await {
+                Ok(r) if rows_match(&r.rows, rows) => None,
+                Ok(r) => Some(format!("expected {rows:?}, got {:?}", r.rows)),
+                Err(e) => Some(format!("query failed: {e:?}")),
+            },
+            Check::NoFile(path) => path.exists().then(|| "the file exists".to_string()),
+            Check::Custom { check, .. } => check(driver.clone()).await.err(),
+            Check::OnConnections { n, check } => {
+                let problems: Vec<String> =
+                    futures::future::join_all((0..*n).map(|_| check.run(driver)))
+                        .await
+                        .into_iter()
+                        .flatten()
+                        .collect();
+                (!problems.is_empty()).then(|| {
+                    format!(
+                        "{} of {n} copies failed: {}",
+                        problems.len(),
+                        problems.join("; ")
+                    )
+                })
+            }
+        }
+    }
+}
+
+fn rows_match(actual: &[Vec<Value>], expected: &[Vec<Value>]) -> bool {
+    let cell = |a: &Value, e: &Value| match e {
+        Value::Int(n) => a.as_i64() == Some(*n),
+        _ => same_value(a, e),
+    };
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|(a, e)| a.len() == e.len() && a.iter().zip(e).all(|(a, e)| cell(a, e)))
+}
+
+/// What `query_read_only` must return for an [`Attack`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum Outcome {
+    /// An error or rows: the database may refuse it, or run it and roll it
+    /// back. The traces decide.
+    Any,
+    /// It must succeed; with `Some`, with exactly these rows (compared as in
+    /// [`Check::Rows`]).
+    Rows(Option<Vec<Vec<Value>>>),
+    /// It must fail; with `code`, with that code, and with `contains`, with a
+    /// message containing it.
+    Refused {
+        code: Option<String>,
+        contains: Option<String>,
+    },
+}
+
+/// One query [`run_read_only`] sends through `query_read_only`, and what
+/// must be true afterwards.
+#[derive(Clone)]
+pub struct Attack {
+    /// How failures name it.
+    pub name: String,
+    pub sql: String,
+    pub params: Vec<Value>,
+    pub expect: Outcome,
+    /// Run with `execute` before the attack, e.g. to create the function it
+    /// calls. A failure fails the attack.
+    pub before: Vec<String>,
+    /// Checks on a normal session after the attack, whatever it returned:
+    /// the row, table, file, sequence value or setting is unchanged.
+    pub trace: Vec<Check>,
+    /// Run with `execute` after the traces, even when the attack failed.
+    /// Failures go to stderr.
+    pub after: Vec<String>,
+}
+
+impl Attack {
+    /// Any outcome, no traces yet.
+    pub fn new(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        Attack {
+            name: name.into(),
+            sql: sql.into(),
+            params: vec![],
+            expect: Outcome::Any,
+            before: vec![],
+            trace: vec![],
+            after: vec![],
+        }
+    }
+
+    /// A query that must run (it's read-only), with its rows unchecked.
+    pub fn allowed(name: impl Into<String>, sql: impl Into<String>) -> Self {
+        Attack::new(name, sql).succeeds()
+    }
+
+    pub fn params(mut self, params: Vec<Value>) -> Self {
+        self.params = params;
+        self
+    }
+
+    pub fn succeeds(mut self) -> Self {
+        self.expect = Outcome::Rows(None);
+        self
+    }
+
+    pub fn returns(mut self, rows: Vec<Vec<Value>>) -> Self {
+        self.expect = Outcome::Rows(Some(rows));
+        self
+    }
+
+    /// It must fail, with any code.
+    pub fn refused(mut self) -> Self {
+        self.expect = Outcome::Refused {
+            code: None,
+            contains: None,
+        };
+        self
+    }
+
+    /// It must fail with `code`, usually `READ_ONLY`.
+    pub fn refused_with(mut self, code: impl Into<String>) -> Self {
+        let contains = match self.expect {
+            Outcome::Refused { contains, .. } => contains,
+            _ => None,
+        };
+        self.expect = Outcome::Refused {
+            code: Some(code.into()),
+            contains,
+        };
+        self
+    }
+
+    /// It must fail with a message containing `text`.
+    pub fn message_contains(mut self, text: impl Into<String>) -> Self {
+        let code = match self.expect {
+            Outcome::Refused { code, .. } => code,
+            _ => None,
+        };
+        self.expect = Outcome::Refused {
+            code,
+            contains: Some(text.into()),
+        };
+        self
+    }
+
+    pub fn before(mut self, sql: impl Into<String>) -> Self {
+        self.before.push(sql.into());
+        self
+    }
+
+    pub fn trace(mut self, check: Check) -> Self {
+        self.trace.push(check);
+        self
+    }
+
+    pub fn after(mut self, sql: impl Into<String>) -> Self {
+        self.after.push(sql.into());
+        self
+    }
+}
+
+/// What [`run_read_only`] builds, sends and checks. The engine's test fills
+/// it in, so the SQL stays engine-specific.
+#[derive(Clone)]
+pub struct ReadOnlySpec {
+    /// Run with `execute` before any attack, e.g. a [`scratch_name`] table
+    /// with known rows. A failure fails the run (teardown still runs).
+    pub setup: Vec<String>,
+    /// Run with `execute` at the end, even when something failed. Failures
+    /// go to stderr.
+    pub teardown: Vec<String>,
+    pub attacks: Vec<Attack>,
+    /// Checks run after every attack and after the cancel check, on the
+    /// driver's normal methods: a normal `execute` still writes, and a
+    /// normal `query` sees default session state (not read-only, not in a
+    /// transaction, settings and locks as they were). Pooled engines wrap
+    /// their checks in [`Check::on_connections`] to reach every pooled
+    /// connection. Must not be empty.
+    pub after_each: Vec<Check>,
+    /// A read-only query that runs for several seconds (`SELECT
+    /// pg_sleep(5)`, a big cross join). [`run_read_only`] drops it after
+    /// [`CANCEL_AFTER`]; the next read-only call must succeed within
+    /// `cancel_within`.
+    pub slow_query: String,
+    /// How soon after `slow_query` is dropped the next read-only call must
+    /// have succeeded. [`DEFAULT_CANCEL_WITHIN`] unless an engine needs more
+    /// (say why in its test).
+    pub cancel_within: std::time::Duration,
+}
+
+impl Default for ReadOnlySpec {
+    /// Empty, which [`run_read_only`] refuses: fill in `attacks`,
+    /// `after_each` and `slow_query`, and use `..Default::default()` for the
+    /// rest.
+    fn default() -> Self {
+        ReadOnlySpec {
+            setup: vec![],
+            teardown: vec![],
+            attacks: vec![],
+            after_each: vec![],
+            slow_query: String::new(),
+            cancel_within: DEFAULT_CANCEL_WITHIN,
+        }
+    }
+}
+
+/// Why `spec` can't prove anything, if it can't: an attack that may fail
+/// (anything but [`Outcome::Rows`]) with no trace would pass whether or not
+/// the write got through, and without `after_each` nothing checks that the
+/// pool or session was left as it was.
+fn spec_problems(spec: &ReadOnlySpec) -> Vec<String> {
+    let mut problems = Vec::new();
+    if spec.after_each.is_empty() {
+        problems.push(
+            "after_each is empty: nothing checks the pool or session after an attack".to_string(),
+        );
+    }
+    if spec.slow_query.trim().is_empty() {
+        problems.push("slow_query is empty: the cancel check can't run".to_string());
+    }
+    for attack in &spec.attacks {
+        if !matches!(attack.expect, Outcome::Rows(_)) && attack.trace.is_empty() {
+            problems.push(format!(
+                "attack {:?} has no trace: it would pass whether or not it changed anything",
+                attack.name
+            ));
+        }
+    }
+    problems
+}
+
+/// How long [`run_read_only`] lets `slow_query` run before dropping it.
+pub const CANCEL_AFTER: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// The default [`ReadOnlySpec::cancel_within`].
+pub const DEFAULT_CANCEL_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long one attack's `query_read_only` may take before it's reported as
+/// hanging.
+pub const ATTACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The read-only query run through `query_read_only` after every attack
+/// (so state left on the read-only path's own connection is blamed on the
+/// attack that left it), before `slow_query` (to warm the path up) and after
+/// the cancel. It must return one cell, 1.
+pub const READ_ONLY_PROBE: &str = "SELECT 1 AS one";
+
+/// Check `Driver::query_read_only` against `spec`, on one driver opened
+/// from `config`:
+///
+/// 0. The spec itself: it panics before opening anything if `after_each` or
+///    `slow_query` is empty, or if an attack that may fail (anything but
+///    [`Outcome::Rows`]) has no trace.
+/// 1. `setup`.
+/// 2. For each attack: `before`; the attack through `query_read_only`,
+///    checked against its [`Outcome`]; its `trace`; its `after`;
+///    [`READ_ONLY_PROBE`] through `query_read_only`; then `after_each`.
+/// 3. The cancel check: [`READ_ONLY_PROBE`] through `query_read_only` once
+///    to warm the path up; `slow_query` through `query_read_only`, which
+///    must still be running after [`CANCEL_AFTER`], is dropped;
+///    [`READ_ONLY_PROBE`] must then succeed within `cancel_within`. Then
+///    `after_each`.
+/// 4. `teardown`, and the driver is closed.
+///
+/// Every failure is collected and reported in one panic at the end, so one
+/// run shows every attack that got through. Needs a Tokio runtime with time
+/// enabled (`#[tokio::test]`).
+///
+/// Gaps an engine accepts (plan: "Probe results") are not attacks here: the
+/// engine's test names them in a comment instead.
+pub async fn run_read_only(engine: &dyn Engine, config: &ConnectConfig, spec: &ReadOnlySpec) {
+    let problems = spec_problems(spec);
+    assert!(
+        problems.is_empty(),
+        "read-only spec proves nothing:\n  {}",
+        problems.join("\n  ")
+    );
+    assert_eq!(
+        engine.id(),
+        config.driver.as_str(),
+        "engine id must match its driver"
+    );
+    let driver: std::sync::Arc<dyn Driver> = engine.open(config).await.expect("open");
+    let outcome = AssertUnwindSafe(read_only_body(&driver, spec))
+        .catch_unwind()
+        .await;
+    run_best_effort(&*driver, "teardown", &spec.teardown).await;
+    driver.close().await.expect("close");
+    let failures = match outcome {
+        Ok(failures) => failures,
+        Err(panic) => std::panic::resume_unwind(panic),
+    };
+    assert!(
+        failures.is_empty(),
+        "read-only: {} problem{}:\n\n{}",
+        failures.len(),
+        if failures.len() == 1 { "" } else { "s" },
+        failures.join("\n\n")
+    );
+}
+
+async fn read_only_body(driver: &std::sync::Arc<dyn Driver>, spec: &ReadOnlySpec) -> Vec<String> {
+    for sql in &spec.setup {
+        driver
+            .execute(sql, vec![])
+            .await
+            .unwrap_or_else(|e| panic!("setup failed: {e:?}\n{sql}"));
+    }
+    let mut failures = Vec::new();
+    for attack in &spec.attacks {
+        let outcome = AssertUnwindSafe(run_attack(driver, attack))
+            .catch_unwind()
+            .await;
+        let problems = match outcome {
+            Ok(problems) => problems,
+            Err(panic) => vec![format!("panicked: {}", panic_message(&panic))],
+        };
+        run_best_effort(
+            &**driver,
+            &format!("after {:?}", attack.name),
+            &attack.after,
+        )
+        .await;
+        let mut problems = problems;
+        problems.extend(probe(driver, "after the attack").await);
+        problems.extend(run_checks(driver, "after_each", &spec.after_each).await);
+        if !problems.is_empty() {
+            failures.push(format!(
+                "{} ({}):\n  {}",
+                attack.name,
+                attack.sql,
+                problems.join("\n  ")
+            ));
+        }
+    }
+    let mut problems = cancel_check(driver, &spec.slow_query, spec.cancel_within).await;
+    problems.extend(run_checks(driver, "after_each", &spec.after_each).await);
+    if !problems.is_empty() {
+        failures.push(format!(
+            "cancel ({}):\n  {}",
+            spec.slow_query,
+            problems.join("\n  ")
+        ));
+    }
+    failures
+}
+
+/// What's wrong with one attack, if anything. Doesn't run `after`.
+async fn run_attack(driver: &std::sync::Arc<dyn Driver>, attack: &Attack) -> Vec<String> {
+    for sql in &attack.before {
+        if let Err(e) = driver.execute(sql, vec![]).await {
+            return vec![format!("before failed: {e:?}\n  {sql}")];
+        }
+    }
+    let result = tokio::time::timeout(
+        ATTACK_TIMEOUT,
+        driver.query_read_only(&attack.sql, attack.params.clone()),
+    )
+    .await;
+    let mut problems = Vec::new();
+    match (&attack.expect, result) {
+        (_, Err(_)) => problems.push(format!("query_read_only hung for {ATTACK_TIMEOUT:?}")),
+        (Outcome::Any, Ok(_)) => {}
+        (Outcome::Rows(expected), Ok(Ok(r))) => {
+            if let Some(rows) = expected {
+                if !rows_match(&r.rows, rows) {
+                    problems.push(format!("expected rows {rows:?}, got {:?}", r.rows));
+                }
+            }
+        }
+        (Outcome::Rows(_), Ok(Err(e))) => problems.push(format!("expected rows, got {e:?}")),
+        (Outcome::Refused { .. }, Ok(Ok(r))) => problems.push(format!(
+            "expected a refusal, got {} row{}: {:?}",
+            r.rows.len(),
+            if r.rows.len() == 1 { "" } else { "s" },
+            r.rows
+        )),
+        (Outcome::Refused { code, contains }, Ok(Err(e))) => {
+            if code.as_ref().is_some_and(|c| *c != e.code) {
+                problems.push(format!("expected code {code:?}, got {e:?}"));
+            }
+            if contains
+                .as_ref()
+                .is_some_and(|t| !e.message.contains(t.as_str()))
+            {
+                problems.push(format!(
+                    "expected a message containing {contains:?}, got {e:?}"
+                ));
+            }
+        }
+    }
+    problems.extend(run_checks(driver, "trace", &attack.trace).await);
+    problems
+}
+
+/// Every failing check, each named.
+async fn run_checks(
+    driver: &std::sync::Arc<dyn Driver>,
+    what: &str,
+    checks: &[Check],
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for check in checks {
+        if let Some(problem) = check.run(driver).await {
+            problems.push(format!("{what} {}: {problem}", check.describe()));
+        }
+    }
+    problems
+}
+
+/// [`READ_ONLY_PROBE`] through `query_read_only`: what's wrong, if anything.
+async fn probe(driver: &std::sync::Arc<dyn Driver>, when: &str) -> Option<String> {
+    probe_within(driver, when, ATTACK_TIMEOUT).await
+}
+
+async fn probe_within(
+    driver: &std::sync::Arc<dyn Driver>,
+    when: &str,
+    within: std::time::Duration,
+) -> Option<String> {
+    match tokio::time::timeout(within, driver.query_read_only(READ_ONLY_PROBE, vec![])).await {
+        Ok(Ok(r)) if rows_match(&r.rows, &[vec![Value::Int(1)]]) => None,
+        Ok(Ok(r)) => Some(format!("{READ_ONLY_PROBE} {when} returned {:?}", r.rows)),
+        Ok(Err(e)) => Some(format!("{READ_ONLY_PROBE} {when} failed: {e:?}")),
+        Err(_) => Some(format!(
+            "{READ_ONLY_PROBE} {when} didn't finish within {within:?}"
+        )),
+    }
+}
+
+async fn cancel_check(
+    driver: &std::sync::Arc<dyn Driver>,
+    slow_query: &str,
+    cancel_within: std::time::Duration,
+) -> Vec<String> {
+    // Warm up, so the timing below doesn't include a first connect.
+    if let Some(problem) = probe(driver, "before slow_query").await {
+        return vec![problem];
+    }
+    let slow = tokio::time::timeout(CANCEL_AFTER, driver.query_read_only(slow_query, vec![])).await;
+    // `timeout` dropped the future when it elapsed.
+    if let Ok(result) = slow {
+        return vec![format!(
+            "slow_query finished within {CANCEL_AFTER:?}, so the cancel wasn't tested: {result:?}"
+        )];
+    }
+    match probe_within(driver, "after the cancel", cancel_within).await {
+        Some(problem) if problem.contains("didn't finish") => {
+            vec![format!("{problem}: the dropped query still runs")]
+        }
+        Some(problem) => vec![problem],
+        None => vec![],
     }
 }

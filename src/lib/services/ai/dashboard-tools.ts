@@ -24,12 +24,16 @@ export interface DashboardCallbacks {
   onAddWidget: (
     dashboardId: string,
     widget: Omit<DashboardWidget, "id" | "result" | "isLoading" | "error" | "lastRefreshed">,
+    /** Stop: cancels the widget's first run. */
+    signal?: AbortSignal,
   ) => Promise<{ widgetId: string } | null>;
   onGetDashboard: (dashboardId: string) => DashboardGetResult | null;
   onUpdateWidget: (
     dashboardId: string,
     widgetId: string,
     updates: Partial<DashboardWidget>,
+    /** Stop: cancels the run after a query change. */
+    signal?: AbortSignal,
   ) => Promise<void>;
   onRemoveWidget: (dashboardId: string, widgetId: string) => Promise<void>;
 }
@@ -89,6 +93,7 @@ export async function handleDashboardToolCall(
   input: Record<string, unknown>,
   callbacks: DashboardCallbacks,
   readOnlyError: (query: string) => string | null,
+  signal?: AbortSignal,
 ): Promise<string> {
   /** The refusal for a widget query, or `null` (no query, or a read-only one). */
   const refuse = (query: string) => (query.trim() ? readOnlyError(query) : null);
@@ -136,7 +141,7 @@ export async function handleDashboardToolCall(
         };
         const refusal = refuse(widget.query);
         if (refusal) return JSON.stringify({ error: refusal });
-        const result = await callbacks.onAddWidget(dashboardId, widget);
+        const result = await callbacks.onAddWidget(dashboardId, widget, signal);
         if (!result) return JSON.stringify({ error: "Failed to add widget" });
         return JSON.stringify({ widget_id: result.widgetId });
       }
@@ -174,7 +179,7 @@ export async function handleDashboardToolCall(
           updates.textConfig = parseTextConfig(input.text_config);
         const refusal = updates.query === undefined ? null : refuse(updates.query);
         if (refusal) return JSON.stringify({ error: refusal });
-        await callbacks.onUpdateWidget(dashboardId, widgetId, updates);
+        await callbacks.onUpdateWidget(dashboardId, widgetId, updates, signal);
         return JSON.stringify({ success: true });
       }
       case "remove_widget": {

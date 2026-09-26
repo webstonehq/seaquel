@@ -496,3 +496,119 @@ describe("QueryCrudManager via EngineClient", () => {
     expect(result.error).toContain("nope");
   });
 });
+
+describe("QueryCrudManager.executeReadOnly", () => {
+  function readOnlySetup(connections: Record<string, unknown>[]) {
+    const state = {
+      activeConnectionId: "conn-2",
+      activeConnection: connections.find((c) => c.id === "conn-2"),
+      connections,
+      schemas: {},
+    } as unknown as DatabaseState;
+    const provider = {
+      select: vi.fn(async () => [{ written: true }]),
+      selectReadOnly: vi.fn(async (..._args: unknown[]) => [{ n: 1 }]),
+    };
+    const getForType = vi.fn(async (_type: string) => provider);
+    const providers = { getForType } as unknown as ProviderRegistry;
+    const pending = { isEnabled: () => false } as unknown as PendingChangesManager;
+    return {
+      manager: new QueryCrudManager(state, providers, pending),
+      state,
+      provider,
+      getForType,
+    };
+  }
+
+  const local = { id: "conn-1", type: "postgres", name: "Local", providerConnectionId: "pc-1" };
+  const other = { id: "conn-2", type: "sqlite", name: "Other", providerConnectionId: "pc-2" };
+
+  it("runs on the named connection, not the active one, through selectReadOnly", async () => {
+    const { manager, provider, getForType } = readOnlySetup([local, other]);
+    const signal = new AbortController().signal;
+
+    expect(await manager.executeReadOnly("conn-1", "SELECT 1 AS n", signal)).toEqual([{ n: 1 }]);
+    expect(getForType).toHaveBeenCalledWith("postgres");
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", "SELECT 1 AS n", signal);
+    expect(provider.select).not.toHaveBeenCalled();
+  });
+
+  it("reads the provider connection id at call time, so it survives a reconnect", async () => {
+    const { manager, provider, state } = readOnlySetup([local, other]);
+    // reconnect() replaces the connection object with a new provider id.
+    state.connections = [{ ...local, providerConnectionId: "pc-9" } as never, other as never];
+
+    await manager.executeReadOnly("conn-1", "SELECT 1");
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined);
+  });
+
+  it("reads the provider connection id after getting the provider", async () => {
+    const { manager, provider, state, getForType } = readOnlySetup([local, other]);
+    // A reconnect lands while the provider is being fetched.
+    getForType.mockImplementationOnce(async () => {
+      state.connections = [{ ...local, providerConnectionId: "pc-9" } as never, other as never];
+      return provider;
+    });
+    await manager.executeReadOnly("conn-1", "SELECT 1");
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined);
+  });
+
+  it("refuses a connection disconnected while the provider was fetched", async () => {
+    const { manager, provider, state, getForType } = readOnlySetup([local, other]);
+    getForType.mockImplementationOnce(async () => {
+      state.connections = [{ ...local, providerConnectionId: undefined } as never, other as never];
+      return provider;
+    });
+    await expect(manager.executeReadOnly("conn-1", "SELECT 1")).rejects.toThrow("is disconnected");
+    expect(provider.selectReadOnly).not.toHaveBeenCalled();
+  });
+
+  it("refuses a removed connection, naming it", async () => {
+    const { manager, provider } = readOnlySetup([other]);
+    await expect(manager.executeReadOnly("conn-1", "SELECT 1", undefined, "Local")).rejects.toThrow(
+      'The connection "Local" was removed',
+    );
+    expect(provider.selectReadOnly).not.toHaveBeenCalled();
+  });
+
+  it("refuses a disconnected connection, naming it", async () => {
+    const { manager, provider } = readOnlySetup([
+      { ...local, providerConnectionId: undefined },
+      other,
+    ]);
+    await expect(manager.executeReadOnly("conn-1", "SELECT 1")).rejects.toThrow(
+      'The connection "Local" is disconnected; reconnect it and try again',
+    );
+    expect(provider.selectReadOnly).not.toHaveBeenCalled();
+  });
+
+  it("runs the token check before the provider", async () => {
+    const { manager, provider } = readOnlySetup([local, other]);
+    await expect(manager.executeReadOnly("conn-1", "SELECT 1; DELETE FROM t")).rejects.toThrow(
+      "Only read-only SELECT queries are permitted",
+    );
+    expect(provider.selectReadOnly).not.toHaveBeenCalled();
+  });
+
+  it("checks against the named connection's engine, not the active one's", async () => {
+    // `#` starts a comment on MySQL, so this is one SELECT there; on
+    // Postgres it's an operator and the DELETE is a second statement.
+    const sql = "SELECT 1 # ; DELETE FROM t";
+    const mysql = { ...other, type: "mysql" };
+    const { manager, provider } = readOnlySetup([local, mysql]);
+    await expect(manager.executeReadOnly("conn-1", sql)).rejects.toThrow(
+      "Only read-only SELECT queries are permitted",
+    );
+    expect(provider.selectReadOnly).not.toHaveBeenCalled();
+    await manager.executeReadOnly("conn-2", sql);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-2", sql, undefined);
+  });
+
+  it("rejects with the provider's error", async () => {
+    const { manager, provider } = readOnlySetup([local, other]);
+    provider.selectReadOnly.mockRejectedValueOnce(new Error("READ_ONLY: cannot execute INSERT"));
+    await expect(manager.executeReadOnly("conn-1", "SELECT f()")).rejects.toThrow(
+      "cannot execute INSERT",
+    );
+  });
+});

@@ -1,4 +1,4 @@
-import type { AIMessage, DashboardWidget } from "$lib/types";
+import type { AIMessage, DashboardWidget, DatabaseConnection } from "$lib/types";
 import type { ActiveViewType } from "$lib/types/persisted";
 import type { DatabaseState } from "./state.svelte.js";
 import type { AIChatManager } from "./ai-chat-manager.svelte.js";
@@ -20,7 +20,13 @@ export class UIStateManager {
   constructor(
     private state: DatabaseState,
     private schedulePersistence: (projectId: string | null) => void,
-    private executeRawQuery: (query: string) => Promise<Record<string, unknown>[]>,
+    /** `executeReadOnly`: the only way the model's SQL runs. */
+    private runReadOnly: (
+      connectionId: string,
+      sql: string,
+      signal?: AbortSignal,
+      connectionName?: string,
+    ) => Promise<Record<string, unknown>[]>,
     private aiChatManager: AIChatManager,
     private persistAIChatMessages: (chatId: string) => Promise<void>,
     private dashboardManager: DashboardManager,
@@ -125,17 +131,16 @@ export class UIStateManager {
     );
   }
 
-  private _resolveAISettings() {
+  private _resolveAISettings(connection: DatabaseConnection | undefined) {
     const settings = aiSettingsStore.settings;
-    const activeConn = this.state.activeConnection;
     const shareSchema =
-      activeConn?.aiShareSchema !== undefined
-        ? activeConn.aiShareSchema
+      connection?.aiShareSchema !== undefined
+        ? connection.aiShareSchema
         : settings.shareSchemaGlobally;
     const shareData =
-      activeConn?.aiShareData !== undefined ? activeConn.aiShareData : settings.shareDataGlobally;
-    const activeProviderId = activeConn?.activeAIProviderId ?? null;
-    const activeModel = activeConn?.activeAIModel ?? null;
+      connection?.aiShareData !== undefined ? connection.aiShareData : settings.shareDataGlobally;
+    const activeProviderId = connection?.activeAIProviderId ?? null;
+    const activeModel = connection?.activeAIModel ?? null;
     return { shareSchema, shareData, activeProviderId, activeModel };
   }
 
@@ -189,7 +194,15 @@ export class UIStateManager {
     return `Error: ${err}`;
   }
 
-  private _createDashboardCallbacks() {
+  /**
+   * The dashboard tools' callbacks for a chat on `connectionId`. A widget
+   * runs against the active connection, and `handleToolCall` checks that it's
+   * the chat's before a widget changes; saving awaits persistence, so the
+   * first run checks again and is skipped after a switch (the widget runs
+   * read-only on the next refresh). `signal` is the AI's Stop.
+   */
+  private _createDashboardCallbacks(connectionId: string) {
+    const stillActive = () => this.state.activeConnectionId === connectionId;
     return {
       onCreateDashboard: async (name: string) => {
         const dashboard = await this.dashboardManager.createDashboard(name);
@@ -200,11 +213,14 @@ export class UIStateManager {
       onAddWidget: async (
         dashboardId: string,
         widget: Omit<DashboardWidget, "id" | "result" | "isLoading" | "error" | "lastRefreshed">,
+        signal?: AbortSignal,
       ) => {
         const widgetId = `widget-${crypto.randomUUID()}`;
         const fullWidget = { ...widget, id: widgetId } as DashboardWidget;
         await this.dashboardManager.addWidget(dashboardId, fullWidget);
-        await this.dashboardManager.executeWidget(dashboardId, widgetId);
+        if (stillActive() && !signal?.aborted) {
+          await this.dashboardManager.executeWidget(dashboardId, widgetId, signal);
+        }
         return { widgetId };
       },
       onGetDashboard: (dashboardId: string) => {
@@ -220,11 +236,12 @@ export class UIStateManager {
         dashboardId: string,
         widgetId: string,
         updates: Partial<DashboardWidget>,
+        signal?: AbortSignal,
       ) => {
         const queryChanged = updates.query !== undefined;
         await this.dashboardManager.updateWidget(dashboardId, widgetId, updates);
-        if (queryChanged) {
-          await this.dashboardManager.executeWidget(dashboardId, widgetId);
+        if (queryChanged && stillActive() && !signal?.aborted) {
+          await this.dashboardManager.executeWidget(dashboardId, widgetId, signal);
         }
       },
       onRemoveWidget: async (dashboardId: string, widgetId: string) => {
@@ -233,9 +250,39 @@ export class UIStateManager {
     };
   }
 
+  /**
+   * The connection a chat belongs to (`AIChat.connectionId`), if the chat and
+   * the connection still exist. No fallback to the active connection: a chat
+   * without one fails closed.
+   */
+  private _chatConnection(chatId: string): DatabaseConnection | undefined {
+    const connectionId = Object.values(this.state.aiChatsByConnection)
+      .flat()
+      .find((c) => c.id === chatId)?.connectionId;
+    if (!connectionId) return undefined;
+    return this.state.connections.find((c) => c.id === connectionId);
+  }
+
   private _dispatchToAI(content: string, chatId: string, enrichedContent?: string) {
-    const { shareSchema, shareData, activeProviderId, activeModel } = this._resolveAISettings();
-    const activeConn = this.state.activeConnection;
+    // Everything below is bound to the chat's connection; nothing reads the
+    // active connection after this, except the dashboard tools' check.
+    const connection = this._chatConnection(chatId);
+    const { shareSchema, shareData, activeProviderId, activeModel } =
+      this._resolveAISettings(connection);
+
+    if (!connection) {
+      this._setMessages(chatId, [
+        ...this._getMessages(chatId),
+        {
+          id: crypto.randomUUID(),
+          chatId,
+          role: "assistant",
+          content: this._formatAIError("This chat's connection was removed"),
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
 
     if (!activeProviderId || !activeModel) {
       const noModelMsg: AIMessage = {
@@ -264,26 +311,55 @@ export class UIStateManager {
     if (this.aiAbortController) this.aiAbortController.abort();
     this.aiAbortController = new AbortController();
     const { signal } = this.aiAbortController;
+    // Stop (or a newer message) resolves a pending approval as cancelled
+    // (`handleToolCall`); clear its card on this chat, which may no longer be
+    // the active one.
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (!this._getMessages(chatId).find((m) => m.id === assistantMessageId)?.pendingApproval) {
+          return;
+        }
+        this._updateMessage(chatId, assistantMessageId, (m) => ({ ...m, pendingApproval: null }));
+        void this.persistAIChatMessages(chatId);
+      },
+      { once: true },
+    );
+    const aiConnection = { id: connection.id, type: connection.type, name: connection.name };
 
     const messagesForApi = this._buildMessagesForApi(chatId, assistantMessageId, enrichedContent);
 
     void sendAIMessageService({
       messages: messagesForApi,
-      schema: this.state.activeSchema,
+      schema: this.state.schemas[connection.id] ?? [],
       shareSchema,
       shareData,
       providerId: activeProviderId,
       model: activeModel,
-      connectionName: activeConn?.name ?? "Unknown",
-      databaseType: activeConn?.type,
-      executeQuery: this.executeRawQuery,
+      connection: aiConnection,
+      runQuery: (sql, querySignal) =>
+        this.runReadOnly(aiConnection.id, sql, querySignal, aiConnection.name),
+      activeConnection: () => {
+        const active = this.state.activeConnection;
+        return active ? { id: active.id, name: active.name } : null;
+      },
       aiAllowAllQueries: this.aiAllowAllQueries,
       signal,
-      onApprovalRequired: (query, connName, approve, deny) => {
+      onApprovalRequired: (query, conn, approve, deny) => {
         this._updateMessage(chatId, assistantMessageId, (m) => ({
           ...m,
-          pendingApproval: { query, connectionName: connName, approve, deny },
+          pendingApproval: {
+            id: crypto.randomUUID(),
+            query,
+            connectionName: conn.name,
+            connectionType: conn.type,
+            approve,
+            deny,
+          },
         }));
+      },
+      onApprovalSettled: () => {
+        this._updateMessage(chatId, assistantMessageId, (m) => ({ ...m, pendingApproval: null }));
       },
       onDashboardCreated: (dashboardId: string) => {
         this._updateMessage(chatId, assistantMessageId, (m) => ({
@@ -315,7 +391,7 @@ export class UIStateManager {
         }));
         void this.persistAIChatMessages(chatId);
       },
-      ...this._createDashboardCallbacks(),
+      ...this._createDashboardCallbacks(connection.id),
     });
   }
 

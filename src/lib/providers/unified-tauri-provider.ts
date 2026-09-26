@@ -6,14 +6,22 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
-import type { DbConnectResult, DbExecuteResult, DbQueryResult, DbStreamEvent } from "./wire";
+import type {
+  DbConnectResult,
+  DbExecuteResult,
+  DbQueryResult,
+  DbStreamEvent,
+  StreamBatch,
+  StreamOutcome,
+} from "./wire";
 import {
+  collectReadOnly,
   formatError,
   formatStreamErrorFrame,
   formatUnknownStreamFrame,
+  toRowObjects,
   toRustConfig,
 } from "./wire";
-import { dedupeColumnNames } from "$lib/utils/row-access";
 import { decodeRows, encodeParams } from "$lib/values";
 
 export class UnifiedTauriProvider implements DatabaseProvider {
@@ -53,34 +61,51 @@ export class UnifiedTauriProvider implements DatabaseProvider {
         sql,
         values: encodeParams(params),
       });
-      // Convert columnar → row objects for frontend compatibility. Dedupe
-      // column names first so `SELECT a.id, b.id FROM a JOIN b` preserves
-      // both values (`{ id: ..., id_2: ... }`) instead of the second one
-      // silently overwriting the first via `obj[col] = row[i]`.
-      const columns = dedupeColumnNames(result.columns);
-      return decodeRows(result.rows).map((row) => {
-        const obj: Record<string, unknown> = {};
-        for (let i = 0; i < columns.length; i++) {
-          obj[columns[i]] = row[i];
-        }
-        return obj as T;
-      });
+      // Columnar → row objects, column names deduped (`id`, `id_2`).
+      return toRowObjects(result.columns, decodeRows(result.rows)) as T[];
     } catch (error) {
       throw formatError(error);
     }
   }
 
-  async selectStream(
+  selectStream(
     connectionId: string,
     sql: string,
     params: unknown[] | undefined,
-    onBatch: (batch: {
-      columns: string[] | null;
-      rows: unknown[][];
-      isFinal: boolean;
-    }) => boolean | Promise<boolean>,
+    onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
     signal?: AbortSignal,
-  ): Promise<{ aborted: boolean; error?: string }> {
+  ): Promise<StreamOutcome> {
+    return this.stream(connectionId, sql, params, onBatch, signal, false);
+  }
+
+  /**
+   * The read-only stream (`db_query_stream` with `readOnly: true`): Core's
+   * token check, then the engine's read-only query, as one final batch.
+   * Aborting `signal` cancels it by query id through `db_cancel_stream`.
+   */
+  selectReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>[]> {
+    return collectReadOnly(
+      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true),
+      signal,
+    );
+  }
+
+  /**
+   * `db_query_stream` over a Tauri channel. `readOnly` is only ever `true`
+   * from `selectReadOnly`; everything else streams read-write.
+   */
+  private async stream(
+    connectionId: string,
+    sql: string,
+    params: unknown[] | undefined,
+    onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
+    signal: AbortSignal | undefined,
+    readOnly: boolean,
+  ): Promise<StreamOutcome> {
     // If the caller hands us an already-aborted signal, short-circuit
     // entirely. The previous behavior was to still fire the invoke and
     // let it run to completion in the background, which wastes a full
@@ -188,6 +213,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       connectionId,
       sql,
       values: encodeParams(params),
+      readOnly,
       onEvent: channel,
     }).catch((error) => {
       finish({

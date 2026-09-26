@@ -12,14 +12,22 @@
  */
 
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
-import type { DbConnectResult, DbExecuteResult, DbQueryResult, DbStreamEvent } from "./wire";
+import type {
+  DbConnectResult,
+  DbExecuteResult,
+  DbQueryResult,
+  DbStreamEvent,
+  StreamBatch,
+  StreamOutcome,
+} from "./wire";
 import {
+  collectReadOnly,
   formatError,
   formatStreamErrorFrame,
   formatUnknownStreamFrame,
+  toRowObjects,
   toRustConfig,
 } from "./wire";
-import { dedupeColumnNames } from "$lib/utils/row-access";
 import { decodeRows, encodeParams } from "$lib/values";
 
 export interface HttpProviderOptions {
@@ -77,30 +85,49 @@ export class HttpProvider implements DatabaseProvider {
       sql,
       values: encodeParams(params),
     });
-    // Columnar → row objects for frontend compatibility. Dedupe column names
-    // first so `SELECT a.id, b.id FROM a JOIN b` preserves both values
-    // (`{ id: ..., id_2: ... }`) rather than the second silently overwriting.
-    const columns = dedupeColumnNames(result.columns);
-    return decodeRows(result.rows).map((row) => {
-      const obj: Record<string, unknown> = {};
-      for (let i = 0; i < columns.length; i++) {
-        obj[columns[i]] = row[i];
-      }
-      return obj as T;
-    });
+    // Columnar → row objects, column names deduped (`id`, `id_2`).
+    return toRowObjects(result.columns, decodeRows(result.rows)) as T[];
   }
 
-  async selectStream(
+  selectStream(
     connectionId: string,
     sql: string,
     params: unknown[] | undefined,
-    onBatch: (batch: {
-      columns: string[] | null;
-      rows: unknown[][];
-      isFinal: boolean;
-    }) => boolean | Promise<boolean>,
+    onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
     signal?: AbortSignal,
-  ): Promise<{ aborted: boolean; error?: string }> {
+  ): Promise<StreamOutcome> {
+    return this.stream(connectionId, sql, params, onBatch, signal, false);
+  }
+
+  /**
+   * The read-only stream (first frame with `"read_only": true`): Core's
+   * token check, then the engine's read-only query, as one final batch.
+   * Aborting `signal` closes the socket, which the server watches while the
+   * query runs, and dropping the query cancels it.
+   */
+  selectReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>[]> {
+    return collectReadOnly(
+      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true),
+      signal,
+    );
+  }
+
+  /**
+   * One query over the `/api/db/stream` WebSocket. `readOnly` is only ever
+   * `true` from `selectReadOnly`; everything else streams read-write.
+   */
+  private async stream(
+    connectionId: string,
+    sql: string,
+    params: unknown[] | undefined,
+    onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
+    signal: AbortSignal | undefined,
+    readOnly: boolean,
+  ): Promise<StreamOutcome> {
     if (signal?.aborted) return { aborted: true };
 
     const ws = new WebSocket(this.wsUrl("/api/db/stream"));
@@ -165,6 +192,7 @@ export class HttpProvider implements DatabaseProvider {
           connection_id: connectionId,
           sql,
           values: encodeParams(params),
+          read_only: readOnly,
         }),
       );
     };
@@ -221,9 +249,9 @@ export class HttpProvider implements DatabaseProvider {
 
     const onAbort = () => {
       cancelled = true;
-      // Closing the socket signals the server to stop fetching rows. The
-      // server's stream handler checks `socket.send(...).await.is_err()`
-      // on the next iteration and breaks out, dropping the sqlx stream.
+      // Closing the socket signals the server to stop. Its stream handler
+      // watches the socket while it waits for the next event and drops the
+      // query when the socket closes.
       finish({ aborted: true });
     };
     signal?.addEventListener("abort", onAbort);

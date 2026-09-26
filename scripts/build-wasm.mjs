@@ -12,8 +12,9 @@
 // Needs the wasm32-unknown-unknown Rust target and wasm-bindgen-cli at the
 // exact version in Cargo.lock (WASM_BINDGEN=<path> overrides the binary).
 // wasm-opt comes from the `binaryen` npm package. Respects CARGO_TARGET_DIR.
-// If that toolchain is missing but a finished pkg/ exists, it warns and keeps
-// the existing pkg/, so frontend-only work goes on; without pkg/ it exits 1.
+// If that toolchain is missing it exits 1, even when an older pkg/ exists: a
+// stale pkg/ would silently run old SQL checks (the AI read-only check among
+// them). SEAQUEL_WASM_PREBUILT=1 is the way to use an existing pkg/ on purpose.
 //
 // When the raw .wasm cargo produced hasn't changed since the last run (a stamp
 // in pkg/, which also covers the wasm-bindgen and binaryen versions), the
@@ -283,16 +284,14 @@ if (args.has("--opt-only")) {
 const wantBindgen = bindgenVersion();
 const installBindgen = `cargo install wasm-bindgen-cli --version ${wantBindgen} --locked`;
 
-// A missing toolchain is fatal only when there's no pkg/ to fall back on.
+// A missing toolchain is fatal. Keeping an older pkg/ would run the app with
+// whatever SQL checks it was built with, without anyone noticing.
 function toolchainMissing(message) {
-  if (!pkgFinished()) fail(message);
-  const bar = "!".repeat(78);
-  console.warn(
-    `\n${bar}\nbuild-wasm: ${message}\n\nKeeping the existing src/lib/wasm/pkg/, which may be out of date: ` +
-      `changes in crates/seaquel-sql or crates/seaquel-wasm won't show up until this builds.\n` +
-      `Set SEAQUEL_WASM_PREBUILT=1 to use pkg/ as it is without this warning.\n${bar}\n`,
-  );
-  process.exit(0);
+  const keep = pkgFinished()
+    ? "\n\nTo run with the existing src/lib/wasm/pkg/ anyway (it may be out of date: changes in " +
+      "crates/seaquel-sql or crates/seaquel-wasm won't be in it), set SEAQUEL_WASM_PREBUILT=1."
+    : "";
+  fail(message + keep);
 }
 
 if (run("cargo", ["--version"], { capture: true }).status !== 0) {
@@ -316,9 +315,10 @@ const haveVersion = haveBindgen.status === 0 ? haveBindgen.stdout.trim().split(/
 if (haveVersion !== wantBindgen) {
   toolchainMissing(
     (haveVersion
-      ? `wasm-bindgen ${haveVersion} is installed, but Cargo.lock has ${wantBindgen}. They must match exactly.`
+      ? `wasm-bindgen ${haveVersion} is installed, but Cargo.lock has ${wantBindgen}. They must match exactly ` +
+        '(update "cargo:wasm-bindgen-cli" in mise.toml too).'
       : `wasm-bindgen-cli isn't installed (looked for \`${bindgen}\`).`) +
-      `\nInstall it with:\n  ${installBindgen}`,
+      `\nInstall it with \`mise install\` (mise.toml pins it), or:\n  ${installBindgen}`,
   );
 }
 

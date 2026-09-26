@@ -139,18 +139,18 @@ class UseDatabase {
     );
     this.dashboards = new DashboardManager(
       this.state,
-      async (query: string) => {
-        return await this.queries.executeRaw(query);
-      },
+      (connectionId, sql, signal) => this.queries.executeReadOnly(connectionId, sql, signal),
       scheduleProjectPersistence,
       this.persistence,
     );
+    this.dashboardTabs.setOnClose((dashboardId) => this.dashboards.closeDashboard(dashboardId));
 
     // UI
     this.ui = new UIStateManager(
       this.state,
       scheduleProjectPersistence,
-      (query) => this.queries.executeRaw(query),
+      (connectionId, sql, signal, connectionName) =>
+        this.queries.executeReadOnly(connectionId, sql, signal, connectionName),
       this.aiChats,
       (chatId) => this.persistence.persistAIChatMessages(chatId),
       this.dashboards,

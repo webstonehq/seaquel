@@ -24,7 +24,7 @@
 			: []
 	);
 
-	// QueryChart wants columnar rows; widget.result comes from `executeRaw`
+	// QueryChart wants columnar rows; widget.result comes from `executeReadOnly`
 	// which still returns row objects. Convert here — dashboard datasets are
 	// small, so the per-render allocation is inconsequential.
 	const columnarRows = $derived(

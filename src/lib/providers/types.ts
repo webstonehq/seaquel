@@ -115,6 +115,31 @@ export interface DatabaseProvider {
   ): Promise<{ aborted: boolean; error?: string }>;
 
   /**
+   * Run one query in the read-only mode the database enforces: the AI's
+   * `run_query` tool and dashboard widgets. Callers go through
+   * `QueryCrud.executeReadOnly`, which checks the connection and runs the
+   * token check first; nothing else calls this.
+   *
+   * The backend runs the same token check, then the engine's
+   * `query_read_only` (Core's `query_stream` with `read_only`). Exactly one
+   * statement runs, and the database refuses writes.
+   *
+   * @param connectionId Provider connection ID from connect()
+   * @param sql One read-only statement. No bind parameters.
+   * @param signal Aborting it cancels the query (the stream is cancelled by
+   *   query id, or its WebSocket closed) and rejects the promise.
+   * @returns Row objects, column names deduped as `select` does
+   *   (`id`, `id_2`).
+   * @throws Error with the stream's error message, e.g. the database's
+   *   read-only refusal (code `READ_ONLY`).
+   */
+  selectReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>[]>;
+
+  /**
    * Execute a write query (INSERT, UPDATE, DELETE).
    * @param connectionId Connection ID from connect()
    * @param sql SQL query to execute

@@ -5,6 +5,7 @@
 
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
 import { dedupeColumnNames } from "$lib/utils/row-access";
+import { queryCancelled } from "./wire";
 
 // DuckDB-WASM types - dynamically imported
 type AsyncDuckDB = import("@duckdb/duckdb-wasm").AsyncDuckDB;
@@ -30,6 +31,110 @@ export function rowsAffected(result: CountResult): number {
     if (typeof count === "bigint" || typeof count === "number") return Number(count);
   }
   return result.numRows;
+}
+
+/**
+ * An Arrow result as row objects. Duplicate column names (e.g.
+ * `SELECT a.id, b.id FROM a JOIN b`) are deduped as `id`, `id_2`: Arrow's
+ * `toJSON()` iterates by field name and would silently overwrite them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tableRows(result: any): Record<string, unknown>[] {
+  const fieldNames: string[] = result.schema?.fields?.map((f: { name: string }) => f.name) ?? [];
+  const hasDupes = fieldNames.length > 0 && new Set(fieldNames).size !== fieldNames.length;
+  if (!hasDupes) {
+    // Fast path — Arrow's JSON serializer handles this correctly and preserves
+    // its own type coercions (BigInt→string, timestamp formatting, etc.).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return result.toArray().map((row: any) => row.toJSON() as Record<string, unknown>);
+  }
+  const columns = dedupeColumnNames(fieldNames);
+  const vectors = columns.map((_, i) => result.getChildAt(i));
+  const numRows = Number(result.numRows);
+  return Array.from({ length: numRows }, (_, r) => {
+    const obj: Record<string, unknown> = {};
+    for (let c = 0; c < columns.length; c++) {
+      obj[columns[c]] = vectors[c]?.get(r) ?? null;
+    }
+    return obj;
+  });
+}
+
+/** DuckDB's own read-only refusals, reported with code `READ_ONLY` as native DuckDB does. */
+const READ_ONLY_REFUSALS = [
+  "Expected a single SELECT statement",
+  "transaction is launched in read-only mode",
+];
+
+/** A read-only query's error as `"CODE: message"`, as the Rust transports send it. */
+function readOnlyError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = READ_ONLY_REFUSALS.some((refusal) => message.includes(refusal))
+    ? "READ_ONLY"
+    : "QUERY_ERROR";
+  return new Error(`${code}: ${message}`);
+}
+
+/**
+ * The demo's read-only query (the AI's `run_query` and dashboard widgets),
+ * the same mechanism as native DuckDB: a fresh connection, a read-only
+ * transaction, and the SQL bound as the one parameter of
+ * `SELECT * FROM query(?)`. `query()` parses with DuckDB's own parser and
+ * runs exactly one SELECT (also `WITH`, `FROM t`, `VALUES`, `DESCRIBE`,
+ * `SHOW`); anything else, and any second statement, is refused. That also
+ * stops `COMMIT; INSERT …` from ending the transaction, and the `COPY`,
+ * `ATTACH`, `INSTALL`, `SET` and `EXPORT` a read-only transaction allows.
+ * The connection is rolled back and closed, so nothing outlives the call.
+ *
+ * Accepted gap (plan, Decision 1): `read_csv('https://…')` and other file or
+ * URL reads are SELECTs, so they run; in the browser that's a `fetch`.
+ *
+ * `query()` names duplicate columns itself (`a`, `a_1`), so they come back
+ * that way rather than as `select`'s `a`, `a_2`.
+ *
+ * Cancelling: an aborted `signal` rejects at once with an `AbortError`.
+ * DuckDB-WASM 1.32 runs a prepared statement to completion inside its
+ * worker (`cancelSent` only interrupts `conn.send`, which takes no
+ * parameters), so the query itself finishes in the background before the
+ * connection is rolled back and closed. The demo's data is small.
+ */
+export async function selectReadOnlyOn(
+  db: AsyncDuckDB,
+  sql: string,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>[]> {
+  if (signal?.aborted) throw queryCancelled();
+  const run = (async () => {
+    const conn = await db.connect();
+    try {
+      await conn.query("BEGIN TRANSACTION READ ONLY");
+      try {
+        const statement = await conn.prepare("SELECT * FROM query(?)");
+        try {
+          return tableRows(await statement.query(sql));
+        } finally {
+          await statement.close();
+        }
+      } finally {
+        // Nothing ran that could write; closing the connection below would
+        // roll back too. A failure here mustn't hide the query's own error.
+        await conn.query("ROLLBACK").catch(() => {});
+      }
+    } catch (error) {
+      throw readOnlyError(error);
+    } finally {
+      // Like ROLLBACK above: a failed close mustn't hide the query's result.
+      await conn.close().catch((error: unknown) => {
+        console.warn("[DuckDB] closing a read-only connection failed:", error);
+      });
+    }
+  })();
+  if (!signal) return run;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(queryCancelled());
+    signal.addEventListener("abort", onAbort, { once: true });
+    run.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 /**
@@ -116,33 +221,7 @@ export class DuckDBProvider implements DatabaseProvider {
     // Note: DuckDB-WASM doesn't support parameterized queries in the same way as other providers.
     // For parameterized queries, the substituteParameters utility handles MSSQL inline,
     // and for DuckDB we use substituted SQL with positional params already resolved.
-    const result = await conn.query(sql);
-    // Detect duplicate column names (e.g. `SELECT a.id, b.id FROM a JOIN b`)
-    // before building row objects. Arrow's `toJSON()` iterates by field name
-    // and silently overwrites when names collide; the positional fallback
-    // below preserves every value under a suffixed name (`id`, `id_2`, …).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fieldNames: string[] =
-      (result as any).schema?.fields?.map((f: { name: string }) => f.name) ?? [];
-    const hasDupes = fieldNames.length > 0 && new Set(fieldNames).size !== fieldNames.length;
-    if (!hasDupes) {
-      // Fast path — Arrow's JSON serializer handles this correctly and preserves
-      // its own type coercions (BigInt→string, timestamp formatting, etc.).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return result.toArray().map((row: any) => row.toJSON() as T);
-    }
-    const columns = dedupeColumnNames(fieldNames);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vectors = columns.map((_, i) => (result as any).getChildAt(i));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const numRows = Number((result as any).numRows);
-    return Array.from({ length: numRows }, (_, r) => {
-      const obj: Record<string, unknown> = {};
-      for (let c = 0; c < columns.length; c++) {
-        obj[columns[c]] = vectors[c]?.get(r) ?? null;
-      }
-      return obj as T;
-    });
+    return tableRows(await conn.query(sql)) as T[];
   }
 
   async selectStream(
@@ -172,6 +251,18 @@ export class DuckDBProvider implements DatabaseProvider {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /** See {@link selectReadOnlyOn}; `connectionId` must be open. */
+  async selectReadOnly(
+    connectionId: string,
+    sql: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>[]> {
+    if (!this.connections.has(connectionId) || !this.db) {
+      throw new Error(`Connection not found: ${connectionId}`);
+    }
+    return selectReadOnlyOn(this.db, sql, signal);
   }
 
   async execute(connectionId: string, sql: string, _params?: unknown[]): Promise<ExecuteResult> {

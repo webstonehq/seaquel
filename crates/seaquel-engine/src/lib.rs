@@ -114,6 +114,53 @@ pub trait Driver: MaybeSend + MaybeSync {
         })
     }
 
+    /// Run one query that must not change anything: the AI's `run_query`
+    /// tool and dashboard widgets (Core's `read_only` query option).
+    ///
+    /// The default fails with `NOT_SUPPORTED`, so an engine that doesn't
+    /// implement it fails closed. Never implement it by calling
+    /// [`Driver::query`]. An implementation must meet this contract:
+    ///
+    /// - **Exactly one statement runs.** Input holding more than one is
+    ///   refused before anything runs, or refused by the database as a whole.
+    /// - **The database refuses writes**, through the engine's own read-only
+    ///   mode (a read-only transaction, session or connection). Where the
+    ///   engine has none (SQL Server), everything runs in a transaction that
+    ///   is always rolled back, and a query that ends that transaction
+    ///   itself is reported.
+    /// - **Nothing the query does to its session outlives the call.** The
+    ///   connection it ran on is closed, or is one the engine owns for this
+    ///   path alone and is left as it was found. A pooled or shared
+    ///   connection is never handed back read-only, inside a transaction, or
+    ///   with changed settings, locks or prepared statements.
+    /// - **Dropping the future cancels the query.** It stops as far as the
+    ///   engine allows, and the driver stays usable for the next call.
+    ///   Cancellation is drop-only: no `CancellationToken` is passed, so an
+    ///   engine whose query runs where dropping the future doesn't reach it
+    ///   must interrupt it from a `Drop` guard held by the future. DuckDB
+    ///   (the query runs on `spawn_blocking`) calls the clone's interrupt
+    ///   handle from that guard; SQL Server runs each call on a connection
+    ///   of its own, so a drop at any await drops that connection and the
+    ///   server rolls back. The sqlx engines stop when their connection is
+    ///   dropped (closed, with `close_on_drop()`).
+    /// - **Refusals are `READ_ONLY`.** The engine's read-only refusal (and
+    ///   the driver's own, e.g. "one statement at a time") comes back as
+    ///   [`DbError::read_only`] with the database's message. Other errors
+    ///   keep their usual codes.
+    /// - **Rows are capped** like [`Driver::query`]: past
+    ///   [`max_query_rows`] it fails with `RESULT_TOO_LARGE`.
+    ///
+    /// Core runs the AI's token check (`seaquel_sql::read_only`) before
+    /// calling this. Drivers must not rely on it: the testkit's read-only
+    /// harness calls them directly with SQL the check would refuse.
+    async fn query_read_only(
+        &self,
+        _sql: &str,
+        _params: Vec<Value>,
+    ) -> Result<QueryResult, DbError> {
+        Err(not_supported("Running read-only queries"))
+    }
+
     async fn close(&self) -> Result<(), DbError>;
 
     // ── Introspection ──
@@ -321,6 +368,20 @@ mod tests {
                 err.message
             );
         }
+    }
+
+    /// Fail closed: a driver that implements `query` but not
+    /// `query_read_only` must not run read-only queries through `query`.
+    #[test]
+    fn read_only_queries_are_not_supported_by_default() {
+        let err = block_on(FakeDriver.query_read_only("SELECT 1", vec![]))
+            .err()
+            .unwrap();
+        assert_eq!(err.code, "NOT_SUPPORTED");
+        assert_eq!(
+            err.message,
+            "Running read-only queries is not supported by this engine yet"
+        );
     }
 
     #[test]

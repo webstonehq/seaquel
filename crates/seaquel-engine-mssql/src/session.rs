@@ -2,7 +2,7 @@
 //! `sp_executesql`), plain batches, and every result set a response carries.
 
 use futures::{FutureExt, TryStreamExt};
-use log::warn;
+use log::{debug, warn};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use tiberius::{Client, Query, QueryItem, QueryStream};
@@ -78,6 +78,9 @@ pub(crate) enum Op {
 pub(crate) enum Failure {
     Server(tiberius::error::Error),
     TooLarge(usize),
+    /// Over the cap, with the rest of the response read and dropped (see
+    /// [`Session::run_query_drained`]): the connection is clean.
+    TooLargeDrained(usize),
     Panicked,
 }
 
@@ -101,6 +104,7 @@ impl Failure {
             Failure::Server(tiberius::error::Error::Server(e)) => {
                 !matches!(e.code(), 3988 | 3989) && e.class() < 20
             }
+            Failure::TooLargeDrained(_) => true,
             Failure::Server(_) | Failure::TooLarge(_) | Failure::Panicked => false,
         }
     }
@@ -111,7 +115,9 @@ impl Failure {
                 Op::Query => DbError::query_error(e),
                 Op::Execute => DbError::execute_error(e),
             },
-            Failure::TooLarge(cap) => DbError::result_too_large(cap),
+            Failure::TooLarge(cap) | Failure::TooLargeDrained(cap) => {
+                DbError::result_too_large(cap)
+            }
             // tiberius 0.12.3 panics via `todo!()` on SQL_VARIANT / UDT
             // column metadata (token_col_metadata.rs:174/204). The panic is
             // caught so the command returns an error instead of hanging the
@@ -149,16 +155,23 @@ async fn guarded<T>(fut: impl Future<Output = Result<T, Failure>>) -> Result<T, 
 
 /// Reads the whole response, keeping the result sets `keep` asks for and at
 /// most `cap` rows in all. Going over the cap returns early, leaving the
-/// rest of the response unread (the connection is then dirty).
+/// rest of the response unread (the connection is then dirty), unless
+/// `drain`: then the rest is read and dropped, and `TooLargeDrained` comes
+/// back once the response has ended (a server error in it wins).
 async fn read_results(
     mut stream: QueryStream<'_>,
     keep: Keep,
     cap: usize,
+    drain: bool,
 ) -> Result<Vec<ResultSet>, Failure> {
     let mut sets: Vec<ResultSet> = Vec::new();
     let mut keeping = false;
     let mut total = 0usize;
+    let mut over = false;
     while let Some(item) = stream.try_next().await.map_err(Failure::Server)? {
+        if over {
+            continue;
+        }
         match item {
             QueryItem::Metadata(meta) => {
                 keeping = !meta.columns().is_empty()
@@ -186,7 +199,12 @@ async fn read_results(
                     continue;
                 }
                 if total >= cap {
-                    return Err(Failure::TooLarge(cap));
+                    if !drain {
+                        return Err(Failure::TooLarge(cap));
+                    }
+                    over = true;
+                    sets.clear();
+                    continue;
                 }
                 total += 1;
                 if let Some(set) = sets.last_mut() {
@@ -194,6 +212,9 @@ async fn read_results(
                 }
             }
         }
+    }
+    if over {
+        return Err(Failure::TooLargeDrained(cap));
     }
     Ok(sets)
 }
@@ -210,6 +231,8 @@ pub(crate) struct Session<'a> {
     holding_state: bool,
     /// Whether the last request finished cleanly.
     last_io_clean: bool,
+    /// See [`Session::disposable`].
+    disposable: bool,
 }
 
 impl Drop for Session<'_> {
@@ -220,7 +243,11 @@ impl Drop for Session<'_> {
     /// sent; the server sees the connection reset, which is enough.
     fn drop(&mut self) {
         if self.conn.dirty && self.conn.client.take().is_some() {
-            warn!(activity = "db.connect", driver = "mssql"; "Closing the connection: a call on it did not finish");
+            if self.disposable {
+                debug!(activity = "db.connect", driver = "mssql"; "Dropping a read-only connection mid-call (cancelled)");
+            } else {
+                warn!(activity = "db.connect", driver = "mssql"; "Closing the connection: a call on it did not finish");
+            }
         }
     }
 }
@@ -233,7 +260,15 @@ impl<'a> Session<'a> {
             conn,
             holding_state: false,
             last_io_clean: true,
+            disposable: false,
         }
+    }
+
+    /// Marks the connection as one used for a single call and then dropped
+    /// (`query_read_only`'s): a drop mid-call is an expected cancel, logged
+    /// at debug instead of as a warning.
+    pub(crate) fn disposable(&mut self) {
+        self.disposable = true;
     }
 
     /// Marks the connection dirty and hands out the client for one request.
@@ -289,6 +324,14 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Closes the connection now, on purpose, without the warning a drop
+    /// logs: `query_read_only`'s own connection, whose session state can't
+    /// be trusted afterwards however the call ended.
+    pub(crate) fn close(mut self) {
+        self.conn.client = None;
+        self.conn.dirty = true;
+    }
+
     /// Runs a parameterised query (`@P1…`) and returns every result set.
     /// It runs as `sp_executesql`, so a `SET` inside it lasts only until it
     /// ends; use [`Session::batch`] for session settings.
@@ -309,11 +352,31 @@ impl<'a> Session<'a> {
         query: Query<'_>,
         keep: Keep,
     ) -> Result<Vec<ResultSet>, Failure> {
+        self.run_query_with(query, keep, false).await
+    }
+
+    /// [`Session::run_query`], but over the row cap the rest of the
+    /// response is read and dropped (`TooLargeDrained`), so the connection
+    /// stays usable for another request.
+    pub(crate) async fn run_query_drained(
+        &mut self,
+        query: Query<'_>,
+        keep: Keep,
+    ) -> Result<Vec<ResultSet>, Failure> {
+        self.run_query_with(query, keep, true).await
+    }
+
+    async fn run_query_with(
+        &mut self,
+        query: Query<'_>,
+        keep: Keep,
+        drain: bool,
+    ) -> Result<Vec<ResultSet>, Failure> {
         let cap = seaquel_engine::max_query_rows();
         let client = self.start_io();
         let result = guarded(async move {
             let stream = query.query(client).await.map_err(Failure::Server)?;
-            read_results(stream, keep, cap).await
+            read_results(stream, keep, cap, drain).await
         })
         .await;
         self.finish_io(result)
@@ -338,7 +401,7 @@ impl<'a> Session<'a> {
         let client = self.start_io();
         let result = guarded(async move {
             let stream = client.simple_query(sql).await.map_err(Failure::Server)?;
-            read_results(stream, keep, cap).await
+            read_results(stream, keep, cap, false).await
         })
         .await;
         self.finish_io(result)

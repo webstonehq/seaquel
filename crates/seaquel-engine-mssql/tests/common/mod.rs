@@ -79,7 +79,7 @@ pub fn insert(table: &str, id: Value, label: &str) -> BatchStatement {
 }
 
 /// Drops what earlier runs killed before their cleanup left behind: every
-/// view, procedure, function and table whose name starts with `prefix` (in
+/// view, procedure, function, table and sequence whose name starts with `prefix` (in
 /// any schema), and every schema whose name does. Best effort. Test
 /// databases only: it can't tell a crashed run's objects from those of a
 /// run still going.
@@ -88,10 +88,10 @@ pub async fn drop_stale(driver: &MssqlDriver, prefix: &str) {
     let sql = format!(
         "DECLARE @sql nvarchar(max) = N''; \
          SELECT @sql += CASE o.type WHEN 'V' THEN N'DROP VIEW ' WHEN 'P' THEN N'DROP PROCEDURE ' \
-             WHEN 'U' THEN N'DROP TABLE ' ELSE N'DROP FUNCTION ' END \
+             WHEN 'U' THEN N'DROP TABLE ' WHEN 'SO' THEN N'DROP SEQUENCE ' ELSE N'DROP FUNCTION ' END \
              + QUOTENAME(s.name) + N'.' + QUOTENAME(o.name) + N'; ' \
            FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id \
-           WHERE o.type IN ('V', 'P', 'FN', 'IF', 'TF', 'U') AND (o.name LIKE N'{like}%' OR s.name LIKE N'{like}%') \
+           WHERE o.type IN ('V', 'P', 'FN', 'IF', 'TF', 'U', 'SO') AND (o.name LIKE N'{like}%' OR s.name LIKE N'{like}%') \
            ORDER BY CASE o.type WHEN 'U' THEN 1 ELSE 0 END; \
          SELECT @sql += N'DROP SCHEMA ' + QUOTENAME(name) + N'; ' FROM sys.schemas WHERE name LIKE N'{like}%'; \
          EXEC (@sql);"

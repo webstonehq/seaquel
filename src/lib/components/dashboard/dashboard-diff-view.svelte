@@ -82,7 +82,7 @@
 
 				widget.isLoading = true;
 				try {
-					widget.result = await db.queries.executeRaw(query);
+					widget.result = await db.dashboards.runWidgetQuery(query);
 					widget.isLoading = false;
 					widget.lastRefreshed = new Date();
 				} catch (error) {

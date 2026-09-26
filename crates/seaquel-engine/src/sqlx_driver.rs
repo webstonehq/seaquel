@@ -13,6 +13,20 @@
 /// - `introspection` (optional): extra `Driver` methods pasted into the impl,
 ///   for engines whose introspection has moved to Rust (`list_schemas`, …).
 ///   Without it the trait's `NOT_SUPPORTED` defaults apply.
+/// - `read_only` (optional, after `introspection`): the engine's
+///   `query_read_only`, pasted into the impl the same way. Without it the
+///   trait's `NOT_SUPPORTED` default applies, so the engine fails closed.
+///
+/// The expansion also defines, next to the impl:
+///
+/// - `bind_params(query, &values)`: binds every value, non-persistent.
+/// - `pub(crate) async fn fetch_capped(executor, sql, &params)`: runs one
+///   query on any sqlx executor (the pool, or `&mut *conn` for one
+///   connection) and collects its rows under [`max_query_rows`], failing
+///   with `RESULT_TOO_LARGE` past it. `query()` is `fetch_capped(&self.pool,
+///   …)`; a `read_only` implementation calls it on the connection it set up.
+///
+/// [`max_query_rows`]: crate::max_query_rows
 ///
 /// Native only. Expand it in a module that defines `$driver_name` with a
 /// `pool: sqlx::Pool<$db>` field. The calling crate must depend on `sqlx`:
@@ -29,6 +43,7 @@ macro_rules! impl_sqlx_driver {
         bind_fn = $bind_fn:path,
         last_insert_id = $last_insert_id:expr
         $(, introspection = { $($introspection:tt)* })?
+        $(, read_only = { $($read_only:tt)* })?
         $(,)?
     ) => {
         /// Binds `values` onto `query`, which every `Driver` method builds
@@ -48,6 +63,57 @@ macro_rules! impl_sqlx_driver {
             Ok(query)
         }
 
+        /// Runs `sql` with `params` on `executor` and collects the rows,
+        /// failing with `RESULT_TOO_LARGE` past `max_query_rows()`.
+        ///
+        /// Rows are streamed (rather than `fetch_all`) so it bails out as
+        /// soon as the cap is hit. Without this, a `SELECT * FROM
+        /// big_table` loads everything into RAM before it can be rejected.
+        pub(crate) async fn fetch_capped<'q, 'c, E>(
+            executor: E,
+            sql: &'q str,
+            params: &'q [$crate::Value],
+        ) -> Result<$crate::QueryResult, $crate::DbError>
+        where
+            E: sqlx::Executor<'c, Database = $db>,
+        {
+            use sqlx::{Column, Row};
+            use $crate::__private::futures::StreamExt;
+
+            let query = sqlx::query(sql);
+            let query = bind_params(query, params)?;
+
+            let cap = $crate::max_query_rows();
+            let mut stream = query.fetch(executor);
+
+            let mut columns: Vec<String> = Vec::new();
+            let mut result_rows: Vec<Vec<$crate::Value>> = Vec::new();
+
+            while let Some(row_result) = stream.next().await {
+                let row = row_result.map_err($crate::DbError::query_error)?;
+
+                if columns.is_empty() {
+                    columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                }
+                if result_rows.len() >= cap {
+                    return Err($crate::DbError::result_too_large(cap));
+                }
+                let mut values = Vec::with_capacity(columns.len());
+                for i in 0..row.columns().len() {
+                    let v = row.try_get_raw(i).map_err($crate::DbError::query_error)?;
+                    values.push(
+                        $decode_fn(v).map_err(|e| $crate::__private::in_column(e, row.columns()[i].name()))?,
+                    );
+                }
+                result_rows.push(values);
+            }
+
+            Ok($crate::QueryResult {
+                columns,
+                rows: result_rows,
+            })
+        }
+
         #[$crate::__private::async_trait::async_trait]
         impl $crate::Driver for $driver_name {
             async fn query(
@@ -55,45 +121,7 @@ macro_rules! impl_sqlx_driver {
                 sql: &str,
                 params: Vec<$crate::Value>,
             ) -> Result<$crate::QueryResult, $crate::DbError> {
-                use sqlx::{Column, Row};
-                use $crate::__private::futures::StreamExt;
-
-                let query = sqlx::query(sql);
-                let query = bind_params(query, &params)?;
-
-                // Stream rows (rather than fetch_all) so we can bail out as
-                // soon as the per-query cap is hit. Without this, a `SELECT *
-                // FROM big_table` loads everything into RAM before we can
-                // reject it.
-                let cap = $crate::max_query_rows();
-                let mut stream = query.fetch(&self.pool);
-
-                let mut columns: Vec<String> = Vec::new();
-                let mut result_rows: Vec<Vec<$crate::Value>> = Vec::new();
-
-                while let Some(row_result) = stream.next().await {
-                    let row = row_result.map_err($crate::DbError::query_error)?;
-
-                    if columns.is_empty() {
-                        columns = row.columns().iter().map(|c| c.name().to_string()).collect();
-                    }
-                    if result_rows.len() >= cap {
-                        return Err($crate::DbError::result_too_large(cap));
-                    }
-                    let mut values = Vec::with_capacity(columns.len());
-                    for i in 0..row.columns().len() {
-                        let v = row.try_get_raw(i).map_err($crate::DbError::query_error)?;
-                        values.push(
-                            $decode_fn(v).map_err(|e| $crate::__private::in_column(e, row.columns()[i].name()))?,
-                        );
-                    }
-                    result_rows.push(values);
-                }
-
-                Ok($crate::QueryResult {
-                    columns,
-                    rows: result_rows,
-                })
+                fetch_capped(&self.pool, sql, &params).await
             }
 
             fn query_stream<'a>(
@@ -235,6 +263,8 @@ macro_rules! impl_sqlx_driver {
             }
 
             $($($introspection)*)?
+
+            $($($read_only)*)?
         }
     };
 }

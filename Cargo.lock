@@ -5884,6 +5884,7 @@ dependencies = [
  "seaquel-engine-postgres",
  "seaquel-engine-sqlite",
  "seaquel-runtime",
+ "seaquel-sql",
  "seaquel-types",
  "serde_json",
  "tokio",
@@ -5915,6 +5916,7 @@ dependencies = [
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
+ "seaquel-sql",
  "seaquel-types",
  "serde",
  "serde_json",
@@ -5977,6 +5979,8 @@ name = "seaquel-engine-sqlite"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "libsqlite3-sys",
+ "log",
  "seaquel-engine",
  "seaquel-engine-testkit",
  "seaquel-runtime",
@@ -5995,6 +5999,7 @@ dependencies = [
  "futures",
  "seaquel-engine",
  "seaquel-engine-sqlite",
+ "seaquel-runtime",
  "seaquel-types",
  "serde_json",
  "tokio",

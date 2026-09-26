@@ -182,6 +182,13 @@ fn engine_not_available_error() {
     assert!(e.message.contains("\"mssql\""), "{}", e.message);
 }
 
+#[test]
+fn read_only_error_keeps_the_message_as_given() {
+    let e = DbError::read_only("Only read-only SELECT queries are permitted");
+    assert_eq!(e.code, "READ_ONLY");
+    assert_eq!(e.message, "Only read-only SELECT queries are permitted");
+}
+
 // --- Dialect types (mirror src/lib/types/{schema,explain,statistics,create-table}.ts) ---
 
 fn round_trip<T>(v: &T, expected: serde_json::Value)

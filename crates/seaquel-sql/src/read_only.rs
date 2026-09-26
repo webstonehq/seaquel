@@ -99,6 +99,8 @@ const BLOCKED_FUNCTIONS: &[&str] = &[
     "pg_promote",
     "pg_rotate_logfile",
     "pg_import_system_collations",
+    "pg_logical_emit_message",
+    "pg_create_restore_point",
     // Sleeping and locks
     "pg_sleep",
     "sleep",
@@ -115,12 +117,66 @@ const BLOCKED_FUNCTIONS: &[&str] = &[
 
 const BLOCKED_FUNCTION_PREFIXES: &[&str] = &["dblink_", "pg_stat_reset"];
 
-fn blocked_function(name: &str) -> bool {
+/// DuckDB table functions that are SELECTs but change state outside the
+/// query, blocked on DuckDB only (AI safety, Task 4 review):
+///
+/// - `enable_logging` and friends switch on logging for the whole database
+///   instance: `duckdb_logs` then shows the user's editor SQL, `CREATE
+///   SECRET` included, and `storage := 'file'` writes files anywhere.
+/// - `enable_profiling` sets its connection writing a profile file after
+///   every query, to any path.
+/// - `checkpoint` folds the WAL into the database file.
+/// - `query` and `json_execute_serialized_sql` run their argument as SQL,
+///   which this check can't see into (`query('SELECT * FROM
+///   enable_logging()')`, `json_execute_serialized_sql(json_serialize_sql(
+///   '…'))`). `query_table` only names tables and stays allowed.
+/// - `postgres_execute`, `postgres_query`, `mysql_execute`, `mysql_query`
+///   and `sqlite_query` run SQL on an attached database, outside DuckDB's
+///   read-only transaction: `mysql_execute('my', 'CREATE TABLE …')` created
+///   the table from the read-only path.
+/// - `start_ui`, `start_ui_server` and `stop_ui_server` start or stop the UI
+///   extension's HTTP server on localhost, which serves the whole database.
+/// - `load_aws_credentials` reads the AWS credentials from the environment
+///   into its result (unredacted with `redact_secret := false`).
+///
+/// Being a name followed by `(` is enough, so a CTE or an alias with a
+/// column list named after one (`WITH query(a) AS …`, `… AS query(a)`) is
+/// refused too. That false positive is harmless: rename it.
+///
+/// Checked against `duckdb_functions()` on DuckDB 1.5.5 with every
+/// extension DuckDB can autoload plus the UI, MotherDuck and DuckLake ones
+/// loaded: these are the functions that run SQL text or change state outside
+/// the query that a read-only transaction doesn't stop. MotherDuck's `MD_*`
+/// and DuckLake's maintenance functions need a MotherDuck or DuckLake
+/// catalog attached and weren't probed.
+const BLOCKED_FUNCTIONS_DUCKDB: &[&str] = &[
+    "enable_logging",
+    "disable_logging",
+    "truncate_duckdb_logs",
+    "enable_profiling",
+    "disable_profiling",
+    "checkpoint",
+    "force_checkpoint",
+    "query",
+    "json_execute_serialized_sql",
+    "postgres_execute",
+    "postgres_query",
+    "mysql_execute",
+    "mysql_query",
+    "sqlite_query",
+    "start_ui",
+    "start_ui_server",
+    "stop_ui_server",
+    "load_aws_credentials",
+];
+
+fn blocked_function(name: &str, engine: SqlEngine) -> bool {
     let name = name.to_lowercase();
     BLOCKED_FUNCTIONS.contains(&name.as_str())
         || BLOCKED_FUNCTION_PREFIXES
             .iter()
             .any(|p| name.starts_with(p))
+        || (engine == SqlEngine::Duckdb && BLOCKED_FUNCTIONS_DUCKDB.contains(&name.as_str()))
 }
 
 /// Whether one reading of the input holds anything but read-only statements.
@@ -160,7 +216,8 @@ fn refused(sql: &str, toks: Vec<Token>, engine: SqlEngine, ansi_mysql: bool) -> 
                     return true;
                 }
                 // A quoted function name: `"setval"(`, `` `load_file`( ``.
-                if unquote_name(sql, tok, engine, ansi_mysql).is_some_and(|n| blocked_function(&n))
+                if unquote_name(sql, tok, engine, ansi_mysql)
+                    .is_some_and(|n| blocked_function(&n, engine))
                 {
                     return true;
                 }
@@ -169,7 +226,7 @@ fn refused(sql: &str, toks: Vec<Token>, engine: SqlEngine, ansi_mysql: bool) -> 
                 continue;
             }
             // A function with side effects, qualified or not.
-            if next_is_call && blocked_function(t.text(tok)) {
+            if next_is_call && blocked_function(t.text(tok), engine) {
                 return true;
             }
             let w = t.word(k).unwrap_or("");
@@ -203,7 +260,9 @@ fn refused(sql: &str, toks: Vec<Token>, engine: SqlEngine, ansi_mysql: bool) -> 
 ///   statement is refused.
 /// - No statement holds a blocked word outside strings, comments and quoted
 ///   names (on SQL Server every T-SQL statement word too), or calls a
-///   function with outside effects, qualified or not, quoted or not.
+///   function with outside effects, qualified or not, quoted or not (on
+///   DuckDB also its logging, profiling and checkpoint functions and
+///   `query()`).
 /// - MySQL/MariaDB: any executable comment is refused, and the input is read
 ///   with the default sql_mode and with `NO_BACKSLASH_ESCAPES` +
 ///   `ANSI_QUOTES`; Postgres with `standard_conforming_strings` on and off.
@@ -303,5 +362,70 @@ mod tests {
             read_only_error(my, SqlEngine::Mysql),
             Some(READ_ONLY_MESSAGE)
         );
+    }
+
+    #[test]
+    fn postgres_wal_functions() {
+        assert_eq!(
+            read_only_error("SELECT pg_logical_emit_message(true, 'p', 'x')", PG),
+            Some(READ_ONLY_MESSAGE)
+        );
+        assert_eq!(
+            read_only_error("SELECT pg_create_restore_point('r')", PG),
+            Some(READ_ONLY_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn duckdb_state_functions() {
+        const DUCK: SqlEngine = SqlEngine::Duckdb;
+        for sql in [
+            "SELECT * FROM enable_logging()",
+            "SELECT * FROM enable_logging(storage := 'file', storage_path := '/tmp/x')",
+            "SELECT * FROM disable_logging()",
+            "SELECT * FROM truncate_duckdb_logs()",
+            "SELECT * FROM enable_profiling(format := 'json', save_location := '/tmp/x.json')",
+            "SELECT * FROM disable_profiling()",
+            "SELECT * FROM checkpoint()",
+            "SELECT * FROM force_checkpoint()",
+            "SELECT * FROM CHECKPOINT ()",
+            "SELECT * FROM \"enable_logging\"()",
+            "SELECT * FROM system.main.enable_profiling()",
+            "SELECT * FROM query('SELECT 1')",
+            "SELECT * FROM query('SELECT * FROM enable_logging()')",
+            "WITH a AS (SELECT * FROM Query('SELECT 1')) SELECT * FROM a",
+            "SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT * FROM enable_logging()'))",
+            "SELECT * FROM postgres_execute('pg', 'DROP TABLE t')",
+            "SELECT * FROM postgres_query('pg', 'SELECT 1')",
+            "SELECT * FROM mysql_execute('my', 'CREATE TABLE t (a int)')",
+            "SELECT * FROM mysql_query('my', 'SELECT 1')",
+            "SELECT * FROM sqlite_query('s', 'INSERT INTO t VALUES (1) RETURNING a')",
+            "SELECT * FROM start_ui()",
+            "SELECT * FROM start_ui_server()",
+            "SELECT * FROM stop_ui_server()",
+            "SELECT * FROM load_aws_credentials(redact_secret := false)",
+            // False positives, harmless: a CTE or alias column list named `query`.
+            "WITH query(a) AS (SELECT 1) SELECT a FROM query",
+            "SELECT * FROM (SELECT 1) AS query(a)",
+        ] {
+            assert_eq!(read_only_error(sql, DUCK), Some(READ_ONLY_MESSAGE), "{sql}");
+        }
+        for sql in [
+            "SELECT * FROM query_table('t')",
+            "SELECT json_serialize_sql('SELECT 1')",
+            "SELECT query, checkpoint FROM log",
+            "SELECT t.query FROM t",
+            "SELECT 'enable_logging()' AS s",
+            "SELECT * FROM duckdb_logs",
+        ] {
+            assert_eq!(read_only_error(sql, DUCK), None, "{sql}");
+        }
+        // Other engines: `query(` and `checkpoint(` are ordinary names.
+        for engine in [PG, SqlEngine::Mysql, SqlEngine::Sqlite] {
+            assert_eq!(
+                read_only_error("SELECT query(1), checkpoint(2)", engine),
+                None
+            );
+        }
     }
 }

@@ -5,6 +5,7 @@ mod decode;
 mod dialect;
 mod driver;
 pub mod introspect;
+mod read_only;
 mod timing;
 
 use std::sync::Arc;

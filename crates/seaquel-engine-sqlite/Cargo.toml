@@ -9,6 +9,11 @@ seaquel-engine = { path = "../seaquel-engine" }
 seaquel-runtime = { path = "../seaquel-runtime" }
 seaquel-types = { path = "../seaquel-types" }
 futures = { workspace = true }
+# The read-only gate's FFI (src/read_only.rs). Pinned to the version sqlx
+# links: it `links = "sqlite3"`, so there can only be one, and sqlx's
+# `sqlite3` handle type must be this crate's. Features unify with sqlx's.
+libsqlite3-sys = { version = "=0.30.1", default-features = false }
+log = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 

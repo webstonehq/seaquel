@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use futures::StreamExt;
-use seaquel_core::{Core, StreamEvent};
+use seaquel_core::{Core, QueryOptions, StreamEvent};
 use seaquel_engine::{
     BoxStream, CancellationToken, CastMap, ConnectConfig, DatabaseStatistics, DbError, Dialect,
     Driver, Engine, ExecuteResult, ExplainResult, QueryResult, RowValues, SchemaColumn,
@@ -167,7 +167,13 @@ fn assert_connection_closed(event: &StreamEvent) {
 #[tokio::test]
 async fn cancel_interrupts_a_driver_that_does_not_stream() {
     let (core, id) = connect(Mode::HangingQuery).await;
-    let stream = core.query_stream("q1".into(), id, "SELECT 1".into(), vec![]);
+    let stream = core.query_stream(
+        "q1".into(),
+        id,
+        "SELECT 1".into(),
+        vec![],
+        QueryOptions::default(),
+    );
 
     let (events, ()) = timeout(LIMIT, async {
         // `join!` polls the consumer first, so the query is in flight when
@@ -186,7 +192,13 @@ async fn cancel_interrupts_a_driver_that_does_not_stream() {
 #[tokio::test]
 async fn disconnect_cancels_the_connections_streams() {
     let (core, id) = connect(Mode::HoldsConnection).await;
-    let mut stream = core.query_stream("q1".into(), id.clone(), "SELECT 1".into(), vec![]);
+    let mut stream = core.query_stream(
+        "q1".into(),
+        id.clone(),
+        "SELECT 1".into(),
+        vec![],
+        QueryOptions::default(),
+    );
 
     let (events, disconnected) = timeout(LIMIT, async {
         tokio::join!(
@@ -217,7 +229,13 @@ async fn disconnect_leaves_other_connections_streams_running() {
     let config: ConnectConfig = serde_json::from_value(json!({ "driver": "sqlite" })).unwrap();
     let other = core.connect(&config).await.unwrap().connection_id;
 
-    let stream = core.query_stream("q1".into(), other, "SELECT 1".into(), vec![]);
+    let stream = core.query_stream(
+        "q1".into(),
+        other,
+        "SELECT 1".into(),
+        vec![],
+        QueryOptions::default(),
+    );
     core.disconnect(&id).await.unwrap();
 
     let events = timeout(LIMIT, stream.collect::<Vec<_>>()).await.unwrap();
@@ -229,8 +247,14 @@ async fn driver_error_mid_stream_ends_with_one_error() {
     let (core, id) = connect(Mode::FailsMidStream).await;
     let events = timeout(
         LIMIT,
-        core.query_stream("q1".into(), id, "SELECT 1".into(), vec![])
-            .collect::<Vec<_>>(),
+        core.query_stream(
+            "q1".into(),
+            id,
+            "SELECT 1".into(),
+            vec![],
+            QueryOptions::default(),
+        )
+        .collect::<Vec<_>>(),
     )
     .await
     .unwrap();
@@ -246,7 +270,13 @@ async fn driver_error_mid_stream_ends_with_one_error() {
 #[tokio::test]
 async fn a_stream_whose_connection_closed_before_its_first_poll_reports_it() {
     let (core, id) = connect(Mode::FailsMidStream).await;
-    let stream = core.query_stream("q1".into(), id.clone(), "SELECT 1".into(), vec![]);
+    let stream = core.query_stream(
+        "q1".into(),
+        id.clone(),
+        "SELECT 1".into(),
+        vec![],
+        QueryOptions::default(),
+    );
     core.disconnect(&id).await.unwrap();
 
     let events = timeout(LIMIT, stream.collect::<Vec<_>>()).await.unwrap();
@@ -551,4 +581,364 @@ async fn introspection_reports_the_drivers_not_supported_and_unknown_connections
     };
     assert_eq!(codes(lite).await, vec!["NOT_SUPPORTED"; 5]);
     assert_eq!(codes("nope".into()).await, vec!["CONNECTION_NOT_FOUND"; 5]);
+}
+
+// ── Read-only queries ──
+
+/// A driver whose `query_read_only` records each call. `query` and
+/// `query_stream` panic, so a read-only stream that fell back to them fails.
+struct ReadOnlyDriver {
+    calls: StdMutex<Vec<(String, usize)>>,
+    /// `query_read_only` never returns, holding its "connection" until the
+    /// future is dropped. `close()` waits for that, like `pool.close()`.
+    hangs: bool,
+    released: AtomicBool,
+    release: Notify,
+}
+
+impl ReadOnlyDriver {
+    fn new(hangs: bool) -> Arc<Self> {
+        Arc::new(Self {
+            calls: StdMutex::default(),
+            hangs,
+            released: AtomicBool::new(false),
+            release: Notify::new(),
+        })
+    }
+
+    fn calls(&self) -> Vec<(String, usize)> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+struct ReadOnlyCheckout<'a>(&'a ReadOnlyDriver);
+
+impl Drop for ReadOnlyCheckout<'_> {
+    fn drop(&mut self) {
+        self.0.released.store(true, Ordering::SeqCst);
+        self.0.release.notify_waiters();
+    }
+}
+
+#[seaquel_runtime::async_trait]
+impl Driver for ReadOnlyDriver {
+    async fn query(&self, _sql: &str, _params: Vec<Value>) -> Result<QueryResult, DbError> {
+        panic!("a read-only stream must not call query()")
+    }
+
+    async fn execute(&self, _sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
+        panic!("a read-only stream must not call execute()")
+    }
+
+    fn query_stream<'a>(
+        &'a self,
+        _sql: String,
+        _params: Vec<Value>,
+        _cancel: CancellationToken,
+    ) -> BoxStream<'a, Result<StreamBatch, DbError>> {
+        panic!("a read-only stream must not call query_stream()")
+    }
+
+    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((sql.to_string(), params.len()));
+        if sql.contains("refuse me") {
+            return Err(DbError::read_only(
+                "cannot execute INSERT in a read-only transaction",
+            ));
+        }
+        if self.hangs {
+            let _checkout = ReadOnlyCheckout(self);
+            futures::future::pending::<()>().await;
+        }
+        Ok(QueryResult {
+            columns: vec!["n".into()],
+            rows: vec![vec![Value::Int(1)], vec![Value::Int(2)]],
+        })
+    }
+
+    async fn close(&self) -> Result<(), DbError> {
+        if self.hangs {
+            loop {
+                let released = self.release.notified();
+                if self.released.load(Ordering::SeqCst) {
+                    break;
+                }
+                released.await;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An engine with any id, opening one shared read-only driver.
+struct ReadOnlyEngine(&'static str, Arc<ReadOnlyDriver>);
+
+#[seaquel_runtime::async_trait]
+impl Engine for ReadOnlyEngine {
+    fn id(&self) -> &'static str {
+        self.0
+    }
+    async fn open(&self, _config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError> {
+        Ok(self.1.clone())
+    }
+}
+
+async fn connect_read_only(
+    engine: &'static str,
+    hangs: bool,
+) -> (Core, String, Arc<ReadOnlyDriver>) {
+    let driver = ReadOnlyDriver::new(hangs);
+    let core = Core::builder()
+        .engine(Arc::new(ReadOnlyEngine(engine, driver.clone())))
+        .build();
+    let id = connect_to(&core, engine).await;
+    (core, id, driver)
+}
+
+fn read_only() -> QueryOptions {
+    QueryOptions::default().with_read_only(true)
+}
+
+async fn collect_read_only(core: &Core, id: &str, sql: &str) -> Vec<StreamEvent> {
+    timeout(
+        LIMIT,
+        core.query_stream("q1".into(), id.into(), sql.into(), vec![], read_only())
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap()
+}
+
+fn assert_error(event: &StreamEvent, code: &str, message: &str) {
+    match event {
+        StreamEvent::Error {
+            code: c,
+            message: m,
+        } => {
+            assert_eq!(c, code);
+            assert_eq!(m, message);
+        }
+        other => panic!("expected {code}, got {other:?}"),
+    }
+}
+
+#[test]
+fn query_options_default_to_read_write() {
+    assert!(!QueryOptions::default().read_only);
+    assert!(read_only().read_only);
+    assert!(!read_only().with_read_only(false).read_only);
+}
+
+#[tokio::test]
+async fn read_only_runs_the_drivers_read_only_query_as_one_batch() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let events = timeout(
+        LIMIT,
+        core.query_stream(
+            "q1".into(),
+            id,
+            "SELECT n FROM t WHERE n > $1".into(),
+            vec![Value::Int(0)],
+            read_only(),
+        )
+        .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    match &events[0] {
+        StreamEvent::Batch(b) => {
+            assert_eq!(b.columns, Some(vec!["n".to_string()]));
+            assert_eq!(b.rows, vec![vec![Value::Int(1)], vec![Value::Int(2)]]);
+            assert!(b.is_final);
+        }
+        other => panic!("expected a batch, got {other:?}"),
+    }
+    assert_eq!(
+        driver.calls(),
+        vec![("SELECT n FROM t WHERE n > $1".to_string(), 1)]
+    );
+    assert_eq!(core.running_stream_count(), 0);
+}
+
+#[tokio::test]
+async fn read_only_refused_by_the_token_check_never_reaches_the_driver() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    for sql in [
+        "DELETE FROM t",
+        "SELECT 1; DROP TABLE t",
+        "SELECT pg_advisory_lock(7)",
+        "",
+    ] {
+        let events = collect_read_only(&core, &id, sql).await;
+        assert_eq!(summary(&events), vec!["error"], "{sql:?}");
+        assert_error(
+            &events[0],
+            "READ_ONLY",
+            seaquel_sql::read_only::READ_ONLY_MESSAGE,
+        );
+    }
+    assert!(driver.calls().is_empty(), "{:?}", driver.calls());
+}
+
+#[tokio::test]
+async fn read_only_checks_with_the_connections_engine() {
+    // SQL Server runs statements that follow each other without a `;`, so
+    // only its rules block KILL; MySQL's refuse MariaDB's `/*M!` comments.
+    let (core, id, driver) = connect_read_only("mssql", false).await;
+    let events = collect_read_only(&core, &id, "SELECT 1 AS k KILL 9999").await;
+    assert_error(
+        &events[0],
+        "READ_ONLY",
+        seaquel_sql::read_only::READ_ONLY_MESSAGE,
+    );
+    assert!(driver.calls().is_empty());
+
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let events = collect_read_only(&core, &id, "SELECT 1 AS k KILL 9999").await;
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    assert_eq!(driver.calls().len(), 1);
+
+    let (core, id, driver) = connect_read_only("mysql", false).await;
+    let events = collect_read_only(&core, &id, "SELECT 1 /*M! , 2 */").await;
+    assert_error(
+        &events[0],
+        "READ_ONLY",
+        seaquel_sql::read_only::READ_ONLY_MESSAGE,
+    );
+    let events = collect_read_only(&core, &id, "SELECT 1").await;
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    assert_eq!(driver.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn read_only_passes_the_drivers_refusal_through() {
+    let (core, id, _) = connect_read_only("postgres", false).await;
+    let events = collect_read_only(&core, &id, "SELECT 'refuse me'").await;
+    assert_eq!(summary(&events), vec!["error"]);
+    assert_error(
+        &events[0],
+        "READ_ONLY",
+        "cannot execute INSERT in a read-only transaction",
+    );
+}
+
+#[tokio::test]
+async fn read_only_on_a_driver_without_it_is_not_supported() {
+    // The plain mock driver implements `query_stream`, not `query_read_only`.
+    let (core, id) = connect(Mode::FailsMidStream).await;
+    let events = collect_read_only(&core, &id, "SELECT 1").await;
+    assert_eq!(summary(&events), vec!["error"]);
+    match &events[0] {
+        StreamEvent::Error { code, .. } => assert_eq!(code, "NOT_SUPPORTED"),
+        other => panic!("expected NOT_SUPPORTED, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn read_only_on_an_unknown_connection_is_not_found() {
+    let (core, _, _) = connect_read_only("postgres", false).await;
+    let events = collect_read_only(&core, "nope", "SELECT 1").await;
+    assert_eq!(summary(&events), vec!["error"]);
+    match &events[0] {
+        StreamEvent::Error { code, .. } => assert_eq!(code, "CONNECTION_NOT_FOUND"),
+        other => panic!("expected CONNECTION_NOT_FOUND, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn read_only_cancelled_before_it_starts_never_reaches_the_driver() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let stream = core.query_stream("q1".into(), id, "SELECT 1".into(), vec![], read_only());
+    core.cancel_stream("q1");
+    let events = timeout(LIMIT, stream.collect::<Vec<_>>()).await.unwrap();
+    assert!(events.is_empty(), "{:?}", summary(&events));
+    assert!(driver.calls().is_empty());
+    assert_eq!(core.running_stream_count(), 0);
+}
+
+#[tokio::test]
+async fn read_only_cancel_drops_the_running_query() {
+    let (core, id, driver) = connect_read_only("postgres", true).await;
+    let stream = core.query_stream("q1".into(), id, "SELECT 1".into(), vec![], read_only());
+
+    let (events, ()) = timeout(LIMIT, async {
+        tokio::join!(stream.collect::<Vec<_>>(), async {
+            // Let the driver's future start before cancelling.
+            tokio::task::yield_now().await;
+            core.cancel_stream("q1");
+        })
+    })
+    .await
+    .expect("cancelled read-only stream did not end");
+
+    assert!(events.is_empty(), "{:?}", summary(&events));
+    assert_eq!(driver.calls().len(), 1, "the query must have started");
+    assert!(
+        driver.released.load(Ordering::SeqCst),
+        "the driver's future was not dropped"
+    );
+    assert_eq!(core.running_stream_count(), 0);
+}
+
+#[tokio::test]
+async fn read_only_disconnect_ends_with_connection_closed() {
+    let (core, id, driver) = connect_read_only("postgres", true).await;
+    let mut stream = core.query_stream(
+        "q1".into(),
+        id.clone(),
+        "SELECT 1".into(),
+        vec![],
+        read_only(),
+    );
+
+    let (events, disconnected) = timeout(LIMIT, async {
+        tokio::join!(
+            async {
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event);
+                }
+                events
+            },
+            async {
+                tokio::task::yield_now().await;
+                core.disconnect(&id).await
+            },
+        )
+    })
+    .await
+    .expect("disconnect waited on the running read-only query");
+
+    disconnected.unwrap();
+    assert_eq!(summary(&events), vec!["error"]);
+    assert_connection_closed(&events[0]);
+    assert_eq!(driver.calls().len(), 1);
+    assert!(driver.released.load(Ordering::SeqCst));
+    assert_eq!(core.running_stream_count(), 0);
+    assert_eq!(core.connection_count(), 0);
+}
+
+#[tokio::test]
+async fn read_write_streams_ignore_query_read_only() {
+    let (core, id) = connect(Mode::FailsMidStream).await;
+    let events = timeout(
+        LIMIT,
+        core.query_stream(
+            "q1".into(),
+            id,
+            "DELETE FROM t".into(),
+            vec![],
+            QueryOptions::default(),
+        )
+        .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    // The token check doesn't run: the driver's stream does.
+    assert_eq!(summary(&events), vec!["batch", "error"]);
 }

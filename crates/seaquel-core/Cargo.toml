@@ -15,6 +15,7 @@ engine-duckdb = ["dep:seaquel-engine-duckdb"]
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-sql = { path = "../seaquel-sql" }
 seaquel-types = { path = "../seaquel-types" }
 seaquel-engine-postgres = { path = "../seaquel-engine-postgres", optional = true }
 seaquel-engine-mysql = { path = "../seaquel-engine-mysql", optional = true }

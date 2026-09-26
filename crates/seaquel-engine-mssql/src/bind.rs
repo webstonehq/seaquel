@@ -46,6 +46,36 @@ pub(crate) fn bind_mssql_param(query: &mut Query<'_>, v: &Value) -> Result<(), D
     Ok(())
 }
 
+/// The type tiberius declares for `v` once [`bind_mssql_param`] has bound
+/// it (tiberius 0.12.3, `ColumnData::type_name`), for a nested
+/// `sp_executesql` that forwards the parameters with the same types. Its
+/// string and binary limits count bytes (UTF-8 for strings), as tiberius's
+/// do. `None` for what can't be bound.
+pub(crate) fn declared_type(v: &Value) -> Option<Cow<'static, str>> {
+    let string = |len: usize| {
+        if len <= 4000 {
+            "nvarchar(4000)"
+        } else {
+            "nvarchar(max)"
+        }
+    };
+    Some(match v {
+        Value::Null => "nvarchar(4000)".into(),
+        Value::Bool(_) => "bit".into(),
+        Value::Int(_) => "bigint".into(),
+        Value::Float(_) => "float(53)".into(),
+        Value::Decimal(s) => match numeric(s) {
+            Some(n) => format!("numeric({},{})", n.precision(), n.scale()).into(),
+            None => string(s.len()).into(),
+        },
+        Value::Text(s) => string(s.len()).into(),
+        Value::Bytes(b) if b.len() <= 8000 => "varbinary(8000)".into(),
+        Value::Bytes(_) => "varbinary(max)".into(),
+        Value::Json(j) => string(j.to_string().len()).into(),
+        Value::Array(_) => return None,
+    })
+}
+
 /// Decimal text (`-12.50`, `.5`, `7.`) as a `Numeric` with its scale, when
 /// SQL Server's numeric holds it: at most 38 significant digits and a scale
 /// below 38.

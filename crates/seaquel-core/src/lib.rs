@@ -18,6 +18,8 @@ use seaquel_engine::{
     DatabaseStatistics, DbError, Dialect, Driver, Engine, EngineRegistry, ExecuteResult,
     ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
 };
+use seaquel_sql::read_only::read_only_error;
+use seaquel_sql::SqlEngine;
 pub use seaquel_types::{StreamEvent, Value};
 
 type StreamTokens = Mutex<HashMap<String, StreamEntry>>;
@@ -100,6 +102,51 @@ pub fn with_default_plugins() -> CoreBuilder {
         builder = builder.engine(seaquel_engine_duckdb::engine());
     }
     builder
+}
+
+/// How [`Core::query_stream`] runs a query. Build it from
+/// `QueryOptions::default()` and the `with_*` methods, so adding an option
+/// later (a row limit) doesn't touch every caller.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct QueryOptions {
+    /// Run through the AI's token check (`seaquel_sql::read_only`) and then
+    /// [`Driver::query_read_only`], which the database enforces: the AI's
+    /// `run_query` tool and dashboard widgets. Off by default (the editor).
+    pub read_only: bool,
+}
+
+impl QueryOptions {
+    #[must_use]
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+}
+
+/// The `seaquel_sql` engine whose token rules apply to a connection opened by
+/// the engine with this id. No fallback: an id without rules is refused, not
+/// checked under some other engine's rules. `mysql` also serves MariaDB,
+/// whose `/*M!` comments the MySQL rules refuse.
+fn sql_engine(engine_id: &str) -> Option<SqlEngine> {
+    match engine_id {
+        "postgres" => Some(SqlEngine::Postgres),
+        "mysql" => Some(SqlEngine::Mysql),
+        "sqlite" => Some(SqlEngine::Sqlite),
+        "mssql" => Some(SqlEngine::Mssql),
+        "duckdb" => Some(SqlEngine::Duckdb),
+        _ => None,
+    }
+}
+
+/// Fix 14's token check for a read-only query on an engine, as
+/// [`DbError::read_only`] with the exact text the TS shows.
+fn check_read_only(sql: &str, engine_id: &str) -> Result<(), DbError> {
+    let refusal = match sql_engine(engine_id) {
+        Some(engine) => read_only_error(sql, engine),
+        None => Some(seaquel_sql::read_only::READ_ONLY_MESSAGE),
+    };
+    refusal.map_or(Ok(()), |message| Err(DbError::read_only(message)))
 }
 
 /// The terminal event of a stream whose connection `disconnect` closed.
@@ -306,15 +353,22 @@ impl Core {
     /// connection it stops too, but ends with a `CONNECTION_CLOSED` error: the
     /// client didn't ask for that and would otherwise wait for a terminal
     /// event forever.
+    ///
+    /// With [`QueryOptions::read_only`], the SQL first goes through the AI's
+    /// token check for the connection's engine; a refusal ends the stream
+    /// with `READ_ONLY` and never reaches the driver. Then the driver's
+    /// [`Driver::query_read_only`] runs, under the same cancellation, and
+    /// its result is one final `Batch` and `Done`.
     pub fn query_stream(
         &self,
         query_id: String,
         connection_id: String,
         sql: String,
         params: Vec<Value>,
+        options: QueryOptions,
     ) -> BoxStream<'_, StreamEvent> {
         let keyword = sql_keyword(&sql);
-        debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Query stream");
+        debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), read_only = options.read_only; "Query stream");
 
         // Registered now, not on first poll, so a cancel that arrives before
         // the stream starts still counts.
@@ -328,13 +382,47 @@ impl Core {
                 }
                 return;
             }
-            let driver = match self.driver(&connection_id) {
-                Ok(driver) => driver,
+            let connection = match self.connection(&connection_id) {
+                Ok(connection) => connection,
                 Err(e) => {
                     yield StreamEvent::from(e);
                     return;
                 }
             };
+            if options.read_only {
+                // The check runs before the driver is touched.
+                if let Err(e) = check_read_only(&sql, connection.engine.id()) {
+                    yield StreamEvent::from(e);
+                    return;
+                }
+                // Dropping the driver's future is how a read-only query is
+                // cancelled: `take_until` drops it on cancel or disconnect,
+                // and dropping this stream drops it too.
+                let mut result = std::pin::pin!(futures::stream::once(
+                    connection.driver.query_read_only(&sql, params)
+                )
+                .take_until(token.cancelled()));
+                match result.next().await {
+                    _ if token.is_cancelled() => {
+                        if closed.load(Ordering::SeqCst) {
+                            yield connection_closed();
+                        }
+                    }
+                    Some(Ok(result)) => {
+                        yield StreamEvent::Batch(seaquel_engine::StreamBatch {
+                            columns: Some(result.columns),
+                            rows: result.rows,
+                            is_final: true,
+                        });
+                        yield StreamEvent::Done;
+                    }
+                    Some(Err(e)) => yield StreamEvent::from(e),
+                    // `take_until` ends without an item only on cancel.
+                    None => {}
+                }
+                return;
+            }
+            let driver = connection.driver;
             // `take_until` ends the stream on cancel even while the driver is
             // awaiting a query it can't interrupt (the default, non-streaming
             // `query_stream`, e.g. MSSQL); the driver's stream is dropped when
@@ -453,5 +541,38 @@ impl Drop for StreamGuard<'_> {
         {
             streams.remove(&self.query_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_engine_id_has_token_rules() {
+        for (id, engine) in [
+            ("postgres", SqlEngine::Postgres),
+            ("mysql", SqlEngine::Mysql),
+            ("sqlite", SqlEngine::Sqlite),
+            ("mssql", SqlEngine::Mssql),
+            ("duckdb", SqlEngine::Duckdb),
+        ] {
+            assert_eq!(sql_engine(id), Some(engine), "{id}");
+        }
+        // Every engine this build can open is covered.
+        for id in with_default_plugins().build().engine_ids() {
+            assert!(sql_engine(id).is_some(), "{id} has no token rules");
+        }
+    }
+
+    #[test]
+    fn an_unknown_engine_id_is_refused_without_a_fallback() {
+        for id in ["", "oracle", "mariadb", "Postgres"] {
+            assert_eq!(sql_engine(id), None, "{id}");
+            let err = check_read_only("SELECT 1", id).unwrap_err();
+            assert_eq!(err.code, "READ_ONLY");
+            assert_eq!(err.message, seaquel_sql::read_only::READ_ONLY_MESSAGE);
+        }
+        assert!(check_read_only("SELECT 1", "postgres").is_ok());
     }
 }

@@ -9,6 +9,9 @@ import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelt
  * Tabs are organized per-project.
  */
 export class DashboardTabManager extends BaseTabManager<DashboardTab> {
+  /** Called with the dashboard id when its tab closes (stops its widget runs). */
+  private onClose: (dashboardId: string) => void = () => {};
+
   constructor(
     state: DatabaseState,
     tabOrdering: TabOrderingManager,
@@ -63,6 +66,19 @@ export class DashboardTabManager extends BaseTabManager<DashboardTab> {
   setDashboardId(tabId: string, dashboardId: string): void {
     this.updateTab(tabId, (t) => ({ ...t, dashboardId }));
     this.schedulePersistence(this.state.activeProjectId);
+  }
+
+  setOnClose(fn: (dashboardId: string) => void): void {
+    this.onClose = fn;
+  }
+
+  /** Close a tab, then stop its dashboard's auto-refresh and widget runs. */
+  override remove(id: string): void {
+    const dashboardId = this.getProjectTabs().find((t) => t.id === id)?.dashboardId;
+    super.remove(id);
+    if (dashboardId && !this.getProjectTabs().some((t) => t.dashboardId === dashboardId)) {
+      this.onClose(dashboardId);
+    }
   }
 
   /**

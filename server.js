@@ -143,6 +143,13 @@ server.on("upgrade", async (req, socket, head) => {
     let socketClosed = false;
 
     rustWs.on("open", () => {
+      // The browser went away while this socket was connecting (e.g. an AI
+      // query aborted at once): send nothing, or the query would run with
+      // no one listening.
+      if (socketClosed) {
+        rustWs.close();
+        return;
+      }
       rustReady = true;
       for (const [data, binary] of pending) rustWs.send(data, { binary });
       pending.length = 0;
@@ -223,6 +230,8 @@ server.on("upgrade", async (req, socket, head) => {
     });
 
     const closeBoth = () => {
+      socketClosed = true;
+      pending.length = 0;
       if (browserWs.readyState === WebSocket.OPEN) browserWs.close();
       if (rustWs.readyState === WebSocket.OPEN) rustWs.close();
     };

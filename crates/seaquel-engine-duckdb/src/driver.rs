@@ -77,12 +77,36 @@ fn decimal_param(s: &str) -> Option<DuckValue> {
         .map(DuckValue::Decimal)
 }
 
-/// One DuckDB connection. Every call runs on a blocking thread and holds the
-/// connection for its whole duration (see [`crate::blocking`]), so calls take
-/// turns and a transaction is never interleaved with another call.
-pub struct DuckdbDriver {
+/// A DuckDB connection and its interrupt handle.
+struct Session {
     connection: Arc<Mutex<Connection>>,
     interrupt: Arc<InterruptHandle>,
+}
+
+impl Session {
+    fn new(conn: Connection) -> Self {
+        Self {
+            interrupt: conn.interrupt_handle(),
+            connection: Arc::new(Mutex::new(conn)),
+        }
+    }
+}
+
+/// One DuckDB connection for the user's calls. Every call runs on a
+/// blocking thread and holds its connection for its whole duration (see
+/// [`crate::blocking`]), so calls take turns and a transaction is never
+/// interleaved with another call.
+///
+/// `query_read_only` runs each call on a connection of its own, cloned from
+/// `read_only_source` (which runs nothing itself) and dropped after the call.
+/// Nothing a read-only query does to its session reaches the next one
+/// (`enable_profiling()` on a shared clone kept writing a file after every
+/// later call), read-only calls don't queue behind each other or behind the
+/// user's transaction or long query, and a cancel interrupts only that
+/// call's statement.
+pub struct DuckdbDriver {
+    main: Session,
+    read_only_source: Arc<Mutex<Connection>>,
 }
 
 /// Opens the database. Blocking: DuckDB may read or create a file.
@@ -115,38 +139,56 @@ fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
 /// makes DuckDB send TIMETZ with its offset, and HUGEINT, UHUGEINT and UUID
 /// as their own bytes rather than as DECIMAL(38, 0) and text (see
 /// [`crate::decode`]). It only changes how results reach this driver.
-fn open_session(config: &ConnectConfig) -> Result<Connection, DbError> {
+///
+/// Also opens the connection the read-only path clones from, a `try_clone()`
+/// of the first: the same database instance, its own session.
+/// `arrow_lossless_conversion` is a global setting (checked: a clone reads
+/// `true` after a plain `SET` on the first connection, and `false` after
+/// `SET GLOBAL … = false`), so HUGEINT, UUID and TIMETZ decode the same on
+/// every clone.
+fn open_sessions(config: &ConnectConfig) -> Result<(Connection, Connection), DbError> {
     let conn = open(config)?;
     conn.execute_batch("SET arrow_lossless_conversion = true")
         .map_err(DbError::connection_error)?;
-    Ok(conn)
+    let read_only = conn.try_clone().map_err(DbError::connection_error)?;
+    Ok((conn, read_only))
 }
 
 impl DuckdbDriver {
     pub async fn connect(config: &ConnectConfig) -> Result<Self, DbError> {
         let config = config.clone();
-        let conn = tokio::task::spawn_blocking(move || open_session(&config))
+        let (conn, read_only) = tokio::task::spawn_blocking(move || open_sessions(&config))
             .await
             .map_err(|e| Op::Connect.join_error(e))??;
         Ok(Self {
-            interrupt: conn.interrupt_handle(),
-            connection: Arc::new(Mutex::new(conn)),
+            main: Session::new(conn),
+            read_only_source: Arc::new(Mutex::new(read_only)),
         })
     }
 
-    /// Runs `f` with the connection on a blocking thread. Dropping the
+    /// Runs `f` with the main connection on a blocking thread. Dropping the
     /// returned future interrupts `f` (see [`crate::blocking`]).
     async fn run<T, F>(&self, op: Op, f: F) -> Result<T, DbError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection, &Worker) -> Result<T, DbError> + Send + 'static,
     {
-        let (call, worker) = blocking::call(self.interrupt.clone());
-        let conn = self.connection.clone();
-        let result = tokio::task::spawn_blocking(move || worker.run(&conn, op, f)).await;
-        drop(call);
-        result.map_err(|e| op.join_error(e))?
+        run_on(&self.main, op, f).await
     }
+}
+
+/// Runs `f` with `session`'s connection on a blocking thread. Dropping the
+/// returned future interrupts `f` through that session's interrupt handle.
+async fn run_on<T, F>(session: &Session, op: Op, f: F) -> Result<T, DbError>
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection, &Worker) -> Result<T, DbError> + Send + 'static,
+{
+    let (call, worker) = blocking::call(session.interrupt.clone());
+    let conn = session.connection.clone();
+    let result = tokio::task::spawn_blocking(move || worker.run(&conn, op, f)).await;
+    drop(call);
+    result.map_err(|e| op.join_error(e))?
 }
 
 /// An executed statement's rows, read chunk by chunk straight from DuckDB's
@@ -403,6 +445,89 @@ fn transaction_blocking(
     outcome
 }
 
+/// The only statement the read-only path prepares (see [`read_only_wrapper`]).
+/// The user's SQL is its parameter, so duckdb-rs's `prepare` (which runs
+/// every statement but the last itself) never sees it: `query()` parses it
+/// with DuckDB's own parser and runs it only if it is exactly one SELECT
+/// (`WITH`, `FROM t`, `VALUES`, `SUMMARIZE`, `DESCRIBE` and `SHOW` count),
+/// refusing `COPY`, `SET`, `ATTACH`, `INSTALL`, DDL, DML and every
+/// multi-statement input. (Core's token check runs first and admits only
+/// statements starting with SELECT or WITH; it also refuses the SELECTs a
+/// connection can't contain, such as `enable_logging()`.)
+const READ_ONLY_WRAPPER: &str = "SELECT * FROM query(?)";
+
+/// [`READ_ONLY_WRAPPER`] with `LIMIT` one past the row cap, so DuckDB stops
+/// there instead of materializing a huge result before the driver's cap
+/// (`RESULT_TOO_LARGE`) sees it. The limit is our own number, never user
+/// input.
+fn read_only_wrapper() -> String {
+    let limit = seaquel_engine::max_query_rows().saturating_add(1);
+    format!("{READ_ONLY_WRAPPER} LIMIT {limit}")
+}
+
+/// DuckDB's refusals on the read-only path: `query()`'s, and the read-only
+/// transaction's (`nextval`, a write `query()` let through).
+const READ_ONLY_REFUSALS: &[&str] = &[
+    "Expected a single SELECT statement",
+    "transaction is launched in read-only mode",
+];
+
+/// `Driver::query_read_only`, on the blocking thread, on the call's own
+/// connection: `BEGIN TRANSACTION READ ONLY`, the user's SQL through
+/// [`read_only_wrapper`], `ROLLBACK`. The rollback runs on every path once
+/// `BEGIN` was sent, a panic or a cancel included; the connection is dropped
+/// after the call anyway, which ends any transaction a failed ROLLBACK left.
+fn read_only_blocking(
+    conn: &Connection,
+    worker: &Worker,
+    sql: &str,
+) -> Result<QueryResult, DbError> {
+    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
+    if let Err(e) = conn.execute("BEGIN TRANSACTION READ ONLY", no_params()) {
+        // An interrupt can land in BEGIN. Whether or not it opened the
+        // transaction, make sure none is left behind.
+        let _ = conn.execute("ROLLBACK", no_params());
+        return Err(DbError::query_error(e));
+    }
+    let body = catch_unwind(AssertUnwindSafe(|| {
+        query_blocking(
+            conn,
+            worker,
+            &read_only_wrapper(),
+            &[DuckValue::Text(sql.to_string())],
+        )
+    }));
+    rollback_read_only(conn);
+    let outcome = body.unwrap_or_else(|payload| {
+        Err(DbError::query_error(format!(
+            "DuckDB panicked: {}",
+            blocking::panic_message(&*payload)
+        )))
+    });
+    outcome.map_err(|mut e| {
+        // DuckDB points at the wrapper ("LINE 1: SELECT * FROM query(?)"
+        // and a caret), which isn't the SQL the user or the model wrote.
+        if let Some(at) = e.message.find(&format!("\n\nLINE 1: {READ_ONLY_WRAPPER}")) {
+            e.message.truncate(at);
+        }
+        if READ_ONLY_REFUSALS.iter().any(|r| e.message.contains(r)) {
+            DbError::read_only(e.message)
+        } else {
+            e
+        }
+    })
+}
+
+/// Ends the read-only transaction. A failure (a cancel's interrupt can land
+/// on it) is only logged: the call's connection is dropped right after,
+/// which rolls the transaction back, and no other call uses it.
+fn rollback_read_only(conn: &Connection) {
+    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
+    if let Err(e) = conn.execute("ROLLBACK", no_params()) {
+        warn!(activity = "db.query_read_only", driver = "duckdb"; "ROLLBACK of a read-only query failed: {e}");
+    }
+}
+
 fn bind_all(params: &[Value]) -> Result<Vec<DuckValue>, DbError> {
     params.iter().map(to_duckdb_param).collect()
 }
@@ -436,8 +561,8 @@ impl Driver for DuckdbDriver {
                 }
             };
             let (tx, mut rx) = mpsc::channel(STREAM_BUFFER);
-            let (call, worker) = blocking::call(self.interrupt.clone());
-            let conn = self.connection.clone();
+            let (call, worker) = blocking::call(self.main.interrupt.clone());
+            let conn = self.main.connection.clone();
             let task = tokio::task::spawn_blocking(move || {
                 let err_tx = tx.clone();
                 let outcome = worker.run(&conn, Op::Query, |conn, worker| {
@@ -495,6 +620,30 @@ impl Driver for DuckdbDriver {
             .collect::<Result<Vec<_>, DbError>>()?;
         self.run(Op::Execute, move |conn, worker| {
             transaction_blocking(conn, worker, &statements)
+        })
+        .await
+    }
+
+    /// See [`read_only_blocking`]. DuckDB's read-only path takes no bind
+    /// values: its one parameter is the user's SQL. Nothing that calls it
+    /// passes any.
+    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+        if !params.is_empty() {
+            return Err(DbError::read_only(
+                "read-only DuckDB queries take no bind values",
+            ));
+        }
+        let source = self.read_only_source.clone();
+        let conn = tokio::task::spawn_blocking(move || blocking::lock(&source).try_clone())
+            .await
+            .map_err(|e| Op::Query.join_error(e))?
+            .map_err(DbError::query_error)?;
+        // Dropped after the call: by this future, and by the blocking task
+        // when it finishes (after a cancel, once the interrupt has landed).
+        let session = Session::new(conn);
+        let sql = sql.to_string();
+        run_on(&session, Op::Query, move |conn, worker| {
+            read_only_blocking(conn, worker, &sql)
         })
         .await
     }

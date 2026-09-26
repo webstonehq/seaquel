@@ -16,18 +16,37 @@ import { toPersistedDashboard } from "./dashboard-serialize.js";
 
 export { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
+function runKey(dashboardId: string, widgetId: string): string {
+  return `${dashboardId}:${widgetId}`;
+}
+
 /**
  * Manages dashboard CRUD operations, widget execution, and auto-refresh.
  * Dashboards are per-project.
  */
 export class DashboardManager {
   private autoRefreshTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /**
+   * The run in flight per widget (`dashboardId:widgetId`). Auto-refresh skips
+   * a widget whose last run hasn't finished, so a query blocked on a lock
+   * doesn't queue another waiter every tick; a manual run replaces it.
+   * Closing the dashboard or removing the widget aborts it.
+   */
+  private runs = new Map<string, AbortController>();
   private writeDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
   private deleteDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
 
+  /**
+   * @param runReadOnly `executeReadOnly`: every widget query runs read-only
+   *   (the AI writes widgets, and shared dashboards come from a git repo).
+   */
   constructor(
     private state: DatabaseState,
-    private executeQuery: (query: string) => Promise<Record<string, unknown>[]>,
+    private runReadOnly: (
+      connectionId: string,
+      sql: string,
+      signal?: AbortSignal,
+    ) => Promise<Record<string, unknown>[]>,
     private scheduleProjectPersistence: (projectId: string | null) => void,
     private persistence?: PersistenceManager,
   ) {}
@@ -76,9 +95,7 @@ export class DashboardManager {
     // Stop any auto-refresh timers
     const dashboard = this.getDashboard(id);
     if (dashboard) {
-      for (const widget of dashboard.widgets) {
-        this.stopAutoRefresh(id, widget.id);
-      }
+      this.closeDashboard(id);
       // Clean up git file for shared dashboards
       if (dashboard.shared) {
         await this.deleteDashboardFile?.(dashboard);
@@ -141,6 +158,7 @@ export class DashboardManager {
     const before = this.getDashboard(dashboardId);
     if (before) this.captureVersion(before);
     this.stopAutoRefresh(dashboardId, widgetId);
+    this.abortRuns(dashboardId, widgetId);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: d.widgets.filter((w) => w.id !== widgetId),
@@ -195,7 +213,26 @@ export class DashboardManager {
 
   // === WIDGET EXECUTION ===
 
-  async executeWidget(dashboardId: string, widgetId: string): Promise<void> {
+  /**
+   * Runs a widget query read-only on the active connection. A widget has no
+   * connection of its own; it renders against whichever is active, and the
+   * query is checked against that connection's engine. The widget editor's
+   * preview and the version diff view run through this too.
+   */
+  async runWidgetQuery(query: string, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+    const connectionId = this.state.activeConnectionId;
+    if (!connectionId) throw new Error("Not connected to database");
+    return await this.runReadOnly(connectionId, query, signal);
+  }
+
+  /**
+   * Runs a widget's query and stores the result. A run already in flight for
+   * the widget is aborted and its result dropped.
+   *
+   * @param signal Aborting it cancels the query too (the AI's Stop, for a
+   *   widget a tool added).
+   */
+  async executeWidget(dashboardId: string, widgetId: string, signal?: AbortSignal): Promise<void> {
     const dashboard = this.getDashboard(dashboardId);
     if (!dashboard) return;
 
@@ -226,22 +263,65 @@ export class DashboardManager {
       }
     }
 
+    const key = runKey(dashboardId, widgetId);
+    const controller = new AbortController();
+    const previous = this.runs.get(key);
+    this.runs.set(key, controller);
+    previous?.abort();
+    const onAbort = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const current = () => this.runs.get(key) === controller;
+
     // Set loading state
     this.updateWidgetState(dashboardId, widgetId, { isLoading: true, error: undefined });
 
     try {
-      const result = await this.executeQuery(query);
-      this.updateWidgetState(dashboardId, widgetId, {
-        result,
-        isLoading: false,
-        lastRefreshed: new Date(),
-      });
+      const result = await this.runWidgetQuery(query, controller.signal);
+      if (current()) {
+        this.updateWidgetState(dashboardId, widgetId, {
+          result,
+          isLoading: false,
+          lastRefreshed: new Date(),
+        });
+      }
     } catch (error) {
-      this.updateWidgetState(dashboardId, widgetId, {
-        isLoading: false,
-        error: error instanceof Error ? error.message : "Query execution failed",
-      });
+      if (current()) {
+        this.updateWidgetState(dashboardId, widgetId, {
+          isLoading: false,
+          error: controller.signal.aborted
+            ? "Query cancelled"
+            : error instanceof Error
+              ? error.message
+              : "Query execution failed",
+        });
+      }
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      if (current()) this.runs.delete(key);
     }
+  }
+
+  /** Aborts the runs in flight for a dashboard, or for one of its widgets. */
+  private abortRuns(dashboardId: string, widgetId?: string): void {
+    const prefix = widgetId === undefined ? `${dashboardId}:` : runKey(dashboardId, widgetId);
+    for (const [key, controller] of this.runs) {
+      if (widgetId === undefined ? key.startsWith(prefix) : key === prefix) controller.abort();
+    }
+  }
+
+  /**
+   * The dashboard's tab closed: stop its auto-refresh timers and abort the
+   * widget runs in flight.
+   */
+  closeDashboard(dashboardId: string): void {
+    for (const key of this.autoRefreshTimers.keys()) {
+      if (key.startsWith(`${dashboardId}:`)) {
+        clearInterval(this.autoRefreshTimers.get(key));
+        this.autoRefreshTimers.delete(key);
+      }
+    }
+    this.abortRuns(dashboardId);
   }
 
   async executeAllWidgets(dashboardId: string): Promise<void> {
@@ -262,10 +342,12 @@ export class DashboardManager {
     const widget = dashboard.widgets.find((w) => w.id === widgetId);
     if (!widget?.autoRefreshSeconds || widget.autoRefreshSeconds <= 0) return;
 
-    const timerKey = `${dashboardId}:${widgetId}`;
+    const timerKey = runKey(dashboardId, widgetId);
     this.stopAutoRefresh(dashboardId, widgetId);
 
     const timer = setInterval(() => {
+      // Still waiting on the last run (a lock, a slow server): skip this tick.
+      if (this.runs.has(timerKey)) return;
       void this.executeWidget(dashboardId, widgetId);
     }, widget.autoRefreshSeconds * 1000);
 
@@ -273,7 +355,7 @@ export class DashboardManager {
   }
 
   stopAutoRefresh(dashboardId: string, widgetId: string): void {
-    const timerKey = `${dashboardId}:${widgetId}`;
+    const timerKey = runKey(dashboardId, widgetId);
     const timer = this.autoRefreshTimers.get(timerKey);
     if (timer) {
       clearInterval(timer);
@@ -281,11 +363,13 @@ export class DashboardManager {
     }
   }
 
+  /** Stops every timer and aborts every widget run (project switch, app teardown). */
   stopAllAutoRefresh(): void {
     for (const timer of this.autoRefreshTimers.values()) {
       clearInterval(timer);
     }
     this.autoRefreshTimers.clear();
+    for (const controller of this.runs.values()) controller.abort();
   }
 
   // === DATE FILTER ===

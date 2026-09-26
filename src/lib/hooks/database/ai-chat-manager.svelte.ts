@@ -83,6 +83,13 @@ export class AIChatManager {
     await this.removeChatFromDb(chatId);
   }
 
+  /** The connection a chat belongs to, whatever is active now. */
+  private chatConnectionId(chatId: string): string | undefined {
+    return Object.values(this.state.aiChatsByConnection)
+      .flat()
+      .find((c) => c.id === chatId)?.connectionId;
+  }
+
   ensureActiveChat(): string | null {
     const connectionId = this.state.activeConnectionId;
     if (!connectionId) return null;
@@ -94,7 +101,7 @@ export class AIChatManager {
   }
 
   updateChatTitle(chatId: string, firstMessage: string): void {
-    const connectionId = this.state.activeConnectionId;
+    const connectionId = this.chatConnectionId(chatId);
     if (!connectionId) return;
 
     const title = firstMessage.slice(0, 50) + (firstMessage.length > 50 ? "..." : "");
@@ -109,8 +116,9 @@ export class AIChatManager {
     this.scheduleAIChatPersistence(connectionId);
   }
 
+  /** Called when a reply ends, which may be after the active connection changed. */
   updateChatTimestamp(chatId: string): void {
-    const connectionId = this.state.activeConnectionId;
+    const connectionId = this.chatConnectionId(chatId);
     if (!connectionId) return;
 
     const chats = this.state.aiChatsByConnection[connectionId] ?? [];

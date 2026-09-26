@@ -15,6 +15,11 @@ read-only check call `seaquel-sql` through `seaquel-wasm` on desktop, web and
 the demo. node-sql-parser and the TypeScript scanners are gone. Its measured
 cost, and the case for doing the two AI read-only Follow-ups before phase 3,
 are in "Phase 2b cost" below.
+AI safety: implemented (see 2026-09-28-ai-safety-plan.md). Every query the AI
+runs, and every dashboard widget, goes through Core's `query_stream` with
+`read_only` and a per-engine `Driver::query_read_only`; AI tool calls run on
+their chat's connection and can be stopped. Its measured cost is in "AI safety
+cost" below.
 
 ## Problem
 
@@ -1329,6 +1334,188 @@ leave the gap open for several phases. Neither closes network egress
 For estimating phase 3: first passes ran at about half of phase 2b's estimate
 and review fixes over it. Where code decides what SQL runs, or holds secrets as
 phase 3's will, plan review fixes at 40% rather than a quarter.
+
+## AI safety cost
+
+Source: `2026-09-28-ai-safety-effort.md` and the AI safety plan's execution
+notes, plus line counts measured against the phase 2b commit (`dd63c70`); the
+whole phase is in the working tree on top of it. Times are framed as in the
+earlier phases: agent wall time as logged, review fixes included, but not the
+plan, the probes behind it, the review passes themselves or the owner's
+checkpoints. Tasks 2–7 ran in parallel after Task 1, so the calendar time was
+much shorter than the sum.
+
+### Time per task
+
+| Task | Estimate | First pass | Review fixes | Logged |
+|---|---|---|---|---|
+| 1. The contract | 1–1.5 h | ~0.3 h | — | ~0.3 h |
+| 2. Postgres, MySQL, MariaDB | 1–1.5 h | ~0.6 h | ~0.25 h | ~0.8 h |
+| 3. SQLite | 1–1.5 h | ~0.9 h | ~0.5 h | ~1.4 h |
+| 4. DuckDB | 0.75–1 h | ~0.8 h | ~0.9 h | ~1.8 h |
+| 5. SQL Server | 0.75–1.25 h | ~2 h, together | | ~2 h |
+| 6. Transports, providers, demo | 1–1.5 h | ~0.3 h | — | ~0.3 h |
+| 7. AI tools, dashboards, binding | 1.5–2 h | ~0.7 h | — | ~0.7 h |
+| 8. Docs, note and measure | 0.5–0.75 h | ~0.5 h | — | ~0.5 h |
+| Review fixes (the plan's own row) | 3–4.5 h | | | |
+| **Total** | **~10.5–15.5 h** | | | **~7.8 h** |
+
+Tasks 1–7 took ~7.3 h against 7–10.25 h in the plan's task rows alone. The
+design doc had budgeted 4–8 h for enforcing read-only in the database and
+under an hour for binding the tool call, 5–9 h in all, and the phase landed
+inside that. The plan expected ~7–10 h logged if first passes ran at half
+their estimate, as in phase 2b; they did, apart from SQL Server.
+
+The log keeps review fixes on their own lines for Tasks 2–4 (~1.7 h, a quarter
+of Tasks 1–7). Task 5's ~2 h covers its first pass, the coordinator's switch
+to a connection per call and two review rounds, with no split; if half of it
+was review work, fixes were about 37% of the total, close to the 40% the plan
+budgeted. Tasks 1, 6 and 7 have no review-fix lines. The binding itself, the
+second Follow-up, fit in Task 7's ~0.7 h, as the design doc expected.
+
+SQL Server alone ran over: about twice the top of its range, and the only task
+where the plan's mechanism was replaced rather than adjusted.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~1,600 | ~100 |
+| Rust, the testkit's read-only harness | ~570 | — |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~4,960 | ~340 |
+| TypeScript/Svelte, production | ~740 | ~170 |
+| TypeScript, tests | ~1,350 | ~20 |
+| `server.js` | 9 | — |
+
+Measured with `git diff --numstat` against `dd63c70` plus the new files, with
+`Cargo.lock`, the docs and the message files left out (two new keys, in six
+languages). About 330 of the test lines moved: the DuckDB typed-cell cases and
+the seeded copy went from `values.rs` and `smoke.rs` into `tests/common` so
+the read-only tests could use them.
+
+Where the production Rust went: SQLite ~490 (`read_only.rs` ~280, the gate,
+the authorizer and the only `unsafe` in the crate; `driver.rs` ~205, the NUL
+refusal wrapper and the progress handler), SQL Server ~420 (`driver.rs` ~320,
+`session.rs` ~70, `bind.rs` 30), DuckDB ~165, Postgres ~135, MySQL ~65, Core
+~90, `seaquel-engine` ~115 (`Driver::query_read_only`, `fetch_capped` and the
+macro's `read_only` arm), `seaquel-sql` ~65 (the DuckDB block list), the two
+transports ~50. Of the ~1,520 non-blank production lines, ~550 are comments,
+most of them recording what a probe showed and why the mechanism is shaped the
+way it is.
+
+Tests outweigh the code three to one, because every attack is a live case with
+its own check from a normal session that nothing changed.
+
+### Bugs found
+
+By who found them first. "Implementer" means a live probe or a failing test
+while building the task; "review" means one of the review rounds after it.
+
+| Area | Implementer | Review |
+|---|---|---|
+| Postgres | — | 1 |
+| MySQL/MariaDB | 1 | 2 |
+| SQLite | 2 | 2 |
+| DuckDB | 2 | 7 |
+| SQL Server | 1 | 4 |
+| Transports, demo, widgets | 4 | — |
+| **Total** | **10** | **16** |
+
+Found by the implementers:
+
+- **MySQL:** a procedure that switches the session read-write before its
+  INSERT wrote under the session setting the plan chose (Task 2).
+- **SQLite:** a NUL byte in SQL text makes sqlx loop forever, on every path,
+  the editor's included (older than this phase); a dropped query kept running
+  and holding its locks (Task 3).
+- **DuckDB:** `checkpoint()` runs inside a read-only transaction; a plain
+  SELECT autoinstalls known extensions (Task 4; the second is a Follow-up).
+- **SQL Server:** `SET CONTEXT_INFO`, session context, app locks and global
+  cursors survive ROLLBACK and `sp_executesql`, so the held session couldn't
+  be reused (Task 5, the coordinator's probe).
+- **Transports and widgets:** a web Stop never reached the WebSocket handler;
+  `server.js` flushed a buffered first frame after the browser had gone (older);
+  DuckDB-WASM can't interrupt a prepared statement (a Follow-up); the widget
+  editor's preview and the version diff still ran widget SQL through
+  `executeRaw` (Tasks 6 and 7).
+
+Found in review, with the critical ones first:
+
+- **SQLite (critical):** `sqlite3_stmt_readonly` is true for process-wide
+  PRAGMAs, and `PRAGMA hard_heap_limit = 200000` from the read-only path
+  crashed the process; `soft_heap_limit` and `temp_store_directory` changed
+  every connection. Fixed with an authorizer. The review also widened the NUL
+  hang to every entry point. The authorizer then made FTS5 tables unreadable
+  until its internal PRAGMAs were allowed; the log doesn't say who caught that.
+- **DuckDB (critical):** on one shared clone, `enable_profiling()` outlived
+  the rollback and rewrote its file after every later call; `enable_logging()`
+  is global and puts the user's editor SQL, `CREATE SECRET` included, in
+  `duckdb_logs`; `query('…')` and `json_execute_serialized_sql` hide SQL from
+  the check; the re-review's sweep of `duckdb_functions()` found that
+  `mysql_execute('my', 'CREATE TABLE …')` created a table from the read-only
+  path, that `start_ui_server()` started an HTTP server serving the database,
+  and that `load_aws_credentials` returns credentials. Also: without a `LIMIT`
+  a huge result took 15 s to reach the row cap.
+- **SQL Server (critical):** a blocked call could hold one of the four slots
+  forever (now a 60 s timeout); the first escape detection reported the AI's
+  most common mistakes (conversion, date, `UNION` errors) as escapes, since
+  those roll the transaction back even with `XACT_ABORT OFF`; `XACT_ABORT` and
+  the lock timeout came from the server's defaults; an escape followed by a
+  result over the row cap went unreported.
+- **MySQL/MariaDB:** `transaction_read_only` is `tx_read_only` on MariaDB 10.x
+  and MySQL before 5.7.20; two more functions to block.
+- **Postgres:** after an error or the row cap, `ROLLBACK` first read the rest
+  of the result (4.6 s against 0.17 s on 20M rows).
+
+The final review of the whole phase found nothing to fix in behaviour. It
+added two Follow-ups (no row cap on the demo's read-only path; "Allow all"
+ticked on another connection's card carries over) and four fixes to comments,
+docs and log levels, made in Task 8.
+
+As in phase 2b, the reviews found every way around the new mechanisms. The
+plan's probes covered the attacks one would think of first, writes, DDL, two
+statements, files, and each mechanism passed them on its first run. The
+reviews went after what sits next to a query: process and database-wide state,
+connection state that outlives a rollback, and SQL run by an extension on
+another server.
+
+### What was harder than expected
+
+- **SQL Server.** The plan reused the held session under `hold_state`, and a
+  probe showed session state that no rollback clears, so every call now opens
+  its own connection, with a cap and a timeout. Detecting an escape needed a
+  two-deep transaction, implicit transactions, the transaction id, a `#temp`
+  marker and a TRY/CATCH around a nested `sp_executesql`, because SQL Server
+  stops raising 266 in that mode and rolls a transaction back by itself on
+  ordinary errors. Each of those came from a live result, not the docs.
+- **DuckDB's surface.** A read-only transaction there limits writes to the
+  database, not what a function can do. Logging, profiling, checkpoints, the
+  UI server and the scanners for other databases are all SELECTs. The fix is a
+  name list in the token check, the kind of blocklist the phase set out to
+  stop relying on, checked against ~1,400 function names. MotherDuck's and
+  DuckLake's weren't probed and are left for the owner to decide.
+- **SQLite's "read-only".** `sqlite3_stmt_readonly` means the statement
+  doesn't write the database file, not that it has no effects. The gate the
+  plan chose over our own scanner still needed an authorizer, and then an
+  allowlist that FTS5 could live with.
+- **Stop.** Carrying the AI's `AbortSignal` down to the database took changes
+  on every layer: the WebSocket handler, `server.js`, the approval promise and
+  a demo that can't cancel at all.
+
+What went to plan: the Core contract and its harness (~20 min), the
+connection binding, and Postgres, where the review's one fix was about speed.
+
+### Follow-ups and phase 3
+
+None of the AI safety Follow-ups block phase 3. One fits it: a separate,
+read-only login for AI queries is the only full fix on SQL Server and closes
+the file-write and `SET GLOBAL` gaps elsewhere, and it needs per-connection
+credentials, which phase 3's secrets work touches. The MotherDuck `md_*`
+question is the owner's call and small either way.
+
+For estimating: first passes again ran at about half their estimate, except
+where the plan's mechanism turned out wrong. Review fixes stayed near 40%
+where code decides what SQL runs, so keep that rate.
 
 ## Risks
 

@@ -1,3 +1,5 @@
 [tools]
 node = "24"
 rust = "latest"
+# Must match wasm-bindgen in Cargo.lock exactly (scripts/build-wasm.mjs checks).
+"cargo:wasm-bindgen-cli" = "0.2.128"

@@ -14,16 +14,27 @@ export function readOnlyError(query: string, dbType: DatabaseType | undefined): 
   return validateReadOnlyQuery(query, dbType);
 }
 
+/** The `run_query` tool's result when Stop ends it, before or during the query. */
+export const QUERY_CANCELLED = "Query cancelled";
+
+/**
+ * Runs the `run_query` tool's query with the runner bound to the chat's
+ * connection (`executeReadOnly`) and formats a sample for the model. An
+ * empty result has no column names, so it's reported as no rows.
+ */
 export async function runAndFormat(
   query: string,
-  executeQuery: (q: string) => Promise<Record<string, unknown>[]>,
+  runQuery: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>,
+  signal?: AbortSignal,
 ): Promise<string> {
+  if (signal?.aborted) return QUERY_CANCELLED;
   try {
-    const rows = await executeQuery(query);
+    const rows = await runQuery(query, signal);
     if (rows.length === 0) return "Query returned no rows.";
     const columns = Object.keys(rows[0]);
     return buildDataContext(rows, columns);
   } catch (err) {
+    if (signal?.aborted) return QUERY_CANCELLED;
     return `Query error: ${err instanceof Error ? err.message : String(err)}`;
   }
 }

@@ -122,6 +122,17 @@ impl DbError {
         }
     }
 
+    /// The database, or Seaquel's own check, refused a query run in
+    /// read-only mode (`Driver::query_read_only`, Core's `read_only` option).
+    /// The message is kept as given, with no prefix: Core passes the AI
+    /// check's exact text, and drivers pass the database's own message.
+    pub fn read_only(msg: impl std::fmt::Display) -> Self {
+        Self {
+            message: msg.to_string(),
+            code: "READ_ONLY".to_string(),
+        }
+    }
+
     /// The build doesn't include an engine for this driver (e.g. a slim CLI
     /// built without the `engine-mssql` feature).
     pub fn engine_not_available(driver: &str) -> Self {

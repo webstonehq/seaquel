@@ -312,8 +312,13 @@ export interface AIMessage {
   dashboardId?: string;
   /** Set while waiting for the user to approve an AI-requested query. Cleared once resolved. */
   pendingApproval?: {
+    /** One per approval: a reply can ask for several, one after another. */
+    id: string;
     query: string;
+    /** The chat's connection, which the query runs on. */
     connectionName: string;
+    /** Its engine, for the approval card's hint on engines with read-only gaps. */
+    connectionType: DatabaseType;
     approve: () => void;
     deny: () => void;
   } | null;
