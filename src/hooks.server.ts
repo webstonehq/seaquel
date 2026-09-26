@@ -2,9 +2,9 @@ import type { Handle } from "@sveltejs/kit";
 import { sequence } from "@sveltejs/kit/hooks";
 import { building } from "$app/environment";
 import { paraglideMiddleware } from "$lib/paraglide/server";
+import { apiGateResponse, licenseServiceUnavailable, needsLicenseGate } from "$lib/server/api-gate";
 import { auth } from "$lib/server/auth";
-import { resolveLicenseState } from "$lib/server/licensing";
-import { findByUserId } from "$lib/server/member-license";
+import { gate as licenseGate, LicenseClientError } from "$lib/server/license-client";
 
 // No `init` hook needed: each server-side data store is now lazily
 // bootstrapped on first access:
@@ -13,6 +13,9 @@ import { findByUserId } from "$lib/server/member-license";
 //     creation).
 //   - Per-user `meta.db` files are opened (and their schema applied) by the
 //     Rust service on that user's first `/api/rpc` call.
+//   - Licensing lives in the Rust service too (`/internal/license/*`, via
+//     `license-client.ts`), which answers NOT_READY until `auth.db` exists;
+//     `license-client` opens it before its first call.
 
 const RTL_LOCALES = ["ar", "he", "fa", "ur"];
 
@@ -37,6 +40,17 @@ const handleAuth: Handle = async ({ event, resolve }) => {
   // session lookup would create `auth.db` (and apply its schema) as a build
   // artifact. Node never opens a user's `meta.db`; the Rust service does.
   if (import.meta.env.VITE_BUILD_TARGET !== "web" || building) {
+    event.locals.user = null;
+    event.locals.session = null;
+    event.locals.tenant = null;
+    event.locals.licenseState = "unregistered";
+    return resolve(event);
+  }
+
+  // The liveness probe (Docker HEALTHCHECK) answers without the session or
+  // the license service, so a Rust-only problem doesn't restart the
+  // container.
+  if (event.url.pathname === "/health") {
     event.locals.user = null;
     event.locals.session = null;
     event.locals.tenant = null;
@@ -78,12 +92,23 @@ const handleAuth: Handle = async ({ event, resolve }) => {
   }
 
   // License/tenant context: always resolved through the persisted cache
-  // + grace-period ladder. No deployment-mode branch. When no owner has
-  // registered an install yet, state is "unregistered" and locals.tenant
-  // stays null — the signup flow handles that case.
-  const state = await resolveLicenseState();
-  event.locals.tenant = state.kind === "ok" || state.kind === "suspended" ? state.tenant : null;
-  event.locals.licenseState = state.kind;
+  // + grace-period ladder (in Rust). No deployment-mode branch. When no
+  // owner has registered an install yet, state is "unregistered" and
+  // locals.tenant stays null — the signup flow handles that case. The
+  // answer is cached for 5 s per user (license-client).
+  let state: Awaited<ReturnType<typeof licenseGate>>;
+  try {
+    state = await licenseGate(event.locals.user?.id ?? null);
+  } catch (e) {
+    // Fail closed, but say why: an unreachable license service is an
+    // operator problem, not the user's license.
+    if (e instanceof LicenseClientError && e.code === "UPSTREAM_UNAVAILABLE") {
+      return licenseServiceUnavailable(event.url.pathname);
+    }
+    throw e;
+  }
+  event.locals.tenant = state.state === "ok" || state.state === "suspended" ? state.tenant : null;
+  event.locals.licenseState = state.state;
 
   return resolve(event);
 };
@@ -93,44 +118,13 @@ const handleApiGate: Handle = async ({ event, resolve }) => {
     return resolve(event);
   }
 
+  // Exemptions and rules: `api-gate.ts`. The membership row comes from the
+  // same (cached) gate answer handleAuth read.
   const path = event.url.pathname;
-
-  // Paths that must NOT be gated by license/membership:
-  //   - Better Auth's session/sign-in/sign-up endpoints
-  //   - The signup endpoint (it's how a user becomes bound in the first place)
-  //   - The account/tenant endpoint (license-section UI needs to render in
-  //     both the unregistered and suspended states so users see why they're
-  //     blocked)
-  //   - Static assets and SvelteKit internals are not under /api so this
-  //     path filter is sufficient.
-  if (!path.startsWith("/api/")) return resolve(event);
-  if (path.startsWith("/api/auth/")) return resolve(event);
-  if (path.startsWith("/api/signup")) return resolve(event);
-  // Air-gap bundle endpoints handle their own auth policy (loose during
-  // first-run, strict on established installs). Pass through here so the
-  // frontend can import a bundle before any session exists.
-  if (path.startsWith("/api/airgap/")) return resolve(event);
-  if (path === "/api/account/tenant") return resolve(event);
-
-  // Beyond this point: data-plane and admin API. Require an active session,
-  // a usable license state, AND a bound member_license row.
-  if (!event.locals.user) {
-    return new Response("unauthorized", { status: 401 });
-  }
-  if (event.locals.licenseState !== "ok") {
-    return new Response(`license ${event.locals.licenseState}`, { status: 403 });
-  }
-  // A revoked member_license row counts as "not bound": the bundle-import
-  // revocation walk stamps `revoked_at` but leaves the row in place so we
-  // can audit later. Treating revoked rows as missing membership forces a
-  // 403 on the next request, which combined with the session purge during
-  // the revocation walk completes the revoke flow.
-  const ml = findByUserId(event.locals.user.id);
-  if (!ml || ml.revokedAt != null) {
-    return new Response("not a bound member of this install", { status: 403 });
-  }
-
-  return resolve(event);
+  const userId = event.locals.user?.id ?? null;
+  const answer = needsLicenseGate(path, userId) ? await licenseGate(userId) : null;
+  const blocked = apiGateResponse(path, userId, event.locals.licenseState, answer);
+  return blocked ?? resolve(event);
 };
 
 export const handle: Handle = sequence(handleAuth, handleApiGate, handleParaglide);

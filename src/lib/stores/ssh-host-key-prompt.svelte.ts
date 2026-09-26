@@ -3,7 +3,8 @@
  *
  * The tunnel helper in `$lib/services/ssh-tunnel` calls `prompt()` when the
  * Rust side reports `UNKNOWN_HOST_KEY`; answering "Connect" retries the tunnel
- * with `trustNewHostKey`, which records the key in `~/.ssh/known_hosts`.
+ * with `trustHostKey` set to the fingerprint shown here, and Rust records the
+ * key in `~/.ssh/known_hosts` only if the server presents that same key.
  * A changed key (`HOST_KEY_MISMATCH`) never reaches here — it always fails.
  */
 

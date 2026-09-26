@@ -20,6 +20,14 @@ runs, and every dashboard widget, goes through Core's `query_stream` with
 `read_only` and a per-engine `Driver::query_read_only`; AI tool calls run on
 their chat's connection and can be stopped. Its measured cost is in "AI safety
 cost" below.
+Phase 3: implemented (see 2026-09-29-rust-core-phase-3-plan.md). Metadata
+storage, secrets, SSH tunnels, git and licensing live in `seaquel-storage`,
+`seaquel-secrets`, `seaquel-ssh`, `seaquel-git` and `seaquel-license` behind
+Core, served over the workspace RPC (`core_call` on desktop, `/rpc` and
+`/internal/license/*` on web). No SQL crosses from the webview to its own
+database, the legacy JSON import is gone, and Core builds for wasm32 with
+the `browser` feature. SQLite and DuckDB connections are off on web
+(Decision 11b of that plan). Its measured cost is in "Phase 3 cost" below.
 
 ## Problem
 
@@ -187,6 +195,12 @@ Each engine is a Cargo feature of `seaquel-core` (`engine-postgres`, …), all o
 by default. The web image can drop DuckDB, and a slim CLI build can ship
 without MSSQL.
 
+(As built in phase 3: the web image drops both SQLite and DuckDB, because a
+file engine on a server lets any signed-in user read and write the server's
+files. Features alone didn't hold that rule, since Cargo unifies features
+across a workspace build, so `seaquel_core::with_plugins(|id| …)` registers
+engines by id and the server allows only Postgres, MySQL and MSSQL.)
+
 ## The engine plugin
 
 The TS `DatabaseAdapter` returns SQL strings and parses rows the caller
@@ -349,6 +363,29 @@ localStorage) and client-side write queues. After the move:
   `json-migration.ts`, `legacy.ts`, `tauri-storage.ts`, `web-storage.ts` and
   the `tauri-plugin-store` dependency are deleted in phase 3.
 
+As built in phase 3 (details in that plan's Decisions 2–6 and findings):
+
+- **No migration 0001 for the inline upgrades.** They became a frozen
+  baseline (`schema.rs`) that runs on every open, creates missing tables
+  before adding columns (which also opens `v2026.4.5-beta.1` files again)
+  and upgrades every file any release wrote. Numbered SQL migrations run
+  after it and start empty. They must be expand-only, because releases
+  2026.4.5–2026.9.x open files a newer build changed and the migrator
+  ignores versions it doesn't know (`set_ignore_missing(true)`).
+- **Data steps for data cleanups.** A rewrite that needs Rust logic is a
+  data step (`data_steps.rs`, recorded in `_seaquel_data_steps`), not a SQL
+  migration: the first, stripping passwords from stored connection strings,
+  was quadratic as SQL and couldn't have been fixed after shipping, since
+  sqlx checksums migration files.
+- **`data_version` polling and `StorageChanged` are deferred to phase 4**,
+  with serialising opens across processes (sqlx's migrate lock is a no-op on
+  SQLite). No second process writes the file until `seaquel mcp` exists.
+- **No `StorageBackend` trait yet.** `seaquel-storage` is sqlx only. Phase
+  8's spike decides whether the browser needs a trait or the same queries on
+  another executor.
+- **Data dir** is `seaquel_storage::data_dir`, with the `dirs` crate rather
+  than `directories`. The desktop and web files didn't move.
+
 ### Secrets
 
 `SecretStore` has two implementations:
@@ -363,6 +400,12 @@ localStorage) and client-side write queues. After the move:
   with the RPC call that needs them (connect, AI request), as it already does
   for database passwords. Core keeps them in memory for the connection's
   lifetime and never persists them.
+
+(As built in phase 3: the desktop's `KeychainStore` reads the plugin's
+entries unchanged, same crate version and service. The web workspace has no
+`SecretStore`, so secret calls there answer `NOT_SUPPORTED`, and TS still
+passes the password to `db_connect` on both targets; `ConnectionConnect {
+id, secrets }` is phase 5.)
 
 ## The RPC surface for GUIs
 
@@ -500,6 +543,28 @@ WebSocket.
   suites for `licensing`, `license-cache`, `airgap/*` and `signup` become
   parity fixtures for the Rust port, the same way the dialect fixtures work.
 
+As built in phase 3:
+
+- **Node keeps the license migrations.** It still applies 006–012 through
+  `auth.ts`; they're frozen history. Rust opens `auth.db` with sqlx and owns
+  every read and write of the license tables, and answers `NOT_READY` (503)
+  until Node has created them. The migrations move into Rust when the next
+  one is needed.
+- **Loopback isn't enough on its own.** A query running inside the Rust
+  process (DuckDB's httpfs, when a build has it) also connects from
+  loopback, so `/internal/*` also needs a per-boot secret: `server.js`
+  generates `SEAQUEL_INTERNAL_SECRET`, gives it to both processes, and Node
+  sends it as `X-Seaquel-Internal`. So Node and Rust must share a host; a
+  split deployment fails closed with a 503 page.
+- **Node's burst cache** is 5 seconds per user, with a generation counter so
+  an answer that started before an invalidation isn't cached.
+- **Session purging stays in Node** and runs after Rust's transaction has
+  committed, so it can no longer roll back with it; a failed purge finishes
+  when the bundle is uploaded again.
+- **The Rust client's TLS and proxy behaviour** differ from Node's fetch:
+  it adds `NODE_EXTRA_CA_CERTS` to its roots explicitly and honours
+  `HTTP(S)_PROXY`/`NO_PROXY`, which Node 24's fetch ignored.
+
 ## Terminal binaries: licensing and distribution
 
 **Licensing.** `seaquel`, `seaquel tui` and `seaquel mcp` don't check for a
@@ -550,7 +615,8 @@ Svelte GUI ──CoreClient (in-page transport)──▶ seaquel-browser (WASM)
   built with its `driver` feature off so the native `duckdb` crate isn't pulled
   in. The demo's sample data seeding (`src/lib/demo/*`) stays as TS content
   loaded through Core.
-- **Storage.** `seaquel-storage` gets a `StorageBackend` trait. The native
+- **Storage.** `seaquel-storage` gets a `StorageBackend` trait (not yet: as
+  of phase 3 it is sqlx only, and the spike below decides). The native
   backend uses sqlx. The browser backend is either rusqlite on
   `sqlite-wasm-rs`, or a wasm-bindgen bridge to the sql.js the demo uses today.
   Spike rusqlite first, since it keeps all of storage in Rust. Persistence stays
@@ -1516,6 +1582,224 @@ question is the owner's call and small either way.
 For estimating: first passes again ran at about half their estimate, except
 where the plan's mechanism turned out wrong. Review fixes stayed near 40%
 where code decides what SQL runs, so keep that rate.
+
+## Phase 3 cost
+
+Source: `2026-09-29-phase-3-effort.md` and the phase 3 plan's execution
+notes, plus line counts measured against the AI safety commit (`fecb1b4`);
+Part 1 is the `Phase 3a` commit and Part 2 is in the working tree on top of
+it. Times are framed as in the earlier phases: agent wall time as logged,
+review fixes included, but not the plan, the review passes themselves or the
+owner's checkpoints. Tasks 1–2, 3–5 and 10–13 ran partly in parallel, so the
+calendar time was shorter than the sum.
+
+### Time per task
+
+| Task | Estimate | First pass | Review fixes | Logged |
+|---|---|---|---|---|
+| 1. Crates, rules, keychain check | 0.75–1 h | ~0.3 h | — | ~0.3 h |
+| 2. Freeze the TS storage baseline | 1–1.5 h | ~1.1 h | — | ~1.1 h |
+| 3. Storage: open, data dir, baseline | 1.5–2 h | ~0.7 h | ~0.4 h | ~1.1 h |
+| 4. Storage: the typed queries | 3–4 h | ~1.4 h | ~0.6 h | ~2 h |
+| 5. `seaquel-secrets` | 0.75–1 h | ~0.4 h | ~0.25 h | ~0.7 h |
+| 6. `Workspace`, `Request`, `core_call` | 1.5–2 h | ~0.8 h | ~0.4 h | ~1.3 h |
+| 7. Web `/rpc`, `/api/rpc` | 1.5–2 h | ~0.75 h | ~0.6 h | ~1.3 h |
+| 8. TS `StorageClient`, deletions | 3–4 h | ~1.25 h | — | ~1.25 h |
+| 9. Legacy refusal screen | 0.75–1 h | ~0.7 h | ~1 h | ~1.7 h |
+| **Part 1** | ~14–18.5 h | ~7.4 h | ~3.25 h | ~10.7 h |
+| 10. `seaquel-ssh`, tunnels in Core | 1.5–2 h | ~1.25 h | ~0.75 h | ~2 h |
+| 11. `seaquel-git` | 1.5–2 h | ~0.9 h | ~0.5 h | ~1.4 h |
+| 12. `seaquel_license::desktop` | 0.5 h | ~0.75 h | ~0.3 h | ~1.1 h |
+| 13. `seaquel_license::server`, `/internal` | 4–5 h | ~2.5 h | ~1 h | ~3.5 h |
+| 14. `browser`, CI, Docker (+ Decision 11b) | 1–1.5 h | ~1.25 h | ~1 h | ~2.25 h |
+| 15. Docs, measure, checks | 0.75–1 h | ~0.75 h | — | ~0.75 h |
+| **Part 2** | 9.25–12 h | ~7.4 h | ~3.6 h | ~11 h |
+| Review fixes (the plan's own row) | 9–12 h | | | |
+| **Total** | **~33–43 h** | **~14.8 h** | **~6.8 h** | **~21.7 h** |
+
+The plan expected ~12–15 h of first passes and 5–7 h of fixes, about
+**17–22 h logged**, if first passes ran at half their estimate as in phase 2b
+and the AI safety phase. First passes came in at ~14.8 h, just inside;
+fixes at ~6.8 h, near the top; the total at ~21.7 h, the top of the range
+and about half the plan's 33–43 h. Review fixes were about 31% of the logged
+time, under the 40% the plan budgeted for code that holds secrets.
+
+The two parts cost the same, ~11 h each, though Part 2's estimate was
+two-thirds of Part 1's. Part 1's first passes ran at about half their
+estimate, as expected:
+the typed storage port (Task 4) and the call-site switch (Task 8), the two
+largest rows, took ~1.4 h and ~1.25 h against 3–4 h each, because the
+frozen fixtures made both mechanical. Part 2's first passes took ~7.4 h
+against 9.25–12 h, much closer to the estimate. Task 12 took 1.5 times its
+0.5 h estimate before review; Task 14 took up to twice its estimate, since
+it absorbed Decision 11b (SQLite and DuckDB off on web),
+which wasn't in the plan; and Task 13's review round added the
+`/internal` secret, the CA and proxy handling and the 503 page. Task 9's
+review took longer than its first pass, because it found that a failed load
+followed by a save wiped the collection, and the fix touched every store
+that replaces a whole collection.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~12,560 | ~1,620 |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~10,850 | ~30 |
+| Fixtures (storage schemas and repo cases, JSON and SQL) | ~14,600 | — |
+| TypeScript/Svelte/JS, production | ~3,220 | ~4,220 (net ~−1,000) |
+| TypeScript, tests | ~3,830 | ~2,590 |
+| Generated TS types | ~530 | — |
+| Build and dev scripts (JS/TS) | ~300 | ~15 |
+
+Measured with `git diff -U0` against `fecb1b4` plus the untracked files,
+with `Cargo.lock`, `package-lock.json`, the docs and the message files left
+out; inline test modules counted from their `#[cfg(test)]` line. The
+~1,810-line storage recorder is kept in `docs/plans/artifacts` and isn't
+counted. The Rust removed is mostly `src-tauri`'s `ssh_tunnel.rs` (455),
+`git.rs` (890) and `license.rs` (171).
+
+Where the production Rust went: the five new crates have ~8,450 lines
+(`seaquel-storage` ~3,440, of which the frozen baseline is ~660;
+`seaquel-license` ~3,260, of which the server side is ~2,900;
+`seaquel-git` ~970; `seaquel-ssh` ~460; `seaquel-secrets` ~320).
+`seaquel-types` grew by ~1,040 (the storage row types are ~840),
+`seaquel-rpc` by ~1,230 (the workspace RPC is ~830), `seaquel-server` by
+~1,210 (the workspace LRU, `/rpc`, `/internal/license/*`, `web_config.rs`
+and the startup checks), Core by ~410 and `src-tauri/src/lib.rs` by ~280 (the lazy workspace
+and `core_call`, with their tests).
+
+The TypeScript that went: the storage backends, the JSON import and
+`MigrationManager` (~2,230 lines with the storage routes), and the Node
+licensing and air-gap code (~1,390 lines, plus ~2,040 lines of its tests,
+now ported to Rust). The Rust that replaced the licensing code is about
+twice its size, as the ports in phases 2 and 2b were: canonical JSON and the
+bundle checks had to reproduce JavaScript's number, string, base64 and sort
+semantics by hand.
+
+The Rust tests are about the size of the new production Rust (~10,850
+against ~10,940 net), and the storage fixtures add ~14,600 lines.
+
+### Bugs found
+
+By who found them first, counted from the effort log. "Implementer" means a
+fixture, live test or probe while building the task, including the fix
+round; "review" means a review round after it. The bracketed number is how
+many were older than phase 3, in released code.
+
+| Area | Implementer | Review |
+|---|---|---|
+| Storage and data safety | 6 [6] | 3 [1] |
+| Web server and Node proxy | — | 3 [3] |
+| Web engines (Decision 11b) | 2 [1] | 4 [3] |
+| SSH | 2 [2] | 3 [2] |
+| Git | 2 [2] | 4 [3] |
+| Licensing | 2 [2] | 9 [1] |
+| **Total** | **14 [13]** | **26 [13]** |
+
+The serious ones were almost all older than phase 3, and moving the code is
+what exposed them:
+
+- **Web: any server file was reachable** (Task 13 review, confirmed by a
+  probe). A signed-in web user could open a SQLite or DuckDB connection on
+  any server path: `auth.db` (sessions, license keys, emails), every other
+  user's `meta.db`, any readable file through DuckDB's `read_*`,
+  `sqlite_scan` and `ATTACH`, and writes through `COPY TO`. Fixed by
+  Decision 11b. The Task 14 review then found the same class through
+  connection options: Postgres and MySQL TLS key and certificate paths,
+  Unix sockets, and the operator's `PG*` variables and `~/.pgpass`, which
+  sqlx reads.
+- **Web: `/api/db` path traversal** (Task 7 review). The proxy built its
+  upstream URL from a decoded path, so `/api/db/x%2F..%2Fquery` skipped the
+  per-user connection check, and an encoded `..` could reach any Rust route.
+- **Data loss after a failed load** (Task 9 and its fix round). A save after
+  a failed load replaced the collection with the empty one in memory:
+  projects, shared repos, project state, saved queries, a connection's
+  history and an AI chat's messages. `Vault.setup` wrote a new vault over the
+  old one when the read failed, orphaning every stored credential.
+- **`v2026.4.5-beta.1` files didn't open** (Task 2 recording). The upgrade
+  added columns before creating tables. Broken since `v2026.4.8`, and each
+  launch left the file half-upgraded.
+- **Git** (Task 11 and its review). The commit after resolving a conflict
+  had one parent and left the merge open, so the next push was rejected and
+  the next pull conflicted again; a push the remote refused over HTTP or SSH
+  reported success; a wrong password could loop through the same
+  credentials; a commit went through with conflicts still in the index; the
+  conflict list was empty after a restart mid-merge.
+- **SSH** (plan research and the Task 10 review). Closing a tunnel left the
+  session and its forwards up; the trust-on-first-use retry was a second
+  connection that recorded whatever key it met; a tunnel stayed open after a
+  connection was switched off or failed to connect.
+- **Licensing TLS** (Task 12 review). `reqwest::Client::new()` panics when
+  the OS certificate store holds only invalid certificates, and the desktop
+  built its client at startup; now built lazily with a fallback. The Task 13
+  review found the port had dropped `NODE_EXTRA_CA_CERTS`, which Node's fetch
+  honoured, and that a `tenant-info` answer without a tenant id wiped the
+  stored tenant, as the TS did.
+
+In the new code, before it shipped: the first password-stripping migration
+was quadratic (280 s on the review's input) and truncated at NUL bytes; the
+check for a corrupt file could change the file it was checking; Cargo's feature
+unification gave `/rpc` on web real SSH tunnels and put SQLite and DuckDB
+back into the server in workspace builds; `/internal/*` accepted in-process
+loopback requests; a gate call racing an invalidation cached the stale
+answer; and the web build's DuckDB-WASM assets leaked into the desktop and demo builds
+(75 MB each).
+
+As in phase 2b and the AI safety phase, the reviews found more than the
+implementers. What changed is where: most of what the reviews found here is
+older than the phase, around the code being moved rather than in the
+ports.
+
+### Size of the web image
+
+The Rust stage of the Docker build went from 157 s to 58 s cold (dependency
+build 133 s to 35 s), and the stripped server binary from 47.6 MB to 14.4 MB,
+no longer linking libstdc++ (DuckDB). The runtime stage drops `libssl3`. The
+web client grew by 75.2 MB for the DuckDB-WASM assets the tutorial now loads
+from the image; the full image is 432 MB.
+
+### What was harder than expected
+
+- **Cargo feature unification.** The plan kept infrastructure out of the web
+  build with features. `cargo test --workspace` compiles every feature into
+  every crate, so `/rpc` on web had real SSH tunnels and the server had
+  SQLite and DuckDB in test builds. Twice the fix was a check in code that
+  holds whatever Cargo compiled in: `dispatch_workspace` refuses SSH, git and
+  license calls, and the server registers engines by id.
+- **Byte-exact JSON.** Stored JSON columns had to stay byte-identical, which
+  ruled out `serde_json::Value` (it sorts keys) and made the RPC depend on
+  `method` coming before `params`, and the desktop's `core_call` take raw
+  bytes. Canonical JSON for air-gap bundles had to match JavaScript's
+  `JSON.stringify`, `atob`, `TextDecoder`, `parseInt` and UTF-16 sort order
+  by hand.
+- **The web's trust boundary.** The plan assumed loopback was enough for
+  `/internal/*`, that the Rust service's environment was harmless, and that
+  a connection string was just a string. Each was wrong on a server: a
+  query inside the process is loopback, sqlx reads `PG*` and `~/.pgpass`,
+  and a file engine or a TLS key path reads the server's files.
+- **The test SSH server.** linuxserver/openssh-server ships forwarding off
+  and OpenSSH 10's per-source penalties refused the parallel tests after one
+  wrong password, so the container needed its own init script, and CI runs
+  it as a step rather than a service.
+
+What went to plan: the storage port, which matched all 76 recorded cases
+with their stored rows exact; the keychain, whose entries read back unchanged; and the
+wasm32 build of Core, which needed one `uuid` feature and one `cfg`.
+
+### Follow-ups and phase 4
+
+Phase 4 (`seaquel mcp`) is the first second process to write the metadata
+file, and phase 3 left it two jobs: `data_version` polling with
+`StorageChanged`, and serialising opens across processes and pools, since
+sqlx's migrate lock is a no-op on SQLite. Both are in its scope already. It
+also verifies the macOS keychain access group on a signed build (see
+Risks). Nothing else in the Follow-ups blocks it.
+
+For estimating phase 4: first passes ran at about half their estimate where
+the plan's mechanism held (Part 1) and close to the estimate where it
+didn't (Part 2). Budget 40% for review fixes on anything a network client
+or another process can reach, and put a probe of the trust boundary in the
+plan itself rather than leaving it to review.
 
 ## Risks
 

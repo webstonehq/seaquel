@@ -246,7 +246,8 @@ export function getTutorialSchema(): SchemaTable[] {
 
 /**
  * Get or create the tutorial database connection.
- * Uses DuckDB-WASM in browser mode, SQLite via Tauri in desktop mode.
+ * Uses SQLite via Tauri on desktop and DuckDB-WASM in the browser (the demo
+ * and web; the web server has no DuckDB or SQLite engine).
  * The database is created in-memory and seeded on first access.
  */
 async function initializeTutorialDatabase(): Promise<void> {
@@ -263,7 +264,7 @@ async function initializeTutorialDatabase(): Promise<void> {
       connectionString: "sqlite::memory:",
     });
   } else {
-    // In browser mode, use DuckDB-WASM
+    // In the browser (demo and web), DuckDB-WASM in the page
     tutorialProvider = await getDuckDBProvider();
     tutorialConnectionId = await tutorialProvider.connect({
       type: "duckdb",

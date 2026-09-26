@@ -53,6 +53,28 @@ jobs:
       - name: Pure crates build for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -p seaquel-sql -p seaquel-wasm -- -D warnings
 
+      # Decision 11: Core and the RPC with the `browser` feature set (no
+      # engines, no storage, secrets, SSH, git or licensing), as the browser
+      # build will use them.
+      - name: Core builds for wasm32 (browser)
+        run: cargo clippy --target wasm32-unknown-unknown -p seaquel-core -p seaquel-rpc --no-default-features --features seaquel-core/browser -- -D warnings
+
+      # Decisions 11 and 11b: the web server (and so the Docker image) builds
+      # without the SQLite and DuckDB engines, libgit2, russh, keyring or
+      # OpenSSL. sqlx's own SQLite (libsqlite3-sys) stays: it's the storage
+      # for meta.db and auth.db, not the engine. Normal dependencies only, as
+      # `cargo build -p seaquel-server` resolves them.
+      - name: Web server dependencies
+        run: |
+          deps=$(cargo tree -p seaquel-server -e normal --prefix none | sed 's/ .*//' | sort -u)
+          # Substrings, so a renamed or -sys crate (libduckdb-sys,
+          # libgit2-sys, openssl-sys, libdbus-sys, ...) is caught too.
+          banned=$(echo "$deps" | grep -E '(duckdb|git2|russh|openssl|native-tls|keyring|dbus|libssh2|seaquel-engine-(sqlite|duckdb)|seaquel-(ssh|git|secrets))' || true)
+          if [ -n "$banned" ]; then
+            echo "::error::seaquel-server depends on: $banned"
+            exit 1
+          fi
+
       - name: Generated TypeScript types are up to date
         run: |
           npm run types:gen
@@ -114,6 +136,9 @@ jobs:
       SEAQUEL_TEST_MYSQL: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3306/seaquel_test"}'
       SEAQUEL_TEST_MARIADB: '{"driver":"mysql","connection_string":"mysql://root@127.0.0.1:3307/seaquel_test"}'
       SEAQUEL_TEST_MSSQL: '{"driver":"mssql","host":"127.0.0.1","port":1433,"username":"sa","password":"Seaquel_Test_123!","encrypt":true,"trust_cert":true}'
+      # The SSH bastion started below reaches the postgres service by its
+      # name on the services' network.
+      SEAQUEL_TEST_SSH: '{"host":"127.0.0.1","port":2222,"remote_host":"postgres","remote_port":5432}'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -122,6 +147,33 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The `ssh` service of e2e/test-databases/docker-compose.yml. It isn't a
+      # service container because it mounts the fixture keys and init script
+      # from the checkout; it joins the services' network to reach postgres.
+      - name: SSH test server
+        run: |
+          docker run -d --name seaquel-ssh \
+            --network "${{ job.services.postgres.network }}" \
+            -p 127.0.0.1:2222:2222 \
+            -e PUID=1000 -e PGID=1000 \
+            -e USER_NAME=seaquel -e USER_PASSWORD=seaquel-test-password -e PASSWORD_ACCESS=true \
+            -v "$GITHUB_WORKSPACE/e2e/test-databases/ssh/init:/custom-cont-init.d:ro" \
+            -v "$GITHUB_WORKSPACE/e2e/test-databases/ssh:/seaquel-keys:ro" \
+            lscr.io/linuxserver/openssh-server:10.2_p1-r0-ls216
+          for i in $(seq 1 60); do
+            # Ready once sshd answers with its host keys (after the init script).
+            if ssh-keyscan -T 2 -p 2222 127.0.0.1 2>/dev/null | grep -q ssh-; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs seaquel-ssh
+          exit 1
+      # seaquel-core's tests build seaquel-secrets (keyring links libdbus).
+      - name: D-Bus headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
       # Same as `npm run e2e:db:seed`. It creates seaquel_test where the
       # service didn't (SQL Server has no env var for it) and loads the shared
       # fixtures (users, orders, ...) that the live tests read, e.g. the MySQL
@@ -136,6 +188,9 @@ jobs:
           cargo test
           -p seaquel-engine-postgres -p seaquel-engine-mysql -p seaquel-engine-mssql
           -p seaquel-engine-sqlite -p seaquel-engine-duckdb
+          -p seaquel-ssh
+      - name: SSH tunnels through Core
+        run: cargo test -p seaquel-core --test ssh
 
   desktop:
     name: Desktop app compiles

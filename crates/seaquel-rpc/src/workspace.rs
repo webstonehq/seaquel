@@ -1,6 +1,6 @@
 //! The workspace RPC: one `Request`/`Response` pair for everything the GUIs
-//! ask of a user's [`Workspace`] (metadata storage and secrets for now; SSH,
-//! git and licensing join in later tasks), and [`dispatch_workspace`].
+//! ask of Core: metadata storage and secrets on a user's [`Workspace`], plus
+//! SSH, git and desktop licensing, and [`dispatch_workspace`].
 //!
 //! The Tauri app serves it as the `core_call` command and `seaquel-server` as
 //! `POST /rpc`. Wire shape, two levels of adjacent tagging:
@@ -21,7 +21,10 @@
 //!
 //! Every variant exists in every build, so the generated TypeScript doesn't
 //! depend on features. A group whose Core feature is off (`storage`,
-//! `secrets`) answers `NOT_SUPPORTED`.
+//! `secrets`) answers `NOT_SUPPORTED`. [`dispatch_workspace`], the web
+//! server's entry point, refuses SSH, git and licensing whatever the
+//! features; the desktop routes those groups to `dispatch_ssh`,
+//! `dispatch_git` and `dispatch_license`.
 
 use std::fmt;
 
@@ -109,6 +112,9 @@ fn rpc_error(e: impl Into<CoreError>) -> RpcError {
 pub enum Request {
     Storage(StorageRequest),
     Secret(SecretRequest),
+    License(crate::license::DesktopLicenseRequest),
+    Git(crate::git::GitRequest),
+    Ssh(crate::ssh::SshRequest),
 }
 
 /// A call's result: `{"method": <group>, "result": <the group's response>}`,
@@ -123,6 +129,9 @@ pub enum Request {
 pub enum Response {
     Storage(StorageResponse),
     Secret(SecretResponse),
+    License(crate::license::DesktopLicenseResponse),
+    Git(crate::git::GitResponse),
+    Ssh(crate::ssh::SshResponse),
 }
 
 impl Request {
@@ -131,6 +140,9 @@ impl Request {
         match self {
             Request::Storage(_) => "storage",
             Request::Secret(_) => "secret",
+            Request::License(_) => "license",
+            Request::Git(_) => "git",
+            Request::Ssh(_) => "ssh",
         }
     }
 
@@ -141,6 +153,9 @@ impl Request {
         match self {
             Request::Storage(r) => r.method(),
             Request::Secret(r) => r.method(),
+            Request::License(r) => r.method(),
+            Request::Git(r) => r.method(),
+            Request::Ssh(r) => r.method(),
         }
     }
 }
@@ -509,6 +524,16 @@ pub async fn dispatch_workspace(
         match req {
             Request::Storage(r) => storage(ws, r).await.map(Response::Storage),
             Request::Secret(r) => secret(secrets_of(ws), r).await.map(Response::Secret),
+            // The desktop serves this group with `dispatch_license`; a web
+            // workspace has no activation client.
+            Request::License(_) => Err(RpcError::not_supported("Desktop licensing")),
+            // The desktop serves this group with `dispatch_git`; the web
+            // server has no shared projects.
+            Request::Git(_) => Err(RpcError::not_supported("Git")),
+            // The desktop serves this group with `dispatch_ssh`. Never here,
+            // whatever features the build unified: a web workspace must not
+            // open tunnels from the server.
+            Request::Ssh(_) => Err(RpcError::not_supported("SSH tunnels")),
         }
     })
     .await
@@ -527,7 +552,7 @@ pub async fn dispatch_secret(
 }
 
 /// Log a call's group and method, and its error code if it fails.
-async fn logged<T>(
+pub(crate) async fn logged<T>(
     group: &'static str,
     method: &'static str,
     call: impl std::future::Future<Output = Result<T, RpcError>>,

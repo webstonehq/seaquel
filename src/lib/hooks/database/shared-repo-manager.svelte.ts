@@ -323,7 +323,9 @@ export class SharedRepoManager {
       } catch (error) {
         const message = extractErrorMessage(error);
         this.updateSyncState(repoId, { lastError: message });
-        if (message.includes("rejected") || message.includes("non-fast-forward")) {
+        // seaquel-git's PUSH_REJECTED_NON_FAST_FORWARD: pull first. Any other
+        // refusal (a protected branch, a hook) is an error with its reason.
+        if (message.includes("rejected (non-fast-forward)")) {
           this.updateRepo(repoId, { syncStatus: "behind" });
         } else {
           this.updateRepo(repoId, { syncStatus: "error" });
@@ -368,7 +370,7 @@ export class SharedRepoManager {
         pendingChanges: status.pendingChanges,
         aheadBy: status.aheadBy,
         behindBy: status.behindBy,
-        conflictFiles: status.hasConflicts ? status.modifiedFiles : [],
+        conflictFiles: status.hasConflicts ? status.conflictFiles : [],
       });
 
       // Update sync status based on ahead/behind

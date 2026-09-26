@@ -25,7 +25,17 @@
 //! ([`RowValues`]) is an array of `[column, value]` pairs, so its column order
 //! survives JSON (serde_json objects don't keep key order).
 
+mod git;
+mod license;
+mod ssh;
 mod workspace;
+#[cfg(feature = "git")]
+pub use git::dispatch_git;
+pub use git::{GitRequest, GitResponse};
+#[cfg(feature = "license-desktop")]
+pub use license::dispatch_license;
+pub use license::{DesktopLicenseRequest, DesktopLicenseResponse, LicenseResponse};
+pub use ssh::{dispatch_ssh, SshRequest, SshResponse, TunnelConfig, TunnelInfo};
 #[cfg(feature = "secrets")]
 pub use workspace::dispatch_secret;
 pub use workspace::{

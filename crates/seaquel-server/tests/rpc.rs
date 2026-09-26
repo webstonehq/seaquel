@@ -25,6 +25,10 @@ fn env_with_capacity(capacity: usize) -> Env {
     let state = AppState {
         core: Arc::new(seaquel_core::Core::builder().build()),
         workspaces: Arc::clone(&workspaces),
+        license: Arc::new(seaquel_core::license::server::LicenseServer::new(
+            seaquel_core::license::server::ServerConfig::new(dir.path().join("auth.db")),
+        )),
+        internal_secret: None,
     };
     Env {
         app: build_router(state),
@@ -181,6 +185,76 @@ async fn secrets_are_not_supported_on_the_web() {
         .await;
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{body}");
     assert_eq!(body["code"], "NOT_SUPPORTED");
+}
+
+/// SSH tunnels are desktop-only. `/rpc` refuses them even in a build where
+/// Cargo unified Core's `ssh` feature in (the workspace test build).
+#[tokio::test]
+async fn ssh_tunnels_are_not_supported_on_the_web() {
+    let env = env();
+    let open = json!({"method": "ssh", "params": {"method": "open", "params": {"config": {
+        "sshHost": "127.0.0.1", "sshPort": 1, "sshUsername": "u", "authMethod": "password",
+        "password": "pw", "remoteHost": "db", "remotePort": 5432
+    }}}});
+    let close =
+        json!({"method": "ssh", "params": {"method": "close", "params": {"tunnelId": "tunnel-1"}}});
+    for body in [open, close] {
+        let (status, res) = env.post("u1", body).await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{res}");
+        assert_eq!(res["code"], "NOT_SUPPORTED");
+    }
+}
+
+/// Shared projects (git) are desktop-only. `/rpc` refuses the group even in
+/// a build where Cargo unified Core's `git` feature in (the workspace test
+/// build, through seaquel-rpc's own dev-dependency), and touches nothing.
+#[tokio::test]
+async fn git_is_not_supported_on_the_web() {
+    let env = env();
+    let repo = env.root().join("would-be-repo");
+    let calls = [
+        json!({"method": "git", "params": {"method": "init", "params": {"path": repo.display().to_string()}}}),
+        json!({"method": "git", "params": {"method": "clone", "params": {
+            "url": "file:///etc", "path": repo.display().to_string()
+        }}}),
+        json!({"method": "git", "params": {"method": "status", "params": {"path": "/"}}}),
+    ];
+    for body in calls {
+        let (status, res) = env.post("u1", body).await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{res}");
+        assert_eq!(res["code"], "NOT_SUPPORTED");
+    }
+    assert!(
+        !repo.exists(),
+        "a refused git call created {}",
+        repo.display()
+    );
+}
+
+/// The desktop license client (activate/validate/deactivate against the
+/// license service) is desktop-only; the web server's licensing is
+/// `/internal/license/*`. `/rpc` refuses the group even when Cargo unified
+/// Core's `license-desktop` feature in.
+#[tokio::test]
+async fn desktop_licensing_is_not_supported_on_the_web() {
+    let env = env();
+    let calls = [
+        json!({"method": "license", "params": {"method": "activate", "params": {
+            "key": "SQ-TEST-KEY", "instanceName": "web"
+        }}}),
+        json!({"method": "license", "params": {"method": "validate", "params": {
+            "key": "SQ-TEST-KEY", "instanceId": "i1"
+        }}}),
+        json!({"method": "license", "params": {"method": "deactivate", "params": {
+            "key": "SQ-TEST-KEY", "instanceId": "i1"
+        }}}),
+    ];
+    for body in calls {
+        let (status, res) = env.post("u1", body).await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{res}");
+        assert_eq!(res["code"], "NOT_SUPPORTED");
+        assert!(!res.to_string().contains("SQ-TEST-KEY"), "{res}");
+    }
 }
 
 /// Stored JSON comes back as the bytes that went in: the route passes the

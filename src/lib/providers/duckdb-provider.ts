@@ -6,6 +6,7 @@
 import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
 import { dedupeColumnNames } from "$lib/utils/row-access";
 import { queryCancelled } from "./wire";
+import { absoluteUrl, duckdbBundles, startWithin } from "./duckdb-bundles";
 
 // DuckDB-WASM types - dynamically imported
 type AsyncDuckDB = import("@duckdb/duckdb-wasm").AsyncDuckDB;
@@ -159,30 +160,50 @@ export class DuckDBProvider implements DatabaseProvider {
    */
   private async initialize(): Promise<void> {
     if (this.initialized) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = this.doInitialize();
+    if (!this.initPromise) {
+      // A failed start is forgotten, so the next call tries again.
+      this.initPromise = this.doInitialize().catch((error: unknown) => {
+        this.initPromise = null;
+        throw error;
+      });
+    }
     await this.initPromise;
   }
 
   private async doInitialize(): Promise<void> {
     const duckdb = await import("@duckdb/duckdb-wasm");
 
-    // Use jsDelivr CDN for WASM bundles
-    const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
-    const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+    // Web serves its own copy; the demo uses jsDelivr (see duckdbBundles).
+    const bundle = await duckdb.selectBundle(await duckdbBundles(duckdb.getJsDelivrBundles));
 
     // Create worker
     const workerUrl = URL.createObjectURL(
-      new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }),
+      new Blob([`importScripts("${absoluteUrl(bundle.mainWorker!)}");`], {
+        type: "text/javascript",
+      }),
     );
     const worker = new Worker(workerUrl);
     const logger = new duckdb.ConsoleLogger();
 
-    // Instantiate database
-    this.db = new duckdb.AsyncDuckDB(logger, worker);
-    await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    // Instantiate database. A worker that can't load its script never
+    // answers, so give up on its error event or after a timeout.
+    const db = new duckdb.AsyncDuckDB(logger, worker);
+    try {
+      await startWithin(
+        db.instantiate(
+          absoluteUrl(bundle.mainModule),
+          bundle.pthreadWorker ? absoluteUrl(bundle.pthreadWorker) : undefined,
+        ),
+        worker,
+      );
+    } catch (error) {
+      worker.terminate();
+      throw error;
+    } finally {
+      URL.revokeObjectURL(workerUrl);
+    }
 
+    this.db = db;
     this.initialized = true;
   }
 

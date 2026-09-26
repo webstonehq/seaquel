@@ -29,7 +29,6 @@ import { join } from "node:path";
 import { betterAuth } from "better-auth";
 import type Database from "better-sqlite3";
 import { CLIENT_IP_HEADER } from "$shared/client-ip.js";
-import { backfillExistingMembers } from "./license-cache";
 
 const require = createRequire(import.meta.url);
 
@@ -43,7 +42,7 @@ let sqliteInstance: Database.Database | null = null;
 
 /**
  * Open (or return the cached) auth.db handle. Exposed so other server
- * modules (e.g. `member-license.ts`) can read/write companion tables
+ * modules (e.g. the session purge in `/api/airgap/bundle`) can use it
  * without each one re-opening the file and re-running migrations.
  */
 export function openAuthDb(): Database.Database {
@@ -61,10 +60,9 @@ export function openAuthDb(): Database.Database {
   // table so the idempotent INSERT OR IGNORE keeps startups fast once applied.
   applyAuthSchemaIfNeeded(sqliteInstance);
 
-  // Phase-9 backfill: seed validation-cache columns on pre-existing
-  // member_license rows so the rollout doesn't lock anyone out before
-  // the first scheduled re-check. Idempotent — only touches NULL rows.
-  backfillExistingMembers();
+  // The license tables (member_license, install, install_cache,
+  // airgap_bundle) are read and written by the Rust service from here on,
+  // including the phase-9 member backfill (`seaquel_license::server`).
 
   return sqliteInstance;
 }

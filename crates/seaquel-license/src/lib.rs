@@ -4,3 +4,12 @@
 //! control-plane client with its soft and hard TTLs, member licenses and
 //! air-gap bundles verified with Ed25519. Core exposes each behind its own
 //! feature.
+
+#[cfg(any(feature = "desktop", feature = "server"))]
+mod http;
+
+#[cfg(feature = "desktop")]
+pub mod desktop;
+
+#[cfg(feature = "server")]
+pub mod server;

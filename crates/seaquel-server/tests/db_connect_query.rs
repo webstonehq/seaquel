@@ -1,9 +1,11 @@
 //! Integration test: POST /api/db/connect + POST /api/db/query against SQLite.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use seaquel_server::{build_router, AppState};
+use seaquel_server::build_router;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -39,7 +41,7 @@ async fn connect_and_query_sqlite_roundtrip() {
     let tmp = std::env::temp_dir().join(format!("seaquel-test-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
 
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     // POST /api/db/connect
     let (status, body) = post_json(
@@ -75,7 +77,7 @@ async fn connect_and_query_sqlite_roundtrip() {
 
 #[tokio::test]
 async fn query_with_unknown_connection_id_returns_404() {
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(
         app,

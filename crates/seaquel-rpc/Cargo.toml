@@ -13,6 +13,9 @@ ts = ["dep:ts-rs", "seaquel-types/ts"]
 # matching Core features.
 storage = ["seaquel-core/storage"]
 secrets = ["seaquel-core/secrets"]
+license-desktop = ["seaquel-core/license-desktop"]
+git = ["seaquel-core/git"]
+ssh = ["seaquel-core/ssh"]
 
 [dependencies]
 seaquel-core = { path = "../seaquel-core", default-features = false }
@@ -26,7 +29,9 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Turns on both workspace groups for this crate's own tests.
-seaquel-rpc = { path = ".", features = ["storage", "secrets"] }
+seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh"] }
 seaquel-runtime = { path = "../seaquel-runtime" }
 tempfile = "3"
+# Only to point libgit2 at an empty config dir in tests/git.rs.
+git2 = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt"] }

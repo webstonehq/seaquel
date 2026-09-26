@@ -1,6 +1,8 @@
 use arboard::Clipboard;
 use image::ImageReader;
 use log::{debug, error, info};
+use seaquel_core::git::Git;
+use seaquel_core::license::desktop::DesktopClient;
 use seaquel_core::secrets::{KeychainStore, SecretStore};
 use seaquel_core::storage::{LEGACY_STORAGE, STORAGE_CORRUPT};
 use seaquel_core::{Core, CoreError, Workspace, WorkspaceSpec};
@@ -17,12 +19,7 @@ use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::OnceCell;
 
 mod db;
-mod git;
-mod license;
 mod logging;
-mod ssh_tunnel;
-
-use ssh_tunnel::TunnelManager;
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct UpdateInfo {
@@ -45,6 +42,16 @@ impl std::fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
+/// The license server: `LICENSE_API_URL` at compile time, else the dev
+/// server in debug builds and seaquel.app in release builds.
+fn license_base_url() -> &'static str {
+    option_env!("LICENSE_API_URL").unwrap_or(if cfg!(debug_assertions) {
+        "http://localhost:5173"
+    } else {
+        "https://seaquel.app"
+    })
+}
+
 struct PendingUpdate {
     bytes: Mutex<Option<Vec<u8>>>,
 }
@@ -62,6 +69,10 @@ struct DesktopWorkspace {
     /// `seaquel_storage::data_dir(identifier)`, or why there is none.
     data_dir: Result<PathBuf, RpcError>,
     secrets: Arc<dyn SecretStore>,
+    /// The license server's activation client ([`license_base_url`]).
+    license: DesktopClient,
+    /// Shared projects' git, with the user's home for the default SSH keys.
+    git: Git,
     /// Set once storage opens, or once it fails for good.
     workspace: OnceCell<Result<Arc<Workspace>, RpcError>>,
 }
@@ -71,6 +82,8 @@ impl DesktopWorkspace {
         Self {
             data_dir,
             secrets,
+            license: DesktopClient::new(license_base_url()),
+            git: Git::from_env(),
             workspace: OnceCell::new(),
         }
     }
@@ -107,6 +120,14 @@ impl DesktopWorkspace {
             Request::Secret(r) => seaquel_rpc::dispatch_secret(Some(&*self.secrets), r)
                 .await
                 .map(Response::Secret),
+            Request::License(r) => seaquel_rpc::dispatch_license(&self.license, r)
+                .await
+                .map(Response::License),
+            Request::Git(r) => seaquel_rpc::dispatch_git(&self.git, r)
+                .await
+                .map(Response::Git),
+            // Core owns the tunnels; they need no storage.
+            Request::Ssh(r) => seaquel_rpc::dispatch_ssh(core, r).await.map(Response::Ssh),
             req => {
                 let ws = self.workspace(core).await?;
                 seaquel_rpc::dispatch_workspace(core, &ws, req).await
@@ -554,7 +575,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(logger.build())
         .plugin(tauri_plugin_os::init())
-        .manage(TunnelManager::new())
         .manage(seaquel_core::with_default_plugins().build())
         .manage(PendingUpdate {
             bytes: Mutex::new(None),
@@ -577,10 +597,6 @@ pub fn run() {
             check_for_update_command,
             read_dbeaver_config,
             read_tableplus_config,
-            ssh_tunnel::create_ssh_tunnel,
-            ssh_tunnel::close_ssh_tunnel,
-            ssh_tunnel::check_tunnel_status,
-            ssh_tunnel::list_active_tunnels,
             db::commands::db_connect,
             db::commands::db_query,
             db::commands::db_query_stream,
@@ -590,21 +606,6 @@ pub fn run() {
             db::commands::db_disconnect,
             db::commands::db_engine,
             db::commands::db_test,
-            git::git_clone_repo,
-            git::git_init_repo,
-            git::git_pull_repo,
-            git::git_push_repo,
-            git::git_get_repo_status,
-            git::git_commit_changes,
-            git::git_stage_file,
-            git::git_discard_file,
-            git::git_resolve_conflict,
-            git::git_get_conflict_content,
-            git::git_set_remote,
-            git::git_get_remote_url,
-            license::activate_license,
-            license::validate_license,
-            license::deactivate_license,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
@@ -834,6 +835,24 @@ mod workspace_tests {
         assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "STORAGE_CORRUPT");
     }
 
+    /// SSH tunnels need no storage: they reach Core even when it can't open.
+    #[test]
+    fn ssh_calls_skip_failed_storage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let core = Core::builder()
+            .ssh_known_hosts(tmp.path().join("known_hosts"))
+            .build();
+        std::fs::write(tmp.path().join("projects.json"), "{}").unwrap();
+        let ws = desktop(tmp.path().to_path_buf());
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "LEGACY_STORAGE");
+        let close =
+            r#"{"method":"ssh","params":{"method":"close","params":{"tunnelId":"tunnel-1"}}}"#;
+        assert_eq!(
+            call(&core, &ws, close).unwrap_err().code,
+            "TUNNEL_NOT_FOUND"
+        );
+    }
+
     #[test]
     fn a_transient_failure_is_retried() {
         let core = Core::builder().build();
@@ -864,5 +883,21 @@ mod workspace_tests {
         assert_eq!(err.code, "NO_DATA_DIR");
         assert!(err.message.contains("SEAQUEL_DATA_DIR"), "{}", err.message);
         secrets_still_work(&core, &ws);
+    }
+
+    #[test]
+    fn git_calls_need_no_storage() {
+        let core = Core::builder().build();
+        let ws = DesktopWorkspace::new(
+            Err(RpcError::from(CoreError::from(
+                seaquel_core::storage::StorageError::NoDataDir,
+            ))),
+            Arc::new(MemoryStore::new()),
+        );
+        // Not a repository: git's own error, not the storage one.
+        let tmp = tempfile::tempdir().unwrap();
+        let req = serde_json::json!({"method": "git", "params": {"method": "remoteUrl", "params": {"path": tmp.path()}}});
+        let err = call(&core, &ws, &req.to_string()).unwrap_err();
+        assert_eq!(err.code, "REPO_OPEN_ERROR", "{}", err.message);
     }
 }

@@ -5,13 +5,13 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{connect_sqlite, post_json, temp_sqlite};
-use seaquel_server::{build_router, AppState};
+use seaquel_server::build_router;
 use serde_json::json;
 
 #[tokio::test]
 async fn transaction_commits_all_statements_on_success() {
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
     let connection_id = connect_sqlite(app.clone(), &conn_str).await;
 
     // Set up the table.
@@ -62,7 +62,7 @@ async fn transaction_commits_all_statements_on_success() {
 #[tokio::test]
 async fn transaction_rolls_back_on_failure() {
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
     let connection_id = connect_sqlite(app.clone(), &conn_str).await;
 
     let (status, _) = post_json(

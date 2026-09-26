@@ -37,10 +37,11 @@ export async function getProvider(): Promise<DatabaseProvider> {
 }
 
 /**
- * Get the DuckDB provider for the current environment.
- *
- * In web mode, all database types (including DuckDB) route through the same
- * HttpProvider — the server handles driver dispatch.
+ * Get the DuckDB provider for the current environment: the Rust engine over
+ * IPC on desktop, and DuckDB-WASM in the browser, both in the demo and on
+ * web. The web server has no DuckDB engine (Decision 11b: it would read and
+ * write the server's files), so web's in-browser DuckDB (the tutorial) runs
+ * in the page.
  */
 export async function getDuckDBProvider(): Promise<DatabaseProvider> {
   if (duckdbProvider) return duckdbProvider;
@@ -48,9 +49,6 @@ export async function getDuckDBProvider(): Promise<DatabaseProvider> {
   if (isTauri()) {
     const { UnifiedTauriProvider } = await import("./unified-tauri-provider");
     duckdbProvider = new UnifiedTauriProvider();
-  } else if (isWeb()) {
-    const { HttpProvider } = await import("./http-provider");
-    duckdbProvider = new HttpProvider();
   } else {
     const { DuckDBProvider } = await import("./duckdb-provider");
     duckdbProvider = new DuckDBProvider();

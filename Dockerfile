@@ -29,6 +29,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 # or Cargo.lock changes, not on every source edit.
 FROM chef AS rust-builder
 COPY --from=rust-planner /build/recipe.json recipe.json
+# seaquel-server's features (its Cargo.toml) leave out the SQLite and DuckDB
+# engines, SSH, git and the keychain; see CI's "Web server dependencies".
 RUN cargo chef cook --release -p seaquel-server --recipe-path recipe.json
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
@@ -109,13 +111,15 @@ RUN npm ci --omit=dev
 FROM node:22-bookworm-slim AS runtime
 
 # tini handles PID 1 duties (signal forwarding, zombie reaping).
-# libssl3  — tiberius (MSSQL driver) + russh link against OpenSSL at runtime.
 # ca-certificates — so outbound TLS (to customer DBs, Postmark, etc.) can
 #                   verify certs against the Debian trust store. Not present
 #                   in node:22-bookworm-slim by default.
+# No libssl3: seaquel-server uses rustls throughout (sqlx, tiberius,
+# reqwest) and has no russh, libgit2 or DuckDB (Decisions 11 and 11b), so it
+# links only libc, libm and libgcc_s. CI's "Web server dependencies" step
+# keeps OpenSSL out of its dependency tree.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
-    libssl3 \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 

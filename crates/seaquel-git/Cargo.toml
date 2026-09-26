@@ -5,8 +5,13 @@ edition = "2021"
 description = "Seaquel git operations for shared projects: clone, pull, push, status, commit and conflict resolution over libgit2."
 
 [dependencies]
+seaquel-types = { path = "../seaquel-types" }
+dirs = { workspace = true }
 git2 = { workspace = true }
 log = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

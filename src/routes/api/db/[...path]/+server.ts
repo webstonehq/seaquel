@@ -34,6 +34,26 @@ const VALIDATED_PATHS = new Set(["disconnect", "query", "execute", "transaction"
 // `stream` isn't here: it's a WebSocket, which server.js proxies.
 const FORWARDED_PATHS = new Set(["connect", "test", ...VALIDATED_PATHS]);
 
+// Paths whose body is a ConnectConfig; its `driver` must be a web engine.
+const CONFIG_PATHS = new Set(["connect", "test"]);
+
+// The drivers the web build serves, as `WEB_ENGINES` in seaquel-server
+// (Decision 11b). SQLite and DuckDB would open files on the server (auth.db,
+// other users' meta.db, anything DuckDB's read_* or COPY TO reaches). Rust
+// refuses them too; this answers first, with the same error shape.
+const WEB_DRIVERS: ReadonlySet<string> = new Set(["postgres", "mysql", "mssql"]);
+
+function engineNotAvailable(driver: unknown): Response {
+  const name = typeof driver === "string" ? driver : String(driver);
+  return new Response(
+    JSON.stringify({
+      code: "ENGINE_NOT_AVAILABLE",
+      message: `Database engine "${name}" is not available in this build`,
+    }),
+    { status: 400, headers: { "content-type": "application/json" } },
+  );
+}
+
 const forward: RequestHandler = async ({ locals, params, request, url }) => {
   if (!locals.user) throw error(401, "unauthorized");
 
@@ -70,6 +90,18 @@ const forward: RequestHandler = async ({ locals, params, request, url }) => {
         throw error(403, "connection does not belong to this user");
       }
       body.connection_id = rustId;
+      upstreamBody = JSON.stringify(body);
+    } else if (CONFIG_PATHS.has(upstreamPath)) {
+      let body: Record<string, unknown>;
+      try {
+        body = (await request.json()) as Record<string, unknown>;
+      } catch {
+        throw error(400, "invalid json body");
+      }
+      if (typeof body !== "object" || body === null) throw error(400, "invalid json body");
+      if (typeof body.driver !== "string" || !WEB_DRIVERS.has(body.driver)) {
+        return engineNotAvailable(body.driver);
+      }
       upstreamBody = JSON.stringify(body);
     } else {
       upstreamBody = await request.arrayBuffer();

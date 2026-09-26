@@ -10,6 +10,9 @@
 use serde::{Deserialize, Serialize};
 
 mod dialect;
+pub mod git;
+pub mod license;
+pub mod ssh;
 pub mod storage;
 mod value;
 pub use dialect::*;

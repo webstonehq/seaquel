@@ -1,5 +1,6 @@
 import type { ConnectionFormData } from "$lib/types";
 import { databaseTypes } from "$lib/stores/connection-wizard.svelte.js";
+import { databaseTypeUnavailableMessage, isDatabaseTypeAvailable } from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
 
 /**
@@ -176,10 +177,24 @@ function parseFileConnectionString(connStr: string, scheme: string) {
  * Besides standard URLs, this understands TablePlus-style URLs: the `name` and
  * `tLSMode` query params, and `<scheme>+ssh://ssh_user[:ssh_pass]@ssh_host[:ssh_port]/db_user[:db_pass]@db_host[:db_port]/database`
  * for connections over an SSH tunnel.
+ *
+ * A string for a database type this build doesn't offer (SQLite and DuckDB
+ * on web) is refused with the reason.
  */
-export function parseConnectionString(
-  connStr: string,
-): { success: true; formData: Partial<ConnectionFormData> } | { success: false; error: string } {
+export function parseConnectionString(connStr: string): ParseResult {
+  const result = parseAnyConnectionString(connStr);
+  const type = result.success ? result.formData.type : undefined;
+  if (type && !isDatabaseTypeAvailable(type)) {
+    return { success: false, error: databaseTypeUnavailableMessage(type) };
+  }
+  return result;
+}
+
+type ParseResult =
+  | { success: true; formData: Partial<ConnectionFormData> }
+  | { success: false; error: string };
+
+function parseAnyConnectionString(connStr: string): ParseResult {
   try {
     // Handle SQLite
     if (connStr.startsWith("sqlite:")) {

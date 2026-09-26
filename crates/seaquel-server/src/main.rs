@@ -11,6 +11,9 @@
 //!   queries and history.
 //! - `/api/db/*` keeps every user's database connections in one map; tenant
 //!   isolation is the `userId:` prefix that Node checks and strips.
+//! - `/internal/license/*` reads and writes the install's licensing in
+//!   `DATA_DIR/auth.db` for whatever user id it's given. Node never forwards
+//!   `/internal/*`, and these routes also refuse any non-loopback peer.
 //!
 //! So the Node process (`server.js`) must be the only thing that can reach
 //! it. Node checks the session, sets `X-Seaquel-User` itself and drops any
@@ -26,8 +29,21 @@
 //! - `BIND_ADDR`: the listen address (default `127.0.0.1:8788`), loopback
 //!   only unless `SEAQUEL_ALLOW_NON_LOOPBACK=1`.
 //! - `DATA_DIR`: the data root, shared with Node; users' files go under
-//!   `DATA_DIR/users/`. Unset, it's the current directory, as in Node.
-//!   `server.js` passes its environment and working directory through.
+//!   `DATA_DIR/users/`, and `auth.db` (Node's) sits at the top. Unset, it's
+//!   the current directory, as in Node. `server.js` passes its environment
+//!   and working directory through.
+//! - `SEAQUEL_INTERNAL_SECRET`: the per-boot secret `/internal/*` requires
+//!   in `X-Seaquel-Internal`. `server.js` generates it; it's removed from
+//!   this process's environment at startup.
+//! - `SEAQUEL_CONTROL_URL`, `SEAQUEL_LICENSE_SOFT_TTL`,
+//!   `SEAQUEL_LICENSE_GRACE_TTL`, `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`: licensing,
+//!   read once at startup, as the Node server read them.
+//!
+//! Database client variables (`PG*`, `MYSQL*`) are removed at startup and
+//! `HOME` is pointed at `/nonexistent`, so sqlx never fills a web user's
+//! connection from the operator's `PGPASSWORD`, `PG*` defaults or
+//! `~/.pgpass`. `server.js` passes only an allow-listed environment
+//! (`shared/rust-env.js`) in the first place.
 //!
 //! At startup the soft open-files limit is raised towards the hard limit:
 //! at the workspace LRU's cap the SQLite pools alone can hold about 6,000
@@ -40,6 +56,22 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() {
     startup::init_logging();
+    // First, before anything else runs in this process.
+    let internal_secret = startup::take_internal_secret();
+    // No operator PG*/MYSQL* defaults or ~/.pgpass for web users' connections.
+    let scrubbed = startup::scrub_database_client_env();
+    if !scrubbed.is_empty() {
+        log::warn!(
+            "ignoring database client environment variables (web connections never use them): {}",
+            scrubbed.join(", ")
+        );
+    }
+    if internal_secret.is_none() {
+        log::warn!(
+            "{} is not set: /internal/license/* will refuse every call (server.js sets it)",
+            startup::INTERNAL_SECRET_ENV
+        );
+    }
 
     // Loopback by default; see "Security: loopback only" above.
     let addr: SocketAddr = std::env::var("BIND_ADDR")
@@ -78,7 +110,7 @@ async fn main() {
         None => log::info!("open-files limit: not available on this platform"),
     }
 
-    let state = AppState::default();
+    let state = AppState::default().with_internal_secret(internal_secret);
     log::info!(
         "seaquel-server data dir: {}",
         state.workspaces.root().display()
@@ -90,5 +122,12 @@ async fn main() {
         .expect("failed to bind");
 
     log::info!("seaquel-server listening on {}", addr);
-    axum::serve(listener, app).await.expect("server error");
+    // Connect info: `/internal/license/*` refuses peers that aren't
+    // loopback.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("server error");
 }

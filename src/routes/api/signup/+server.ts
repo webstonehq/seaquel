@@ -20,6 +20,9 @@
  * the Better Auth user so the visitor can retry without tripping a
  * duplicate-email error.
  *
+ * Each licensing step is one call to the Rust service (`license-client`),
+ * in the same order as before; Better Auth and the rollback stay here.
+ *
  * Uses Better Auth's `signUpEmail` with `asResponse: true` so the
  * Set-Cookie session header is returned to the browser exactly the way
  * the standard `/api/auth/sign-up/email` route would.
@@ -31,14 +34,12 @@ import { auth, isOriginTrusted, openAuthDb } from "$lib/server/auth";
 import { checkRateLimit } from "$lib/server/rate-limit";
 import {
   bindMember,
+  installStatus,
   isNetworkFailure,
   registerInstall,
-  verifyMembershipLicense,
-} from "$lib/server/licensing";
-import type { TenantContext } from "$lib/server/licensing";
-import { isBundleDriven } from "$lib/server/airgap/bundle-store";
-import { readInstallCache, writeInstallCache } from "$lib/server/license-cache";
-import { findByUserId, insert as insertMemberLicense } from "$lib/server/member-license";
+  signupCheck,
+  type VerifyResult,
+} from "$lib/server/license-client";
 
 interface SignupBody {
   email: string;
@@ -97,13 +98,13 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
   // Determine whether this is the install's first owner sign-up.
   // If install_cache has no tenant row yet, the first owner-tier key
   // wins — we self-register the install with the control plane.
-  const cache = readInstallCache();
-  const isFirstOwner = !cache || !cache.tenantId;
+  const isFirstOwner = !(await installStatus()).hasTenant;
 
   if (isFirstOwner) {
-    let registered: TenantContext;
+    // Registers upstream (or from the bundle) and writes install_cache in
+    // the current mode.
     try {
-      registered = await registerInstall(licenseKey);
+      await registerInstall(licenseKey);
     } catch (e) {
       console.error("[signup] register-install failed", e);
       // Transport failure with no bundle loaded → the install genuinely has
@@ -111,18 +112,17 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
       // 503 so the frontend can surface the "Import a bundle at
       // /airgap-setup" CTA. Any other failure (control plane responded but
       // rejected the key, e.g. 400/404) keeps the original 400 path.
-      if (isNetworkFailure(e) && !isBundleDriven()) {
+      if (isNetworkFailure(e) && !(await installStatus()).bundlePresent) {
         return json({ ok: false, error: "control_plane_unreachable_no_bundle" }, { status: 503 });
       }
       throw error(400, "could not register install with the control plane");
     }
-    writeInstallCache(registered, isBundleDriven() ? "airgap" : "online");
   }
 
   // Verify the membership license against the (now-registered) install.
-  let verified: Awaited<ReturnType<typeof verifyMembershipLicense>>;
+  let verified: VerifyResult;
   try {
-    verified = await verifyMembershipLicense(licenseKey, email);
+    verified = await signupCheck(licenseKey, email);
   } catch (e) {
     console.error("[signup] verify-membership-license failed", e);
     // Symmetric with the register-install branch above: a transport failure
@@ -130,7 +130,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
     // the control plane. For non-first-owner signups this should be rare
     // (an established install would already have an active bundle or
     // working network), so fall through to the existing error semantics.
-    if (isFirstOwner && isNetworkFailure(e) && !isBundleDriven()) {
+    if (isFirstOwner && isNetworkFailure(e) && !(await installStatus()).bundlePresent) {
       return json({ ok: false, error: "control_plane_unreachable_no_bundle" }, { status: 503 });
     }
     throw error(500, "could not verify membership license");
@@ -165,24 +165,16 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
     throw error(500, "signup succeeded but Better Auth response had no user id");
   }
 
-  if (findByUserId(userId)) {
-    return authResponse;
-  }
-
   try {
-    const bound = await bindMember({
+    // Nothing when the user already has a row; otherwise bind upstream
+    // (authenticated by this key on the first-owner signup) and record the
+    // member_license row, `is_owner` for the first owner.
+    await bindMember({
       licenseKey,
-      containerUserId: userId,
+      userId,
       email,
       role: verified.role,
-      ...(isFirstOwner ? { authKey: licenseKey } : {}),
-    });
-    insertMemberLicense({
-      userId,
-      licenseKey,
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: bound.tenantMemberId,
-      isOwner: isFirstOwner,
+      firstOwner: isFirstOwner,
     });
   } catch (e) {
     console.error("[signup] post-signup binding failed, rolling back user", e);

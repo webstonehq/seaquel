@@ -22,6 +22,29 @@ use seaquel_sql::read_only::read_only_error;
 use seaquel_sql::SqlEngine;
 pub use seaquel_types::{StreamEvent, Value};
 
+// `browser` is the wasm32 build for the web page: no native engine or
+// infrastructure may come with it. Build it with `--no-default-features`.
+#[cfg(all(
+    feature = "browser",
+    any(
+        feature = "engine-postgres",
+        feature = "engine-mysql",
+        feature = "engine-sqlite",
+        feature = "engine-mssql",
+        feature = "engine-duckdb",
+        feature = "storage",
+        feature = "secrets",
+        feature = "ssh",
+        feature = "git",
+        feature = "license-desktop",
+        feature = "license-server",
+    )
+))]
+compile_error!(
+    "seaquel-core's `browser` feature can't be combined with an engine or native infrastructure \
+     feature; build it with --no-default-features --features browser"
+);
+
 mod workspace;
 pub use workspace::{CoreError, Workspace, WorkspaceSpec, DESKTOP_STORAGE_FILE};
 
@@ -34,6 +57,20 @@ pub use seaquel_storage as storage;
 /// which may not depend on them directly.
 #[cfg(feature = "secrets")]
 pub use seaquel_secrets as secrets;
+
+/// Git for shared projects (`seaquel-git`).
+#[cfg(feature = "git")]
+pub mod git;
+
+/// Licensing (`seaquel-license`): the desktop activation client and the web
+/// server's license gate.
+#[cfg(any(feature = "license-desktop", feature = "license-server"))]
+pub mod license;
+
+/// SSH tunnels (`seaquel-ssh`), owned by Core: [`Core::ssh_open`] and
+/// [`Core::ssh_close`].
+#[cfg(feature = "ssh")]
+pub mod ssh;
 
 type StreamTokens = Mutex<HashMap<String, StreamEntry>>;
 
@@ -67,11 +104,16 @@ pub struct Core {
     /// Cancellation tokens of running streams, keyed by the client's query id.
     streams: StreamTokens,
     next_stream: AtomicU64,
+    /// Open SSH tunnels; dropping Core closes them.
+    #[cfg(feature = "ssh")]
+    tunnels: ssh::TunnelManager,
 }
 
 #[derive(Default)]
 pub struct CoreBuilder {
     engines: EngineRegistry,
+    #[cfg(feature = "ssh")]
+    ssh: ssh::TunnelOptions,
 }
 
 impl CoreBuilder {
@@ -86,35 +128,47 @@ impl CoreBuilder {
             connections: RwLock::default(),
             streams: Mutex::default(),
             next_stream: AtomicU64::new(0),
+            #[cfg(feature = "ssh")]
+            tunnels: ssh::TunnelManager::new(self.ssh),
         }
     }
 }
 
 /// A builder with every plugin this build's Cargo features enable.
 pub fn with_default_plugins() -> CoreBuilder {
-    #[allow(unused_mut)]
+    with_plugins(|_| true)
+}
+
+/// A builder with the plugins this build's Cargo features enable whose
+/// engine id `allow` accepts. An interface that must never offer some
+/// engine (the web server and SQLite or DuckDB, which read and write the
+/// server's files) registers through this, so the rule holds even when
+/// Cargo's feature unification compiles those engines in (a workspace test
+/// build): Core refuses a driver it has no engine for.
+pub fn with_plugins(allow: impl Fn(&str) -> bool) -> CoreBuilder {
     let mut builder = Core::builder();
-    #[cfg(feature = "engine-postgres")]
-    {
-        builder = builder.engine(seaquel_engine_postgres::engine());
-    }
-    #[cfg(feature = "engine-mysql")]
-    {
-        builder = builder.engine(seaquel_engine_mysql::engine());
-    }
-    #[cfg(feature = "engine-sqlite")]
-    {
-        builder = builder.engine(seaquel_engine_sqlite::engine());
-    }
-    #[cfg(feature = "engine-mssql")]
-    {
-        builder = builder.engine(seaquel_engine_mssql::engine());
-    }
-    #[cfg(feature = "engine-duckdb")]
-    {
-        builder = builder.engine(seaquel_engine_duckdb::engine());
+    for engine in compiled_engines() {
+        if allow(engine.id()) {
+            builder = builder.engine(engine);
+        }
     }
     builder
+}
+
+/// The engines this build's Cargo features compile in.
+fn compiled_engines() -> Vec<Arc<dyn Engine>> {
+    vec![
+        #[cfg(feature = "engine-postgres")]
+        seaquel_engine_postgres::engine(),
+        #[cfg(feature = "engine-mysql")]
+        seaquel_engine_mysql::engine(),
+        #[cfg(feature = "engine-sqlite")]
+        seaquel_engine_sqlite::engine(),
+        #[cfg(feature = "engine-mssql")]
+        seaquel_engine_mssql::engine(),
+        #[cfg(feature = "engine-duckdb")]
+        seaquel_engine_duckdb::engine(),
+    ]
 }
 
 /// How [`Core::query_stream`] runs a query. Build it from
@@ -588,6 +642,16 @@ mod tests {
         for id in with_default_plugins().build().engine_ids() {
             assert!(sql_engine(id).is_some(), "{id} has no token rules");
         }
+    }
+
+    #[test]
+    fn with_plugins_registers_only_the_engines_it_allows() {
+        let web = |id: &str| id != "sqlite" && id != "duckdb";
+        let all = with_default_plugins().build().engine_ids();
+        let some = with_plugins(web).build().engine_ids();
+        let expected: Vec<_> = all.into_iter().filter(|id| web(id)).collect();
+        assert_eq!(some, expected);
+        assert!(with_plugins(|_| false).build().engine_ids().is_empty());
     }
 
     #[test]

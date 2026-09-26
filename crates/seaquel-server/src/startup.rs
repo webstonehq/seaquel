@@ -132,9 +132,75 @@ pub fn raise_nofile_limit() -> Option<NofileLimit> {
     None
 }
 
+/// The env var `server.js` passes the per-boot `/internal/*` secret in.
+pub const INTERNAL_SECRET_ENV: &str = "SEAQUEL_INTERNAL_SECRET";
+
+/// Read the `/internal/*` secret and remove it from this process's
+/// environment, so nothing running in-process later (an engine's own
+/// functions) can read it back. Call before serving.
+pub fn take_internal_secret() -> Option<String> {
+    let secret = std::env::var(INTERNAL_SECRET_ENV)
+        .ok()
+        .filter(|s| !s.is_empty());
+    std::env::remove_var(INTERNAL_SECRET_ENV);
+    secret
+}
+
+/// Where `HOME` points once [`scrub_database_client_env`] has run: a path
+/// that doesn't exist and only root could create (as `server.js` sets it).
+pub const NO_HOME: &str = "/nonexistent";
+
+/// A variable a database client library takes defaults from: libpq's
+/// (`PGPASSWORD`, `PGUSER`, `PGHOST`, `PGSSLKEY`, `PGPASSFILE`, …, which sqlx
+/// reads) and MySQL's (`MYSQL_PWD`, `MYSQL_HOST`, …).
+pub fn is_database_client_var(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    upper.starts_with("PG") || upper.starts_with("MYSQL")
+}
+
+/// Remove every [`is_database_client_var`] from this process's environment
+/// and point `HOME` at [`NO_HOME`], returning the names removed.
+///
+/// A web user's Postgres URL without a password would otherwise get the
+/// operator's `PGPASSWORD` or a `~/.pgpass` entry, and one without a host,
+/// user or TLS files the operator's `PG*` defaults. `server.js` already
+/// passes an allow-listed environment; this covers running the binary any
+/// other way (`npm run rust:dev`). Call first in `main`, like
+/// [`take_internal_secret`].
+pub fn scrub_database_client_env() -> Vec<String> {
+    let names: Vec<String> = std::env::vars_os()
+        .filter_map(|(name, _)| name.into_string().ok())
+        .filter(|name| is_database_client_var(name))
+        .collect();
+    for name in &names {
+        std::env::remove_var(name);
+    }
+    std::env::set_var("HOME", NO_HOME);
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn database_client_vars_are_recognised() {
+        for name in [
+            "PGPASSWORD",
+            "PGPASSFILE",
+            "PGUSER",
+            "PGHOST",
+            "PGSSLKEY",
+            "pgpassword",
+            "MYSQL_PWD",
+            "MYSQL_HOST",
+        ] {
+            assert!(is_database_client_var(name), "{name}");
+        }
+        for name in ["PATH", "DATA_DIR", "SEAQUEL_CONTROL_URL", "HOME", "TZ"] {
+            assert!(!is_database_client_var(name), "{name}");
+        }
+    }
 
     #[test]
     fn loopback_binds_are_allowed() {

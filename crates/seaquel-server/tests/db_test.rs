@@ -5,13 +5,13 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{post_json, temp_sqlite};
-use seaquel_server::{build_router, AppState};
+use seaquel_server::build_router;
 use serde_json::json;
 
 #[tokio::test]
 async fn test_valid_sqlite_config_returns_200() {
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(
         app,
@@ -28,7 +28,7 @@ async fn test_valid_sqlite_config_returns_200() {
 async fn test_missing_connection_string_returns_bad_gateway() {
     // SQLite driver requires connection_string. Passing none triggers
     // DbError::connection_error which maps to 502.
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(app, "/api/db/test", json!({ "driver": "sqlite" })).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "body={body}");
@@ -41,7 +41,7 @@ async fn test_does_not_register_connection() {
     // manager. We can't observe the manager directly from outside, but we can
     // check that no connection_id was returned in the response body.
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(
         app,
@@ -62,7 +62,7 @@ async fn test_does_not_register_connection() {
 async fn test_missing_sqlite_file_is_not_created() {
     // A mistyped path must fail rather than silently creating an empty database.
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(
         app,
@@ -80,7 +80,7 @@ async fn test_create_if_missing_creates_file_and_directory() {
     let (_, tmp) = temp_sqlite();
     let dir = tmp.with_extension("d");
     let db = dir.join("nested").join("new.sqlite");
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     let (status, body) = post_json(
         app,

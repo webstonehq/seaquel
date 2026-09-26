@@ -1,20 +1,18 @@
 import type { PageServerLoad } from "./$types";
-import { readInstallCache } from "$lib/server/license-cache";
-import { readActiveBundle } from "$lib/server/airgap/bundle-store";
+import { airgapStatus } from "$lib/server/license-client";
 
 export const prerender = false;
 
 export const load: PageServerLoad = async ({ locals }) => {
-  const cache = readInstallCache();
-  const bundle = await readActiveBundle();
-  const nowSec = Math.floor(Date.now() / 1000);
+  const status = await airgapStatus(null);
+  const bundle = status.bundle;
   const bundlePresent = !!bundle;
-  const bundleExpired = !!(bundle && nowSec > bundle.payload.not_after);
-  const bundleNotAfter = bundle ? new Date(bundle.payload.not_after * 1000).toISOString() : null;
+  const bundleExpired = !!bundle?.expired;
+  const bundleNotAfter = bundle ? new Date(bundle.notAfter * 1000).toISOString() : null;
   return {
-    lastValidatedAt: cache?.lastValidatedAt ?? null,
-    graceUntil: cache?.graceUntil ?? null,
-    mode: cache?.mode ?? "online",
+    lastValidatedAt: status.lastValidatedAt,
+    graceUntil: status.graceUntil,
+    mode: status.mode,
     bundlePresent,
     bundleExpired,
     bundleNotAfter,

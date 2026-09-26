@@ -10,13 +10,19 @@
  *      so this has to happen in the underlying http server.
  *
  * All run in one Node process, in one container, behind one public port.
+ *
+ * Nothing here forwards `/internal/*` (the Rust service's licensing routes,
+ * which trust whatever user id they're given): the WebSocket proxy matches
+ * `/api/db/stream` exactly, and the SvelteKit proxies forward fixed paths.
  */
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { handler } from "./build-web/handler.js";
 import { unscopeConnectionId } from "./shared/connection-scope.js";
+import { rustEnv } from "./shared/rust-env.js";
 import { CLIENT_IP_HEADER, parseTrustedProxies, resolveClientIp } from "./shared/client-ip.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -28,12 +34,25 @@ const RUST_WS_URL = RUST_URL.replace(/^http/, "ws") + "/api/db/stream";
 // 1. Spawn the Rust subprocess.
 // ---------------------------------------------------------------------------
 
+// The per-boot secret the Rust service requires on /internal/* (licensing),
+// as defense in depth on top of the loopback-only check: loopback alone
+// doesn't prove the caller is this process (anything else running on the
+// host, or a database feature that makes HTTP requests from inside the
+// service, would also connect from loopback). A new one every start; the
+// license client (src/lib/server/license-client.ts) reads it from this
+// process's environment. Rust removes it from its own.
+const INTERNAL_SECRET = randomBytes(32).toString("hex");
+process.env.SEAQUEL_INTERNAL_SECRET = INTERNAL_SECRET;
+
+// An allow-listed environment, never all of Node's: sqlx would take a
+// self-hoster's PGPASSWORD, PG* defaults or ~/.pgpass for web users'
+// connections (see shared/rust-env.js).
 const rust = spawn(RUST_BIN, [], {
   stdio: "inherit",
-  env: {
-    ...process.env,
+  env: rustEnv(process.env, {
     BIND_ADDR: "127.0.0.1:8788",
-  },
+    SEAQUEL_INTERNAL_SECRET: INTERNAL_SECRET,
+  }),
 });
 
 rust.on("exit", (code) => {

@@ -152,6 +152,8 @@ export interface RepoStatus {
   modifiedFiles: string[];
   /** List of untracked files */
   untrackedFiles: string[];
+  /** Files with unresolved merge conflicts (not in `modifiedFiles`) */
+  conflictFiles: string[];
 }
 
 /**

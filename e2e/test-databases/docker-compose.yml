@@ -19,6 +19,13 @@
 #   below (or override both here and there) when seeding sqlserver.
 # - On Apple Silicon the SQL Server image runs via Rosetta emulation
 #   (platform: linux/amd64). It works, just slower on first boot.
+# - `ssh` is the bastion for the SSH tunnel tests (crates/seaquel-ssh/tests):
+#   user `seaquel` logs in with the password below or with the fixture keys
+#   in ./ssh (id_ed25519, and id_ed25519_passphrase with the passphrase
+#   `seaquel-test-passphrase`). The image runs sshd as that one user, so there
+#   is no second account. ./ssh/init adds the keys and turns on forwarding.
+#   It reaches Postgres as `postgres` on this network. Run the tests with
+#   SEAQUEL_TEST_SSH='{"host":"127.0.0.1","port":2222,"remote_host":"postgres","remote_port":5432}'
 
 name: seaquel-test-databases
 
@@ -93,6 +100,33 @@ services:
       timeout: 10s
       retries: 30
       start_period: 30s
+    restart: unless-stopped
+
+  ssh:
+    # Pinned: the init script edits this image's sshd_config. Keep in step
+    # with the SSH step in .github/workflows/ci.yml.
+    image: lscr.io/linuxserver/openssh-server:10.2_p1-r0-ls216
+    container_name: seaquel-ssh
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      USER_NAME: seaquel
+      USER_PASSWORD: seaquel-test-password
+      PASSWORD_ACCESS: "true"
+    ports:
+      # Loopback only: the password and keys are public.
+      - "127.0.0.1:2222:2222"
+    volumes:
+      - ./ssh/init:/custom-cont-init.d:ro
+      - ./ssh:/seaquel-keys:ro
+    depends_on:
+      - postgres
+    healthcheck:
+      # Ready when sshd sends its banner (the port opens a little earlier).
+      test: ["CMD-SHELL", "nc -w 2 localhost 2222 </dev/null | grep -q '^SSH-'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
 volumes:

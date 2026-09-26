@@ -48,7 +48,7 @@
  *                             PROD_TRUSTED_PUBKEYS snippet and the seed go to
  *                             stderr. Use this when baking a production
  *                             signing key's public half into
- *                             `src/lib/server/airgap/bundle-store.ts`, where
+ *                             `crates/seaquel-license/src/server/airgap/bundle_store.rs`, where
  *                             the private seed lives as a Cloudflare Worker
  *                             secret on seaquel-app and never touches a
  *                             bundle minted here.
@@ -64,8 +64,8 @@ import {
   canonicalize,
   fingerprintPubkey,
   type CanonicalValue,
-} from "../src/lib/server/airgap/canonical.ts";
-import type { BundlePayload, SignedEnvelope } from "../src/lib/server/airgap/types.ts";
+} from "./airgap/canonical.ts";
+import type { BundlePayload, SignedEnvelope } from "./airgap/types.ts";
 
 interface CliArgs {
   "seed-hex"?: string;
@@ -195,11 +195,13 @@ async function main(): Promise<void> {
     stderr.write(`\nTrust anchor:\n`);
     stderr.write(`  fingerprint  ${fingerprint}\n`);
     stderr.write(`  pubkeyHex    ${bytesToHex(pubkey)}\n`);
-    stderr.write(`\nPaste into PROD_TRUSTED_PUBKEYS in src/lib/server/airgap/bundle-store.ts:\n`);
-    stderr.write(`  {\n`);
-    stderr.write(`    fingerprint: "${fingerprint}",\n`);
-    stderr.write(`    pubkeyHex: "${bytesToHex(pubkey)}",\n`);
-    stderr.write(`  },\n`);
+    stderr.write(
+      `\nPaste into PROD_TRUSTED_PUBKEYS in crates/seaquel-license/src/server/airgap/bundle_store.rs:\n`,
+    );
+    stderr.write(`  (\n`);
+    stderr.write(`    "${fingerprint}",\n`);
+    stderr.write(`    "${bytesToHex(pubkey)}",\n`);
+    stderr.write(`  ),\n`);
     if (!args["seed-hex"]) {
       stderr.write(`\nGenerated seed — this is the private half. Store it as the\n`);
       stderr.write(`SEAQUEL_BUNDLE_SIGNING_PRIVATE_KEY secret on seaquel-app; never commit it:\n`);

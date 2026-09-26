@@ -18,8 +18,12 @@ storage = ["dep:seaquel-storage"]
 secrets = ["dep:seaquel-secrets"]
 ssh = ["dep:seaquel-ssh"]
 git = ["dep:seaquel-git"]
-license-desktop = ["dep:seaquel-license"]
-license-server = ["dep:seaquel-license"]
+license-desktop = ["dep:seaquel-license", "seaquel-license/desktop"]
+license-server = ["dep:seaquel-license", "seaquel-license/server"]
+# The wasm32 build for the browser (phase 8's Core in the web page): no
+# engines and no infrastructure, only what builds for wasm32-unknown-unknown.
+# CI checks it with --no-default-features --features seaquel-core/browser.
+browser = []
 
 [dependencies]
 seaquel-engine = { path = "../seaquel-engine" }
@@ -42,9 +46,14 @@ log = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 
+# Connection ids are v4 UUIDs; in the browser their randomness comes from
+# crypto.getRandomValues.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+uuid = { workspace = true, features = ["js"] }
+
 [dev-dependencies]
 # Turns on the workspace features for this crate's own tests
 # (tests/workspace.rs), so `cargo test -p seaquel-core` runs them.
-seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets"] }
+seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

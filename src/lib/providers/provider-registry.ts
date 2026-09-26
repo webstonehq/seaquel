@@ -24,8 +24,9 @@ export class ProviderRegistry {
    * Lazily initializes and caches provider instances.
    */
   async getForType(_dbType: string): Promise<DatabaseProvider> {
-    // Tauri and Web both have a single unified provider that handles every
-    // driver (the server or Rust sidecar dispatches internally).
+    // Tauri and Web each have one provider for every driver they offer: the
+    // embedded Rust core, or seaquel-server (which has no SQLite or DuckDB;
+    // ConnectionManager refuses those types on web before reaching here).
     if (isTauri() || isWeb()) {
       return this.getOrCreateDefault();
     }
@@ -45,7 +46,7 @@ export class ProviderRegistry {
   }
 
   /**
-   * Get or create the DuckDB provider (WASM in demo, HTTP in web, Tauri on desktop).
+   * Get or create the DuckDB provider (Tauri on desktop, WASM in the browser).
    */
   async getOrCreateDuckDB(): Promise<DatabaseProvider> {
     if (!this.duckdbProvider) {

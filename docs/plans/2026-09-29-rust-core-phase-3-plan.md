@@ -24,6 +24,8 @@ Each has a recommendation, and the plan is written as if the recommendation is t
 
 **Answered (2026-09-29):** the owner took all three recommendations: two ship points, connection ownership in phase 5, and typed storage calls. Execution is subagent-driven.
 
+**Part 1 checkpoint (2026-09-26):** full check list green; the owner's manual checks passed. Part 2 started.
+
 1. **Ship in two parts?** Phase 3 touches five subsystems plus licensing and is the largest phase so far. **Recommendation: two ship points.**
    - **Part 1 (Tasks 1–9)** is storage, secrets, the workspace and the RPC. The app then ships with no SQL crossing from the webview to its own database.
    - **Part 2 (Tasks 10–15)** is SSH, git, licensing and the wasm32 build.
@@ -161,7 +163,7 @@ The design's `data_version` polling and `StorageChanged` event are deferred to p
 
 ### 8. SSH
 
-- **`seaquel-ssh`** takes over `ssh_tunnel.rs`: the `TunnelConfig`, the host-key check and trust-on-first-use (`UNKNOWN_HOST_KEY` with the fingerprint, then a retry with `trust_new_host_key`, and `HOST_KEY_MISMATCH` never auto-accepted), the 30 s connect timeout, and password or key-file auth.
+- **`seaquel-ssh`** takes over `ssh_tunnel.rs`: the `TunnelConfig`, the host-key check and trust-on-first-use (`UNKNOWN_HOST_KEY` with the fingerprint, then a retry with `trustHostKey` pinned to that fingerprint (see the Task 10 review findings below), and `HOST_KEY_MISMATCH` never auto-accepted), the 30 s connect timeout, and password or key-file auth.
   - The known_hosts path is a field (default `~/.ssh/known_hosts`) so tests use a temp file.
   - russh stays at 0.48. An upgrade is a follow-up, not part of a move.
 - **Core owns the `TunnelManager`** behind an `ssh` feature. The RPC is `Ssh::Open { config } -> { tunnel_id, local_port }` and `Ssh::Close { tunnel_id }`.
@@ -169,6 +171,12 @@ The design's `data_version` polling and `StorageChanged` event are deferred to p
 - **Unchanged:** `connection-manager.svelte.ts` keeps the tunnel lifecycle (connect, reconnect, test, disconnect). Moving it into `ConnectionService` is phase 5.
 - **Removed:** `check_tunnel_status` and `list_active_tunnels`, which have no callers.
 - **Web stays without SSH.** `features/index.ts` keeps it off there; see Follow-ups.
+
+**Task 10 review findings (2026-09-26):**
+
+- **The trust retry pins the fingerprint.** `trust_new_host_key: bool` became `trustHostKey: Option<String>`: the `SHA256:…` fingerprint the user approved in the prompt. The retry records an unknown key only if its fingerprint is exactly that one; any other key fails with `UNKNOWN_HOST_KEY` and its own fingerprint, and nothing is written. Before, the retry was a second connection that recorded whatever key it met, so an attacker who appeared between the prompt and the retry got recorded.
+- **`/rpc` never opens tunnels.** `dispatch_workspace` answers `NOT_SUPPORTED` for `Ssh` unconditionally, as for Git and License. Keying it on the `ssh` feature wasn't enough: Cargo unifies features, and `cargo test --workspace` already built `seaquel-server` with real tunnels. Only the desktop's `dispatch_ssh` serves the group.
+- **A key of a new algorithm is "unknown", not a mismatch.** russh's `check_known_hosts_path` compares only recorded keys of the presented key's algorithm. If known_hosts holds only an RSA key for a host and the server now presents Ed25519 (russh prefers it), the user sees a first-use prompt, not `HOST_KEY_MISMATCH`. Pinning the fingerprint doesn't change that: it guarantees the recorded key is the one the user was shown, not that the user was told the host was already known under another key. It still matters, but only as far as a user approves a fingerprint without checking it. Treating "other algorithms recorded" as a mismatch would break hosts first recorded by OpenSSH with a different preferred algorithm, so it stays as is. A prompt that says "this host is known under another key type" is a follow-up with the russh upgrade.
 
 ### 9. Git
 
@@ -215,6 +223,24 @@ Two modules that share little, as the map found.
   - `browser` enables none of them and no engines.
 - **`seaquel-rpc` keeps every variant in every build** so the generated TS types don't depend on features. A variant whose feature is off returns `NOT_SUPPORTED`.
 - **CI adds** `cargo clippy --target wasm32-unknown-unknown -p seaquel-core -p seaquel-rpc --no-default-features --features seaquel-core/browser -- -D warnings`.
+
+### 11b. SQLite and DuckDB are off on web (2026-09-26)
+
+The Task 13 review turned up a hole in the self-hosted web build that is older than this phase, and a probe confirmed it. A signed-in web user could open a SQLite or DuckDB connection on any server path. Neither Node nor Rust checked the engine or the path, and DuckDB's external access was on. That exposed:
+
+- `auth.db`, which holds sessions, license keys and emails;
+- every other user's `meta.db`;
+- any file the server user can read, through DuckDB's `read_*`, `sqlite_scan` and `ATTACH`;
+- file writes, through `COPY TO` and new SQLite files.
+
+**Owner decision: disable both engines on web.** `seaquel-server` is built without `engine-sqlite` and `engine-duckdb`, so Core refuses the driver server-side. The web wizard hides both cards. The fix ships with phase 3, not as a separate patch. A confined per-user file area is a follow-up, if anyone asks for it.
+
+**Task 14 findings (2026-09-26):**
+
+- **Features alone don't hold the rule.** `seaquel-server` builds Core with `default-features = false` and only `engine-postgres`, `engine-mysql` and `engine-mssql`, but `cargo test --workspace` unifies features and compiles SQLite and DuckDB back in. So the server's Core registers engines by id: `seaquel_core::with_plugins(|id| WEB_ENGINES.contains(&id))`, with `WEB_ENGINES = ["postgres", "mysql", "mssql"]` (MariaDB connects as `mysql`). Core refuses any other driver on `/api/db/connect` and `/api/db/test` with `ENGINE_NOT_AVAILABLE` (now 400), whatever was compiled in; `tests/web_engines.rs` checks it in the unified build. Node's `/api/db/[...path]` refuses the same drivers first, with the same error body.
+- **The web tutorial ran on the server's DuckDB.** `getDuckDBProvider()` returned the HTTP provider on web, so the query-builder tutorial opened an in-memory DuckDB on the server (which can read any file). It now uses DuckDB-WASM in the page on web, as the demo does. That loads the WASM bundle from jsDelivr, so an air-gapped self-hosted install has no tutorial.
+- **The UI.** `sqliteSupport` and `duckdbSupport` are off on web. The wizard offers `availableDatabaseTypes()`, the connection-string parser refuses a `sqlite:`/`duckdb:` string with the reason, and `ConnectionManager.add`/`reconnect`/`test` throw it before any provider call, so a SQLite or DuckDB connection saved on desktop fails cleanly in a web workspace (`autoReconnect` shows it as an error toast). DBeaver/TablePlus import, file drop, deep links and shared projects are desktop-only already.
+- **The image.** The stripped server binary went from 47.6 MB to 14.4 MB and no longer links libstdc++ (DuckDB). Neither build linked OpenSSL, so the runtime stage drops `libssl3`.
 
 ### 12. Crate rules
 
@@ -609,6 +635,8 @@ The TypeScript is the spec. Record what it does before anything replaces it, as 
 - **Effort log:** the totals.
 - **Checkpoint.**
 
+**Status (Task 15):** done. CLAUDE.md, README.md, the design doc's status line, its as-built notes and "Phase 3 cost", the execution notes and release notes below and the effort log's totals are written. Two items above changed: self-hosters do have changes (Decision 11b, the environment allow-list, proxies, the 503 page; see the release notes), and CLAUDE.md's release steps name the root `Cargo.lock`, since `src-tauri/Cargo.lock` is ignored by Cargo (Follow-ups). The full check list passed. The Part 2 manual checks below are not run yet.
+
 ---
 
 ## Manual checks
@@ -623,18 +651,112 @@ For the owner. Desktop is `npm run tauri:dev`, web is `npm run dev:web:full`, an
 - **Demo.** Save a query, reload, and it's still there (sql.js path).
 - **Editing.** Tabs, split panes, starred items and a theme change all persist across a restart.
 
-**Part 2 (after Task 15):**
+**Part 2 (after Task 15).** Not run yet. The test containers are `npm run e2e:db:up`; the SSH one is user `seaquel`, password `seaquel-test-password`, on `127.0.0.1:2222`, and reaches Postgres as `postgres:5432`.
 
-- **SSH.** Connect through a real bastion, including a first-time host-key prompt. Disconnecting ends the tunnel (`lsof -i` shows the local port gone).
-- **Git.** Clone a shared repo over SSH and over HTTPS with a token, sync, make a conflict and resolve it.
-- **Desktop license.** Activate, restart (it validates), deactivate.
-- **Web license.** First-owner signup, member signup, revoke, suspend, air-gap bundle upload and clear.
+- **SSH trust prompt (desktop).** Add a Postgres connection through the SSH container (or a real bastion not yet in `~/.ssh/known_hosts`). The prompt shows a `SHA256:` fingerprint; it matches `ssh-keyscan -p 2222 127.0.0.1 2>/dev/null | ssh-keygen -lf -`. Approve: it connects, and `grep '127.0.0.1\]:2222' ~/.ssh/known_hosts` shows the key. Reconnect: no prompt. Change a character of that key in `known_hosts` and reconnect: a host-key mismatch error and no prompt. Remove the line afterwards.
+- **SSH close (desktop).** While connected, `lsof -nP -iTCP -sTCP:LISTEN | grep -i seaquel` lists the tunnel's local port. Switch the connection off: the port is gone, and `docker exec seaquel-postgres psql -U postgres -c "select count(*) from pg_stat_activity where client_addr is not null"` drops.
+- **Git conflict round trip (desktop).** `git init --bare /tmp/sq-origin.git && git clone /tmp/sq-origin.git /tmp/sq-other && git -C /tmp/sq-other commit --allow-empty -m init && git -C /tmp/sq-other push origin HEAD`. Add `/tmp/sq-origin.git` as a shared repo, save a query into it and sync. Edit that query's file in `/tmp/sq-other`, commit and push; edit the same query in the app and sync: the conflict is listed with both sides. Restart the app: it's still listed. Resolve it and sync: the push succeeds, and `git -C /tmp/sq-other pull && git -C /tmp/sq-other log --graph --oneline -4` shows a merge commit with two parents. Also clone a real repo over SSH and over HTTPS with a token; with a wrong token, sync fails once with an auth error instead of hanging.
+- **Desktop license.** Activate, restart (it validates), deactivate. If you're behind a proxy, activation still works through it.
+- **Web: SQLite and DuckDB refused.** `npm run dev:web:full`, signed in: the wizard offers PostgreSQL, MySQL, MariaDB and SQL Server only, and a pasted `sqlite:///etc/passwd` connection string is refused with the reason. Directly: `curl -s -X POST 127.0.0.1:8788/api/db/connect -H 'content-type: application/json' -d '{"driver":"sqlite","connection_string":"sqlite:///etc/passwd"}'` gives `ENGINE_NOT_AVAILABLE`, and `-d '{"driver":"postgres","connection_string":"postgres://u@h/db?sslkey=/etc/passwd"}'` gives `CONNECTION_OPTION_NOT_ALLOWED`.
+- **Web tutorial.** Open the SQL tutorial and pass one lesson. In the network tab the DuckDB `.wasm` and worker come from the app's own origin, with no request to `cdn.jsdelivr.net`. In the demo (`npm run dev:demo`) they still come from jsDelivr.
+- **Web: `/internal` needs the secret.** `curl -si 127.0.0.1:8788/internal/license/install` and the same with `-H 'x-seaquel-internal: wrong'` both give 403. `curl -si localhost:5173/internal/license/install` never returns Rust's JSON (Node doesn't forward it).
+- **Web: license service down.** Stop `dev:web:full` and run `npm run dev:web` alone (no Rust). `curl -si localhost:5173/login` gives 503 with the "Seaquel is unavailable" page, `curl -si -X POST localhost:5173/api/rpc` gives 503 `{"code":"license_service_unavailable"}`, and `curl -si localhost:5173/health` gives 200.
+- **Web license.** First-owner signup, member signup, revoke, suspend, air-gap bundle upload and clear (README, "Air-gapped mode", on a `docker build` image).
+
+---
+
+## Execution notes (2026-09-26)
+
+The plan was executed task by task, in two parts with the owner's checkpoint between them, with a review after each task and usually a round of review fixes. Tasks 1–2, 3–5 and 10–13 ran partly in parallel. Where the result departs from the text above, the repo is authoritative; the findings blocks under Decisions 2, 3, 8, 11 and 11b record the changes as they were made. Per-task times and surprises are in `2026-09-29-phase-3-effort.md`. The measured cost is in the design doc ("Phase 3 cost").
+
+**What went differently from the plan**
+
+- **The storage baseline creates tables before it adds columns** (Task 2 recording, Task 3). Today's `upgradeSchema` can't open a `v2026.4.5-beta.1` file and has left each one half-upgraded on every launch since `v2026.4.8`. The Rust baseline upgrades it to the same structure as a beta.1 file taken through `v2026.4.5`, data included. Files that started on beta.1 keep a nullable `project_id` with no foreign key on `saved_queries` and `dashboards`; that stays.
+- **Data steps instead of migration 0001** (Task 4 review). The password cleanup as SQL was quadratic (280 s on the review's input), truncated at NUL bytes and could never be fixed after shipping, since sqlx checksums migration files. It became a Rust data step recorded in `_seaquel_data_steps`, and `migrations/` is still empty. The migrator ignores versions it doesn't know (`set_ignore_missing(true)`), so migrations must be expand-only (`migrations/README.md`).
+- **Byte-exact JSON shaped the RPC** (Tasks 4 and 6). Stored JSON columns are `RawValue`s so they stay byte-identical, which means `method` must come before `params`, and `core_call` takes the raw bytes of a `Uint8Array` (a JS object would reach Rust as a `serde_json::Value`, which sorts keys).
+- **The desktop opens storage lazily** (Task 6 review), on the first storage call. `LEGACY_STORAGE`, `STORAGE_CORRUPT` and `NO_DATA_DIR` are kept and block the app (Task 9's screen); other failures retry. Secret, SSH, git and license calls don't need storage, so the desktop routes them to `dispatch_secret`, `dispatch_ssh`, `dispatch_git` and `dispatch_license`, and `dispatch_workspace` refuses them.
+- **Saves refuse after a failed load** (Task 9 review). Before, a failed load followed by any save replaced the collection with the empty one in memory. Not in the plan; see `load-guard.ts` and CLAUDE.md.
+- **SSH trust pins the fingerprint** (Task 10 review): `trustHostKey` carries the approved `SHA256:` fingerprint, and only that key is recorded.
+- **Two old git bugs surfaced in the plan's conflict test** (Task 11): the merge commit had one parent and left the merge open, and a push the remote refused reported success. The review added a cap on credential attempts, refused commits while files are conflicted, and `GitRepoStatus.conflict_files`.
+- **The license port needed JavaScript's semantics throughout** (Task 13): numbers as `f64`, `atob`, `TextDecoder`, `parseInt`, `toISOString` and UTF-16 sort order, so canonical JSON and the bundle checks match `canonical.ts` byte for byte. The e2e cases moved to `crates/seaquel-server/tests/internal_license.rs`, since starting the Rust binary from vitest meant compiling the server with DuckDB. Session purging runs in Node after Rust's transaction commits.
+- **`/internal/*` needs a per-boot secret as well as loopback** (Task 13 review). A query running inside the Rust process also connects from loopback. `server.js` generates `SEAQUEL_INTERNAL_SECRET`; `npm run dev:web:full` wraps `scripts/with-internal-secret.mjs`.
+- **The Rust HTTP client isn't Node's fetch** (Tasks 12 and 13 reviews). `reqwest::Client::new()` panics on a broken OS certificate store, so both clients build lazily with a fallback (`http.rs`). The server's client adds `NODE_EXTRA_CA_CERTS` itself, and honours `HTTP(S)_PROXY`/`NO_PROXY`, which Node's fetch ignored.
+- **Decision 11b, not in the plan** (Task 13 review, Task 14). SQLite and DuckDB are off on web. Cargo's feature unification put them back into `seaquel-server` in workspace builds, so the server registers engines by id (`with_plugins`). The Task 14 review then found connection options that name server files or sockets, and the operator's `PG*` variables and `~/.pgpass`, which sqlx reads; `web_config.rs` refuses the first, and `shared/rust-env.js` plus the startup scrub remove the second. The web tutorial moved from the server's DuckDB to DuckDB-WASM served from the image.
+- **The wasm32 build of Core needed almost nothing** (Task 14): `uuid`'s `js` feature and one `cfg`. `browser` plus any native feature is a `compile_error!`.
+
+**Bug fixes per area.** Older than phase 3 unless marked new:
+
+- **Storage and data safety:** beta.1 files not opening (Task 2); the demo losing foreign keys after its first write (Task 2, fixed in Task 8); a startup storage failure giving an empty project and skipping shared repos (Task 9); saves after a failed load wiping projects, shared repos, project state, saved queries, history and AI messages, and `Vault.setup` orphaning every credential (Task 9 review and its fix round); key=value connection strings saved with their password (Decision 13.1, plan research).
+- **Web server and proxy:** the `/api/db` path traversal (Task 7 review); `seaquel-server` had no logger, so every log line was dropped (Task 7 review); a non-loopback `BIND_ADDR` was accepted (Task 7 review).
+- **Web engines:** SQLite and DuckDB file access on the server (Task 13 review); the web tutorial running on the server's DuckDB (Task 14); TLS key and certificate paths, sockets, `PG*` variables and `~/.pgpass` (Task 14 review).
+- **SSH:** close left the session and forwards up (Decision 8, plan research); the trust retry recorded whatever key it met (Task 10 review); a tunnel stayed open after a connection was switched off or failed to connect (Task 10 and its review); `TunnelConfig`'s `Debug` printed the password (Task 10).
+- **Git:** the merge commit and rejected pushes (Task 11); credential loops, commits with conflicts and the empty conflict list after a restart (Task 11 review).
+- **Licensing:** `LicenseResponse`'s `Debug` printed the key and a trailing `/` in the base URL gave `//api` (Task 12); the reqwest panic (Task 12 review, new with rustls); `NODE_EXTRA_CA_CERTS`, the gate cache race, the purge retry, the in-process loopback hole and the payload hash check (Task 13 review, new in the port); a `tenant-info` answer without a tenant id wiping the tenant (Task 13 review, as the TS did).
+
+**Decisions made during execution**
+
+- **Web SQLite and DuckDB are off** (Decision 11b), owner's call, shipped with this phase rather than as a separate patch.
+- **`dispatch_workspace` refuses SSH, git and license unconditionally**, not by feature, so `/rpc` can never reach them whatever Cargo compiled in.
+- **The web image serves DuckDB-WASM itself** (~75 MB), so an air-gapped install has a tutorial. The demo keeps jsDelivr, since its copy lives in the website repo.
+- **`SEAQUEL_DATA_DIR` set to an empty string is ignored**, where `get_data_dir` used to take it as-is.
+- **The keychain service stays `app.seaquel.desktop` in dev builds**, so dev and release share saved passwords, as before.
+- **The version diffs stay in TS** (Task 2): storage executes the prune the TS plans, because diff-match-patch counts UTF-16 units.
+
+**Release notes**
+
+For everyone:
+
+- **Upgrading from a version before 2026.4.5.** This release no longer imports the JSON files those versions kept data in. If it finds them and no `seaquel.db`, it shows a screen that says so and changes nothing. Install any release from 2026.4.5 through 2026.9.x, start it once, then install this one.
+- **Everything else carries over:** saved passwords, SSH settings and known hosts, shared projects, and all projects, queries, dashboards, history and chats.
+- **Data files first created by 2026.4.5-beta.1 open again.** Since 2026.4.8 they failed to upgrade and were left half-upgraded on each launch. This release upgrades them with their data.
+- **A failed load no longer wipes data.** If projects, saved queries, history, an AI chat or the credential vault failed to load at startup, the next save replaced them with an empty list. Those saves are now refused until a load succeeds; a settings change shows the error.
+- **Connection strings in key=value form (`Server=…;Password=…`) are no longer saved with their password.** Only URL-form strings had it removed. Strings already saved are cleaned the first time this release opens your data.
+
+SSH tunnels (desktop):
+
+- **Closing a tunnel ends it.** Before, it only stopped new connections, and the SSH session and open forwards stayed up, so a database client could keep using a "closed" tunnel.
+- **Switching a connection off closes its tunnel and frees the local port.** It used to stay open until the next reconnect. A tunnel is also closed when its connection fails.
+- **Trusting a new host key records the key you were shown.** Trusting used to reconnect and record whichever key the server presented the second time. Now only the key with the fingerprint in the prompt is saved; any other key prompts again.
+- **Known limitation:** a host known under one key type (say RSA) that now presents another (Ed25519) shows a first-use prompt, not the mismatch warning. Check the fingerprint before you approve it.
+
+Shared projects (desktop):
+
+- **Resolving a pull conflict makes a proper merge commit.** It used to leave the merge open, so the next push was rejected and the next pull conflicted again.
+- **A push the remote rejects is reported as an error.** It used to say the push succeeded. A non-fast-forward rejection marks the repo as behind.
+- **The conflict list survives a restart**, and committing is refused while files are still conflicted.
+- **A wrong password or key fails instead of retrying.** Each credential is tried once, at most four in all.
+
+Licensing (desktop):
+
+- **License activation uses rustls** with the OS certificate store plus Mozilla's roots, instead of the OS TLS stack. A proxy CA installed in the OS store still works, and the system proxy is still used. Behind a TLS-intercepting proxy, three things change: missing intermediate certificates are no longer fetched, TLS 1.0 and 1.1 are refused, and some malformed certificates the OS accepted may fail.
+
+Self-hosted web:
+
+- **Security: `/api/db` path traversal.** An encoded path such as `/api/db/x%2F..%2Fquery` skipped the check that a connection belongs to the signed-in user, and could reach other routes of the Rust service. The proxy now forwards an exact list of paths.
+- **Security: SQLite and DuckDB are off on web.** A signed-in user could open a SQLite or DuckDB "connection" on any path on the server: `auth.db` (sessions, license keys and emails), other users' data, and through DuckDB any file the server can read, with writes through `COPY TO`. The web app now offers PostgreSQL, MySQL, MariaDB and SQL Server only. A SQLite or DuckDB connection saved on desktop fails with a clear error on web. The SQL tutorial runs DuckDB-WASM in the browser, served from the image.
+- **Security: connection options that name server files are refused.** Postgres and MySQL certificate, CA and key paths, `passfile`, Unix sockets and URLs without a host fail with `CONNECTION_OPTION_NOT_ALLOWED`. Client-certificate TLS and socket connections are desktop-only.
+- **Security: `PG*` and `MYSQL*` variables no longer reach connections.** The database driver took defaults such as `PGPASSWORD`, `PGHOST` and `~/.pgpass` from the container, so an operator's credentials could reach a user's connection to a host of their choosing. The Rust service now gets an allow-listed environment and no home directory.
+- **Licensing runs in the Rust service**, behind `/internal/license/*`, which needs a loopback peer and a secret `server.js` generates at each start. There is nothing to configure: no new settings, and the data files and `auth.db` migrations are unchanged.
+- **Split deployments fail closed.** Node and the Rust service on different hosts (a non-loopback `SEAQUEL_RUST_URL`) no longer works: licensing refuses the calls and every page returns 503.
+- **When the Rust service is down**, pages show "Seaquel is unavailable" and `/api/*` returns 503 `{"code":"license_service_unavailable"}`. `/health` still answers, so the container isn't restarted for it.
+- **License calls honour `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`.** Node's fetch ignored them. If the container sets them for other tools, calls to seaquel.app now go through that proxy.
+- **`NODE_EXTRA_CA_CERTS` still works** for a TLS-inspecting proxy, as do `SSL_CERT_FILE` and `SSL_CERT_DIR`.
+- **The image is about 75 MB larger**, for the tutorial's DuckDB-WASM files, and no longer installs `libssl3`. The server binary went from 48 MB to 14 MB.
+
+---
 
 ## Follow-ups (not in this phase)
 
-- **`data_version` polling and `StorageChanged`**, for when `seaquel mcp` writes the same file (phase 4).
+- **`data_version` polling and `StorageChanged`**, for when `seaquel mcp` writes the same file (phase 4). Phase 4 also serialises opens of one metadata file: sqlx's migrate lock is a no-op on SQLite, so two processes, or two pools in the web server (an evicted pool still finishing a request and a fresh one), can race a pending SQL migration, and the loser's request gets one 500 (`migrations/README.md`).
 - **Connection ownership in Core** (open question 2; phase 5).
 - **SSH and shared projects on web.** They need per-user known_hosts and repo storage on the server, and a decision on whether the server should hold SSH keys at all.
-- **Upgrade russh** from 0.48.
+- **Upgrade russh** from 0.48. With it, a prompt that says "this host is known under another key type" when known_hosts has the host under another algorithm; today that reads as a first-use prompt (Decision 8's Task 10 findings).
 - **Move the license migrations into Rust** when the next one is needed. Node keeps applying 006–012 until then.
 - **The browser storage backend** (phase 8). No `StorageBackend` trait exists yet. Phase 8's rusqlite-on-sqlite-wasm-rs spike decides whether one is needed or whether the same queries run on a different executor.
+- **A confined per-user file area**, if anyone wants SQLite or DuckDB on web: a directory per user, with DuckDB's external access off. Until then both stay off (Decision 11b).
+- **`rustls-platform-verifier`** for the license clients, so TLS is verified by the OS (AIA fetching, the OS's own policy) and TLS-intercepting proxies behave as they did with native-tls.
+- **The demo's DuckDB-WASM comes from jsDelivr.** Serving it from seaquel.app means adding ~75 MB to the website repo; that's the website's call.
+- **The web image's DuckDB-WASM assets** are 75 MB (the mvp and eh bundles). Shipping only `eh` (every current browser supports exceptions) would halve it. They're also sent uncompressed, like `seaquel-wasm` (phase 2b's `precompress` follow-up).
+- **Delete `src-tauri/Cargo.lock`.** `src-tauri` has been a workspace member since before v2026.9.1, so Cargo uses the root `Cargo.lock` and ignores this one; it has only been kept in step by the version bumps. Nothing references it (CI, release, Docker). CLAUDE.md's release steps already point at the root lockfile.
+- **Stale doc comment:** `crates/seaquel-rpc/src/workspace.rs`'s module doc still says SSH, git and licensing "join in later tasks" and that a group answers `NOT_SUPPORTED` when its feature is off; SSH, git and license are now refused unconditionally.
+- **Still open from the AI safety phase:** blocking or probing MotherDuck's `md_*` and DuckLake's maintenance functions, and DuckDB extension autoinstall on plain SELECTs. Both are the owner's call (`2026-09-28-ai-safety-plan.md`, Follow-ups). Neither affects web now that it has no DuckDB.

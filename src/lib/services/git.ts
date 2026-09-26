@@ -1,10 +1,41 @@
 /**
- * Git service for interacting with shared query repositories.
- * Wraps Tauri commands for Git operations.
+ * Git service for shared query repositories: the `git` group of the
+ * workspace RPC, sent through `core_call` (desktop only; web and the demo
+ * have no shared projects).
+ *
+ * Failures reject with a `CoreCallError` whose `code` is the git code
+ * (`CLONE_ERROR`, `PUSH_ERROR`, …) and whose message reads `"CODE: message"`,
+ * as the old Tauri commands' errors did through `extractErrorMessage`.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { CoreCallError, encodeCoreRequest, tauriCoreTransport } from "$lib/storage/rust-client";
 import type { GitCredentials, RepoStatus, SyncResult, ConflictContent } from "$lib/types";
+import type { CoreResponse } from "$lib/types/generated/CoreResponse";
+import type { GitCredentials as WireCredentials } from "$lib/types/generated/GitCredentials";
+import type { GitRepoStatus } from "$lib/types/generated/GitRepoStatus";
+import type { GitRequest } from "$lib/types/generated/GitRequest";
+import type { GitResponse } from "$lib/types/generated/GitResponse";
+import type { GitSyncResult } from "$lib/types/generated/GitSyncResult";
+
+type GitMethod = GitRequest["method"];
+type GitResult<M extends GitMethod> = Extract<GitResponse, { method: M }>["result"];
+
+/** One git call. */
+async function callGit<M extends GitMethod>(
+  request: Extract<GitRequest, { method: M }>,
+): Promise<GitResult<M>> {
+  const response = (await tauriCoreTransport(
+    encodeCoreRequest({ method: "git", params: request }),
+  )) as CoreResponse;
+  if (response?.method !== "git" || response.result?.method !== request.method) {
+    // Never echo the response: it can hold file contents.
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a git ${request.method} response`,
+    });
+  }
+  return response.result.result as GitResult<M>;
+}
 
 /**
  * Clone a Git repository to a local path.
@@ -14,10 +45,9 @@ export async function cloneRepo(
   path: string,
   credentials?: GitCredentials,
 ): Promise<void> {
-  await invoke("git_clone_repo", {
-    url,
-    path,
-    credentials: credentials ? toRustCredentials(credentials) : null,
+  await callGit({
+    method: "clone",
+    params: { url, path, ...(credentials ? { credentials: toWireCredentials(credentials) } : {}) },
   });
 }
 
@@ -25,58 +55,43 @@ export async function cloneRepo(
  * Initialize a new Git repository at the given path.
  */
 export async function initRepo(path: string): Promise<void> {
-  await invoke("git_init_repo", { path });
+  await callGit({ method: "init", params: { path } });
 }
 
 /**
  * Pull changes from remote repository.
  */
 export async function pullRepo(path: string, credentials?: GitCredentials): Promise<SyncResult> {
-  const result = await invoke<RustSyncResult>("git_pull_repo", {
-    path,
-    credentials: credentials ? toRustCredentials(credentials) : null,
+  const result = await callGit({
+    method: "pull",
+    params: { path, ...(credentials ? { credentials: toWireCredentials(credentials) } : {}) },
   });
-  return fromRustSyncResult(result);
+  return fromWireSyncResult(result);
 }
 
 /**
  * Push local changes to remote repository.
  */
 export async function pushRepo(path: string, credentials?: GitCredentials): Promise<SyncResult> {
-  const result = await invoke<RustSyncResult>("git_push_repo", {
-    path,
-    credentials: credentials ? toRustCredentials(credentials) : null,
+  const result = await callGit({
+    method: "push",
+    params: { path, ...(credentials ? { credentials: toWireCredentials(credentials) } : {}) },
   });
-  return fromRustSyncResult(result);
+  return fromWireSyncResult(result);
 }
 
 /**
  * Get the current status of a repository.
  */
 export async function getRepoStatus(path: string): Promise<RepoStatus> {
-  const result = await invoke<RustRepoStatus>("git_get_repo_status", { path });
-  return fromRustRepoStatus(result);
+  return fromWireRepoStatus(await callGit({ method: "status", params: { path } }));
 }
 
 /**
- * Commit all changes in the repository.
+ * Commit all changes in the repository. Returns the commit id.
  */
 export async function commitChanges(path: string, message: string): Promise<string> {
-  return invoke<string>("git_commit_changes", { path, message });
-}
-
-/**
- * Stage a specific file.
- */
-export async function stageFile(path: string, filePath: string): Promise<void> {
-  await invoke("git_stage_file", { path, filePath });
-}
-
-/**
- * Discard changes to a specific file.
- */
-export async function discardFile(path: string, filePath: string): Promise<void> {
-  await invoke("git_discard_file", { path, filePath });
+  return callGit({ method: "commit", params: { path, message } });
 }
 
 /**
@@ -87,58 +102,33 @@ export async function resolveConflict(
   filePath: string,
   resolution: string,
 ): Promise<void> {
-  await invoke("git_resolve_conflict", { path, filePath, resolution });
+  await callGit({ method: "resolveConflict", params: { path, filePath, resolution } });
 }
 
 /**
  * Get the conflict content for a file (base, ours, theirs).
  */
 export async function getConflictContent(path: string, filePath: string): Promise<ConflictContent> {
-  return invoke<ConflictContent>("git_get_conflict_content", { path, filePath });
+  return callGit({ method: "conflictContent", params: { path, filePath } });
 }
 
 /**
  * Set or update the remote URL for the repository.
  */
 export async function setRemote(path: string, url: string): Promise<void> {
-  await invoke("git_set_remote", { path, url });
+  await callGit({ method: "setRemote", params: { path, url } });
 }
 
 /**
  * Get the current remote URL, if any.
  */
 export async function getRemoteUrl(path: string): Promise<string | null> {
-  return invoke<string | null>("git_get_remote_url", { path });
+  return callGit({ method: "remoteUrl", params: { path } });
 }
 
-// === Type conversion helpers (Rust uses snake_case, TS uses camelCase) ===
+// === Wire mapping (Rust keeps the snake_case it always had) ===
 
-interface RustCredentials {
-  username: string | null;
-  password: string | null;
-  ssh_key_path: string | null;
-  ssh_passphrase: string | null;
-}
-
-interface RustSyncResult {
-  success: boolean;
-  message: string;
-  conflicts: string[];
-  files_changed: string[];
-}
-
-interface RustRepoStatus {
-  is_clean: boolean;
-  pending_changes: number;
-  ahead_by: number;
-  behind_by: number;
-  has_conflicts: boolean;
-  current_branch: string;
-  modified_files: string[];
-  untracked_files: string[];
-}
-
-function toRustCredentials(creds: GitCredentials): RustCredentials {
+function toWireCredentials(creds: GitCredentials): WireCredentials {
   return {
     username: creds.username ?? null,
     password: creds.password ?? null,
@@ -147,7 +137,7 @@ function toRustCredentials(creds: GitCredentials): RustCredentials {
   };
 }
 
-function fromRustSyncResult(result: RustSyncResult): SyncResult {
+function fromWireSyncResult(result: GitSyncResult): SyncResult {
   return {
     success: result.success,
     message: result.message,
@@ -156,7 +146,7 @@ function fromRustSyncResult(result: RustSyncResult): SyncResult {
   };
 }
 
-function fromRustRepoStatus(status: RustRepoStatus): RepoStatus {
+function fromWireRepoStatus(status: GitRepoStatus): RepoStatus {
   return {
     isClean: status.is_clean,
     pendingChanges: status.pending_changes,
@@ -166,5 +156,6 @@ function fromRustRepoStatus(status: RustRepoStatus): RepoStatus {
     currentBranch: status.current_branch,
     modifiedFiles: status.modified_files,
     untrackedFiles: status.untracked_files,
+    conflictFiles: status.conflict_files,
   };
 }

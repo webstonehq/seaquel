@@ -12,7 +12,7 @@
     "dev:demo": "BUILD_TARGET=demo vite dev --mode demo",
     "predev:web": "npm run wasm:build",
     "dev:web": "BUILD_TARGET=web vite dev --mode web",
-    "dev:web:full": "concurrently -n rust,web -c blue,green -k \"npm:rust:dev\" \"npm:dev:web\"",
+    "dev:web:full": "node scripts/with-internal-secret.mjs concurrently -n rust,web -c blue,green -k \"npm:rust:dev\" \"npm:dev:web\"",
     "rust:dev": "cargo run -p seaquel-server",
     "rust:build": "cargo build -p seaquel-server --release && ln -sf target/release/seaquel-server seaquel-server",
     "prebuild": "npm run wasm:build",

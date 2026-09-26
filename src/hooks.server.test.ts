@@ -1,117 +1,91 @@
 /**
- * Tests for the membership-gate predicate added to handleApiGate in
- * Task 7: a `member_license` row whose `revoked_at` column is non-null
- * must be treated as "not bound" → 403 response.
- *
- * `handleApiGate` is an internal const inside hooks.server.ts, so we test
- * the predicate it depends on (`findByUserId(...).revokedAt != null`)
- * against the real DB via the same auth.db redirect trick the air-gap
- * tests use. The predicate is one line — but it's load-bearing for the
- * revocation flow, so the explicit assertion gives Task 8 a green light
- * to depend on it.
+ * `handle`'s licensing behaviour: `/health` never reaches the license
+ * service, and an unreachable license service fails closed with a 503
+ * (JSON for the API, a page otherwise) instead of a generic 500.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-
-const tmp = mkdtempSync(join(tmpdir(), "seaquel-hooks-revoke-"));
-process.env.DATA_DIR = tmp;
-
-const { openAuthDb } = await import("$lib/server/auth");
-const memberLicense = await import("$lib/server/member-license");
-
-afterAll(() => {
-  rmSync(tmp, { recursive: true, force: true });
+vi.stubEnv("VITE_BUILD_TARGET", "web");
+vi.mock("$app/environment", () => ({ building: false }));
+vi.mock("$lib/paraglide/server", () => ({
+  paraglideMiddleware: (
+    request: Request,
+    fn: (a: { request: Request; locale: string }) => unknown,
+  ) => fn({ request, locale: "en" }),
+}));
+// SvelteKit's `sequence` needs its request store; chain the handles plainly.
+vi.mock("@sveltejs/kit/hooks", () => ({
+  sequence:
+    (...handles: Array<(i: { event: unknown; resolve: (e: unknown) => unknown }) => unknown>) =>
+    ({ event, resolve }: { event: unknown; resolve: (e: unknown) => unknown }) => {
+      const at = (i: number): unknown =>
+        i === handles.length ? resolve(event) : handles[i]({ event, resolve: () => at(i + 1) });
+      return at(0);
+    },
+}));
+vi.mock("$lib/server/auth", () => ({
+  auth: { api: { getSession: vi.fn(async () => null) } },
+}));
+vi.mock("$lib/server/license-client", async () => {
+  const actual = await vi.importActual<typeof import("$lib/server/license-client")>(
+    "$lib/server/license-client",
+  );
+  return { LicenseClientError: actual.LicenseClientError, gate: vi.fn() };
 });
 
-function insertUser(userId: string): void {
-  // Better Auth's `user` table is part of the auth.db schema bundle and
-  // gets created by openAuthDb()'s migration on first access. The
-  // member_license FK references it, so insert a minimal row first.
-  const now = new Date().toISOString();
-  openAuthDb()
-    .prepare(
-      `INSERT INTO "user" (id, email, name, emailVerified, createdAt, updatedAt)
-       VALUES (?, ?, ?, 0, ?, ?)`,
-    )
-    .run(userId, `${userId}@example.test`, userId, now, now);
-}
+const client = await import("$lib/server/license-client");
+const { handle } = await import("./hooks.server");
 
-function stampRevoked(licenseKey: string): void {
-  openAuthDb()
-    .prepare(`UPDATE member_license SET revoked_at = ? WHERE license_key = ?`)
-    .run(Math.floor(Date.now() / 1000), licenseKey);
+function run(path: string) {
+  const url = new URL(`http://localhost${path}`);
+  const event = { url, request: new Request(url), locals: {} } as never;
+  const resolve = vi.fn(async () => new Response("resolved"));
+  return { result: handle({ event, resolve } as never), resolve };
 }
 
 beforeEach(() => {
-  // Truncate between tests so each spec sees a clean ledger.
-  openAuthDb().prepare(`DELETE FROM member_license`).run();
-  openAuthDb().prepare(`DELETE FROM "user"`).run();
+  vi.mocked(client.gate).mockReset();
 });
 
-describe("handleApiGate revocation predicate", () => {
-  it("active member_license row passes the predicate", () => {
-    insertUser("u_active");
-    memberLicense.insert({
-      userId: "u_active",
-      licenseKey: "lic_active",
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: "tm_active",
-      isOwner: true,
-    });
-
-    const ml = memberLicense.findByUserId("u_active");
-    expect(ml).not.toBeNull();
-    // The exact predicate handleApiGate uses:
-    expect(!ml || ml.revokedAt != null).toBe(false);
+describe("handle", () => {
+  it("/health answers without the license service", async () => {
+    vi.mocked(client.gate).mockRejectedValue(new Error("must not be called"));
+    const { result, resolve } = run("/health");
+    expect(await (await result).text()).toBe("resolved");
+    expect(resolve).toHaveBeenCalled();
+    expect(client.gate).not.toHaveBeenCalled();
   });
 
-  it("revoked member_license row trips the predicate (would return 403)", () => {
-    insertUser("u_revoked");
-    memberLicense.insert({
-      userId: "u_revoked",
-      licenseKey: "lic_revoked",
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: "tm_revoked",
-      isOwner: false,
-    });
-    stampRevoked("lic_revoked");
-
-    const ml = memberLicense.findByUserId("u_revoked");
-    expect(ml).not.toBeNull();
-    expect(ml!.revokedAt).not.toBeNull();
-    expect(!ml || ml.revokedAt != null).toBe(true);
+  it("an unreachable license service is a 503, JSON on /api", async () => {
+    vi.mocked(client.gate).mockRejectedValue(
+      new client.LicenseClientError("UPSTREAM_UNAVAILABLE", "unavailable", 502),
+    );
+    const api = await run("/api/rpc").result;
+    expect(api.status).toBe(503);
+    expect(await api.json()).toEqual({ code: "license_service_unavailable" });
+    const page = await run("/").result;
+    expect(page.status).toBe(503);
+    expect(await page.text()).toContain("license service isn't responding");
   });
 
-  it("missing row trips the predicate (would return 403)", () => {
-    const ml = memberLicense.findByUserId("u_missing");
-    expect(ml).toBeNull();
-    expect(!ml || ml.revokedAt != null).toBe(true);
+  it("other license errors still fail (no quiet revalidate)", async () => {
+    vi.mocked(client.gate).mockRejectedValue(
+      new client.LicenseClientError("LICENSE_DB_ERROR", "disk full", 500),
+    );
+    await expect(run("/").result).rejects.toMatchObject({ code: "LICENSE_DB_ERROR" });
   });
 
-  it("markRevoked stamps revoked_at and the predicate flips on the next read", () => {
-    insertUser("u_flip");
-    memberLicense.insert({
-      userId: "u_flip",
-      licenseKey: "lic_flip",
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: "tm_flip",
-      isOwner: false,
+  it("a working gate lets the request through", async () => {
+    vi.mocked(client.gate).mockResolvedValue({
+      state: "unregistered",
+      tenant: null,
+      member: null,
+      hasTenant: false,
+      bundlePresent: false,
     });
-
-    // Pre-revocation: predicate is false.
-    let ml = memberLicense.findByUserId("u_flip");
-    expect(!ml || ml.revokedAt != null).toBe(false);
-
-    const { rowsRevoked, userIds } = memberLicense.markRevoked(["lic_flip"]);
-    expect(rowsRevoked).toBe(1);
-    expect(userIds).toEqual(["u_flip"]);
-
-    // Post-revocation: predicate flips.
-    ml = memberLicense.findByUserId("u_flip");
-    expect(!ml || ml.revokedAt != null).toBe(true);
+    const { result, resolve } = run("/login");
+    expect(await (await result).text()).toBe("resolved");
+    expect(resolve).toHaveBeenCalled();
   });
 });

@@ -15,8 +15,20 @@ path = "src/main.rs"
 [dependencies]
 # `storage` (Decision 11): each user's workspace opens their meta.db. No
 # `secrets`: the web workspace has no store, so secret calls answer
-# NOT_SUPPORTED.
-seaquel-core = { path = "../seaquel-core", features = ["storage"] }
+# NOT_SUPPORTED. `license-server`: /internal/license/* over auth.db.
+# Engines (Decision 11b): no SQLite and no DuckDB. Both open files on the
+# server (auth.db, other users' meta.db, anything DuckDB's read_* or COPY TO
+# reaches), so they're off on web. Feature unification can still compile them
+# in (a workspace test build), so `AppState` also registers only
+# `WEB_ENGINES`. storage and license-server keep sqlx's own SQLite for
+# meta.db and auth.db; that isn't the engine.
+seaquel-core = { path = "../seaquel-core", default-features = false, features = [
+    "engine-postgres",
+    "engine-mysql",
+    "engine-mssql",
+    "storage",
+    "license-server",
+] }
 seaquel-types = { path = "../seaquel-types" }
 seaquel-rpc = { path = "../seaquel-rpc", features = ["storage"] }
 
@@ -29,6 +41,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 futures = { workspace = true }
+# web_config: reads connection URLs the way sqlx does (same crate).
+url = "2"
 
 # Frontend asset embedding. In release builds, files are baked into the
 # binary; in debug builds, rust-embed loads them from disk at runtime so
@@ -46,8 +60,18 @@ libc = "0.2"
 # no database behind it.
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
+# The /api/db/* route tests run on SQLite files, through a Core the tests
+# build themselves (`common::sqlite_state`); the server's own Core never
+# registers it.
+seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
 seaquel-runtime = { path = "../seaquel-runtime" }
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
 uuid = { workspace = true }
 tempfile = "3"
+# The license route tests build auth.db from Node's migrations and sign
+# bundles.
+sqlx = { workspace = true }
+ed25519-dalek = { workspace = true }
+base64 = { workspace = true }
+sha2 = "0.10"

@@ -121,6 +121,8 @@ describe("/api/db/* path allow-list", () => {
     ["../../rpc", "..%2F..%2Frpc"],
     ["x/../../../rpc", "x%2F..%2F..%2F..%2Frpc"],
     ["query/../engine", "query%2F..%2Fengine"],
+    ["../../internal/license/gate", "..%2F..%2Finternal%2Flicense%2Fgate"],
+    ["x/../../../internal/license/airgap/clear", "a traversal to /internal/license/*"],
     ["query/", "a trailing slash"],
     ["stream", "stream (server.js proxies the WebSocket)"],
     ["", "an empty path"],
@@ -149,11 +151,78 @@ describe("/api/db/* path allow-list", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      const res = await POST(pathEvent(path, { connection_id: "user-1:postgres-abc" }));
+      const res = await POST(
+        pathEvent(path, { connection_id: "user-1:postgres-abc", driver: "postgres" }),
+      );
 
       expect(res.status).toBe(200);
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(fetchMock.mock.calls[0][0]).toMatch(new RegExp(`/api/db/${path}$`));
     },
   );
+});
+
+describe("/api/db/connect and /api/db/test driver allow-list (Decision 11b)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function configEvent(path: "connect" | "test", body: unknown): Event {
+    return {
+      locals: { user: { id: "user-1" } },
+      params: { path },
+      request: new Request(`http://localhost/api/db/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      url: new URL(`http://localhost/api/db/${path}`),
+    } as unknown as Event;
+  }
+
+  const refused = [
+    { driver: "sqlite", connection_string: "sqlite:/data/auth.db" },
+    { driver: "sqlite", connection_string: "sqlite:/data/users/other/meta.db" },
+    { driver: "duckdb" },
+    { driver: "duckdb", path: ":memory:" },
+    { driver: "SQLite", connection_string: "sqlite:/data/auth.db" },
+    { connection_string: "sqlite:/data/auth.db" },
+    { driver: ["sqlite"] },
+  ];
+
+  for (const path of ["connect", "test"] as const) {
+    it.each(refused)(
+      `${path} refuses %j with ENGINE_NOT_AVAILABLE before any fetch`,
+      async (body) => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+
+        const res = await POST(configEvent(path, body));
+
+        expect(res.status).toBe(400);
+        const json = (await res.json()) as { code: string; message: string };
+        expect(json.code).toBe("ENGINE_NOT_AVAILABLE");
+        expect(json.message).toContain("is not available in this build");
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["postgres", "mysql", "mssql"])(`${path} forwards %s unchanged`, async (driver) => {
+      const fetchMock = vi.fn(
+        async (_url: string, _init: RequestInit) =>
+          new Response(JSON.stringify({ connection_id: `${driver}-abc` }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const body = { driver, connection_string: `${driver}://u@h/db`, create_if_missing: false };
+
+      const res = await POST(configEvent(path, body));
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual(body);
+    });
+  }
 });

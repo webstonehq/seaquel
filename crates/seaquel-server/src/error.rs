@@ -31,6 +31,9 @@ impl IntoResponse for ApiError {
             // A transaction statement matched fewer rows than it expected
             // (a stale key); the transaction was rolled back.
             "NO_ROWS_AFFECTED" => StatusCode::CONFLICT,
+            // A driver this server doesn't offer: SQLite and DuckDB on web
+            // (Decision 11b), or an engine left out of the build.
+            "ENGINE_NOT_AVAILABLE" | "CONNECTION_OPTION_NOT_ALLOWED" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self.0)).into_response()
@@ -57,6 +60,11 @@ mod tests {
         assert_eq!(status_of("QUERY_ERROR"), StatusCode::BAD_REQUEST);
         assert_eq!(status_of("NOT_SUPPORTED"), StatusCode::NOT_IMPLEMENTED);
         assert_eq!(status_of("NO_ROWS_AFFECTED"), StatusCode::CONFLICT);
+        assert_eq!(status_of("ENGINE_NOT_AVAILABLE"), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            status_of("CONNECTION_OPTION_NOT_ALLOWED"),
+            StatusCode::BAD_REQUEST
+        );
         assert_eq!(
             status_of("SOMETHING_ELSE"),
             StatusCode::INTERNAL_SERVER_ERROR

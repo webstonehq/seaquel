@@ -6,11 +6,13 @@
 //! 3. Receive a sequence of `{"type":"batch", ...StreamBatch}` frames.
 //! 4. Receive a terminal `{"type":"done"}` frame.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use futures::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
-use seaquel_server::{build_router, AppState};
+use seaquel_server::build_router;
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;
 use tower::ServiceExt;
@@ -39,7 +41,7 @@ async fn post_json(app: axum::Router, uri: &str, body: Value) -> (StatusCode, Va
 
 /// Spawn the server on 127.0.0.1:0 and return its bound address.
 async fn spawn_server() -> (std::net::SocketAddr, axum::Router) {
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let serve_app = app.clone();

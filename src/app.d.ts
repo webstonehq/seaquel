@@ -1,6 +1,6 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts for more info
 import type { User, Session } from "$lib/server/session-types";
-import type { TenantContext, LicenseState } from "$lib/server/licensing";
+import type { TenantContext, LicenseStateKind } from "$lib/server/license-client";
 
 declare global {
   namespace App {
@@ -17,7 +17,7 @@ declare global {
        */
       tenant: TenantContext | null;
       /** Coarse state of the licensing gate for this request. */
-      licenseState: LicenseState["kind"];
+      licenseState: LicenseStateKind;
     }
   }
 }

@@ -1,15 +1,13 @@
 import { redirect } from "@sveltejs/kit";
 import { building } from "$app/environment";
 import type { LayoutServerLoad } from "./$types";
-import { findByUserId } from "$lib/server/member-license";
-import { isBundleDriven } from "$lib/server/airgap/bundle-store";
-import { readInstallCache } from "$lib/server/license-cache";
+import { gate } from "$lib/server/license-client";
 
 // Server-side gate for the main app shell. One path for Cloud and
 // self-hosted alike: anyone authenticated must also be bound to a
 // license seat for the install, and the install must be in a usable
 // license state (ok / not suspended / not past the grace window).
-export const load: LayoutServerLoad = ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, url }) => {
   if (building) return {};
   // `BUILD_TARGET` is set as an npm-script env at build time. Read it via
   // `import.meta.env.VITE_BUILD_TARGET` (inlined by vite.config.js) so it
@@ -36,9 +34,8 @@ export const load: LayoutServerLoad = ({ locals, url }) => {
     // UX nicety — /signup itself still has to handle the 503 case for
     // operators who land there via a bookmark.
     const here = url.pathname + url.search;
-    const cache = readInstallCache();
-    const hasTenant = !!(cache && cache.tenantId);
-    const hasBundle = isBundleDriven();
+    // The hooks' gate answer for this user (cached for 5 s).
+    const { hasTenant, bundlePresent: hasBundle } = await gate(locals.user.id);
     if (
       !hasTenant &&
       !hasBundle &&
@@ -59,8 +56,9 @@ export const load: LayoutServerLoad = ({ locals, url }) => {
       throw redirect(302, "/revalidate");
     }
   } else {
-    // ok — enforce per-user membership binding.
-    const bound = findByUserId(locals.user.id);
+    // ok — enforce per-user membership binding. A revoked row still counts
+    // here (as before); the API gate refuses it.
+    const bound = (await gate(locals.user.id)).member;
     if (!bound) {
       const here = url.pathname + url.search;
       throw redirect(302, `/signup?reason=membership&redirect=${encodeURIComponent(here)}`);

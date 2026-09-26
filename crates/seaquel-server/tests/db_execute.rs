@@ -1,10 +1,12 @@
 //! Integration test: POST /api/db/execute creates a table, inserts rows,
 //! and returns rows_affected.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use seaquel_server::{build_router, AppState};
+use seaquel_server::build_router;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -40,7 +42,7 @@ async fn execute_create_and_insert_reports_rows_affected() {
     let tmp = std::env::temp_dir().join(format!("seaquel-test-{}.sqlite", uuid::Uuid::new_v4()));
     let conn_str = format!("sqlite:{}", tmp.display());
 
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
 
     // Connect
     let (status, body) = post_json(

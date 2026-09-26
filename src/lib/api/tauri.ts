@@ -5,6 +5,13 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { encodeCoreRequest } from "$lib/storage/rust-client";
+import type { CoreResponse } from "$lib/types/generated/CoreResponse";
+import type { DesktopLicenseRequest } from "$lib/types/generated/DesktopLicenseRequest";
+import type { LicenseResponse } from "$lib/types/generated/LicenseResponse";
+import type { RpcError } from "$lib/types/generated/RpcError";
+
+export type { LicenseResponse };
 
 // Re-export existing well-typed service modules
 export * as git from "$lib/services/git";
@@ -60,25 +67,58 @@ export async function getUsername(): Promise<string> {
 
 // === License Commands ===
 
-export interface LicenseResponse {
-  id: string;
-  status: string;
-  key: string;
-  tier: string;
-  activation: number;
-  activation_limit: number;
-  expires_at: string | null;
-  instance_id: string | null;
+/**
+ * A failed license call. `message` is the license server's wording, shown to
+ * the user as is; `code` is `NETWORK_ERROR`, `ACTIVATION_ERROR`,
+ * `VALIDATION_ERROR`, `DEACTIVATION_ERROR` or `PARSE_ERROR` (or an RPC code).
+ */
+export class LicenseError extends Error {
+  readonly code: string;
+  constructor(error: RpcError) {
+    super(error.message);
+    this.name = "LicenseError";
+    this.code = error.code;
+  }
+}
+
+function isRpcError(value: unknown): value is RpcError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as RpcError).code === "string" &&
+    typeof (value as RpcError).message === "string"
+  );
+}
+
+/** One `license` call through `core_call`. The key never reaches a log. */
+async function callLicense(request: DesktopLicenseRequest): Promise<LicenseResponse> {
+  let response: CoreResponse;
+  try {
+    response = await invoke<CoreResponse>(
+      "core_call",
+      encodeCoreRequest({ method: "license", params: request }),
+    );
+  } catch (error) {
+    if (isRpcError(error)) throw new LicenseError(error);
+    throw error;
+  }
+  if (response?.method !== "license" || response.result?.method !== request.method) {
+    throw new LicenseError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a license ${request.method} response`,
+    });
+  }
+  return response.result.result;
 }
 
 export async function activateLicense(key: string, instanceName: string): Promise<LicenseResponse> {
-  return invoke<LicenseResponse>("activate_license", { key, instanceName });
+  return callLicense({ method: "activate", params: { key, instanceName } });
 }
 
 export async function validateLicense(key: string, instanceId: string): Promise<LicenseResponse> {
-  return invoke<LicenseResponse>("validate_license", { key, instanceId });
+  return callLicense({ method: "validate", params: { key, instanceId } });
 }
 
 export async function deactivateLicense(key: string, instanceId: string): Promise<LicenseResponse> {
-  return invoke<LicenseResponse>("deactivate_license", { key, instanceId });
+  return callLicense({ method: "deactivate", params: { key, instanceId } });
 }

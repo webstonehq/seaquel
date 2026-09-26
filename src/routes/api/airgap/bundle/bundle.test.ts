@@ -1,58 +1,41 @@
 /**
- * Tests for /api/airgap/bundle (POST, DELETE, GET).
+ * Tests for /api/airgap/bundle (POST, DELETE, GET): the Node side.
  *
- * Strategy: same DB-redirect trick the other airgap tests use — point
- * `DATA_DIR` at a per-file tempdir BEFORE importing the handler, so all
- * `openAuthDb()` calls land on a fresh schema. The auth.db migration
- * bundle does the table creation. Real Ed25519 signing happens here in
- * the test file using @noble/ed25519 so we exercise the actual verifier
- * end-to-end (no `vi.mock` on `verifyBundle`).
- *
- * The handler reads `event.locals.user` directly. We construct
- * `RequestEvent`-shaped stubs with just the surface the handler touches
- * (locals, request, getClientAddress) and cast through `unknown`.
+ * Verification, the bundle row, revocations and the auth rule for uploads
+ * run in Rust (`crates/seaquel-server/tests/internal_license.rs` covers
+ * every verifier error, the replay, idempotency and subscription checks,
+ * and the loose-vs-owner auth). Here `license-client` is mocked and the
+ * handler's own work is checked: the CSRF guard, passing Rust's outcome
+ * through, mapping its 401/403, and purging the revoked users' sessions in
+ * a real temp auth.db.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import * as ed from "@noble/ed25519";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- DB redirect must happen first ---------------------------------------
 const tmp = mkdtempSync(join(tmpdir(), "seaquel-airgap-bundle-api-"));
 process.env.DATA_DIR = tmp;
-
-// -- Trust anchor for the test signer ------------------------------------
-const SEED = new Uint8Array([
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-  27, 28, 29, 30, 31,
-]);
-
-function hexOf(bytes: Uint8Array): string {
-  let out = "";
-  for (const b of bytes) out += b.toString(16).padStart(2, "0");
-  return out;
-}
-
-const PUBKEY = await ed.getPublicKeyAsync(SEED);
-const FINGERPRINT = await (async () => {
-  const { fingerprintPubkey } = await import("$lib/server/airgap/canonical");
-  return fingerprintPubkey(PUBKEY);
-})();
-process.env.SEAQUEL_BUNDLE_TRUSTED_PUBKEY = `${FINGERPRINT}:${hexOf(PUBKEY)}`;
-
-// Make every request look like it's coming from a trusted origin so we
-// don't tangle the origin check into every individual test.
 process.env.SEAQUEL_TRUSTED_ORIGINS = "http://localhost:5173";
 
-const { canonicalize } = await import("$lib/server/airgap/canonical");
+vi.mock("$lib/server/license-client", async () => {
+  const actual = await vi.importActual<typeof import("$lib/server/license-client")>(
+    "$lib/server/license-client",
+  );
+  return {
+    LicenseClientError: actual.LicenseClientError,
+    airgapUpload: vi.fn(),
+    airgapClear: vi.fn(),
+    airgapStatus: vi.fn(),
+  };
+});
+
 const { openAuthDb } = await import("$lib/server/auth");
-const { _resetBundleStoreCache } = await import("$lib/server/airgap/bundle-store");
-const memberLicense = await import("$lib/server/member-license");
-const licenseCache = await import("$lib/server/license-cache");
 const { _resetRateLimit } = await import("$lib/server/rate-limit");
+const client = await import("$lib/server/license-client");
 const { POST, DELETE, GET } = await import("./+server");
 
 afterAll(() => {
@@ -61,103 +44,24 @@ afterAll(() => {
 
 // ---------------------------------------------------------------------------
 // Helpers.
-// ---------------------------------------------------------------------------
 
-interface BuildOptions {
-  issuedAt?: number;
-  subscriptionId?: string;
-  revokedKeys?: string[];
-  seed?: Uint8Array; // override to produce an untrusted-signer bundle
-  fingerprint?: string; // override to mismatch the pubkey
-}
+const ENVELOPE = '{"payload":"p","sig":"s","pubkey_fingerprint":"f"}';
 
-async function buildBundleBytes(opts: BuildOptions = {}): Promise<{
-  bytes: Uint8Array;
-  payload: import("$lib/server/airgap/types").BundlePayload;
-}> {
-  const issuedAt = opts.issuedAt ?? Math.floor(Date.now() / 1000);
-  const subscriptionId = opts.subscriptionId ?? "sub_test_0001";
-  const revoked_keys = opts.revokedKeys ?? [];
-  const seed = opts.seed ?? SEED;
-  const payload: import("$lib/server/airgap/types").BundlePayload = {
-    version: 1,
-    issued_at: issuedAt,
-    not_before: issuedAt - 60,
-    not_after: issuedAt + 60 * 60 * 24 * 365,
-    subscription_id: subscriptionId,
-    tenant_slug: "acme",
-    tier: "team",
-    seats: 3,
-    seat_tokens: [
-      { key: "owner_key_abc", role: "owner" },
-      { key: "member_key_xyz", role: "member" },
-    ],
-    revoked_keys,
-    issued_by_install_id: null,
-  };
-  const canonical = canonicalize(
-    payload as unknown as import("$lib/server/airgap/canonical").CanonicalValue,
-  );
-  const sig = await ed.signAsync(canonical, seed);
-  const fingerprint =
-    opts.fingerprint ??
-    (seed === SEED
-      ? FINGERPRINT
-      : await (
-          await import("$lib/server/airgap/canonical")
-        ).fingerprintPubkey(await ed.getPublicKeyAsync(seed)));
-  const b64Url = (bytes: Uint8Array): string => {
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  };
-  const envelope = {
-    payload: b64Url(canonical),
-    sig: b64Url(sig),
-    pubkey_fingerprint: fingerprint,
-  };
-  return {
-    bytes: new TextEncoder().encode(JSON.stringify(envelope)),
-    payload,
-  };
-}
-
-function makeRequest(bodyBytes: Uint8Array | null, method: string): Request {
-  const init: RequestInit = {
-    method,
-    headers: { origin: "http://localhost:5173" },
-  };
-  if (bodyBytes) {
-    // Re-encode as text and pass via a string body — `Request` accepts
-    // strings universally, and the handler reads via `arrayBuffer()`
-    // anyway, so the byte-level fidelity is preserved (Latin-1 / UTF-8
-    // safe because all signed envelopes are ASCII JSON).
-    init.body = new TextDecoder().decode(bodyBytes);
+function makeRequest(body: string | null, method: string, origin = "http://localhost:5173") {
+  const init: RequestInit = { method, headers: { origin } };
+  if (body !== null) {
+    init.body = body;
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
   }
   return new Request("http://localhost:5173/api/airgap/bundle", init);
 }
 
-interface LocalsOverride {
-  userId?: string | null;
-}
-
-function makeEvent(request: Request, locals: LocalsOverride = {}): Parameters<typeof POST>[0] {
-  const user =
-    locals.userId === undefined
-      ? null
-      : locals.userId === null
-        ? null
-        : { id: locals.userId, email: `${locals.userId}@example.test`, name: locals.userId };
+function makeEvent(request: Request, userId: string | null = null): Parameters<typeof POST>[0] {
+  const user = userId ? { id: userId, email: `${userId}@example.test`, name: userId } : null;
   return {
     request,
     getClientAddress: () => "127.0.0.1",
-    locals: {
-      user,
-      session: null,
-      tenant: null,
-      licenseState: "unregistered",
-    },
+    locals: { user, session: null, tenant: null, licenseState: "unregistered" },
   } as unknown as Parameters<typeof POST>[0];
 }
 
@@ -189,229 +93,192 @@ function countSessionsFor(userId: string): number {
   return row.n;
 }
 
-function insertOwner(userId: string, licenseKey: string): void {
-  insertUser(userId);
-  memberLicense.insert({
-    userId,
-    licenseKey,
-    boundAt: Math.floor(Date.now() / 1000),
-    controlMemberId: `tm_${userId}`,
-    isOwner: true,
-  });
-}
-
-function markInstallEstablished(): void {
-  // Stamp install_cache.tenant_id so the POST handler flips into
-  // owner-only auth mode. Use raw SQL to avoid coupling the test to the
-  // full TenantContext shape required by writeInstallCache().
-  const now = Math.floor(Date.now() / 1000);
-  openAuthDb()
-    .prepare(
-      `INSERT INTO install_cache
-         (id, tenant_id, slug, status, tier, seat_limit,
-          current_period_end, last_validated_at, grace_until, mode)
-       VALUES (1, 'tenant_test', 'acme', 'active', 'team', 5,
-               NULL, ?, ?, 'online')
-       ON CONFLICT(id) DO UPDATE SET
-         tenant_id = excluded.tenant_id,
-         slug      = excluded.slug,
-         status    = excluded.status,
-         tier      = excluded.tier`,
-    )
-    .run(now, now + 86_400);
-}
+const ACCEPTED = {
+  ok: true,
+  unchanged: false,
+  tier: "team",
+  seats: 3,
+  notAfter: 1_800_000_000,
+  issuedAt: 1_700_000_000,
+  pubkeyFingerprint: "f",
+  revokedKeyCount: 0,
+  rowsRevoked: 0,
+};
 
 beforeEach(() => {
   openAuthDb().prepare(`DELETE FROM "session"`).run();
-  openAuthDb().prepare(`DELETE FROM member_license`).run();
   openAuthDb().prepare(`DELETE FROM "user"`).run();
-  openAuthDb().prepare(`DELETE FROM airgap_bundle`).run();
-  openAuthDb().prepare(`DELETE FROM install_cache`).run();
-  _resetBundleStoreCache();
   _resetRateLimit();
+  vi.mocked(client.airgapUpload).mockReset();
+  vi.mocked(client.airgapClear).mockReset();
+  vi.mocked(client.airgapStatus).mockReset();
 });
 
 // ---------------------------------------------------------------------------
-// Tests.
-// ---------------------------------------------------------------------------
+// POST
 
-describe("POST /api/airgap/bundle — round-trip", () => {
-  it("verifies + stores + returns the hot fields on a fresh install", async () => {
-    const { bytes, payload } = await buildBundleBytes();
-    const res = await POST(makeEvent(makeRequest(bytes, "POST")));
+describe("POST /api/airgap/bundle", () => {
+  it("refuses an untrusted origin before reaching Rust", async () => {
+    await expect(
+      POST(makeEvent(makeRequest(ENVELOPE, "POST", "https://evil.example"))),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(client.airgapUpload).not.toHaveBeenCalled();
+  });
+
+  it("sends the body's bytes and the signed-in user, and answers Rust's outcome", async () => {
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: ACCEPTED,
+      revokedUserIds: [],
+    });
+    const res = await POST(makeEvent(makeRequest(ENVELOPE, "POST"), "u_owner"));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toMatchObject({
-      ok: true,
-      unchanged: false,
-      tier: payload.tier,
-      seats: payload.seats,
-      notAfter: payload.not_after,
-      issuedAt: payload.issued_at,
-      pubkeyFingerprint: FINGERPRINT,
-      revokedKeyCount: 0,
-      rowsRevoked: 0,
+    expect(await res.json()).toEqual(ACCEPTED);
+    const [bytes, user] = vi.mocked(client.airgapUpload).mock.calls[0];
+    expect(new TextDecoder().decode(bytes)).toBe(ENVELOPE);
+    expect(user).toBe("u_owner");
+  });
+
+  it("signed out, the user is null (Rust applies the fresh-install rule)", async () => {
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: ACCEPTED,
+      revokedUserIds: [],
     });
-    // Mode flipped to airgap.
-    expect(licenseCache.readInstallCache()?.mode).toBe("airgap");
-  });
-});
-
-describe("POST /api/airgap/bundle — verifier error mapping", () => {
-  it("untrusted signer → 400 untrusted_signer", async () => {
-    // Sign with a key NOT in the trust set.
-    const evilSeed = new Uint8Array(32).fill(7);
-    const { bytes } = await buildBundleBytes({ seed: evilSeed });
-    const res = await POST(makeEvent(makeRequest(bytes, "POST")));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false, error: "untrusted_signer" });
+    await POST(makeEvent(makeRequest(ENVELOPE, "POST")));
+    expect(vi.mocked(client.airgapUpload).mock.calls[0][1]).toBeNull();
   });
 
-  it("malformed body (empty) → 400 malformed_envelope", async () => {
-    const res = await POST(makeEvent(makeRequest(new Uint8Array(0), "POST")));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false, error: "malformed_envelope" });
+  it.each([
+    [400, { ok: false, error: "malformed_envelope" }],
+    [400, { ok: false, error: "untrusted_signer" }],
+    [409, { ok: false, error: "bundle_older_than_current" }],
+    [409, { ok: false, error: "subscription_mismatch" }],
+  ])("passes a %i refusal through", async (status, body) => {
+    vi.mocked(client.airgapUpload).mockResolvedValue({ status, body, revokedUserIds: [] });
+    const res = await POST(makeEvent(makeRequest(ENVELOPE, "POST")));
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual(body);
   });
 
-  it("bad signature → 400 bad_signature", async () => {
-    // Build a valid envelope then flip a byte in the `sig` field. We
-    // can't just mutate one byte in the binary form because base64url
-    // would re-decode to almost-valid bytes; build the envelope, parse
-    // it, replace `sig` with a clearly wrong one.
-    const { bytes } = await buildBundleBytes();
-    const decoded = JSON.parse(new TextDecoder().decode(bytes));
-    decoded.sig = "AA"; // 1-byte signature → fails Ed25519 verify
-    const tampered = new TextEncoder().encode(JSON.stringify(decoded));
-    const res = await POST(makeEvent(makeRequest(tampered, "POST")));
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(["bad_signature", "malformed_envelope"]).toContain(body.error);
-  });
-});
-
-describe("POST /api/airgap/bundle — replay + idempotency + subscription", () => {
-  it("rejects an older issued_at with 409 bundle_older_than_current", async () => {
-    const t1 = Math.floor(Date.now() / 1000);
-    const newer = await buildBundleBytes({ issuedAt: t1 });
-    const first = await POST(makeEvent(makeRequest(newer.bytes, "POST")));
-    expect(first.status).toBe(200);
-
-    const older = await buildBundleBytes({ issuedAt: t1 - 1000 });
-    const res = await POST(makeEvent(makeRequest(older.bytes, "POST")));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({
-      ok: false,
-      error: "bundle_older_than_current",
+  it.each([
+    [401, "UNAUTHORIZED", "must be signed in"],
+    [403, "FORBIDDEN", "owner only"],
+  ])("maps Rust's %i to the same SvelteKit error", async (status, code, message) => {
+    vi.mocked(client.airgapUpload).mockRejectedValue(
+      new client.LicenseClientError(code, message, status),
+    );
+    await expect(POST(makeEvent(makeRequest(ENVELOPE, "POST")))).rejects.toMatchObject({
+      status,
+      body: { message },
     });
   });
 
-  it("re-importing the SAME bundle returns unchanged: true", async () => {
-    const { bytes } = await buildBundleBytes();
-    const first = await POST(makeEvent(makeRequest(bytes, "POST")));
-    expect(first.status).toBe(200);
-    expect((await first.json()).unchanged).toBe(false);
-
-    const second = await POST(makeEvent(makeRequest(bytes, "POST")));
-    expect(second.status).toBe(200);
-    const body = await second.json();
-    expect(body.unchanged).toBe(true);
-    expect(body.rowsRevoked).toBe(0);
+  it("other failures propagate (a 500)", async () => {
+    vi.mocked(client.airgapUpload).mockRejectedValue(
+      new client.LicenseClientError("LICENSE_DB_ERROR", "disk full", 500),
+    );
+    await expect(POST(makeEvent(makeRequest(ENVELOPE, "POST")))).rejects.toBeInstanceOf(
+      client.LicenseClientError,
+    );
   });
 
-  it("rejects a bundle from a different subscription with 409 subscription_mismatch", async () => {
-    const t1 = Math.floor(Date.now() / 1000);
-    const a = await buildBundleBytes({ issuedAt: t1, subscriptionId: "sub_A" });
-    const ra = await POST(makeEvent(makeRequest(a.bytes, "POST")));
-    expect(ra.status).toBe(200);
-
-    const b = await buildBundleBytes({
-      issuedAt: t1 + 1000,
-      subscriptionId: "sub_B",
-    });
-    const rb = await POST(makeEvent(makeRequest(b.bytes, "POST")));
-    expect(rb.status).toBe(409);
-    expect(await rb.json()).toEqual({
-      ok: false,
-      error: "subscription_mismatch",
-    });
-  });
-});
-
-describe("POST /api/airgap/bundle — revocation walk", () => {
-  it("stamps revoked_at on matching member_license rows and purges sessions", async () => {
-    insertOwner("u_alpha", "lic_alpha");
+  it("purges the sessions of the users Rust revoked, and only theirs", async () => {
+    insertUser("u_alpha");
     insertUser("u_beta");
-    memberLicense.insert({
-      userId: "u_beta",
-      licenseKey: "lic_beta",
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: "tm_u_beta",
-      isOwner: false,
-    });
     insertSession("sess_alpha_1", "u_alpha");
     insertSession("sess_alpha_2", "u_alpha");
     insertSession("sess_beta_1", "u_beta");
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: { ...ACCEPTED, revokedKeyCount: 1, rowsRevoked: 1 },
+      revokedUserIds: ["u_beta"],
+    });
 
-    const { bytes } = await buildBundleBytes({ revokedKeys: ["lic_beta"] });
-    const res = await POST(makeEvent(makeRequest(bytes, "POST"), { userId: "u_alpha" }));
+    const res = await POST(makeEvent(makeRequest(ENVELOPE, "POST"), "u_alpha"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.rowsRevoked).toBe(1);
-    expect(body.revokedKeyCount).toBe(1);
+    expect(body).not.toHaveProperty("revokedUserIds");
 
-    const beta = memberLicense.findByUserId("u_beta");
-    expect(beta).not.toBeNull();
-    expect(beta!.revokedAt).not.toBeNull();
-    const alpha = memberLicense.findByUserId("u_alpha");
-    expect(alpha!.revokedAt).toBeNull();
-
-    // Sessions for the revoked user are gone; the owner's stay.
     expect(countSessionsFor("u_beta")).toBe(0);
     expect(countSessionsFor("u_alpha")).toBe(2);
   });
 });
 
+describe("POST /api/airgap/bundle — a failed purge", () => {
+  it("still answers Rust's body, and a retry purges", async () => {
+    insertUser("u_beta");
+    insertSession("sess_beta_1", "u_beta");
+    // Make the purge fail the way a locked or broken table would.
+    openAuthDb().exec(
+      `CREATE TRIGGER no_purge BEFORE DELETE ON "session" BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+    );
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: { ...ACCEPTED, revokedKeyCount: 1, rowsRevoked: 1 },
+      revokedUserIds: ["u_beta"],
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(makeEvent(makeRequest(ENVELOPE, "POST"), "u_alpha"));
+    expect(res.status).toBe(200);
+    expect((await res.json()).rowsRevoked).toBe(1);
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+    expect(countSessionsFor("u_beta")).toBe(1);
+
+    // The retry: Rust answers `unchanged` and lists every revoked user.
+    openAuthDb().exec(`DROP TRIGGER no_purge`);
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: { ...ACCEPTED, unchanged: true, revokedKeyCount: 1, rowsRevoked: 0 },
+      revokedUserIds: ["u_beta"],
+    });
+    const retry = await POST(makeEvent(makeRequest(ENVELOPE, "POST"), "u_alpha"));
+    expect((await retry.json()).unchanged).toBe(true);
+    expect(countSessionsFor("u_beta")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE
+
 describe("DELETE /api/airgap/bundle", () => {
-  it("requires authentication", async () => {
+  it("requires authentication before reaching Rust", async () => {
     await expect(DELETE(makeEvent(makeRequest(null, "DELETE")))).rejects.toMatchObject({
       status: 401,
     });
+    expect(client.airgapClear).not.toHaveBeenCalled();
   });
 
-  it("requires owner role", async () => {
-    insertUser("u_member");
-    memberLicense.insert({
-      userId: "u_member",
-      licenseKey: "lic_member",
-      boundAt: Math.floor(Date.now() / 1000),
-      controlMemberId: "tm_member",
-      isOwner: false,
+  it("maps Rust's owner check to 403", async () => {
+    vi.mocked(client.airgapClear).mockRejectedValue(
+      new client.LicenseClientError("FORBIDDEN", "owner only", 403),
+    );
+    await expect(DELETE(makeEvent(makeRequest(null, "DELETE"), "u_member"))).rejects.toMatchObject({
+      status: 403,
     });
-    await expect(
-      DELETE(makeEvent(makeRequest(null, "DELETE"), { userId: "u_member" })),
-    ).rejects.toMatchObject({ status: 403 });
   });
 
-  it("flips mode back to online but keeps member_license rows", async () => {
-    insertOwner("u_owner", "lic_owner");
-    // First seed an active bundle via POST.
-    const { bytes } = await buildBundleBytes();
-    const postRes = await POST(makeEvent(makeRequest(bytes, "POST"), { userId: "u_owner" }));
-    expect(postRes.status).toBe(200);
-    expect(licenseCache.readInstallCache()?.mode).toBe("airgap");
-
-    const res = await DELETE(makeEvent(makeRequest(null, "DELETE"), { userId: "u_owner" }));
+  it("clears as the owner", async () => {
+    vi.mocked(client.airgapClear).mockResolvedValue(undefined);
+    const res = await DELETE(makeEvent(makeRequest(null, "DELETE"), "u_owner"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(licenseCache.readInstallCache()?.mode).toBe("online");
-
-    // member_license row for the owner is still there.
-    const owner = memberLicense.findByUserId("u_owner");
-    expect(owner).not.toBeNull();
-    expect(owner!.licenseKey).toBe("lic_owner");
+    expect(client.airgapClear).toHaveBeenCalledWith("u_owner");
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET
+
+const STATUS = {
+  mode: "airgap" as const,
+  lastValidatedAt: 1,
+  graceUntil: 2,
+  member: { isOwner: true, revoked: false },
+  bundle: null,
+};
 
 describe("GET /api/airgap/bundle", () => {
   it("requires authentication", async () => {
@@ -419,66 +286,41 @@ describe("GET /api/airgap/bundle", () => {
   });
 
   it("requires bound membership", async () => {
-    insertUser("u_lonely");
-    await expect(
-      GET(makeEvent(makeRequest(null, "GET"), { userId: "u_lonely" })),
-    ).rejects.toMatchObject({ status: 403 });
+    vi.mocked(client.airgapStatus).mockResolvedValue({ ...STATUS, member: null });
+    await expect(GET(makeEvent(makeRequest(null, "GET"), "u_lonely"))).rejects.toMatchObject({
+      status: 403,
+    });
+    vi.mocked(client.airgapStatus).mockResolvedValue({
+      ...STATUS,
+      member: { isOwner: false, revoked: true },
+    });
+    await expect(GET(makeEvent(makeRequest(null, "GET"), "u_revoked"))).rejects.toMatchObject({
+      status: 403,
+    });
   });
 
   it("returns { present: false } when no bundle is loaded", async () => {
-    insertOwner("u_o", "lic_o");
-    const res = await GET(makeEvent(makeRequest(null, "GET"), { userId: "u_o" }));
+    vi.mocked(client.airgapStatus).mockResolvedValue(STATUS);
+    const res = await GET(makeEvent(makeRequest(null, "GET"), "u_o"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ present: false });
   });
 
-  it("returns the full status block after an import", async () => {
-    insertOwner("u_o", "lic_o");
-    const { bytes, payload } = await buildBundleBytes();
-    await POST(makeEvent(makeRequest(bytes, "POST"), { userId: "u_o" }));
-
-    const res = await GET(makeEvent(makeRequest(null, "GET"), { userId: "u_o" }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toMatchObject({
-      present: true,
-      tier: payload.tier,
-      seats: payload.seats,
-      notAfter: payload.not_after,
-      issuedAt: payload.issued_at,
-      pubkeyFingerprint: FINGERPRINT,
+  it("returns the full status block", async () => {
+    const bundle = {
+      tier: "team",
+      seats: 3,
+      notAfter: 1_800_000_000,
+      issuedAt: 1_700_000_000,
+      importedAt: 1_750_000_000,
+      pubkeyFingerprint: "f",
+      payloadSha256: "abc",
       revokedKeyCount: 0,
       expired: false,
-    });
-    expect(typeof body.payloadSha256).toBe("string");
-    expect(typeof body.importedAt).toBe("number");
+    };
+    vi.mocked(client.airgapStatus).mockResolvedValue({ ...STATUS, bundle });
+    const res = await GET(makeEvent(makeRequest(null, "GET"), "u_o"));
+    expect(await res.json()).toEqual({ present: true, ...bundle });
+    expect(client.airgapStatus).toHaveBeenCalledWith("u_o");
   });
 });
-
-describe("POST /api/airgap/bundle — first-run loose auth vs established install", () => {
-  it("accepts unauthenticated POST when install_cache has no tenantId", async () => {
-    // No install_cache row → loose-auth branch.
-    const { bytes } = await buildBundleBytes();
-    const res = await POST(makeEvent(makeRequest(bytes, "POST")));
-    expect(res.status).toBe(200);
-  });
-
-  it("rejects unauthenticated POST once an owner is bound", async () => {
-    // Simulate a fully-registered install: install_cache has a tenant
-    // id and an owner row exists. Both `if (installEstablished)` and
-    // the subsequent `findByUserId` check must trigger.
-    markInstallEstablished();
-    insertOwner("u_o", "lic_o");
-
-    const { bytes } = await buildBundleBytes();
-    await expect(POST(makeEvent(makeRequest(bytes, "POST")))).rejects.toMatchObject({
-      status: 401,
-    });
-  });
-});
-
-// Mark `markInstallEstablished` as touched even on test runs where it
-// isn't strictly reachable — the helper is the cleanest expression of
-// "the install has gone through registerInstall" and we want it to stay
-// visible to readers.
-void markInstallEstablished;

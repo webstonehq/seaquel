@@ -4,13 +4,32 @@ version = "0.1.0"
 edition = "2021"
 description = "Seaquel licensing: the desktop activation client and the web server's license gate, control-plane client and air-gap bundles."
 
+[features]
+# Core's `license-desktop` and `license-server` turn these on.
+# The desktop honours the OS proxy settings (macOS/Windows system config),
+# as its native-tls reqwest did. Named here rather than relied on through
+# another crate's reqwest turning it on.
+desktop = ["reqwest/system-proxy"]
+server = []
+
 [dependencies]
+seaquel-types = { path = "../seaquel-types" }
+base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
 ryu-js = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2 = "0.10"
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+# Both halves for this crate's own tests.
+seaquel-license = { path = ".", features = ["desktop", "server"] }
+axum = { workspace = true }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

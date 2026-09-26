@@ -39,7 +39,7 @@ Works with 6 database engines. No account required. Open source, free for person
 ### Collaborate & Share
 
 - **CSV/JSON export** — Export query results to CSV or JSON
-- **Query sharing** — Share queries via Git repositories
+- **Query sharing** — Share queries via Git repositories (desktop)
 - **Connection import** — Import connections from DBeaver and TablePlus
 - **Multi-project** — Organize connections and queries across projects
 
@@ -48,7 +48,7 @@ Works with 6 database engines. No account required. Open source, free for person
 - **Themes** — Light and dark modes with a built-in theme editor
 - **Internationalization** — Available in English, Spanish, German, French, Arabic, and Korean
 - **Command palette** — Quick access to all actions via keyboard
-- **SSH tunneling** — Connect securely through SSH tunnels
+- **SSH tunneling** — Connect securely through SSH tunnels (desktop)
 - **Auto-updates** — Stay current with automatic update notifications
 
 ## Comparison with Alternatives
@@ -82,9 +82,17 @@ Want to try it first? Check out the [browser demo](https://seaquel.app/demo) (po
 
 Seaquel ships a single container image at `ghcr.io/webstonehq/seaquel`,
 multi-arch (linux/amd64 + linux/arm64). It runs SvelteKit + Better Auth on
-the public port and a loopback-only Rust database service as a subprocess
-in the same container — one artifact, one `docker run`. A Seaquel subscription
-license key is required at first signup, the same as Cloud.
+the public port and a loopback-only Rust service (database connections,
+per-user metadata storage and licensing) as a subprocess in the same
+container — one artifact, one `docker run`. A Seaquel subscription license
+key is required at first signup, the same as Cloud.
+
+The web app connects to PostgreSQL, MySQL, MariaDB and SQL Server over the
+network. SQLite and DuckDB connections, SSH tunnels, shared projects (git),
+client-certificate TLS and Unix-socket connections are desktop-only: on a
+server they would read files or reach sockets on the host. The SQL tutorial
+still works, since it runs DuckDB-WASM in the browser from the image's own
+copy.
 
 #### `docker run`
 
@@ -139,6 +147,22 @@ when the default doesn't fit your deployment.
 Internal tuning knobs (`SEAQUEL_LICENSE_SOFT_TTL`, `SEAQUEL_LICENSE_GRACE_TTL`,
 `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`) have sensible defaults documented inline
 in the source; set them only when you need to.
+
+**Outbound proxies and TLS inspection.** License calls to seaquel.app come
+from the Rust service. They go through `HTTPS_PROXY`/`HTTP_PROXY` (and skip
+hosts in `NO_PROXY`) when those are set in the container's environment. If
+a proxy re-signs TLS, point `NODE_EXTRA_CA_CERTS` at a PEM file with its CA
+certificate; `SSL_CERT_FILE` and `SSL_CERT_DIR` work too.
+
+**What reaches the Rust service.** It gets only the variables it needs:
+the ones above, `DATA_DIR`, the proxy and CA variables, `PATH`, `TZ`,
+`LANG` and the temp directories. `PG*` and `MYSQL*` variables (`PGPASSWORD`,
+`PGHOST`, …) and a `~/.pgpass` file are never used for a user's connection.
+
+Node and the Rust service must run in the same container (the image's
+default). Licensing refuses calls from any other host, so a split
+deployment gets a 503 page on every request. The same page shows when the
+Rust service is down or can't answer.
 
 With `BETTER_AUTH_URL` unset, every boot logs:
 
@@ -202,7 +226,7 @@ A bundle is verified against the public half of the signing keypair. The
 private half — a 32-byte Ed25519 seed — lives only on the control plane,
 as the `SEAQUEL_BUNDLE_SIGNING_PRIVATE_KEY` secret on seaquel-app. The
 public half is compiled into this repo, as `PROD_TRUSTED_PUBKEYS` in
-`src/lib/server/airgap/bundle-store.ts`.
+`crates/seaquel-license/src/server/airgap/bundle_store.rs`.
 
 To derive that public half from a seed without minting anything, pass
 `--only-derive`:
@@ -220,8 +244,8 @@ private half, so it belongs in the control-plane secret and nowhere else.
 The fingerprint is the first 16 bytes of `SHA-256(pubkey)`, and the
 verifier looks keys up by it, so an anchor whose fingerprint does not
 match its pubkey rejects every real bundle instead of erroring. The
-`ships a well-formed built-in production set` test in
-`bundle-store.test.ts` guards against exactly that.
+`ships_a_well_formed_built_in_production_set` test in
+`crates/seaquel-license/tests/bundle_store.rs` guards against exactly that.
 
 Because `PROD_TRUSTED_PUBKEYS` is a list, a key rotation can ship a
 release carrying both the old and new anchors, switch the control-plane
@@ -275,8 +299,9 @@ In the browser at <http://localhost:8787>:
 
 1. `/signup` — the first user becomes the tenant Owner. Paste an
    owner-tier subscription license key when prompted.
-2. Create a project, add a connection (try a Postgres/MySQL you have
-   access to, or a local SQLite path like `/data/test.db`).
+2. Create a project, add a connection to a Postgres, MySQL, MariaDB or
+   SQL Server database you have access to. (SQLite and DuckDB aren't
+   offered on web; a `sqlite:` connection string is refused.)
 3. Save the password on the connection — the credential-vault setup
    dialog should appear. Pick a passphrase; credentials are encrypted
    in the browser before they ever reach the server (zero-knowledge).
@@ -292,9 +317,9 @@ docker volume rm seaquel-test-data
 ##### Air-gapped mode
 
 Exercise the offline flow with a locally-minted bundle. Air-gapped mode
-itself is purely bundle-driven: once a bundle is imported, the dispatcher
-in `licensing.ts` routes every call to local helpers and never touches
-the network. **A real air-gapped deployment just imports the bundle —
+itself is purely bundle-driven: once a bundle is imported, the license
+service (`crates/seaquel-license/src/server`) routes every call to its
+air-gap equivalent and never touches the network. **A real air-gapped deployment just imports the bundle —
 there's no env var that turns offline mode "on."**
 
 **1. Mint a bundle with a dev keypair.**
@@ -355,8 +380,8 @@ there. On success you'll see tier/seats/expiry; the page then offers a
 
 **4. Sign up with the bundle's owner key.**
 
-At `/signup`, use `DEV-OWNER` as the license key. The dispatcher routes
-through `airgap.registerInstallLocal` (because a bundle is loaded), the
+At `/signup`, use `DEV-OWNER` as the license key. The license service
+routes through `register_install_local` (because a bundle is loaded), the
 owner's `member_license` row is written with `is_owner=1`, and a session
 cookie comes back. No network call to `seaquel.app` happened.
 
@@ -364,7 +389,7 @@ cookie comes back. No network call to `seaquel.app` happened.
 
 Open a private window, hit `/signup`, paste any random string as the
 license key. Expect a `license_not_found` rejection from
-`verifyLocalMembershipLicense`.
+`verify_local_membership_license`.
 
 **6. Sign up the member.**
 
@@ -402,10 +427,12 @@ node scripts/mint-airgap-bundle.ts \
   --out=/tmp/seaquel-test-v2.bundle
 ```
 
-Upload the new bundle at `/settings/airgap` as the owner. The endpoint
-walks `member_license`, stamps `revoked_at` on the member's row, and
-deletes their Better Auth session in one transaction. The member's next
-request returns 403 and they're bounced back to login.
+Upload the new bundle at `/settings/airgap` as the owner. The license
+service walks `member_license` and stamps `revoked_at` on the member's
+row in one transaction, then the Node server deletes their Better Auth
+sessions. If that last step fails, uploading the same bundle again
+finishes it. The member's next request returns 403 and they're bounced
+back to login.
 
 **9. Test offline → online transition.**
 
@@ -460,6 +487,11 @@ docker volume rm seaquel-airgap-data
 | ERD generation       | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 | Inline editing       | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 | Statistics dashboard | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| Self-hosted web app  | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         | :white_check_mark: |        :x:         |
+
+SQLite and DuckDB are desktop-only. The self-hosted web app runs on a
+server, where a SQLite or DuckDB "connection" would be a file on that
+server, so it doesn't offer them.
 
 ## Community
 

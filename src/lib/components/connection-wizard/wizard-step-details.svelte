@@ -334,8 +334,8 @@
 
 						<!-- SSH Tunnel — Tauri-only runtime; hidden in web/demo (see
 							 $lib/features/index.ts → sshTunnels). The whole subtree
-							 calls `createSshTunnel` via `invoke()` which has no
-							 implementation outside the Tauri shell. -->
+							 calls `createSshTunnel`, which goes through the Tauri
+							 `core_call` command; the web server has no SSH. -->
 						{#if formData.type !== "sqlite" && isFeatureEnabled("sshTunnels")}
 							<div class="space-y-4">
 								<div class="flex items-center justify-between">

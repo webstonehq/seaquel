@@ -4,7 +4,7 @@
 	import { Label } from "$lib/components/ui/label";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { WizardFormData } from "$lib/stores/connection-wizard.svelte.js";
-	import { databaseTypes } from "$lib/stores/connection-wizard.svelte.js";
+	import { availableDatabaseTypes } from "$lib/stores/connection-wizard.svelte.js";
 	import type { DatabaseType } from "$lib/types";
 	import DatabaseTypeCard from "./database-type-card.svelte";
 	import CopyIcon from "@lucide/svelte/icons/copy";
@@ -20,6 +20,9 @@
 	}
 
 	let { formData = $bindable(), onParse, onSelectType, onContinue, error }: Props = $props();
+
+	// SQLite and DuckDB aren't offered on web (they'd open files on the server).
+	const databaseTypes = availableDatabaseTypes();
 
 	// Auto-parse when connection string contains ://, then advance to step 2
 	$effect(() => {
@@ -89,8 +92,8 @@
 	</div>
 
 	<!-- Database type grid -->
-	<div class="grid grid-cols-3 gap-3">
-		{#each databaseTypes as dbType}
+	<div class={["grid gap-3", databaseTypes.length === 4 ? "grid-cols-2" : "grid-cols-3"]}>
+		{#each databaseTypes as dbType (dbType.value)}
 			<DatabaseTypeCard config={dbType} onclick={() => onSelectType(dbType.value)} />
 		{/each}
 	</div>

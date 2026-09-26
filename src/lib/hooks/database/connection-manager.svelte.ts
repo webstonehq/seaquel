@@ -10,7 +10,12 @@ import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine"
 import { createSshTunnelWithHostKeyCheck, closeSshTunnel } from "$lib/services/ssh-tunnel";
 import type { ProviderRegistry } from "$lib/providers";
 import { isTauri, isDemo } from "$lib/utils/environment";
-import { isFeatureEnabled } from "$lib/features";
+import {
+  assertDatabaseTypeAvailable,
+  databaseTypeUnavailableMessage,
+  isDatabaseTypeAvailable,
+  isFeatureEnabled,
+} from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
 import { VaultCancelledError } from "$lib/services/vault/vault-state.svelte";
 import { SvelteSet } from "svelte/reactivity";
@@ -218,9 +223,22 @@ export class ConnectionManager {
       };
     } catch (error) {
       void log.error(`SSH tunnel failed for ${connectionId}`);
-      errorToast(`SSH tunnel failed: ${JSON.stringify(error)}`);
+      errorToast(
+        `SSH tunnel failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
+      );
       throw error;
     }
+  }
+
+  /**
+   * Close a connection's SSH tunnel, if it has one, and forget it. Used when a
+   * connect fails after the tunnel opened, so the tunnel doesn't leak.
+   */
+  private async dropTunnel(connectionId: string): Promise<void> {
+    const tunnelId = this.tunnelIds.get(connectionId);
+    if (!tunnelId) return;
+    this.tunnelIds.delete(connectionId);
+    await closeSshTunnel(tunnelId).catch((e) => void log.error(e));
   }
 
   /**
@@ -228,6 +246,8 @@ export class ConnectionManager {
    */
   async add(connection: ConnectionInput): Promise<string> {
     void log.info(`Adding connection: type=${connection.type}`);
+    // SQLite and DuckDB on web (Decision 11b): refuse before anything runs.
+    assertDatabaseTypeAvailable(connection.type);
     const connectionId = `conn-${crypto.randomUUID()}`;
     this.connectingIds.add(connectionId);
 
@@ -243,18 +263,24 @@ export class ConnectionManager {
       );
 
       // Connect to database via unified provider
-      const provider = await this.providers.getForType(connection.type);
-      const providerConnectionId = await provider.connect({
-        type: connection.type,
-        host: tunnelLocalPort ? "127.0.0.1" : connection.host,
-        port: tunnelLocalPort || connection.port,
-        databaseName: connection.databaseName,
-        username: connection.username,
-        password: connection.password,
-        sslMode: connection.sslMode,
-        connectionString: effectiveConnectionString,
-        createIfMissing: connection.createIfMissing,
-      });
+      let providerConnectionId: string;
+      try {
+        const provider = await this.providers.getForType(connection.type);
+        providerConnectionId = await provider.connect({
+          type: connection.type,
+          host: tunnelLocalPort ? "127.0.0.1" : connection.host,
+          port: tunnelLocalPort || connection.port,
+          databaseName: connection.databaseName,
+          username: connection.username,
+          password: connection.password,
+          sslMode: connection.sslMode,
+          connectionString: effectiveConnectionString,
+          createIfMissing: connection.createIfMissing,
+        });
+      } catch (error) {
+        await this.dropTunnel(connectionId);
+        throw error;
+      }
 
       const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
       // createIfMissing applies to this connect only — don't persist it, or a
@@ -290,6 +316,7 @@ export class ConnectionManager {
         this.stateRestoration.cleanupConnectionMaps(newConnection.id);
         const cleanupProvider = await this.providers.getForType(newConnection.type);
         await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+        await this.dropTunnel(connectionId);
         throw new Error(`Failed to load database schema: ${String(error)}`);
       }
 
@@ -331,6 +358,7 @@ export class ConnectionManager {
           this.stateRestoration.cleanupConnectionMaps(newConnection.id);
           const cleanupProvider = await this.providers.getForType(newConnection.type);
           await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+          await this.dropTunnel(connectionId);
           errorToast(
             "Vault unlock cancelled — connection not saved. Unlock the vault and try again.",
           );
@@ -355,19 +383,24 @@ export class ConnectionManager {
     if (!existingConnection) {
       throw new Error(`Connection with id ${connectionId} not found`);
     }
+    // A SQLite or DuckDB connection saved on desktop can reach a web
+    // workspace; it fails here with the reason instead of at the server.
+    assertDatabaseTypeAvailable(connection.type);
 
     this.connectingIds.add(connectionId);
     try {
-      // Close existing tunnel if any
-      const existingTunnelId = this.tunnelIds.get(connectionId);
-      if (existingTunnelId) {
-        try {
-          await closeSshTunnel(existingTunnelId);
-        } catch {
-          // Ignore cleanup errors
-        }
-        this.tunnelIds.delete(connectionId);
+      // Disconnect the existing connection first and mark it disconnected,
+      // then close its tunnel (closing cuts whatever still runs through it).
+      // If the new connect fails, the connection then reads as disconnected
+      // instead of pointing at a dead provider connection.
+      if (existingConnection.providerConnectionId) {
+        const oldProvider = await this.providers.getForType(existingConnection.type);
+        await oldProvider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+        this.state.connections = this.state.connections.map((c) =>
+          c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
+        );
       }
+      await this.dropTunnel(connectionId);
 
       const { effectiveConnectionString: rawConnectionString, tunnelLocalPort } =
         await this.setupSshTunnel(
@@ -392,25 +425,25 @@ export class ConnectionManager {
         }
       }
 
-      // Close existing connection
-      if (existingConnection.providerConnectionId) {
-        const oldProvider = await this.providers.getForType(existingConnection.type);
-        await oldProvider.disconnect(existingConnection.providerConnectionId).catch(() => {});
-      }
-
       // Connect to database via unified provider
-      const provider = await this.providers.getForType(connection.type);
-      const providerConnectionId = await provider.connect({
-        type: connection.type,
-        host: tunnelLocalPort ? "127.0.0.1" : connection.host,
-        port: tunnelLocalPort || connection.port,
-        databaseName: connection.databaseName,
-        username: connection.username,
-        password: connection.password,
-        sslMode: connection.sslMode,
-        connectionString: effectiveConnectionString,
-        createIfMissing: connection.createIfMissing,
-      });
+      let providerConnectionId: string;
+      try {
+        const provider = await this.providers.getForType(connection.type);
+        providerConnectionId = await provider.connect({
+          type: connection.type,
+          host: tunnelLocalPort ? "127.0.0.1" : connection.host,
+          port: tunnelLocalPort || connection.port,
+          databaseName: connection.databaseName,
+          username: connection.username,
+          password: connection.password,
+          sslMode: connection.sslMode,
+          connectionString: effectiveConnectionString,
+          createIfMissing: connection.createIfMissing,
+        });
+      } catch (error) {
+        await this.dropTunnel(connectionId);
+        throw error;
+      }
 
       // Create updated connection object to ensure Svelte reactivity sees the change
       const updatedConnection: DatabaseConnection = {
@@ -448,6 +481,7 @@ export class ConnectionManager {
         );
         const cleanupProvider = await this.providers.getForType(existingConnection.type);
         await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+        await this.dropTunnel(connectionId);
         throw new Error(`Failed to load database schema: ${String(error)}`);
       }
 
@@ -540,6 +574,7 @@ export class ConnectionManager {
    * Throws on failure so callers can display the error inline.
    */
   async test(connection: ConnectionInput): Promise<void> {
+    assertDatabaseTypeAvailable(connection.type);
     let effectiveConnectionString = connection.connectionString;
     let tunnelId: string | undefined;
     let tunnelLocalPort: number | undefined;
@@ -771,6 +806,12 @@ export class ConnectionManager {
     connectionId: string,
     connection: DatabaseConnection,
   ): Promise<boolean> {
+    // Nothing to retry: say why, and let the caller open the connection's
+    // tab (where Connect gives the same message).
+    if (!isDatabaseTypeAvailable(connection.type)) {
+      errorToast(databaseTypeUnavailableMessage(connection.type));
+      return false;
+    }
     // SQLite and DuckDB don't require passwords, always auto-reconnect
     if (connection.type === "sqlite" || connection.type === "duckdb") {
       try {
@@ -954,10 +995,18 @@ export class ConnectionManager {
     if (connection) {
       const wasConnected = !!connection.providerConnectionId;
 
-      // Disconnect provider connection if connected
+      // Disconnect provider connection if connected, then close its SSH
+      // tunnel (closing cuts whatever still runs through it).
       if (connection.providerConnectionId) {
+        const tunnelId = this.tunnelIds.get(id);
+        this.tunnelIds.delete(id);
         await this.providers.getForType(connection.type).then((provider) => {
-          provider.disconnect(connection.providerConnectionId!).catch((e) => void log.error(e));
+          provider
+            .disconnect(connection.providerConnectionId!)
+            .catch((e) => void log.error(e))
+            .finally(() => {
+              if (tunnelId) closeSshTunnel(tunnelId).catch((e) => void log.error(e));
+            });
         });
         this.state.connections = this.state.connections.map((c) =>
           c.id === id ? { ...c, providerConnectionId: undefined } : c,

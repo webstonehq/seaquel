@@ -1,3 +1,4 @@
+import { isDatabaseTypeAvailable, type FeatureFlags, getFeatures } from "$lib/features";
 import type { DatabaseType, SSHAuthMethod } from "$lib/types";
 
 export type WizardStep = "method" | "details";
@@ -91,3 +92,14 @@ export const databaseTypes: DatabaseTypeConfig[] = [
     icon: "mssql",
   },
 ];
+
+/**
+ * The database types this build offers in the wizard: all of them on desktop,
+ * none of SQLite and DuckDB on web (Decision 11b). `databaseTypes` stays the
+ * full list, for looking up an existing connection's type.
+ */
+export function availableDatabaseTypes(
+  features: FeatureFlags = getFeatures(),
+): DatabaseTypeConfig[] {
+  return databaseTypes.filter((t) => isDatabaseTypeAvailable(t.value, features));
+}

@@ -91,7 +91,7 @@ async fn engine_builds_sql_with_the_connections_dialect() {
 
 #[tokio::test]
 async fn engine_with_unknown_connection_id_returns_404() {
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
     let (status, body) = post_json(
         app,
         "/api/db/engine",
@@ -152,7 +152,7 @@ async fn engine_without_a_rust_dialect_returns_501() {
 #[tokio::test]
 async fn engine_serves_sqlite() {
     let (conn_str, tmp) = temp_sqlite();
-    let app = build_router(AppState::default());
+    let app = build_router(common::sqlite_state());
     let connection_id = connect_sqlite(app.clone(), &conn_str).await;
 
     let (status, body) = post_json(

@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
@@ -38,6 +40,16 @@ pub async fn post_json(app: axum::Router, uri: &str, body: Value) -> (StatusCode
         })
     };
     (status, json)
+}
+
+/// State whose Core has only the SQLite engine, for the `/api/db/*` route
+/// tests that need a real database without a server. The server's own Core
+/// never has it (`AppState::new` registers only `WEB_ENGINES`).
+pub fn sqlite_state() -> seaquel_server::AppState {
+    let core = seaquel_core::Core::builder()
+        .engine(seaquel_engine_sqlite::engine())
+        .build();
+    seaquel_server::AppState::with_core(Arc::new(core))
 }
 
 /// Create a unique tempfile-backed SQLite connection string. Returns
