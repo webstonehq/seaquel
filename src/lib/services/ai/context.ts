@@ -1,35 +1,17 @@
 import type { SchemaTable } from "$lib/types";
 import type { DatabaseType } from "$lib/types/database";
+import { READ_ONLY_REFUSAL, validateReadOnlyQuery } from "$lib/sql";
 
-export function validateReadOnlyQuery(query: string): string | null {
-  const trimmed = query.trim();
-  const upper = trimmed.toUpperCase();
-  if (!/^(SELECT|WITH)\b/.test(upper)) {
-    return "Only read-only SELECT queries are permitted";
-  }
-  // Check each statement (split on semicolons) for DML/DDL keywords at the start
-  const statements = upper
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  for (const stmt of statements) {
-    if (/^(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|EXEC)\b/.test(stmt)) {
-      return "Only read-only SELECT queries are permitted";
-    }
-  }
-  // Block DML/DDL keywords anywhere in the query (catches CTEs with DML)
-  if (
-    /\b(INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|DROP\s|ALTER\s|TRUNCATE\s|CREATE\s|GRANT\s|REVOKE\s|EXEC\s)\b/i.test(
-      trimmed,
-    )
-  ) {
-    return "Only read-only SELECT queries are permitted";
-  }
-  // Block SELECT ... INTO (creates a table)
-  if (/\bSELECT\b[^;]*\bINTO\b/i.test(trimmed)) {
-    return "Only read-only SELECT queries are permitted";
-  }
-  return null;
+/**
+ * The AI tools' read-only check (`run_query`, and the dashboard tools'
+ * widget queries): the refusal message, or `null` when the query may run. It reads the query with the connection's quoting
+ * (`$lib/sql`), so without a known connection type it refuses: it fails
+ * closed, as `validateReadOnlyQuery` does when the module fails or the type
+ * isn't an engine it knows.
+ */
+export function readOnlyError(query: string, dbType: DatabaseType | undefined): string | null {
+  if (!dbType) return READ_ONLY_REFUSAL;
+  return validateReadOnlyQuery(query, dbType);
 }
 
 export async function runAndFormat(

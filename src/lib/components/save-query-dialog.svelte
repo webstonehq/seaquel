@@ -25,7 +25,7 @@
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
-	import { extractParameters } from "$lib/db/query-params.js";
+	import { extractParameters } from "$lib/sql";
 	import type { QueryParameter, QueryParameterType } from "$lib/types";
 	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 
@@ -171,7 +171,7 @@ import { errorToast } from "$lib/utils/toast";
 													{paramTypeLabels[param.type]}
 												</SelectTrigger>
 												<SelectContent>
-													{#each Object.entries(paramTypeLabels) as [value, label]}
+													{#each Object.entries(paramTypeLabels) as [value, label] (value)}
 														<SelectItem {value}>{label}</SelectItem>
 													{/each}
 												</SelectContent>

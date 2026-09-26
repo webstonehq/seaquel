@@ -1,0 +1,18 @@
+[package]
+name = "seaquel-sql"
+version = "0.1.0"
+edition = "2021"
+description = "SQL text work for the Svelte app: statement splitting, {{param}} substitution, statement checks, parse_create_table and the sqlparser AST helpers. Pure; builds for wasm32. Build with --features ts to regenerate the TypeScript bindings."
+
+[features]
+# Generates src/lib/types/generated/*.ts when running `cargo test --features ts`.
+# Run it through `npm run types:gen`.
+ts = ["dep:ts-rs", "seaquel-types/ts"]
+
+[dependencies]
+seaquel-types = { path = "../seaquel-types" }
+sqlparser = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ryu-js = { workspace = true }
+ts-rs = { workspace = true, optional = true }

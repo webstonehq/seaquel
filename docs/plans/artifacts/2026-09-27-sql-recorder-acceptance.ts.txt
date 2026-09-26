@@ -1,0 +1,58 @@
+// Parse acceptance inputs: the 140 statements already in the repo that the
+// spike's acceptance check (spike/harness/acceptance.test.ts) ran through
+// sqlparser-rs. The editor's sample queries (18), the six e2e schema.sql files
+// split with today's splitter (118), and the demo dashboard's queries (4).
+// acceptance.json records whether sqlparser parses each in its engine's
+// dialect; it guards against a sqlparser upgrade that stops parsing SQL we
+// ship. The statements are frozen in the fixture, so the splitter used here
+// doesn't matter after Task 9 deletes it.
+import { readFileSync } from "node:fs";
+import { sampleQueries } from "$lib/config/sample-queries";
+import { splitSqlStatements } from "$lib/db/sql-parser";
+import type { DatabaseType } from "$lib/types";
+
+export interface AcceptanceItem {
+  id: string;
+  sql: string;
+  dialect: DatabaseType;
+  source: "sample" | "e2e schema" | "demo dashboard";
+}
+
+const repo = new URL("../../", import.meta.url);
+
+const SCHEMA_DIRS: [string, DatabaseType][] = [
+  ["postgresql", "postgres"],
+  ["mysql", "mysql"],
+  ["mariadb", "mariadb"],
+  ["sqlite", "sqlite"],
+  ["sqlserver", "mssql"],
+  ["duckdb", "duckdb"],
+];
+
+export function buildAcceptanceItems(): AcceptanceItem[] {
+  const items: AcceptanceItem[] = [];
+  for (const [engine, qs] of Object.entries(sampleQueries) as [
+    DatabaseType,
+    { id: string; query: string }[],
+  ][]) {
+    for (const q of qs) {
+      items.push({ id: `sample:${q.id}`, sql: q.query, dialect: engine, source: "sample" });
+    }
+  }
+  for (const [dir, engine] of SCHEMA_DIRS) {
+    const sql = readFileSync(new URL(`e2e/test-databases/${dir}/schema.sql`, repo), "utf8");
+    splitSqlStatements(sql, engine).forEach((s, i) =>
+      items.push({ id: `schema:${dir}:${i}`, sql: s.sql, dialect: engine, source: "e2e schema" }),
+    );
+  }
+  const dash = readFileSync(new URL("src/lib/demo/sample-dashboard.ts", repo), "utf8");
+  [...dash.matchAll(/query:\s*\n?\s*"((?:[^"\\]|\\.)*)"/g)].forEach((m, i) =>
+    items.push({
+      id: `demo:${i}`,
+      sql: JSON.parse(`"${m[1]}"`) as string,
+      dialect: "duckdb",
+      source: "demo dashboard",
+    }),
+  );
+  return items;
+}

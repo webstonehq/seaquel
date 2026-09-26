@@ -1,9 +1,9 @@
 import type { PendingChange, PendingChangeOrigin, PendingChangeTarget } from "$lib/types";
-import type { QueryType } from "$lib/db/query-utils";
+import type { QueryType } from "$lib/sql";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
-import { describePendingChange } from "$lib/db/pending-change-description";
+import { describePendingChange } from "./pending-change-description.js";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte.js";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";

@@ -1094,6 +1094,11 @@
   "destructive_reason_truncate": "테이블을 비웁니다",
   "destructive_reason_delete_no_where": "모든 행을 삭제합니다 (WHERE 절 없음)",
   "destructive_reason_update_no_where": "모든 행을 업데이트합니다 (WHERE 절 없음)",
+  "destructive_reason_drop_sequence": "시퀀스를 삭제합니다",
+  "destructive_reason_drop_function": "함수 또는 프로시저를 삭제합니다",
+  "destructive_reason_merge_delete": "행을 삭제합니다 (MERGE … THEN DELETE)",
+  "destructive_check_failed": "쿼리에 위험한 구문이 있는지 확인할 수 없어 실행되지 않았습니다: {error}",
+  "statement_at_cursor_failed": "커서 위치의 문을 확인할 수 없어 아무것도 실행되지 않았습니다: {error}",
 
   "ext_sidebar_extensions": "확장 기능",
   "ext_search_placeholder": "확장 기능 검색...",
@@ -1116,5 +1121,11 @@
   "ext_group_available": "사용 가능",
   "ext_action_install_and_load": "설치 및 로드",
   "ext_action_load": "로드",
-  "ext_action_update": "업데이트"
+  "ext_action_update": "업데이트",
+  "wasm_error_title": "Seaquel을 시작할 수 없습니다",
+  "wasm_error_description": "SQL 모듈(seaquel-wasm)을 불러오지 못해 편집기와 쿼리 도구를 사용할 수 없습니다.",
+  "wasm_error_hint": "대개 .wasm 파일을 다운로드하지 못했거나(네트워크 또는 프록시 문제) Content Security Policy가 WebAssembly를 허용하지 않기 때문입니다(script-src에 'wasm-unsafe-eval'이 필요합니다). 다시 시도해 보시고, 계속 실패하면 아래 오류를 복사해서 저희에게 보내주세요.",
+  "wasm_error_copy": "오류 복사",
+  "wasm_error_copied": "복사됨",
+  "wasm_error_retry": "다시 시도"
 }

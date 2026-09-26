@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
@@ -97,6 +98,12 @@ export default defineConfig(async ({ mode }) => {
       ...(isDemoMode
         ? { include: ["monaco-editor", "monaco-sql-languages", "@duckdb/duckdb-wasm"] }
         : {}),
+    },
+
+    // vitest-setup.ts loads seaquel-wasm (src/lib/wasm/pkg, from `npm run
+    // wasm:build`) so code that calls it synchronously works in tests.
+    test: {
+      setupFiles: ["src/lib/wasm/vitest-setup.ts"],
     },
 
     // Server-side externals. `better-sqlite3` is a native CommonJS module —

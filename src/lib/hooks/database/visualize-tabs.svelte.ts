@@ -4,7 +4,7 @@ import type { VisualizeTab, ParsedQueryVisual, ParameterValue, DatabaseType } fr
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
-import { parseQueryForVisualization, getParseError } from "$lib/db/sql-ast-parser";
+import { parseVisualQuery } from "$lib/sql";
 import { resolveQuery } from "./resolve-query.js";
 
 /**
@@ -16,6 +16,18 @@ export type SetVisualizeResultCallback = (
   sourceQuery: string,
   parseError?: string,
 ) => void;
+
+/**
+ * Parse a query for the Visual tab, once: the AST, or the reason there's none.
+ */
+function parseVisual(
+  sql: string,
+  dbType: DatabaseType,
+): { parsedQuery: ParsedQueryVisual | null; parseError?: string } {
+  const { visual, parseError } = parseVisualQuery(sql, dbType);
+  if (visual) return { parsedQuery: visual, parseError: undefined };
+  return { parsedQuery: null, parseError: parseError || "Unable to parse query" };
+}
 
 /**
  * Manages query visualizer tabs: parse, visualize, remove, set active.
@@ -53,10 +65,7 @@ export class VisualizeTabManager extends BaseTabManager<VisualizeTab> {
    * Parse a query and create a VisualizeTab from it.
    */
   private buildVisualizeTab(queryToVisualize: string, dbType: DatabaseType): VisualizeTab {
-    const parsedQuery = parseQueryForVisualization(queryToVisualize, dbType);
-    const parseError = parsedQuery
-      ? undefined
-      : getParseError(queryToVisualize, dbType) || "Unable to parse query";
+    const { parsedQuery, parseError } = parseVisual(queryToVisualize, dbType);
 
     const queryPreview = queryToVisualize.substring(0, 30).replace(/\s+/g, " ").trim();
     return {
@@ -76,10 +85,7 @@ export class VisualizeTabManager extends BaseTabManager<VisualizeTab> {
     queryToVisualize: string,
     dbType: DatabaseType,
   ): { parsedQuery: ParsedQueryVisual | null; parseError?: string } {
-    const parsedQuery = parseQueryForVisualization(queryToVisualize, dbType);
-    const parseError = parsedQuery
-      ? undefined
-      : getParseError(queryToVisualize, dbType) || "Unable to parse query";
+    const { parsedQuery, parseError } = parseVisual(queryToVisualize, dbType);
     if (parseError) {
       errorToast(`Parse warning: ${parseError}`);
     }

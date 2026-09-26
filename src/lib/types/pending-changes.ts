@@ -3,7 +3,7 @@
  * @module types/pending-changes
  */
 
-import type { QueryType } from "../db/query-utils";
+import type { QueryType } from "./generated/QueryType";
 
 /**
  * Structured metadata identifying the target of a pending change.

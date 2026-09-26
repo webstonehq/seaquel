@@ -17,7 +17,7 @@ import type {
   ColumnAggregate,
   QueryBuilderTable,
 } from "$lib/types";
-import type { ParsedQuery, ParsedSubquery } from "$lib/tutorial/sql-parser";
+import type { ParsedQuery, ParsedSubquery } from "$lib/sql";
 
 /**
  * Generates a unique ID for canvas elements.

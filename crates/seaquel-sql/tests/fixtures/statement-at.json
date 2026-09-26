@@ -1,0 +1,5705 @@
+{
+  "cases": [
+    {
+      "name": "spike:semicolon-in-string",
+      "input": {
+        "sql": "SELECT 'a;b'; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 22, 1]],
+        "mysql": [[0, 12, 0], [13, 22, 1]],
+        "mariadb": [[0, 12, 0], [13, 22, 1]],
+        "sqlite": [[0, 12, 0], [13, 22, 1]],
+        "mssql": [[0, 12, 0], [13, 22, 1]],
+        "duckdb": [[0, 12, 0], [13, 22, 1]]
+      }
+    },
+    {
+      "name": "spike:dollar-tag",
+      "input": {
+        "sql": "DO $fn$ BEGIN PERFORM 1; END $fn$; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 33, 0], [34, 43, 1]],
+        "mysql": [[0, 23, 0], [24, 33, 1], [34, 43, 2]],
+        "mariadb": [[0, 23, 0], [24, 33, 1], [34, 43, 2]],
+        "sqlite": [[0, 23, 0], [24, 33, 1], [34, 43, 2]],
+        "mssql": [[0, 23, 0], [24, 33, 1], [34, 43, 2]],
+        "duckdb": [[0, 33, 0], [34, 43, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "spike:e-string-backslash",
+      "input": {
+        "sql": "SELECT E'a\\';b'; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 15, 0], [16, 25, 1]],
+        "mysql": [[0, 15, 0], [16, 25, 1]],
+        "mariadb": [[0, 15, 0], [16, 25, 1]],
+        "sqlite": [[0, 12, 0], [13, 25, 1]],
+        "mssql": [[0, 12, 0], [13, 25, 1]],
+        "duckdb": [[0, 15, 0], [16, 25, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mysql": [10],
+        "mariadb": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "spike:nested-comment",
+      "input": {
+        "sql": "SELECT 1 /* a /* b; */ c; */; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 28, 0], [29, 38, 1]],
+        "mysql": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "mariadb": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "sqlite": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "mssql": [[0, 28, 0], [29, 38, 1]],
+        "duckdb": [[0, 28, 0], [29, 38, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mssql": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "spike:hash-comment",
+      "input": {
+        "sql": "SELECT 1 # x; y\n; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 16, 1], [17, 26, 2]],
+        "mysql": [[0, 16, 0], [17, 26, 1]],
+        "mariadb": [[0, 16, 0], [17, 26, 1]],
+        "sqlite": [[0, 12, 0], [13, 16, 1], [17, 26, 2]],
+        "mssql": [[0, 12, 0], [13, 16, 1], [17, 26, 2]],
+        "duckdb": [[0, 12, 0], [13, 16, 1], [17, 26, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "spike:backslash-escape",
+      "input": {
+        "sql": "SELECT 'a\\';b'; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 24, 1]],
+        "mysql": [[0, 14, 0], [15, 24, 1]],
+        "mariadb": [[0, 14, 0], [15, 24, 1]],
+        "sqlite": [[0, 11, 0], [12, 24, 1]],
+        "mssql": [[0, 11, 0], [12, 24, 1]],
+        "duckdb": [[0, 11, 0], [12, 24, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "spike:backtick-name",
+      "input": {
+        "sql": "SELECT `a;b` FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 9, 0], [10, 19, 1], [20, 29, 2]],
+        "mysql": [[0, 19, 0], [20, 29, 1]],
+        "mariadb": [[0, 19, 0], [20, 29, 1]],
+        "sqlite": [[0, 19, 0], [20, 29, 1]],
+        "mssql": [[0, 9, 0], [10, 19, 1], [20, 29, 2]],
+        "duckdb": [[0, 9, 0], [10, 19, 1], [20, 29, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10]
+      }
+    },
+    {
+      "name": "spike:backtick-with-quote",
+      "input": {
+        "sql": "SELECT `it's` FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 20, 0], [21, 30, 1]],
+        "mariadb": [[0, 20, 0], [21, 30, 1]],
+        "sqlite": [[0, 20, 0], [21, 30, 1]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10]
+      }
+    },
+    {
+      "name": "spike:bracket-name",
+      "input": {
+        "sql": "SELECT [a;b] FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 9, 0], [10, 19, 1], [20, 29, 2]],
+        "mysql": [[0, 9, 0], [10, 19, 1], [20, 29, 2]],
+        "mariadb": [[0, 9, 0], [10, 19, 1], [20, 29, 2]],
+        "sqlite": [[0, 19, 0], [20, 29, 1]],
+        "mssql": [[0, 19, 0], [20, 29, 1]],
+        "duckdb": [[0, 9, 0], [10, 19, 1], [20, 29, 2]]
+      },
+      "fixes": {
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "spike:bracket-with-quote",
+      "input": {
+        "sql": "SELECT [it's] FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 20, 0], [21, 30, 1]],
+        "mssql": [[0, 20, 0], [21, 30, 1]],
+        "duckdb": [[0, 30, 0]]
+      },
+      "fixes": {
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "spike:param",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = {{id}}; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 32, 0], [33, 42, 1]],
+        "mysql": [[0, 32, 0], [33, 42, 1]],
+        "mariadb": [[0, 32, 0], [33, 42, 1]],
+        "sqlite": [[0, 32, 0], [33, 42, 1]],
+        "mssql": [[0, 32, 0], [33, 42, 1]],
+        "duckdb": [[0, 32, 0], [33, 42, 1]]
+      }
+    },
+    {
+      "name": "spike:unterminated-string",
+      "input": {
+        "sql": "SELECT 1; SELECT 'abc"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 21, 1]],
+        "mysql": [[0, 8, 0], [9, 21, 1]],
+        "mariadb": [[0, 8, 0], [9, 21, 1]],
+        "sqlite": [[0, 8, 0], [9, 21, 1]],
+        "mssql": [[0, 8, 0], [9, 21, 1]],
+        "duckdb": [[0, 8, 0], [9, 21, 1]]
+      }
+    },
+    {
+      "name": "spike:unterminated-comment",
+      "input": {
+        "sql": "SELECT 1; SELECT 2 /* todo"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 26, 1]],
+        "mysql": [[0, 8, 0], [9, 26, 1]],
+        "mariadb": [[0, 8, 0], [9, 26, 1]],
+        "sqlite": [[0, 8, 0], [9, 26, 1]],
+        "mssql": [[0, 8, 0], [9, 26, 1]],
+        "duckdb": [[0, 8, 0], [9, 26, 1]]
+      }
+    },
+    {
+      "name": "sql-scan-test:0",
+      "input": {
+        "sql": "SELECT * FROM t LIMIT 10"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:1",
+      "input": {
+        "sql": "select * from t limit 10 offset 5"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:2",
+      "input": {
+        "sql": "SELECT * FROM t\nLIMIT\n10"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:3",
+      "input": {
+        "sql": "SELECT * FROM t"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:4",
+      "input": {
+        "sql": "SELECT 'no limit here' FROM t"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:5",
+      "input": {
+        "sql": "SELECT * FROM t -- LIMIT 10\n"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:6",
+      "input": {
+        "sql": "SELECT * FROM t /* LIMIT 10 */"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:7",
+      "input": {
+        "sql": "SELECT * FROM (SELECT * FROM t LIMIT 5) s"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:8",
+      "input": {
+        "sql": "SELECT t.limit, t.offset FROM t"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:9",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = 'it''s LIMIT'"
+      },
+      "output": {
+        "postgres": [[0, 39, 0]],
+        "mysql": [[0, 39, 0]],
+        "mariadb": [[0, 39, 0]],
+        "sqlite": [[0, 39, 0]],
+        "mssql": [[0, 39, 0]],
+        "duckdb": [[0, 39, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:10",
+      "input": {
+        "sql": "SELECT \"limit\" FROM t"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:11",
+      "input": {
+        "sql": "SELECT \"a\"\"limit\" FROM t"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:12",
+      "input": {
+        "sql": "SELECT `limit` FROM t"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:13",
+      "input": {
+        "sql": "SELECT `a``limit` FROM t"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:14",
+      "input": {
+        "sql": "SELECT [limit], `offset`, \"top\" FROM t"
+      },
+      "output": {
+        "postgres": [[0, 38, 0]],
+        "mysql": [[0, 38, 0]],
+        "mariadb": [[0, 38, 0]],
+        "sqlite": [[0, 38, 0]],
+        "mssql": [[0, 38, 0]],
+        "duckdb": [[0, 38, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:15",
+      "input": {
+        "sql": "SELECT [a]]limit] FROM t"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:16",
+      "input": {
+        "sql": "SELECT \"top\" FROM t"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:17",
+      "input": {
+        "sql": "SELECT 'a\\' LIMIT 1' FROM t"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:18",
+      "input": {
+        "sql": "SELECT \"x LIMIT 1\" FROM t"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:19",
+      "input": {
+        "sql": "SELECT * FROM t # LIMIT 1\n"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:20",
+      "input": {
+        "sql": "SELECT a#b LIMIT 1\nFROM t"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:21",
+      "input": {
+        "sql": "SELECT a#b\nFROM t LIMIT 1"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:22",
+      "input": {
+        "sql": "SELECT x#y FROM t"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:23",
+      "input": {
+        "sql": "SELECT * FROM #tmp"
+      },
+      "output": {
+        "postgres": [[0, 18, 0]],
+        "mysql": [[0, 18, 0]],
+        "mariadb": [[0, 18, 0]],
+        "sqlite": [[0, 18, 0]],
+        "mssql": [[0, 18, 0]],
+        "duckdb": [[0, 18, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:24",
+      "input": {
+        "sql": "SELECT 5--1\nFROM t LIMIT 1"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:25",
+      "input": {
+        "sql": "SELECT E'a\\' LIMIT 1' FROM t"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:26",
+      "input": {
+        "sql": "SELECT $$ LIMIT 1 $$ FROM t"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:27",
+      "input": {
+        "sql": "SELECT $fn$ it's LIMIT 1 $fn$ FROM t"
+      },
+      "output": {
+        "postgres": [[0, 36, 0]],
+        "mysql": [[0, 36, 0]],
+        "mariadb": [[0, 36, 0]],
+        "sqlite": [[0, 36, 0]],
+        "mssql": [[0, 36, 0]],
+        "duckdb": [[0, 36, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:28",
+      "input": {
+        "sql": "SELECT 1 /* a /* LIMIT 1 */ LIMIT 2 */"
+      },
+      "output": {
+        "postgres": [[0, 38, 0]],
+        "mysql": [[0, 38, 0]],
+        "mariadb": [[0, 38, 0]],
+        "sqlite": [[0, 38, 0]],
+        "mssql": [[0, 38, 0]],
+        "duckdb": [[0, 38, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:29",
+      "input": {
+        "sql": "SELECT $1::int LIMIT 5"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:30",
+      "input": {
+        "sql": "SELECT 'a\\' FROM t LIMIT 1"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:31",
+      "input": {
+        "sql": "SELECT 'a\\' FROM t ORDER BY a OFFSET 0 ROWS"
+      },
+      "output": {
+        "postgres": [[0, 43, 0]],
+        "mysql": [[0, 43, 0]],
+        "mariadb": [[0, 43, 0]],
+        "sqlite": [[0, 43, 0]],
+        "mssql": [[0, 43, 0]],
+        "duckdb": [[0, 43, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:32",
+      "input": {
+        "sql": "SELECT 1 /* a /* b */ LIMIT 2"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:33",
+      "input": {
+        "sql": "SELECT TOP 10 * FROM t"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:34",
+      "input": {
+        "sql": "SELECT DISTINCT TOP (5) a FROM t"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:35",
+      "input": {
+        "sql": "SELECT * FROM t ORDER BY a OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY"
+      },
+      "output": {
+        "postgres": [[0, 64, 0]],
+        "mysql": [[0, 64, 0]],
+        "mariadb": [[0, 64, 0]],
+        "sqlite": [[0, 64, 0]],
+        "mssql": [[0, 64, 0]],
+        "duckdb": [[0, 64, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:36",
+      "input": {
+        "sql": "SELECT * FROM (SELECT TOP 5 * FROM t ORDER BY a) s"
+      },
+      "output": {
+        "postgres": [[0, 50, 0]],
+        "mysql": [[0, 50, 0]],
+        "mariadb": [[0, 50, 0]],
+        "sqlite": [[0, 50, 0]],
+        "mssql": [[0, 50, 0]],
+        "duckdb": [[0, 50, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:37",
+      "input": {
+        "sql": "SELECT 'TOP 5' FROM t"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:38",
+      "input": {
+        "sql": "SELECT top FROM t"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:39",
+      "input": {
+        "sql": "SELECT * FROM t FETCH FIRST 5 ROWS ONLY"
+      },
+      "output": {
+        "postgres": [[0, 39, 0]],
+        "mysql": [[0, 39, 0]],
+        "mariadb": [[0, 39, 0]],
+        "sqlite": [[0, 39, 0]],
+        "mssql": [[0, 39, 0]],
+        "duckdb": [[0, 39, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:40",
+      "input": {
+        "sql": "SELECT * FROM t ORDER BY a DESC, b"
+      },
+      "output": {
+        "postgres": [[0, 34, 0]],
+        "mysql": [[0, 34, 0]],
+        "mariadb": [[0, 34, 0]],
+        "sqlite": [[0, 34, 0]],
+        "mssql": [[0, 34, 0]],
+        "duckdb": [[0, 34, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:41",
+      "input": {
+        "sql": "SELECT a FROM t\nUNION ALL SELECT a FROM u\norder by 1"
+      },
+      "output": {
+        "postgres": [[0, 52, 0]],
+        "mysql": [[0, 52, 0]],
+        "mariadb": [[0, 52, 0]],
+        "sqlite": [[0, 52, 0]],
+        "mssql": [[0, 52, 0]],
+        "duckdb": [[0, 52, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:42",
+      "input": {
+        "sql": "SELECT ROW_NUMBER() OVER (ORDER BY a) AS rn FROM t"
+      },
+      "output": {
+        "postgres": [[0, 50, 0]],
+        "mysql": [[0, 50, 0]],
+        "mariadb": [[0, 50, 0]],
+        "sqlite": [[0, 50, 0]],
+        "mssql": [[0, 50, 0]],
+        "duckdb": [[0, 50, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:43",
+      "input": {
+        "sql": "SELECT * FROM (SELECT TOP 3 * FROM t ORDER BY a) s WHERE x = 'ORDER BY'"
+      },
+      "output": {
+        "postgres": [[0, 71, 0]],
+        "mysql": [[0, 71, 0]],
+        "mariadb": [[0, 71, 0]],
+        "sqlite": [[0, 71, 0]],
+        "mssql": [[0, 71, 0]],
+        "duckdb": [[0, 71, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:44",
+      "input": {
+        "sql": "SELECT ROW_NUMBER() OVER (ORDER BY a) AS rn FROM t ORDER BY rn"
+      },
+      "output": {
+        "postgres": [[0, 62, 0]],
+        "mysql": [[0, 62, 0]],
+        "mariadb": [[0, 62, 0]],
+        "sqlite": [[0, 62, 0]],
+        "mssql": [[0, 62, 0]],
+        "duckdb": [[0, 62, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:45",
+      "input": {
+        "sql": "SELECT [order by] FROM t"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:46",
+      "input": {
+        "sql": "SELECT TOP 5 * FROM t ORDER BY a"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:47",
+      "input": {
+        "sql": "SELECT * FROM t ORDER BY a OFFSET 5 ROWS"
+      },
+      "output": {
+        "postgres": [[0, 40, 0]],
+        "mysql": [[0, 40, 0]],
+        "mariadb": [[0, 40, 0]],
+        "sqlite": [[0, 40, 0]],
+        "mssql": [[0, 40, 0]],
+        "duckdb": [[0, 40, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:48",
+      "input": {
+        "sql": "SELECT name, ROW_NUMBER() OVER (ORDER BY name) AS rn FROM sys.types"
+      },
+      "output": {
+        "postgres": [[0, 67, 0]],
+        "mysql": [[0, 67, 0]],
+        "mariadb": [[0, 67, 0]],
+        "sqlite": [[0, 67, 0]],
+        "mssql": [[0, 67, 0]],
+        "duckdb": [[0, 67, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:49",
+      "input": {
+        "sql": "SELECT name, ROW_NUMBER() OVER (ORDER BY name) AS rn FROM sys.types ORDER BY rn"
+      },
+      "output": {
+        "postgres": [[0, 79, 0]],
+        "mysql": [[0, 79, 0]],
+        "mariadb": [[0, 79, 0]],
+        "sqlite": [[0, 79, 0]],
+        "mssql": [[0, 79, 0]],
+        "duckdb": [[0, 79, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:50",
+      "input": {
+        "sql": "SELECT * FROM (SELECT TOP 3 name FROM sys.types ORDER BY name) s"
+      },
+      "output": {
+        "postgres": [[0, 64, 0]],
+        "mysql": [[0, 64, 0]],
+        "mariadb": [[0, 64, 0]],
+        "sqlite": [[0, 64, 0]],
+        "mssql": [[0, 64, 0]],
+        "duckdb": [[0, 64, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:51",
+      "input": {
+        "sql": "SELECT * FROM (SELECT TOP 3 name FROM sys.types ORDER BY name) s ORDER BY name DESC"
+      },
+      "output": {
+        "postgres": [[0, 83, 0]],
+        "mysql": [[0, 83, 0]],
+        "mariadb": [[0, 83, 0]],
+        "sqlite": [[0, 83, 0]],
+        "mssql": [[0, 83, 0]],
+        "duckdb": [[0, 83, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:52",
+      "input": {
+        "sql": "SELECT TOP 5 name FROM sys.types ORDER BY name"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:53",
+      "input": {
+        "sql": "SELECT * FROM t ORDER BY a"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:54",
+      "input": {
+        "sql": "SELECT (a) -- x\n FROM t"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:55",
+      "input": {
+        "sql": "SELECT 'abc"
+      },
+      "output": {
+        "postgres": [[0, 11, 0]],
+        "mysql": [[0, 11, 0]],
+        "mariadb": [[0, 11, 0]],
+        "sqlite": [[0, 11, 0]],
+        "mssql": [[0, 11, 0]],
+        "duckdb": [[0, 11, 0]]
+      }
+    },
+    {
+      "name": "sql-scan-test:56",
+      "input": {
+        "sql": "SELECT [abc"
+      },
+      "output": {
+        "postgres": [[0, 11, 0]],
+        "mysql": [[0, 11, 0]],
+        "mariadb": [[0, 11, 0]],
+        "sqlite": [[0, 11, 0]],
+        "mssql": [[0, 11, 0]],
+        "duckdb": [[0, 11, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:0",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b LIKE '%{{b}}%' AND c = {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 66, 0]],
+        "mysql": [[0, 66, 0]],
+        "mariadb": [[0, 66, 0]],
+        "sqlite": [[0, 66, 0]],
+        "mssql": [[0, 66, 0]],
+        "duckdb": [[0, 66, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:1",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} OR c = {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 58, 0]],
+        "mysql": [[0, 58, 0]],
+        "mariadb": [[0, 58, 0]],
+        "sqlite": [[0, 58, 0]],
+        "mssql": [[0, 58, 0]],
+        "duckdb": [[0, 58, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:2",
+      "input": {
+        "sql": "SELECT * FROM t WHERE name LIKE '%{{name}}%' AND id > {{id}}"
+      },
+      "output": {
+        "postgres": [[0, 60, 0]],
+        "mysql": [[0, 60, 0]],
+        "mariadb": [[0, 60, 0]],
+        "sqlite": [[0, 60, 0]],
+        "mssql": [[0, 60, 0]],
+        "duckdb": [[0, 60, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:3",
+      "input": {
+        "sql": "SELECT '{{a}}-{{b}} it''s \\'x\\' 100\\% a\\\\b'"
+      },
+      "output": {
+        "postgres": [[0, 43, 0]],
+        "mysql": [[0, 43, 0]],
+        "mariadb": [[0, 43, 0]],
+        "sqlite": [[0, 43, 0]],
+        "mssql": [[0, 43, 0]],
+        "duckdb": [[0, 43, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:4",
+      "input": {
+        "sql": "SELECT \"a{{p}}\""
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:5",
+      "input": {
+        "sql": "SELECT '%{{p}}%'"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:6",
+      "input": {
+        "sql": "SELECT '{{missing}}'"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:7",
+      "input": {
+        "sql": "SELECT 'v={{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:8",
+      "input": {
+        "sql": "SELECT 'it''s {x}', `we'ird` FROM t -- {{a}}\n# {{a}}\n/* {{a}} */ WHERE a = {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 80, 0]],
+        "mysql": [[0, 80, 0]],
+        "mariadb": [[0, 80, 0]],
+        "sqlite": [[0, 80, 0]],
+        "mssql": [[0, 80, 0]],
+        "duckdb": [[0, 80, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:9",
+      "input": {
+        "sql": "SELECT `{{c}}`, `a``{{c}}` FROM t WHERE a = {{c}}"
+      },
+      "output": {
+        "postgres": [[0, 49, 0]],
+        "mysql": [[0, 49, 0]],
+        "mariadb": [[0, 49, 0]],
+        "sqlite": [[0, 49, 0]],
+        "mssql": [[0, 49, 0]],
+        "duckdb": [[0, 49, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:10",
+      "input": {
+        "sql": "SELECT N'{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:11",
+      "input": {
+        "sql": "SELECT n'{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:12",
+      "input": {
+        "sql": "SELECT _utf8mb4'{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:13",
+      "input": {
+        "sql": "SELECT _utf8mb4 '{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:14",
+      "input": {
+        "sql": "SELECT _utf8mb4\n  '{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:15",
+      "input": {
+        "sql": "SELECT _latin1\"{{c}}\""
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:16",
+      "input": {
+        "sql": "SELECT 1 N '{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 18, 0]],
+        "mysql": [[0, 18, 0]],
+        "mariadb": [[0, 18, 0]],
+        "sqlite": [[0, 18, 0]],
+        "mssql": [[0, 18, 0]],
+        "duckdb": [[0, 18, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:17",
+      "input": {
+        "sql": "SELECT N'a', _utf8mb4'b', colN = {{c}}"
+      },
+      "output": {
+        "postgres": [[0, 38, 0]],
+        "mysql": [[0, 38, 0]],
+        "mariadb": [[0, 38, 0]],
+        "sqlite": [[0, 38, 0]],
+        "mssql": [[0, 38, 0]],
+        "duckdb": [[0, 38, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:18",
+      "input": {
+        "sql": "SELECT '{{c}}' 'z'\n  \"y\", 1"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:19",
+      "input": {
+        "sql": "SELECT N'a' '{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:20",
+      "input": {
+        "sql": "SELECT /*! {{a}}, '%{{a}}' */ /*!80000 {{a}} */ /* {{a}} */ 1"
+      },
+      "output": {
+        "postgres": [[0, 61, 0]],
+        "mysql": [[0, 61, 0]],
+        "mariadb": [[0, 61, 0]],
+        "sqlite": [[0, 61, 0]],
+        "mssql": [[0, 61, 0]],
+        "duckdb": [[0, 61, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:21",
+      "input": {
+        "sql": "SELECT {{a}}, '%{{b}}%'"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:22",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} OR c = {{a}} AND d = {{d}}"
+      },
+      "output": {
+        "postgres": [[0, 72, 0]],
+        "mysql": [[0, 72, 0]],
+        "mariadb": [[0, 72, 0]],
+        "sqlite": [[0, 72, 0]],
+        "mssql": [[0, 72, 0]],
+        "duckdb": [[0, 72, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:23",
+      "input": {
+        "sql": "SELECT {{t}}, {{big}}, {{dec}}"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:24",
+      "input": {
+        "sql": "SELECT {{p}}, 'x{{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:25",
+      "input": {
+        "sql": "SELECT TOP {{n}} * FROM t"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:26",
+      "input": {
+        "sql": "CREATE VIEW v AS SELECT * FROM t WHERE name = {{v}}"
+      },
+      "output": {
+        "postgres": [[0, 51, 0]],
+        "mysql": [[0, 51, 0]],
+        "mariadb": [[0, 51, 0]],
+        "sqlite": [[0, 51, 0]],
+        "mssql": [[0, 51, 0]],
+        "duckdb": [[0, 51, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:27",
+      "input": {
+        "sql": "DECLARE @p1 int = {{a}}; SELECT @p1, @P1 WHERE x = {{b}}"
+      },
+      "output": {
+        "postgres": [[0, 23, 0], [24, 56, 1]],
+        "mysql": [[0, 23, 0], [24, 56, 1]],
+        "mariadb": [[0, 23, 0], [24, 56, 1]],
+        "sqlite": [[0, 23, 0], [24, 56, 1]],
+        "mssql": [[0, 23, 0], [24, 56, 1]],
+        "duckdb": [[0, 23, 0], [24, 56, 1]]
+      }
+    },
+    {
+      "name": "query-params-test:28",
+      "input": {
+        "sql": "SELECT * FROM t WHERE name LIKE N'%{{p}}%'"
+      },
+      "output": {
+        "postgres": [[0, 42, 0]],
+        "mysql": [[0, 42, 0]],
+        "mariadb": [[0, 42, 0]],
+        "sqlite": [[0, 42, 0]],
+        "mssql": [[0, 42, 0]],
+        "duckdb": [[0, 42, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:29",
+      "input": {
+        "sql": "SELECT * FROM t WHERE name LIKE '%{{p}}%'"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:30",
+      "input": {
+        "sql": "SELECT '%{{p}}%', '{{q}}'"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:31",
+      "input": {
+        "sql": "SELECT CASE x WHEN'{{a}}' THEN 1 END"
+      },
+      "output": {
+        "postgres": [[0, 36, 0]],
+        "mysql": [[0, 36, 0]],
+        "mariadb": [[0, 36, 0]],
+        "sqlite": [[0, 36, 0]],
+        "mssql": [[0, 36, 0]],
+        "duckdb": [[0, 36, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:32",
+      "input": {
+        "sql": "-- it's\nSELECT * FROM t WHERE a = {{x}} -- ok'"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:33",
+      "input": {
+        "sql": "SELECT [it's], [a]]'{{x}}], {{x}}"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:34",
+      "input": {
+        "sql": "SELECT \"it's\", \"a\"\"'\", {{x}}"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:35",
+      "input": {
+        "sql": "/* don't /* nest'ed */ */ SELECT {{x}} /* {{x}} */"
+      },
+      "output": {
+        "postgres": [[0, 50, 0]],
+        "mysql": [[0, 50, 0]],
+        "mariadb": [[0, 50, 0]],
+        "sqlite": [[0, 50, 0]],
+        "mssql": [[0, 50, 0]],
+        "duckdb": [[0, 50, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:36",
+      "input": {
+        "sql": "SELECT 5-{{a}}, 5-{{b}}, 5-{{c}}, 5-{{d}}"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:37",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a LIKE{{p}} AND TOP{{n}}"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:38",
+      "input": {
+        "sql": "SELECT {{d}}, '{{d}}'"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:39",
+      "input": {
+        "sql": "SELECT {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 12, 0]],
+        "mysql": [[0, 12, 0]],
+        "mariadb": [[0, 12, 0]],
+        "sqlite": [[0, 12, 0]],
+        "mssql": [[0, 12, 0]],
+        "duckdb": [[0, 12, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:40",
+      "input": {
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} AND c = {{c}}"
+      },
+      "output": {
+        "postgres": [[0, 59, 0]],
+        "mysql": [[0, 59, 0]],
+        "mariadb": [[0, 59, 0]],
+        "sqlite": [[0, 59, 0]],
+        "mssql": [[0, 59, 0]],
+        "duckdb": [[0, 59, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:41",
+      "input": {
+        "sql": "SELECT {{big}}, {{dec}}, {{t}}"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:42",
+      "input": {
+        "sql": "SELECT * FROM t WHERE n LIKE '%{{p}}%'"
+      },
+      "output": {
+        "postgres": [[0, 38, 0]],
+        "mysql": [[0, 38, 0]],
+        "mariadb": [[0, 38, 0]],
+        "sqlite": [[0, 38, 0]],
+        "mssql": [[0, 38, 0]],
+        "duckdb": [[0, 38, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:43",
+      "input": {
+        "sql": "SELECT E'a\\'{{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 18, 0]],
+        "mysql": [[0, 18, 0]],
+        "mariadb": [[0, 18, 0]],
+        "sqlite": [[0, 18, 0]],
+        "mssql": [[0, 18, 0]],
+        "duckdb": [[0, 18, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:44",
+      "input": {
+        "sql": "SELECT $$it's {{p}}$$"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:45",
+      "input": {
+        "sql": "SELECT {{a}} -- it's\n, {{b}}"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:46",
+      "input": {
+        "sql": "SELECT /* it's /* nested */ {{a}} */ {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 42, 0]],
+        "mysql": [[0, 42, 0]],
+        "mariadb": [[0, 42, 0]],
+        "sqlite": [[0, 42, 0]],
+        "mssql": [[0, 42, 0]],
+        "duckdb": [[0, 42, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:47",
+      "input": {
+        "sql": "SELECT \"it's \"\"{{a}}\"\"\" FROM t WHERE x = {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:48",
+      "input": {
+        "sql": "-- don't\nSELECT {{p}}"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:49",
+      "input": {
+        "sql": "SELECT $${{p}}$$ AS v"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:50",
+      "input": {
+        "sql": "SELECT $t${{p}}$t$"
+      },
+      "output": {
+        "postgres": [[0, 18, 0]],
+        "mysql": [[0, 18, 0]],
+        "mariadb": [[0, 18, 0]],
+        "sqlite": [[0, 18, 0]],
+        "mssql": [[0, 18, 0]],
+        "duckdb": [[0, 18, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:51",
+      "input": {
+        "sql": "SELECT $1, {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:52",
+      "input": {
+        "sql": "SELECT 5-{{x}}"
+      },
+      "output": {
+        "postgres": [[0, 14, 0]],
+        "mysql": [[0, 14, 0]],
+        "mariadb": [[0, 14, 0]],
+        "sqlite": [[0, 14, 0]],
+        "mssql": [[0, 14, 0]],
+        "duckdb": [[0, 14, 0]]
+      }
+    },
+    {
+      "name": "query-params-test:53",
+      "input": {
+        "sql": "SELECT * FROM t LIMIT{{n}}"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "review:n-literal-non-ascii",
+      "input": {
+        "sql": "SELECT N'{{p}}', '{{p}}', {{p}}"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "review:top-param",
+      "input": {
+        "sql": "SELECT TOP {{n}} name FROM t ORDER BY name"
+      },
+      "output": {
+        "postgres": [[0, 42, 0]],
+        "mysql": [[0, 42, 0]],
+        "mariadb": [[0, 42, 0]],
+        "sqlite": [[0, 42, 0]],
+        "mssql": [[0, 42, 0]],
+        "duckdb": [[0, 42, 0]]
+      }
+    },
+    {
+      "name": "review:minus-negative",
+      "input": {
+        "sql": "SELECT 1-{{p}}, 1 - {{p}}, -{{p}}"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "review:param-in-comments-and-names",
+      "input": {
+        "sql": "SELECT [{{p}}], \"{{p}}\", `{{p}}` -- {{p}}\n/* {{p}} */ FROM t WHERE a = {{p}}"
+      },
+      "output": {
+        "postgres": [[0, 76, 0]],
+        "mysql": [[0, 76, 0]],
+        "mariadb": [[0, 76, 0]],
+        "sqlite": [[0, 76, 0]],
+        "mssql": [[0, 76, 0]],
+        "duckdb": [[0, 76, 0]]
+      }
+    },
+    {
+      "name": "review:duckdb-tag-in-value",
+      "input": {
+        "sql": "SELECT $q${{p}}$q$, $${{p}}$$"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "review:mysql-introducers",
+      "input": {
+        "sql": "SELECT _binary'{{a}}', _utf8mb4 X'41', N\"{{a}}\", _latin1 'x' '{{a}}'"
+      },
+      "output": {
+        "postgres": [[0, 68, 0]],
+        "mysql": [[0, 68, 0]],
+        "mariadb": [[0, 68, 0]],
+        "sqlite": [[0, 68, 0]],
+        "mssql": [[0, 68, 0]],
+        "duckdb": [[0, 68, 0]]
+      }
+    },
+    {
+      "name": "review:mysql-adjacent",
+      "input": {
+        "sql": "SELECT 'a' \"{{a}}\" 'b', 'c'\n'{{a}}'"
+      },
+      "output": {
+        "postgres": [[0, 35, 0]],
+        "mysql": [[0, 35, 0]],
+        "mariadb": [[0, 35, 0]],
+        "sqlite": [[0, 35, 0]],
+        "mssql": [[0, 35, 0]],
+        "duckdb": [[0, 35, 0]]
+      }
+    },
+    {
+      "name": "review:mysql-executable-comment",
+      "input": {
+        "sql": "SELECT 1 /*!50700 + {{a}} */ /*!+{{a}}*/ /*+ {{a}} */"
+      },
+      "output": {
+        "postgres": [[0, 53, 0]],
+        "mysql": [[0, 53, 0]],
+        "mariadb": [[0, 53, 0]],
+        "sqlite": [[0, 53, 0]],
+        "mssql": [[0, 53, 0]],
+        "duckdb": [[0, 53, 0]]
+      }
+    },
+    {
+      "name": "review:number-formats",
+      "input": {
+        "sql": "SELECT {{a}}, {{b}}, {{c}}, {{d}}, {{e}}, {{f}}"
+      },
+      "output": {
+        "postgres": [[0, 47, 0]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 47, 0]],
+        "mssql": [[0, 47, 0]],
+        "duckdb": [[0, 47, 0]]
+      }
+    },
+    {
+      "name": "review:non-finite",
+      "input": {
+        "sql": "SELECT {{a}}, '{{a}}', {{b}}, '{{c}}'"
+      },
+      "output": {
+        "postgres": [[0, 37, 0]],
+        "mysql": [[0, 37, 0]],
+        "mariadb": [[0, 37, 0]],
+        "sqlite": [[0, 37, 0]],
+        "mssql": [[0, 37, 0]],
+        "duckdb": [[0, 37, 0]]
+      }
+    },
+    {
+      "name": "schema:postgresql",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - PostgreSQL\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types;\nDROP TABLE IF EXISTS order_items;\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS products;\nDROP TABLE IF EXISTS users;\nDROP TABLE IF EXISTS categories;\n\n-- Categories table\nCREATE TABLE categories (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Products table\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n);\n\n-- Users table\nCREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id SERIAL PRIMARY KEY,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id SERIAL PRIMARY KEY,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n);\n\n-- All types table (regression coverage for every PostgreSQL data type)\nCREATE TABLE all_types (\n    id SERIAL PRIMARY KEY,\n    col_smallint SMALLINT,\n    col_integer INTEGER,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_numeric NUMERIC(12,4),\n    col_real REAL,\n    col_double DOUBLE PRECISION,\n    col_smallserial SMALLSERIAL,\n    col_serial SERIAL,\n    col_bigserial BIGSERIAL,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_text TEXT,\n    col_bytea BYTEA,\n    col_date DATE,\n    col_time TIME,\n    col_time_tz TIME WITH TIME ZONE,\n    col_timestamp TIMESTAMP,\n    col_timestamp_tz TIMESTAMP WITH TIME ZONE,\n    col_interval INTERVAL,\n    col_uuid UUID,\n    col_json JSON,\n    col_jsonb JSONB,\n    col_xml XML,\n    col_inet INET,\n    col_cidr CIDR,\n    col_macaddr MACADDR,\n    col_bit BIT(8),\n    col_bit_varying BIT VARYING(8),\n    col_point POINT,\n    col_line LINE,\n    col_lseg LSEG,\n    col_box BOX,\n    col_path PATH,\n    col_polygon POLYGON,\n    col_circle CIRCLE,\n    col_money MONEY,\n    col_int_array INTEGER[],\n    col_text_array TEXT[],\n    col_tsquery TSQUERY,\n    col_tsvector TSVECTOR\n);\n\nINSERT INTO all_types (\n    col_smallint, col_integer, col_bigint,\n    col_decimal, col_numeric, col_real, col_double,\n    col_boolean,\n    col_char, col_varchar, col_text,\n    col_bytea,\n    col_date, col_time, col_time_tz, col_timestamp, col_timestamp_tz, col_interval,\n    col_uuid, col_json, col_jsonb, col_xml,\n    col_inet, col_cidr, col_macaddr,\n    col_bit, col_bit_varying,\n    col_point, col_line, col_lseg, col_box, col_path, col_polygon, col_circle,\n    col_money,\n    col_int_array, col_text_array,\n    col_tsquery, col_tsvector\n) VALUES (\n    32000, 2147483647, 9223372036854775807,\n    99999.99, 12345678.1234, 3.14, 2.718281828,\n    TRUE,\n    'fixed     ', 'variable length string', 'regular text content',\n    E'\\\\xDEADBEEF',\n    '2026-03-08', '12:30:00', '12:30:00+00', '2026-03-08 12:30:00', '2026-03-08 12:30:00+00', '1 year 2 months 3 days',\n    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{\"key\": \"value\", \"number\": 42}', '{\"key\": \"value\", \"number\": 42}', '<root><element>text</element></root>',\n    '192.168.1.1', '192.168.1.0/24', '08:00:2b:01:02:03',\n    B'10101010', B'1010',\n    '(1,2)', '{1,-1,0}', '[(0,0),(1,1)]', '(1,1),(0,0)', '[(0,0),(1,1),(2,0)]', '((0,0),(1,1),(1,0))', '<(0,0),5>',\n    '$99,999.99',\n    '{1,2,3}', '{\"hello\",\"world\"}',\n    'fat & cat', 'a fat cat sat on a mat'\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]],
+        "mysql": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]],
+        "mariadb": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]],
+        "sqlite": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]],
+        "mssql": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]],
+        "duckdb": [[0, 199, 0], [200, 233, 1], [234, 262, 2], [263, 293, 3], [294, 321, 4], [322, 354, 5], [355, 536, 6], [537, 861, 7], [862, 1092, 8], [1093, 1389, 9], [1390, 1676, 10], [1677, 2840, 11], [2841, 4155, 12], [4156, 4235, 13], [4236, 4284, 14], [4285, 4334, 15], [4335, 4395, 16], [4396, 4462, 17]]
+      }
+    },
+    {
+      "name": "schema:mysql",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - MySQL\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types;\nDROP TABLE IF EXISTS order_items;\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS products;\nDROP TABLE IF EXISTS users;\nDROP TABLE IF EXISTS categories;\n\n-- Categories table\nCREATE TABLE categories (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Products table\nCREATE TABLE products (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n);\n\n-- Users table\nCREATE TABLE users (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n);\n\n-- All types table (regression coverage for every MySQL data type)\nCREATE TABLE all_types (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_bit BIT(8),\n    col_tinyint_unsigned TINYINT UNSIGNED,\n    col_int_unsigned INT UNSIGNED,\n    col_bigint_unsigned BIGINT UNSIGNED,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_tinytext TINYTEXT,\n    col_text TEXT,\n    col_mediumtext MEDIUMTEXT,\n    col_longtext LONGTEXT,\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_tinyblob TINYBLOB,\n    col_blob BLOB,\n    col_mediumblob MEDIUMBLOB,\n    col_longblob LONGBLOB,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP NULL,\n    col_time TIME,\n    col_year YEAR,\n    col_json JSON,\n    col_enum ENUM('a','b','c'),\n    col_set SET('x','y','z'),\n    col_geometry GEOMETRY NULL,\n    col_point POINT NULL,\n    col_linestring LINESTRING NULL,\n    col_polygon POLYGON NULL\n);\n\nINSERT INTO all_types (\n    col_tinyint, col_smallint, col_mediumint, col_int, col_bigint,\n    col_decimal, col_float, col_double, col_bit,\n    col_tinyint_unsigned, col_int_unsigned, col_bigint_unsigned,\n    col_boolean,\n    col_char, col_varchar, col_tinytext, col_text, col_mediumtext, col_longtext,\n    col_binary, col_varbinary, col_tinyblob, col_blob, col_mediumblob, col_longblob,\n    col_date, col_datetime, col_timestamp, col_time, col_year,\n    col_json, col_enum, col_set,\n    col_geometry, col_point, col_linestring, col_polygon\n) VALUES (\n    127, 32000, 8388607, 2147483647, 9223372036854775807,\n    99999.99, 3.14, 2.718281828, b'10101010',\n    255, 4294967295, 18446744073709551615,\n    TRUE,\n    'fixed     ', 'variable length string', 'tiny text', 'regular text', 'medium text content', 'long text content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xFF, 0xCAFEBABE, 0xFACEFEED, 0xBAADF00D,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', '12:30:00', 2026,\n    '{\"key\": \"value\", \"number\": 42}', 'b', 'x,y',\n    NULL, NULL, NULL, NULL\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]],
+        "mysql": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]],
+        "mariadb": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]],
+        "sqlite": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]],
+        "mssql": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]],
+        "duckdb": [[0, 194, 0], [195, 228, 1], [229, 257, 2], [258, 288, 3], [289, 316, 4], [317, 349, 5], [350, 542, 6], [543, 878, 7], [879, 1120, 8], [1121, 1428, 9], [1429, 1727, 10], [1728, 2866, 11], [2867, 3949, 12], [3950, 4029, 13], [4030, 4078, 14], [4079, 4128, 15], [4129, 4189, 16], [4190, 4256, 17]]
+      }
+    },
+    {
+      "name": "schema:mariadb",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - MariaDB\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types;\nDROP TABLE IF EXISTS order_items;\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS products;\nDROP TABLE IF EXISTS users;\nDROP TABLE IF EXISTS categories;\n\n-- Categories table\nCREATE TABLE categories (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Products table\nCREATE TABLE products (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n);\n\n-- Users table\nCREATE TABLE users (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n);\n\n-- All types table (regression coverage for every MariaDB data type)\nCREATE TABLE all_types (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_bit BIT(8),\n    col_tinyint_unsigned TINYINT UNSIGNED,\n    col_int_unsigned INT UNSIGNED,\n    col_bigint_unsigned BIGINT UNSIGNED,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_tinytext TINYTEXT,\n    col_text TEXT,\n    col_mediumtext MEDIUMTEXT,\n    col_longtext LONGTEXT,\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_tinyblob TINYBLOB,\n    col_blob BLOB,\n    col_mediumblob MEDIUMBLOB,\n    col_longblob LONGBLOB,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP NULL,\n    col_time TIME,\n    col_year YEAR,\n    col_json JSON,\n    col_enum ENUM('a','b','c'),\n    col_set SET('x','y','z'),\n    col_inet6 INET6 NULL,\n    col_uuid UUID NULL\n);\n\nINSERT INTO all_types (\n    col_tinyint, col_smallint, col_mediumint, col_int, col_bigint,\n    col_decimal, col_float, col_double, col_bit,\n    col_tinyint_unsigned, col_int_unsigned, col_bigint_unsigned,\n    col_boolean,\n    col_char, col_varchar, col_tinytext, col_text, col_mediumtext, col_longtext,\n    col_binary, col_varbinary, col_tinyblob, col_blob, col_mediumblob, col_longblob,\n    col_date, col_datetime, col_timestamp, col_time, col_year,\n    col_json, col_enum, col_set,\n    col_inet6, col_uuid\n) VALUES (\n    127, 32000, 8388607, 2147483647, 9223372036854775807,\n    99999.99, 3.14, 2.718281828, b'10101010',\n    255, 4294967295, 18446744073709551615,\n    TRUE,\n    'fixed     ', 'variable length string', 'tiny text', 'regular text', 'medium text content', 'long text content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xFF, 0xCAFEBABE, 0xFACEFEED, 0xBAADF00D,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', '12:30:00', 2026,\n    '{\"key\": \"value\", \"number\": 42}', 'b', 'x,y',\n    '2001:db8::1', UUID()\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]],
+        "mysql": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]],
+        "mariadb": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]],
+        "sqlite": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]],
+        "mssql": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]],
+        "duckdb": [[0, 196, 0], [197, 230, 1], [231, 259, 2], [260, 290, 3], [291, 318, 4], [319, 351, 5], [352, 544, 6], [545, 880, 7], [881, 1122, 8], [1123, 1430, 9], [1431, 1729, 10], [1730, 2796, 11], [2797, 3845, 12], [3846, 3925, 13], [3926, 3974, 14], [3975, 4024, 15], [4025, 4085, 16], [4086, 4152, 17]]
+      }
+    },
+    {
+      "name": "schema:sqlite",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - SQLite\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types;\nDROP TABLE IF EXISTS order_items;\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS products;\nDROP TABLE IF EXISTS users;\nDROP TABLE IF EXISTS categories;\n\n-- Categories table\nCREATE TABLE categories (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Products table\nCREATE TABLE products (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INTEGER REFERENCES categories(id),\n    stock_quantity INTEGER DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Users table\nCREATE TABLE users (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    email TEXT UNIQUE NOT NULL,\n    role TEXT DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    user_id INTEGER REFERENCES users(id),\n    total DECIMAL(10, 2) NOT NULL,\n    status TEXT DEFAULT 'pending',\n    shipping_address TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    order_id INTEGER REFERENCES orders(id),\n    product_id INTEGER REFERENCES products(id),\n    quantity INTEGER NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL\n);\n\n-- All types table (regression coverage for every SQLite type affinity and common declared types)\nCREATE TABLE all_types (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    col_integer INTEGER,\n    col_real REAL,\n    col_text TEXT,\n    col_blob BLOB,\n    col_numeric NUMERIC,\n    col_boolean BOOLEAN,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP,\n    col_decimal DECIMAL(10,2),\n    col_varchar VARCHAR(255),\n    col_char CHAR(10),\n    col_clob CLOB,\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_bigint BIGINT,\n    col_tinyint TINYINT,\n    col_int2 INT2,\n    col_int8 INT8,\n    col_unsigned_big_int UNSIGNED BIG INT,\n    col_native_character NATIVE CHARACTER(70),\n    col_nchar NCHAR(55),\n    col_nvarchar NVARCHAR(100)\n);\n\nINSERT INTO all_types (\n    col_integer, col_real, col_text, col_blob, col_numeric, col_boolean,\n    col_date, col_datetime, col_timestamp, col_decimal,\n    col_varchar, col_char, col_clob,\n    col_float, col_double,\n    col_smallint, col_mediumint, col_bigint, col_tinyint, col_int2, col_int8,\n    col_unsigned_big_int, col_native_character, col_nchar, col_nvarchar\n) VALUES (\n    42, 3.14, 'hello world', X'DEADBEEF', 123.456, 1,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', 99999.99,\n    'variable length string', 'fixed     ', 'large text content',\n    2.718, 1.41421356,\n    32000, 8388607, 922337203685477, 127, 255, 1024,\n    1844674407370955, 'native character data', 'nchar data', 'nvarchar data'\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]],
+        "mysql": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]],
+        "mariadb": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]],
+        "sqlite": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]],
+        "mssql": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]],
+        "duckdb": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 538, 6], [539, 846, 7], [847, 1068, 8], [1069, 1341, 9], [1342, 1597, 10], [1598, 2408, 11], [2409, 3137, 12], [3138, 3217, 13], [3218, 3266, 14], [3267, 3316, 15], [3317, 3377, 16], [3378, 3444, 17]]
+      }
+    },
+    {
+      "name": "schema:sqlserver",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - SQL Server\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nIF OBJECT_ID('all_types', 'U') IS NOT NULL DROP TABLE all_types;\nIF OBJECT_ID('order_items', 'U') IS NOT NULL DROP TABLE order_items;\nIF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders;\nIF OBJECT_ID('products', 'U') IS NOT NULL DROP TABLE products;\nIF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users;\nIF OBJECT_ID('categories', 'U') IS NOT NULL DROP TABLE categories;\n\n-- Categories table\nCREATE TABLE categories (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    description NVARCHAR(MAX),\n    created_at DATETIME2 DEFAULT GETDATE()\n);\n\n-- Products table\nCREATE TABLE products (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description NVARCHAR(MAX),\n    created_at DATETIME2 DEFAULT GETDATE(),\n    CONSTRAINT FK_products_category FOREIGN KEY (category_id) REFERENCES categories(id)\n);\n\n-- Users table\nCREATE TABLE users (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    email NVARCHAR(255) UNIQUE NOT NULL,\n    role NVARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME2 DEFAULT GETDATE()\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status NVARCHAR(50) DEFAULT 'pending',\n    shipping_address NVARCHAR(500),\n    created_at DATETIME2 DEFAULT GETDATE(),\n    CONSTRAINT FK_orders_user FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    CONSTRAINT FK_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id),\n    CONSTRAINT FK_order_items_product FOREIGN KEY (product_id) REFERENCES products(id)\n);\n\n-- All types table (regression coverage for every SQL Server data type)\nCREATE TABLE all_types (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_numeric NUMERIC(12,4),\n    col_float FLOAT,\n    col_real REAL,\n    col_money MONEY,\n    col_smallmoney SMALLMONEY,\n    col_bit BIT,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_nchar NCHAR(10),\n    col_nvarchar NVARCHAR(255),\n    col_text TEXT,\n    col_ntext NTEXT,\n    col_varchar_max VARCHAR(MAX),\n    col_nvarchar_max NVARCHAR(MAX),\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_varbinary_max VARBINARY(MAX),\n    col_date DATE,\n    col_time TIME,\n    col_datetime DATETIME,\n    col_datetime2 DATETIME2,\n    col_datetimeoffset DATETIMEOFFSET,\n    col_smalldatetime SMALLDATETIME,\n    col_uniqueidentifier UNIQUEIDENTIFIER,\n    col_xml XML,\n    col_sql_variant SQL_VARIANT\n);\n\nINSERT INTO all_types (\n    col_tinyint, col_smallint, col_int, col_bigint,\n    col_decimal, col_numeric, col_float, col_real,\n    col_money, col_smallmoney, col_bit,\n    col_char, col_varchar, col_nchar, col_nvarchar,\n    col_text, col_ntext, col_varchar_max, col_nvarchar_max,\n    col_binary, col_varbinary, col_varbinary_max,\n    col_date, col_time, col_datetime, col_datetime2, col_datetimeoffset, col_smalldatetime,\n    col_uniqueidentifier, col_xml, col_sql_variant\n) VALUES (\n    255, 32000, 2147483647, 9223372036854775807,\n    99999.99, 12345678.1234, 2.718281828, 3.14,\n    99999.99, 214748.3647, 1,\n    'fixed     ', 'variable length string', N'fixed     ', N'variable length string',\n    'regular text', N'regular ntext', 'varchar max content', N'nvarchar max content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xCAFEBABE,\n    '2026-03-08', '12:30:00', '2026-03-08 12:30:00', '2026-03-08 12:30:00.1234567', '2026-03-08 12:30:00.1234567 +00:00', '2026-03-08 12:30:00',\n    'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11', '<root><element>text</element></root>', 'variant value'\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]],
+        "mysql": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]],
+        "mariadb": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]],
+        "sqlite": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]],
+        "mssql": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]],
+        "duckdb": [[0, 232, 0], [233, 301, 1], [302, 360, 2], [361, 423, 3], [424, 480, 4], [481, 547, 5], [548, 742, 6], [743, 1112, 7], [1113, 1349, 8], [1350, 1677, 9], [1678, 2041, 10], [2042, 3024, 11], [3025, 4119, 12], [4120, 4199, 13], [4200, 4248, 14], [4249, 4298, 15], [4299, 4359, 16], [4360, 4426, 17]]
+      }
+    },
+    {
+      "name": "schema:duckdb",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - DuckDB\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types;\nDROP TABLE IF EXISTS order_items;\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS products;\nDROP TABLE IF EXISTS users;\nDROP TABLE IF EXISTS categories;\n\n-- Drop sequences if they exist\nDROP SEQUENCE IF EXISTS categories_id_seq;\nDROP SEQUENCE IF EXISTS products_id_seq;\nDROP SEQUENCE IF EXISTS users_id_seq;\nDROP SEQUENCE IF EXISTS orders_id_seq;\nDROP SEQUENCE IF EXISTS order_items_id_seq;\n\n-- Create sequences\nCREATE SEQUENCE categories_id_seq;\nCREATE SEQUENCE products_id_seq;\nCREATE SEQUENCE users_id_seq;\nCREATE SEQUENCE orders_id_seq;\nCREATE SEQUENCE order_items_id_seq;\n\n-- Categories table\nCREATE TABLE categories (\n    id INTEGER DEFAULT nextval('categories_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    description VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Products table\nCREATE TABLE products (\n    id INTEGER DEFAULT nextval('products_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INTEGER,\n    stock_quantity INTEGER DEFAULT 0,\n    description VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n);\n\n-- Users table\nCREATE TABLE users (\n    id INTEGER DEFAULT nextval('users_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    email VARCHAR UNIQUE NOT NULL,\n    role VARCHAR DEFAULT 'customer',\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\n-- Orders table\nCREATE TABLE orders (\n    id INTEGER DEFAULT nextval('orders_id_seq') PRIMARY KEY,\n    user_id INTEGER,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR DEFAULT 'pending',\n    shipping_address VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\n-- Order items table\nCREATE TABLE order_items (\n    id INTEGER DEFAULT nextval('order_items_id_seq') PRIMARY KEY,\n    order_id INTEGER,\n    product_id INTEGER,\n    quantity INTEGER NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n);\n\n-- All types table (regression coverage for every DuckDB data type)\nCREATE TABLE all_types (\n    id INTEGER PRIMARY KEY,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_integer INTEGER,\n    col_bigint BIGINT,\n    col_hugeint HUGEINT,\n    col_utinyint UTINYINT,\n    col_usmallint USMALLINT,\n    col_uinteger UINTEGER,\n    col_ubigint UBIGINT,\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_decimal DECIMAL(10,2),\n    col_boolean BOOLEAN,\n    col_varchar VARCHAR,\n    col_blob BLOB,\n    col_date DATE,\n    col_time TIME,\n    col_timestamp TIMESTAMP,\n    col_timestamp_tz TIMESTAMPTZ,\n    col_interval INTERVAL,\n    col_uuid UUID,\n    col_json JSON,\n    col_int_array INTEGER[],\n    col_varchar_array VARCHAR[],\n    col_map MAP(VARCHAR, INTEGER),\n    col_struct STRUCT(name VARCHAR, age INTEGER)\n);\n\nINSERT INTO all_types VALUES (\n    1,\n    127, 32000, 2147483647, 9223372036854775807, 170141183460469231731687303715884105727,\n    255, 65535, 4294967295, 18446744073709551615,\n    3.14, 2.718281828, 99999.99,\n    TRUE,\n    'variable length string',\n    '\\xDEADBEEF'::BLOB,\n    '2026-03-08', '12:30:00', '2026-03-08 12:30:00', '2026-03-08 12:30:00+00', INTERVAL '1 year 2 months 3 days',\n    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',\n    '{\"key\": \"value\", \"number\": 42}',\n    [1, 2, 3], ['hello', 'world'],\n    MAP {'key1': 1, 'key2': 2},\n    {'name': 'test', 'age': 42}\n);\n\n-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id);\nCREATE INDEX idx_orders_user ON orders(user_id);\nCREATE INDEX idx_orders_status ON orders(status);\nCREATE INDEX idx_order_items_order ON order_items(order_id);\nCREATE INDEX idx_order_items_product ON order_items(product_id);\n"
+      },
+      "output": {
+        "postgres": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]],
+        "mysql": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]],
+        "mariadb": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]],
+        "sqlite": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]],
+        "mssql": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]],
+        "duckdb": [[0, 195, 0], [196, 229, 1], [230, 258, 2], [259, 289, 3], [290, 317, 4], [318, 350, 5], [351, 426, 6], [427, 467, 7], [468, 505, 8], [506, 544, 9], [545, 588, 10], [589, 644, 11], [645, 677, 12], [678, 707, 13], [708, 738, 14], [739, 774, 15], [775, 992, 16], [993, 1359, 17], [1360, 1609, 18], [1610, 1935, 19], [1936, 2273, 20], [2274, 3087, 21], [3088, 3661, 22], [3662, 3741, 23], [3742, 3790, 24], [3791, 3840, 25], [3841, 3901, 26], [3902, 3968, 27]]
+      }
+    },
+    {
+      "name": "sample:pg-list-tables",
+      "input": {
+        "sql": "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'public'\nORDER BY table_name;"
+      },
+      "output": {
+        "postgres": [[0, 111, 0]],
+        "mysql": [[0, 111, 0]],
+        "mariadb": [[0, 111, 0]],
+        "sqlite": [[0, 111, 0]],
+        "mssql": [[0, 111, 0]],
+        "duckdb": [[0, 111, 0]]
+      }
+    },
+    {
+      "name": "sample:pg-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;"
+      },
+      "output": {
+        "postgres": [[0, 34, 0]],
+        "mysql": [[0, 34, 0]],
+        "mariadb": [[0, 34, 0]],
+        "sqlite": [[0, 34, 0]],
+        "mssql": [[0, 34, 0]],
+        "duckdb": [[0, 34, 0]]
+      }
+    },
+    {
+      "name": "sample:pg-table-size",
+      "input": {
+        "sql": "SELECT\n    relname AS table_name,\n    pg_size_pretty(pg_total_relation_size(relid)) AS total_size\nFROM pg_catalog.pg_statio_user_tables\nORDER BY pg_total_relation_size(relid) DESC;"
+      },
+      "output": {
+        "postgres": [[0, 180, 0]],
+        "mysql": [[0, 180, 0]],
+        "mariadb": [[0, 180, 0]],
+        "sqlite": [[0, 180, 0]],
+        "mssql": [[0, 180, 0]],
+        "duckdb": [[0, 180, 0]]
+      }
+    },
+    {
+      "name": "sample:mysql-list-tables",
+      "input": {
+        "sql": "SHOW TABLES;"
+      },
+      "output": {
+        "postgres": [[0, 12, 0]],
+        "mysql": [[0, 12, 0]],
+        "mariadb": [[0, 12, 0]],
+        "sqlite": [[0, 12, 0]],
+        "mssql": [[0, 12, 0]],
+        "duckdb": [[0, 12, 0]]
+      }
+    },
+    {
+      "name": "sample:mysql-table-size",
+      "input": {
+        "sql": "SELECT\n    table_name,\n    ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb\nFROM information_schema.tables\nWHERE table_schema = DATABASE()\nORDER BY (data_length + index_length) DESC;"
+      },
+      "output": {
+        "postgres": [[0, 197, 0]],
+        "mysql": [[0, 197, 0]],
+        "mariadb": [[0, 197, 0]],
+        "sqlite": [[0, 197, 0]],
+        "mssql": [[0, 197, 0]],
+        "duckdb": [[0, 197, 0]]
+      }
+    },
+    {
+      "name": "sample:sqlite-list-tables",
+      "input": {
+        "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type IN ('table', 'view')\nORDER BY name;"
+      },
+      "output": {
+        "postgres": [[0, 83, 0]],
+        "mysql": [[0, 83, 0]],
+        "mariadb": [[0, 83, 0]],
+        "sqlite": [[0, 83, 0]],
+        "mssql": [[0, 83, 0]],
+        "duckdb": [[0, 83, 0]]
+      }
+    },
+    {
+      "name": "sample:sqlite-table-info",
+      "input": {
+        "sql": "PRAGMA table_info(your_table);"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "sample:mssql-list-tables",
+      "input": {
+        "sql": "SELECT TABLE_NAME, TABLE_TYPE\nFROM INFORMATION_SCHEMA.TABLES\nWHERE TABLE_TYPE = 'BASE TABLE'\nORDER BY TABLE_NAME;"
+      },
+      "output": {
+        "postgres": [[0, 113, 0]],
+        "mysql": [[0, 113, 0]],
+        "mariadb": [[0, 113, 0]],
+        "sqlite": [[0, 113, 0]],
+        "mssql": [[0, 113, 0]],
+        "duckdb": [[0, 113, 0]]
+      }
+    },
+    {
+      "name": "sample:mssql-sample-data",
+      "input": {
+        "sql": "SELECT TOP 10 *\nFROM your_table;"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "sample:duckdb-list-tables",
+      "input": {
+        "sql": "SELECT table_schema, table_name\nFROM information_schema.tables\nWHERE table_type = 'BASE TABLE'\nORDER BY table_schema, table_name;"
+      },
+      "output": {
+        "postgres": [[0, 129, 0]],
+        "mysql": [[0, 129, 0]],
+        "mariadb": [[0, 129, 0]],
+        "sqlite": [[0, 129, 0]],
+        "mssql": [[0, 129, 0]],
+        "duckdb": [[0, 129, 0]]
+      }
+    },
+    {
+      "name": "sample:duckdb-describe-table",
+      "input": {
+        "sql": "DESCRIBE your_table;"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "sample:duckdb-import-csv",
+      "input": {
+        "sql": "CREATE TABLE my_data AS\nSELECT * FROM read_csv_auto('/path/to/file.csv');"
+      },
+      "output": {
+        "postgres": [[0, 73, 0]],
+        "mysql": [[0, 73, 0]],
+        "mariadb": [[0, 73, 0]],
+        "sqlite": [[0, 73, 0]],
+        "mssql": [[0, 73, 0]],
+        "duckdb": [[0, 73, 0]]
+      }
+    },
+    {
+      "name": "sample:duckdb-import-parquet",
+      "input": {
+        "sql": "CREATE TABLE my_data AS\nSELECT * FROM read_parquet('/path/to/file.parquet');"
+      },
+      "output": {
+        "postgres": [[0, 76, 0]],
+        "mysql": [[0, 76, 0]],
+        "mariadb": [[0, 76, 0]],
+        "sqlite": [[0, 76, 0]],
+        "mssql": [[0, 76, 0]],
+        "duckdb": [[0, 76, 0]]
+      }
+    },
+    {
+      "name": "edge:hash-mid-word",
+      "input": {
+        "sql": "SELECT a#b; SELECT 2\n; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 10, 0], [11, 21, 1], [22, 31, 2]],
+        "mysql": [[0, 21, 0], [22, 31, 1]],
+        "mariadb": [[0, 21, 0], [22, 31, 1]],
+        "sqlite": [[0, 10, 0], [11, 21, 1], [22, 31, 2]],
+        "mssql": [[0, 10, 0], [11, 21, 1], [22, 31, 2]],
+        "duckdb": [[0, 10, 0], [11, 21, 1], [22, 31, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:hash-temp-table",
+      "input": {
+        "sql": "SELECT * INTO #temp FROM t; SELECT * FROM #temp"
+      },
+      "output": {
+        "postgres": [[0, 26, 0], [27, 47, 1]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 26, 0], [27, 47, 1]],
+        "mssql": [[0, 26, 0], [27, 47, 1]],
+        "duckdb": [[0, 26, 0], [27, 47, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:hash-leading-comment",
+      "input": {
+        "sql": "# note; not code\nSELECT 1; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 6, 0], [7, 25, 1], [26, 35, 2]],
+        "mysql": [[0, 25, 0], [26, 35, 1]],
+        "mariadb": [[0, 25, 0], [26, 35, 1]],
+        "sqlite": [[0, 6, 0], [7, 25, 1], [26, 35, 2]],
+        "mssql": [[0, 6, 0], [7, 25, 1], [26, 35, 2]],
+        "duckdb": [[0, 6, 0], [7, 25, 1], [26, 35, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:mysql-executable-comment",
+      "input": {
+        "sql": "SELECT /*!40100 1; */ 2; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 23, 0], [24, 33, 1]],
+        "mysql": [[0, 17, 0], [18, 23, 1], [24, 33, 2]],
+        "mariadb": [[0, 17, 0], [18, 23, 1], [24, 33, 2]],
+        "sqlite": [[0, 23, 0], [24, 33, 1]],
+        "mssql": [[0, 23, 0], [24, 33, 1]],
+        "duckdb": [[0, 23, 0], [24, 33, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:mysql-dash-dash",
+      "input": {
+        "sql": "SELECT 1--2; SELECT 3 -- c; x\n; SELECT 4"
+      },
+      "output": {
+        "postgres": [[0, 30, 0], [31, 40, 1]],
+        "mysql": [[0, 11, 0], [12, 30, 1], [31, 40, 2]],
+        "mariadb": [[0, 11, 0], [12, 30, 1], [31, 40, 2]],
+        "sqlite": [[0, 30, 0], [31, 40, 1]],
+        "mssql": [[0, 30, 0], [31, 40, 1]],
+        "duckdb": [[0, 30, 0], [31, 40, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:mysql-dash-dash-eof",
+      "input": {
+        "sql": "SELECT 1 --"
+      },
+      "output": {
+        "postgres": [[0, 11, 0]],
+        "mysql": [[0, 11, 0]],
+        "mariadb": [[0, 11, 0]],
+        "sqlite": [[0, 11, 0]],
+        "mssql": [[0, 11, 0]],
+        "duckdb": [[0, 11, 0]]
+      }
+    },
+    {
+      "name": "edge:mysql-double-quote-backslash",
+      "input": {
+        "sql": "SELECT \"a\\\";b\"; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 24, 1]],
+        "mysql": [[0, 14, 0], [15, 24, 1]],
+        "mariadb": [[0, 14, 0], [15, 24, 1]],
+        "sqlite": [[0, 11, 0], [12, 24, 1]],
+        "mssql": [[0, 11, 0], [12, 24, 1]],
+        "duckdb": [[0, 11, 0], [12, 24, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:mysql-single-backslash-end",
+      "input": {
+        "sql": "SELECT 'a\\\\'; SELECT 'b'"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 24, 1]],
+        "mysql": [[0, 12, 0], [13, 24, 1]],
+        "mariadb": [[0, 12, 0], [13, 24, 1]],
+        "sqlite": [[0, 12, 0], [13, 24, 1]],
+        "mssql": [[0, 12, 0], [13, 24, 1]],
+        "duckdb": [[0, 12, 0], [13, 24, 1]]
+      }
+    },
+    {
+      "name": "edge:e-string-quote",
+      "input": {
+        "sql": "SELECT E'\\''; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 22, 1]],
+        "mysql": [[0, 12, 0], [13, 22, 1]],
+        "mariadb": [[0, 12, 0], [13, 22, 1]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 12, 0], [13, 22, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mysql": [10],
+        "mariadb": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:e-string-after-word",
+      "input": {
+        "sql": "SELECT xe'\\'; SELECT 2'; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 33, 1]],
+        "mysql": [[0, 23, 0], [24, 33, 1]],
+        "mariadb": [[0, 23, 0], [24, 33, 1]],
+        "sqlite": [[0, 12, 0], [13, 33, 1]],
+        "mssql": [[0, 12, 0], [13, 33, 1]],
+        "duckdb": [[0, 12, 0], [13, 33, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:dollar-param-vs-tag",
+      "input": {
+        "sql": "SELECT $1; SELECT $a$;$a$; SELECT $2"
+      },
+      "output": {
+        "postgres": [[0, 9, 0], [10, 25, 1], [26, 36, 2]],
+        "mysql": [[0, 9, 0], [10, 21, 1], [22, 25, 2], [26, 36, 3]],
+        "mariadb": [[0, 9, 0], [10, 21, 1], [22, 25, 2], [26, 36, 3]],
+        "sqlite": [[0, 9, 0], [10, 21, 1], [22, 25, 2], [26, 36, 3]],
+        "mssql": [[0, 9, 0], [10, 21, 1], [22, 25, 2], [26, 36, 3]],
+        "duckdb": [[0, 9, 0], [10, 25, 1], [26, 36, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:dollar-tag-unicode",
+      "input": {
+        "sql": "SELECT $ü$;$ü$; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 14, 0], [15, 24, 1]],
+        "mysql": [[0, 10, 0], [11, 14, 1], [15, 24, 2]],
+        "mariadb": [[0, 10, 0], [11, 14, 1], [15, 24, 2]],
+        "sqlite": [[0, 10, 0], [11, 14, 1], [15, 24, 2]],
+        "mssql": [[0, 10, 0], [11, 14, 1], [15, 24, 2]],
+        "duckdb": [[0, 14, 0], [15, 24, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:dollar-in-word",
+      "input": {
+        "sql": "SELECT a$b$c; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 22, 1]],
+        "mysql": [[0, 12, 0], [13, 22, 1]],
+        "mariadb": [[0, 12, 0], [13, 22, 1]],
+        "sqlite": [[0, 12, 0], [13, 22, 1]],
+        "mssql": [[0, 12, 0], [13, 22, 1]],
+        "duckdb": [[0, 12, 0], [13, 22, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:nested-comment-semicolons",
+      "input": {
+        "sql": "SELECT 1 /* a /* ; */ b ; */; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 28, 0], [29, 38, 1]],
+        "mysql": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "mariadb": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "sqlite": [[0, 24, 0], [25, 28, 1], [29, 38, 2]],
+        "mssql": [[0, 28, 0], [29, 38, 1]],
+        "duckdb": [[0, 28, 0], [29, 38, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mssql": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:bracket-escape",
+      "input": {
+        "sql": "SELECT [a]];b] FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "mysql": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "mariadb": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "sqlite": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "mssql": [[0, 21, 0], [22, 31, 1]],
+        "duckdb": [[0, 11, 0], [12, 21, 1], [22, 31, 2]]
+      },
+      "fixes": {
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:bracket-quote",
+      "input": {
+        "sql": "SELECT [a'b], 'c;d' FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 16, 0], [17, 36, 1]],
+        "mysql": [[0, 16, 0], [17, 36, 1]],
+        "mariadb": [[0, 16, 0], [17, 36, 1]],
+        "sqlite": [[0, 26, 0], [27, 36, 1]],
+        "mssql": [[0, 26, 0], [27, 36, 1]],
+        "duckdb": [[0, 16, 0], [17, 36, 1]]
+      },
+      "fixes": {
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:backtick-escape",
+      "input": {
+        "sql": "SELECT `a``;b` FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "mysql": [[0, 21, 0], [22, 31, 1]],
+        "mariadb": [[0, 21, 0], [22, 31, 1]],
+        "sqlite": [[0, 21, 0], [22, 31, 1]],
+        "mssql": [[0, 11, 0], [12, 21, 1], [22, 31, 2]],
+        "duckdb": [[0, 11, 0], [12, 21, 1], [22, 31, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10]
+      }
+    },
+    {
+      "name": "edge:double-quote-escape",
+      "input": {
+        "sql": "SELECT \"a\"\";b\" FROM t; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 21, 0], [22, 31, 1]],
+        "mysql": [[0, 21, 0], [22, 31, 1]],
+        "mariadb": [[0, 21, 0], [22, 31, 1]],
+        "sqlite": [[0, 21, 0], [22, 31, 1]],
+        "mssql": [[0, 21, 0], [22, 31, 1]],
+        "duckdb": [[0, 21, 0], [22, 31, 1]]
+      }
+    },
+    {
+      "name": "edge:open-single",
+      "input": {
+        "sql": "SELECT 1; SELECT 'abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 25, 1]],
+        "mysql": [[0, 8, 0], [9, 25, 1]],
+        "mariadb": [[0, 8, 0], [9, 25, 1]],
+        "sqlite": [[0, 8, 0], [9, 25, 1]],
+        "mssql": [[0, 8, 0], [9, 25, 1]],
+        "duckdb": [[0, 8, 0], [9, 25, 1]]
+      }
+    },
+    {
+      "name": "edge:open-double",
+      "input": {
+        "sql": "SELECT 1; SELECT \"abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 25, 1]],
+        "mysql": [[0, 8, 0], [9, 25, 1]],
+        "mariadb": [[0, 8, 0], [9, 25, 1]],
+        "sqlite": [[0, 8, 0], [9, 25, 1]],
+        "mssql": [[0, 8, 0], [9, 25, 1]],
+        "duckdb": [[0, 8, 0], [9, 25, 1]]
+      }
+    },
+    {
+      "name": "edge:open-backtick",
+      "input": {
+        "sql": "SELECT 1; SELECT `abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 21, 1], [22, 25, 2]],
+        "mysql": [[0, 8, 0], [9, 25, 1]],
+        "mariadb": [[0, 8, 0], [9, 25, 1]],
+        "sqlite": [[0, 8, 0], [9, 25, 1]],
+        "mssql": [[0, 8, 0], [9, 21, 1], [22, 25, 2]],
+        "duckdb": [[0, 8, 0], [9, 21, 1], [22, 25, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10]
+      }
+    },
+    {
+      "name": "edge:open-bracket",
+      "input": {
+        "sql": "SELECT 1; SELECT [abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 21, 1], [22, 25, 2]],
+        "mysql": [[0, 8, 0], [9, 21, 1], [22, 25, 2]],
+        "mariadb": [[0, 8, 0], [9, 21, 1], [22, 25, 2]],
+        "sqlite": [[0, 8, 0], [9, 25, 1]],
+        "mssql": [[0, 8, 0], [9, 25, 1]],
+        "duckdb": [[0, 8, 0], [9, 21, 1], [22, 25, 2]]
+      },
+      "fixes": {
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:open-e-string",
+      "input": {
+        "sql": "SELECT 1; SELECT E'ab\\';def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 27, 1]],
+        "mysql": [[0, 8, 0], [9, 27, 1]],
+        "mariadb": [[0, 8, 0], [9, 27, 1]],
+        "sqlite": [[0, 8, 0], [9, 23, 1], [24, 27, 2]],
+        "mssql": [[0, 8, 0], [9, 23, 1], [24, 27, 2]],
+        "duckdb": [[0, 8, 0], [9, 27, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mysql": [10],
+        "mariadb": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:open-n-string",
+      "input": {
+        "sql": "SELECT 1; SELECT N'東京;"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 22, 1]],
+        "mysql": [[0, 8, 0], [9, 22, 1]],
+        "mariadb": [[0, 8, 0], [9, 22, 1]],
+        "sqlite": [[0, 8, 0], [9, 22, 1]],
+        "mssql": [[0, 8, 0], [9, 22, 1]],
+        "duckdb": [[0, 8, 0], [9, 22, 1]]
+      }
+    },
+    {
+      "name": "edge:open-dollar",
+      "input": {
+        "sql": "SELECT 1; SELECT $$abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 26, 1]],
+        "mysql": [[0, 8, 0], [9, 22, 1], [23, 26, 2]],
+        "mariadb": [[0, 8, 0], [9, 22, 1], [23, 26, 2]],
+        "sqlite": [[0, 8, 0], [9, 22, 1], [23, 26, 2]],
+        "mssql": [[0, 8, 0], [9, 22, 1], [23, 26, 2]],
+        "duckdb": [[0, 8, 0], [9, 26, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:open-dollar-tag",
+      "input": {
+        "sql": "SELECT 1; SELECT $t$abc;def $t"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 30, 1]],
+        "mysql": [[0, 8, 0], [9, 23, 1], [24, 30, 2]],
+        "mariadb": [[0, 8, 0], [9, 23, 1], [24, 30, 2]],
+        "sqlite": [[0, 8, 0], [9, 23, 1], [24, 30, 2]],
+        "mssql": [[0, 8, 0], [9, 23, 1], [24, 30, 2]],
+        "duckdb": [[0, 8, 0], [9, 30, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "edge:open-block-comment",
+      "input": {
+        "sql": "SELECT 1; SELECT 2 /* abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 29, 1]],
+        "mysql": [[0, 8, 0], [9, 29, 1]],
+        "mariadb": [[0, 8, 0], [9, 29, 1]],
+        "sqlite": [[0, 8, 0], [9, 29, 1]],
+        "mssql": [[0, 8, 0], [9, 29, 1]],
+        "duckdb": [[0, 8, 0], [9, 29, 1]]
+      }
+    },
+    {
+      "name": "edge:open-nested-comment",
+      "input": {
+        "sql": "SELECT 1; SELECT 2 /* a /* b */ c;d"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 35, 1]],
+        "mysql": [[0, 8, 0], [9, 33, 1], [34, 35, 2]],
+        "mariadb": [[0, 8, 0], [9, 33, 1], [34, 35, 2]],
+        "sqlite": [[0, 8, 0], [9, 33, 1], [34, 35, 2]],
+        "mssql": [[0, 8, 0], [9, 35, 1]],
+        "duckdb": [[0, 8, 0], [9, 35, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "mssql": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "edge:open-line-comment",
+      "input": {
+        "sql": "SELECT 1; SELECT 2 -- abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 29, 1]],
+        "mysql": [[0, 8, 0], [9, 29, 1]],
+        "mariadb": [[0, 8, 0], [9, 29, 1]],
+        "sqlite": [[0, 8, 0], [9, 29, 1]],
+        "mssql": [[0, 8, 0], [9, 29, 1]],
+        "duckdb": [[0, 8, 0], [9, 29, 1]]
+      }
+    },
+    {
+      "name": "edge:open-hash-comment",
+      "input": {
+        "sql": "SELECT 1; SELECT 2 # abc;def"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 24, 1], [25, 28, 2]],
+        "mysql": [[0, 8, 0], [9, 28, 1]],
+        "mariadb": [[0, 8, 0], [9, 28, 1]],
+        "sqlite": [[0, 8, 0], [9, 24, 1], [25, 28, 2]],
+        "mssql": [[0, 8, 0], [9, 24, 1], [25, 28, 2]],
+        "duckdb": [[0, 8, 0], [9, 24, 1], [25, 28, 2]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:open-string-param",
+      "input": {
+        "sql": "SELECT {{a}}; SELECT '{{a}}"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 27, 1]],
+        "mysql": [[0, 12, 0], [13, 27, 1]],
+        "mariadb": [[0, 12, 0], [13, 27, 1]],
+        "sqlite": [[0, 12, 0], [13, 27, 1]],
+        "mssql": [[0, 12, 0], [13, 27, 1]],
+        "duckdb": [[0, 12, 0], [13, 27, 1]]
+      }
+    },
+    {
+      "name": "edge:open-comment-param",
+      "input": {
+        "sql": "SELECT {{a}} /* {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "edge:only-line-comment",
+      "input": {
+        "sql": "-- just a comment"
+      },
+      "output": {
+        "postgres": [[0, 17, null]],
+        "mysql": [[0, 17, null]],
+        "mariadb": [[0, 17, null]],
+        "sqlite": [[0, 17, null]],
+        "mssql": [[0, 17, null]],
+        "duckdb": [[0, 17, null]]
+      }
+    },
+    {
+      "name": "edge:only-block-comment",
+      "input": {
+        "sql": "/* c; d */"
+      },
+      "output": {
+        "postgres": [[0, 10, null]],
+        "mysql": [[0, 10, null]],
+        "mariadb": [[0, 10, null]],
+        "sqlite": [[0, 10, null]],
+        "mssql": [[0, 10, null]],
+        "duckdb": [[0, 10, null]]
+      }
+    },
+    {
+      "name": "edge:only-hash-comment",
+      "input": {
+        "sql": "# c; d"
+      },
+      "output": {
+        "postgres": [[0, 3, 0], [4, 6, 1]],
+        "mysql": [[0, 6, null]],
+        "mariadb": [[0, 6, null]],
+        "sqlite": [[0, 3, 0], [4, 6, 1]],
+        "mssql": [[0, 3, 0], [4, 6, 1]],
+        "duckdb": [[0, 3, 0], [4, 6, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:only-comments-mixed",
+      "input": {
+        "sql": "-- a;\n/* b; */\n# c;\n"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, null]],
+        "mariadb": [[0, 20, null]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "edge:comment-statement-between",
+      "input": {
+        "sql": "SELECT 1; -- nothing here\n; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 36, 1]],
+        "mysql": [[0, 8, 0], [9, 36, 1]],
+        "mariadb": [[0, 8, 0], [9, 36, 1]],
+        "sqlite": [[0, 8, 0], [9, 36, 1]],
+        "mssql": [[0, 8, 0], [9, 36, 1]],
+        "duckdb": [[0, 8, 0], [9, 36, 1]]
+      }
+    },
+    {
+      "name": "edge:empty",
+      "input": {
+        "sql": ""
+      },
+      "output": {
+        "postgres": [[0, 0, null]],
+        "mysql": [[0, 0, null]],
+        "mariadb": [[0, 0, null]],
+        "sqlite": [[0, 0, null]],
+        "mssql": [[0, 0, null]],
+        "duckdb": [[0, 0, null]]
+      }
+    },
+    {
+      "name": "edge:whitespace",
+      "input": {
+        "sql": "  \n\t "
+      },
+      "output": {
+        "postgres": [[0, 5, null]],
+        "mysql": [[0, 5, null]],
+        "mariadb": [[0, 5, null]],
+        "sqlite": [[0, 5, null]],
+        "mssql": [[0, 5, null]],
+        "duckdb": [[0, 5, null]]
+      }
+    },
+    {
+      "name": "edge:semicolons",
+      "input": {
+        "sql": ";;"
+      },
+      "output": {
+        "postgres": [[0, 2, null]],
+        "mysql": [[0, 2, null]],
+        "mariadb": [[0, 2, null]],
+        "sqlite": [[0, 2, null]],
+        "mssql": [[0, 2, null]],
+        "duckdb": [[0, 2, null]]
+      }
+    },
+    {
+      "name": "edge:spaced-semicolons",
+      "input": {
+        "sql": " ; ;\n; "
+      },
+      "output": {
+        "postgres": [[0, 7, null]],
+        "mysql": [[0, 7, null]],
+        "mariadb": [[0, 7, null]],
+        "sqlite": [[0, 7, null]],
+        "mssql": [[0, 7, null]],
+        "duckdb": [[0, 7, null]]
+      }
+    },
+    {
+      "name": "edge:double-semicolon",
+      "input": {
+        "sql": "SELECT 1;;SELECT 2;"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 19, 1]],
+        "mysql": [[0, 8, 0], [9, 19, 1]],
+        "mariadb": [[0, 8, 0], [9, 19, 1]],
+        "sqlite": [[0, 8, 0], [9, 19, 1]],
+        "mssql": [[0, 8, 0], [9, 19, 1]],
+        "duckdb": [[0, 8, 0], [9, 19, 1]]
+      }
+    },
+    {
+      "name": "edge:crlf",
+      "input": {
+        "sql": "SELECT 1;\r\nSELECT 2;\r\n-- c\r\nSELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 19, 1], [20, 36, 2]],
+        "mysql": [[0, 8, 0], [9, 19, 1], [20, 36, 2]],
+        "mariadb": [[0, 8, 0], [9, 19, 1], [20, 36, 2]],
+        "sqlite": [[0, 8, 0], [9, 19, 1], [20, 36, 2]],
+        "mssql": [[0, 8, 0], [9, 19, 1], [20, 36, 2]],
+        "duckdb": [[0, 8, 0], [9, 19, 1], [20, 36, 2]]
+      }
+    },
+    {
+      "name": "edge:trailing-whitespace",
+      "input": {
+        "sql": "SELECT 1;   \n  "
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "edge:tokyo-emoji",
+      "input": {
+        "sql": "SELECT '東京' AS city;\nSELECT '😀' AS face;\nSELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 19, 0], [20, 40, 1], [41, 50, 2]],
+        "mysql": [[0, 19, 0], [20, 40, 1], [41, 50, 2]],
+        "mariadb": [[0, 19, 0], [20, 40, 1], [41, 50, 2]],
+        "sqlite": [[0, 19, 0], [20, 40, 1], [41, 50, 2]],
+        "mssql": [[0, 19, 0], [20, 40, 1], [41, 50, 2]],
+        "duckdb": [[0, 19, 0], [20, 40, 1], [41, 50, 2]]
+      }
+    },
+    {
+      "name": "edge:emoji-names",
+      "input": {
+        "sql": "SELECT 東京 FROM 😀t; SELECT \"😀\" FROM 東京"
+      },
+      "output": {
+        "postgres": [[0, 18, 0], [19, 39, 1]],
+        "mysql": [[0, 18, 0], [19, 39, 1]],
+        "mariadb": [[0, 18, 0], [19, 39, 1]],
+        "sqlite": [[0, 18, 0], [19, 39, 1]],
+        "mssql": [[0, 18, 0], [19, 39, 1]],
+        "duckdb": [[0, 18, 0], [19, 39, 1]]
+      }
+    },
+    {
+      "name": "edge:emoji-comment",
+      "input": {
+        "sql": "-- 😀;\nSELECT 1; SELECT '😀;' /* 東京; */"
+      },
+      "output": {
+        "postgres": [[0, 15, 0], [16, 39, 1]],
+        "mysql": [[0, 15, 0], [16, 39, 1]],
+        "mariadb": [[0, 15, 0], [16, 39, 1]],
+        "sqlite": [[0, 15, 0], [16, 39, 1]],
+        "mssql": [[0, 15, 0], [16, 39, 1]],
+        "duckdb": [[0, 15, 0], [16, 39, 1]]
+      }
+    },
+    {
+      "name": "edge:go-batch",
+      "input": {
+        "sql": "SELECT 1\nGO\nSELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "edge:begin-end",
+      "input": {
+        "sql": "CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]],
+        "mysql": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]],
+        "mariadb": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]],
+        "sqlite": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]],
+        "mssql": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]],
+        "duckdb": [[0, 35, 0], [36, 45, 1], [46, 50, 2], [51, 60, 3]]
+      }
+    },
+    {
+      "name": "edge:delimiter",
+      "input": {
+        "sql": "DELIMITER //\nSELECT 1//\nDELIMITER ;\nSELECT 2;"
+      },
+      "output": {
+        "postgres": [[0, 34, 0], [35, 45, 1]],
+        "mysql": [[0, 34, 0], [35, 45, 1]],
+        "mariadb": [[0, 34, 0], [35, 45, 1]],
+        "sqlite": [[0, 34, 0], [35, 45, 1]],
+        "mssql": [[0, 34, 0], [35, 45, 1]],
+        "duckdb": [[0, 34, 0], [35, 45, 1]]
+      }
+    },
+    {
+      "name": "fix11:delete-comment-where",
+      "input": {
+        "sql": "DELETE FROM t -- WHERE id = 1"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix11:update-string-where",
+      "input": {
+        "sql": "UPDATE t SET note = 'see WHERE'"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix11:hash-hides-delete",
+      "input": {
+        "sql": "# clean up\nDELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "fix11:hash-select",
+      "input": {
+        "sql": "# note\nSELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "fix11:nested-comment-select",
+      "input": {
+        "sql": "/* a /* b */ c */ SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix11:delete-with-where",
+      "input": {
+        "sql": "DELETE FROM t WHERE id = 1"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix11:cte-delete",
+      "input": {
+        "sql": "WITH x AS (SELECT id FROM t) DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 42, 0]],
+        "mysql": [[0, 42, 0]],
+        "mariadb": [[0, 42, 0]],
+        "sqlite": [[0, 42, 0]],
+        "mssql": [[0, 42, 0]],
+        "duckdb": [[0, 42, 0]]
+      }
+    },
+    {
+      "name": "fix11:cte-delete-where",
+      "input": {
+        "sql": "WITH x AS (SELECT id FROM t WHERE a) DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 50, 0]],
+        "mysql": [[0, 50, 0]],
+        "mariadb": [[0, 50, 0]],
+        "sqlite": [[0, 50, 0]],
+        "mssql": [[0, 50, 0]],
+        "duckdb": [[0, 50, 0]]
+      }
+    },
+    {
+      "name": "fix11:paren-delete-in-string",
+      "input": {
+        "sql": "SELECT '(x) delete' AS s"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "fix11:drops",
+      "input": {
+        "sql": "DROP TABLE t; DROP INDEX i; DROP VIEW v; DROP SCHEMA s; DROP DATABASE d"
+      },
+      "output": {
+        "postgres": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]],
+        "mysql": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]],
+        "mariadb": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]],
+        "sqlite": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]],
+        "mssql": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]],
+        "duckdb": [[0, 12, 0], [13, 26, 1], [27, 39, 2], [40, 54, 3], [55, 71, 4]]
+      }
+    },
+    {
+      "name": "fix11:drop-quoted",
+      "input": {
+        "sql": "DROP /* c */ TABLE \"t\""
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "fix11:truncate",
+      "input": {
+        "sql": "TRUNCATE TABLE t"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "fix11:alter-drop-column",
+      "input": {
+        "sql": "ALTER TABLE t DROP COLUMN c"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix11:alter-string-drop-column",
+      "input": {
+        "sql": "ALTER TABLE t ADD c text DEFAULT 'DROP COLUMN'"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix11:insert",
+      "input": {
+        "sql": "INSERT INTO t VALUES (1)"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "fix11:selected-word",
+      "input": {
+        "sql": "SELECTED 1"
+      },
+      "output": {
+        "postgres": [[0, 10, 0]],
+        "mysql": [[0, 10, 0]],
+        "mariadb": [[0, 10, 0]],
+        "sqlite": [[0, 10, 0]],
+        "mssql": [[0, 10, 0]],
+        "duckdb": [[0, 10, 0]]
+      }
+    },
+    {
+      "name": "fix12:extract-from",
+      "input": {
+        "sql": "SELECT EXTRACT(YEAR FROM created_at) FROM orders"
+      },
+      "output": {
+        "postgres": [[0, 48, 0]],
+        "mysql": [[0, 48, 0]],
+        "mariadb": [[0, 48, 0]],
+        "sqlite": [[0, 48, 0]],
+        "mssql": [[0, 48, 0]],
+        "duckdb": [[0, 48, 0]]
+      }
+    },
+    {
+      "name": "fix12:extract-from-id",
+      "input": {
+        "sql": "SELECT EXTRACT(YEAR FROM created_at), id FROM orders"
+      },
+      "output": {
+        "postgres": [[0, 52, 0]],
+        "mysql": [[0, 52, 0]],
+        "mariadb": [[0, 52, 0]],
+        "sqlite": [[0, 52, 0]],
+        "mssql": [[0, 52, 0]],
+        "duckdb": [[0, 52, 0]]
+      }
+    },
+    {
+      "name": "fix12:select-subquery",
+      "input": {
+        "sql": "SELECT o.id, (SELECT u.name FROM users u WHERE u.id = o.user_id) FROM orders o"
+      },
+      "output": {
+        "postgres": [[0, 78, 0]],
+        "mysql": [[0, 78, 0]],
+        "mariadb": [[0, 78, 0]],
+        "sqlite": [[0, 78, 0]],
+        "mssql": [[0, 78, 0]],
+        "duckdb": [[0, 78, 0]]
+      }
+    },
+    {
+      "name": "fix12:from-in-string",
+      "input": {
+        "sql": "SELECT 'a FROM b' AS s FROM t"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix12:from-in-comment",
+      "input": {
+        "sql": "SELECT a -- FROM b\nFROM t"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "fix12:backtick-schema",
+      "input": {
+        "sql": "SELECT * FROM `Sales`.`customers`"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "fix12:bracket-schema",
+      "input": {
+        "sql": "SELECT * FROM [Sales].[customers] WHERE id = 1"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix12:double-quote-schema",
+      "input": {
+        "sql": "SELECT * FROM \"Sales\".\"order items\""
+      },
+      "output": {
+        "postgres": [[0, 35, 0]],
+        "mysql": [[0, 35, 0]],
+        "mariadb": [[0, 35, 0]],
+        "sqlite": [[0, 35, 0]],
+        "mssql": [[0, 35, 0]],
+        "duckdb": [[0, 35, 0]]
+      }
+    },
+    {
+      "name": "fix12:non-ascii",
+      "input": {
+        "sql": "SELECT * FROM 東京"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "fix12:non-ascii-quoted",
+      "input": {
+        "sql": "SELECT * FROM \"Größe\""
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "fix12:plain",
+      "input": {
+        "sql": "SELECT id, name FROM public.users WHERE id > 1"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix12:join",
+      "input": {
+        "sql": "SELECT * FROM a JOIN b ON a.id = b.id"
+      },
+      "output": {
+        "postgres": [[0, 37, 0]],
+        "mysql": [[0, 37, 0]],
+        "mariadb": [[0, 37, 0]],
+        "sqlite": [[0, 37, 0]],
+        "mssql": [[0, 37, 0]],
+        "duckdb": [[0, 37, 0]]
+      }
+    },
+    {
+      "name": "fix12:from-subquery",
+      "input": {
+        "sql": "SELECT * FROM (SELECT * FROM users) u"
+      },
+      "output": {
+        "postgres": [[0, 37, 0]],
+        "mysql": [[0, 37, 0]],
+        "mariadb": [[0, 37, 0]],
+        "sqlite": [[0, 37, 0]],
+        "mssql": [[0, 37, 0]],
+        "duckdb": [[0, 37, 0]]
+      }
+    },
+    {
+      "name": "fix12:table-function",
+      "input": {
+        "sql": "SELECT * FROM generate_series(1, 3)"
+      },
+      "output": {
+        "postgres": [[0, 35, 0]],
+        "mysql": [[0, 35, 0]],
+        "mariadb": [[0, 35, 0]],
+        "sqlite": [[0, 35, 0]],
+        "mssql": [[0, 35, 0]],
+        "duckdb": [[0, 35, 0]]
+      }
+    },
+    {
+      "name": "fix12:three-part",
+      "input": {
+        "sql": "SELECT * FROM db.dbo.t"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "fix12:lowercase-from",
+      "input": {
+        "sql": "select * from Orders"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix13:comment",
+      "input": {
+        "sql": "SELECT 1 -- {{x}}"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "fix13:quoted-name-and-string",
+      "input": {
+        "sql": "SELECT \"it's\", {{x}}, 'a{{x}}'"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "fix13:e-string",
+      "input": {
+        "sql": "SELECT E'a\\n{{x}}\\t'"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix13:do-block",
+      "input": {
+        "sql": "DO $$ BEGIN RAISE NOTICE '{{p}}'; END $$"
+      },
+      "output": {
+        "postgres": [[0, 40, 0]],
+        "mysql": [[0, 32, 0], [33, 40, 1]],
+        "mariadb": [[0, 32, 0], [33, 40, 1]],
+        "sqlite": [[0, 32, 0], [33, 40, 1]],
+        "mssql": [[0, 32, 0], [33, 40, 1]],
+        "duckdb": [[0, 40, 0]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "fix13:dollar-tag-holds-tag",
+      "input": {
+        "sql": "SELECT $tag${{p}}$tag$"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "fix13:block-comment-quote",
+      "input": {
+        "sql": "/* it's */ SELECT {{a}}, '{{a}}'"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "fix14:copy-program",
+      "input": {
+        "sql": "SELECT 1; COPY t TO PROGRAM 'rm -rf /'"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 38, 1]],
+        "mysql": [[0, 8, 0], [9, 38, 1]],
+        "mariadb": [[0, 8, 0], [9, 38, 1]],
+        "sqlite": [[0, 8, 0], [9, 38, 1]],
+        "mssql": [[0, 8, 0], [9, 38, 1]],
+        "duckdb": [[0, 8, 0], [9, 38, 1]]
+      }
+    },
+    {
+      "name": "fix14:string-drop",
+      "input": {
+        "sql": "SELECT 'DROP TABLE' AS s"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "fix14:leading-comment",
+      "input": {
+        "sql": "-- note\nSELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "fix14:cte-dml",
+      "input": {
+        "sql": "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d"
+      },
+      "output": {
+        "postgres": [[0, 53, 0]],
+        "mysql": [[0, 53, 0]],
+        "mariadb": [[0, 53, 0]],
+        "sqlite": [[0, 53, 0]],
+        "mssql": [[0, 53, 0]],
+        "duckdb": [[0, 53, 0]]
+      }
+    },
+    {
+      "name": "fix14:for-update",
+      "input": {
+        "sql": "SELECT * FROM t FOR UPDATE"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix14:replace-function",
+      "input": {
+        "sql": "SELECT REPLACE(name, 'a', 'b') FROM t"
+      },
+      "output": {
+        "postgres": [[0, 37, 0]],
+        "mysql": [[0, 37, 0]],
+        "mariadb": [[0, 37, 0]],
+        "sqlite": [[0, 37, 0]],
+        "mssql": [[0, 37, 0]],
+        "duckdb": [[0, 37, 0]]
+      }
+    },
+    {
+      "name": "fix14:insert-function",
+      "input": {
+        "sql": "SELECT INSERT('abc', 1, 1, 'x')"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix14:select-into",
+      "input": {
+        "sql": "SELECT * INTO new_t FROM t"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix14:set",
+      "input": {
+        "sql": "SELECT 1; SET search_path = x"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 29, 1]],
+        "mysql": [[0, 8, 0], [9, 29, 1]],
+        "mariadb": [[0, 8, 0], [9, 29, 1]],
+        "sqlite": [[0, 8, 0], [9, 29, 1]],
+        "mssql": [[0, 8, 0], [9, 29, 1]],
+        "duckdb": [[0, 8, 0], [9, 29, 1]]
+      }
+    },
+    {
+      "name": "fix14:attach",
+      "input": {
+        "sql": "SELECT 1; ATTACH 'x.db' AS x"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 28, 1]],
+        "mysql": [[0, 8, 0], [9, 28, 1]],
+        "mariadb": [[0, 8, 0], [9, 28, 1]],
+        "sqlite": [[0, 8, 0], [9, 28, 1]],
+        "mssql": [[0, 8, 0], [9, 28, 1]],
+        "duckdb": [[0, 8, 0], [9, 28, 1]]
+      }
+    },
+    {
+      "name": "fix14:pragma",
+      "input": {
+        "sql": "SELECT 1; PRAGMA foo"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 20, 1]],
+        "mysql": [[0, 8, 0], [9, 20, 1]],
+        "mariadb": [[0, 8, 0], [9, 20, 1]],
+        "sqlite": [[0, 8, 0], [9, 20, 1]],
+        "mssql": [[0, 8, 0], [9, 20, 1]],
+        "duckdb": [[0, 8, 0], [9, 20, 1]]
+      }
+    },
+    {
+      "name": "fix14:call",
+      "input": {
+        "sql": "WITH a AS (SELECT 1) SELECT * FROM a; CALL p()"
+      },
+      "output": {
+        "postgres": [[0, 36, 0], [37, 46, 1]],
+        "mysql": [[0, 36, 0], [37, 46, 1]],
+        "mariadb": [[0, 36, 0], [37, 46, 1]],
+        "sqlite": [[0, 36, 0], [37, 46, 1]],
+        "mssql": [[0, 36, 0], [37, 46, 1]],
+        "duckdb": [[0, 36, 0], [37, 46, 1]]
+      }
+    },
+    {
+      "name": "fix14:exec-no-semicolon",
+      "input": {
+        "sql": "SELECT 1 EXEC('DROP TABLE t')"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix14:merge",
+      "input": {
+        "sql": "SELECT 1; MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 70, 1]],
+        "mysql": [[0, 8, 0], [9, 70, 1]],
+        "mariadb": [[0, 8, 0], [9, 70, 1]],
+        "sqlite": [[0, 8, 0], [9, 70, 1]],
+        "mssql": [[0, 8, 0], [9, 70, 1]],
+        "duckdb": [[0, 8, 0], [9, 70, 1]]
+      }
+    },
+    {
+      "name": "fix14:install-load",
+      "input": {
+        "sql": "SELECT 1; INSTALL httpfs; LOAD httpfs"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 24, 1], [25, 37, 2]],
+        "mysql": [[0, 8, 0], [9, 24, 1], [25, 37, 2]],
+        "mariadb": [[0, 8, 0], [9, 24, 1], [25, 37, 2]],
+        "sqlite": [[0, 8, 0], [9, 24, 1], [25, 37, 2]],
+        "mssql": [[0, 8, 0], [9, 24, 1], [25, 37, 2]],
+        "duckdb": [[0, 8, 0], [9, 24, 1], [25, 37, 2]]
+      }
+    },
+    {
+      "name": "fix14:vacuum",
+      "input": {
+        "sql": "SELECT 1; VACUUM"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 16, 1]],
+        "mysql": [[0, 8, 0], [9, 16, 1]],
+        "mariadb": [[0, 8, 0], [9, 16, 1]],
+        "sqlite": [[0, 8, 0], [9, 16, 1]],
+        "mssql": [[0, 8, 0], [9, 16, 1]],
+        "duckdb": [[0, 8, 0], [9, 16, 1]]
+      }
+    },
+    {
+      "name": "fix14:lock",
+      "input": {
+        "sql": "SELECT 1; LOCK TABLE t"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 22, 1]],
+        "mysql": [[0, 8, 0], [9, 22, 1]],
+        "mariadb": [[0, 8, 0], [9, 22, 1]],
+        "sqlite": [[0, 8, 0], [9, 22, 1]],
+        "mssql": [[0, 8, 0], [9, 22, 1]],
+        "duckdb": [[0, 8, 0], [9, 22, 1]]
+      }
+    },
+    {
+      "name": "fix14:do",
+      "input": {
+        "sql": "SELECT 1; DO $$ BEGIN END $$"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 28, 1]],
+        "mysql": [[0, 8, 0], [9, 28, 1]],
+        "mariadb": [[0, 8, 0], [9, 28, 1]],
+        "sqlite": [[0, 8, 0], [9, 28, 1]],
+        "mssql": [[0, 8, 0], [9, 28, 1]],
+        "duckdb": [[0, 8, 0], [9, 28, 1]]
+      }
+    },
+    {
+      "name": "fix14:dotted-keyword",
+      "input": {
+        "sql": "SELECT t.set, t.load FROM t"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix14:plain-select",
+      "input": {
+        "sql": "SELECT a, b FROM t WHERE c = 1"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "fix14:with-select",
+      "input": {
+        "sql": "WITH x AS (SELECT 1 AS a) SELECT a FROM x"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "fix14:dml-in-comment",
+      "input": {
+        "sql": "SELECT 1 /* DELETE FROM t */ -- DROP TABLE t"
+      },
+      "output": {
+        "postgres": [[0, 44, 0]],
+        "mysql": [[0, 44, 0]],
+        "mariadb": [[0, 44, 0]],
+        "sqlite": [[0, 44, 0]],
+        "mssql": [[0, 44, 0]],
+        "duckdb": [[0, 44, 0]]
+      }
+    },
+    {
+      "name": "exec:delete",
+      "input": {
+        "sql": "SELECT 1; /*! DELETE FROM rv */"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 8, 0], [9, 31, 1]],
+        "mariadb": [[0, 8, 0], [9, 31, 1]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "exec:into",
+      "input": {
+        "sql": "SELECT 1 /*! INTO @x */"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "exec:for-update",
+      "input": {
+        "sql": "SELECT * FROM t /*! FOR UPDATE */"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "exec:mariadb",
+      "input": {
+        "sql": "SELECT 1 /*M! ; DELETE FROM t */"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 14, 0], [15, 32, 1]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      },
+      "fixes": {
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "exec:versioned-split",
+      "input": {
+        "sql": "SELECT 1 /*!50700 ; SELECT 2 */; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 31, 0], [32, 41, 1]],
+        "mysql": [[0, 18, 0], [19, 31, 1], [32, 41, 2]],
+        "mariadb": [[0, 18, 0], [19, 31, 1], [32, 41, 2]],
+        "sqlite": [[0, 31, 0], [32, 41, 1]],
+        "mssql": [[0, 31, 0], [32, 41, 1]],
+        "duckdb": [[0, 31, 0], [32, 41, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "exec:set-names",
+      "input": {
+        "sql": "/*!40101 SET NAMES utf8 */; SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 36, 0]],
+        "mysql": [[0, 26, 0], [27, 36, 1]],
+        "mariadb": [[0, 26, 0], [27, 36, 1]],
+        "sqlite": [[0, 36, 0]],
+        "mssql": [[0, 36, 0]],
+        "duckdb": [[0, 36, 0]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "exec:leading-delete",
+      "input": {
+        "sql": "/*! DELETE FROM t */"
+      },
+      "output": {
+        "postgres": [[0, 20, null]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, null]],
+        "mssql": [[0, 20, null]],
+        "duckdb": [[0, 20, null]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "exec:in-string",
+      "input": {
+        "sql": "SELECT '/*! not code */' AS s"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix18:dot-into",
+      "input": {
+        "sql": "SELECT 1. INTO newtable"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix18:number-into",
+      "input": {
+        "sql": "SELECT x = 1INTO #q"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix18:decimal-into",
+      "input": {
+        "sql": "SELECT 1.5INTO @z"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "fix18:exponent-into",
+      "input": {
+        "sql": "SELECT 1e5INTO t FROM u"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix18:number-limit",
+      "input": {
+        "sql": "SELECT a FROM t WHERE 1=1LIMIT 5"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "fix18:numbers",
+      "input": {
+        "sql": "SELECT .5, 1e5, 2.5e-3, 1e, 0x1F, 3.limit, t1.a FROM t"
+      },
+      "output": {
+        "postgres": [[0, 54, 0]],
+        "mysql": [[0, 54, 0]],
+        "mariadb": [[0, 54, 0]],
+        "sqlite": [[0, 54, 0]],
+        "mssql": [[0, 54, 0]],
+        "duckdb": [[0, 54, 0]]
+      }
+    },
+    {
+      "name": "fix18:number-dollar",
+      "input": {
+        "sql": "SELECT 1$$;$$; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 13, 0], [14, 23, 1]],
+        "mysql": [[0, 10, 0], [11, 13, 1], [14, 23, 2]],
+        "mariadb": [[0, 10, 0], [11, 13, 1], [14, 23, 2]],
+        "sqlite": [[0, 10, 0], [11, 13, 1], [14, 23, 2]],
+        "mssql": [[0, 10, 0], [11, 13, 1], [14, 23, 2]],
+        "duckdb": [[0, 13, 0], [14, 23, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "fix14:mssql-kill",
+      "input": {
+        "sql": "SELECT 1 AS k KILL 9999"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-shutdown",
+      "input": {
+        "sql": "SELECT 1 SHUTDOWN"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-dbcc",
+      "input": {
+        "sql": "SELECT 1 DBCC CHECKDB"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-waitfor",
+      "input": {
+        "sql": "SELECT 1 WAITFOR DELAY '00:00:10'"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-declare",
+      "input": {
+        "sql": "SELECT 1 DECLARE @x int"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-save-tran",
+      "input": {
+        "sql": "SELECT 1 SAVE TRANSACTION s"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-begin-tran",
+      "input": {
+        "sql": "SELECT 1 BEGIN TRAN"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-use",
+      "input": {
+        "sql": "SELECT 1 USE master"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-fetch",
+      "input": {
+        "sql": "SELECT * FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY"
+      },
+      "output": {
+        "postgres": [[0, 63, 0]],
+        "mysql": [[0, 63, 0]],
+        "mariadb": [[0, 63, 0]],
+        "sqlite": [[0, 63, 0]],
+        "mssql": [[0, 63, 0]],
+        "duckdb": [[0, 63, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-terminate",
+      "input": {
+        "sql": "SELECT pg_terminate_backend(123)"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-dblink",
+      "input": {
+        "sql": "SELECT * FROM dblink('x', 'DELETE FROM t') AS t(a int)"
+      },
+      "output": {
+        "postgres": [[0, 54, 0]],
+        "mysql": [[0, 54, 0]],
+        "mariadb": [[0, 54, 0]],
+        "sqlite": [[0, 54, 0]],
+        "mssql": [[0, 54, 0]],
+        "duckdb": [[0, 54, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-dblink-exec",
+      "input": {
+        "sql": "SELECT dblink_exec('x', 'y')"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-qualified",
+      "input": {
+        "sql": "SELECT pg_catalog.pg_read_file('/etc/passwd')"
+      },
+      "output": {
+        "postgres": [[0, 45, 0]],
+        "mysql": [[0, 45, 0]],
+        "mariadb": [[0, 45, 0]],
+        "sqlite": [[0, 45, 0]],
+        "mssql": [[0, 45, 0]],
+        "duckdb": [[0, 45, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-set-config",
+      "input": {
+        "sql": "SELECT set_config('a', 'b', false)"
+      },
+      "output": {
+        "postgres": [[0, 34, 0]],
+        "mysql": [[0, 34, 0]],
+        "mariadb": [[0, 34, 0]],
+        "sqlite": [[0, 34, 0]],
+        "mssql": [[0, 34, 0]],
+        "duckdb": [[0, 34, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-sequences",
+      "input": {
+        "sql": "SELECT nextval('s'), setval('s', 1)"
+      },
+      "output": {
+        "postgres": [[0, 35, 0]],
+        "mysql": [[0, 35, 0]],
+        "mariadb": [[0, 35, 0]],
+        "sqlite": [[0, 35, 0]],
+        "mssql": [[0, 35, 0]],
+        "duckdb": [[0, 35, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-openrowset",
+      "input": {
+        "sql": "SELECT * FROM OPENROWSET('SQLNCLI', 'x', 'SELECT 1')"
+      },
+      "output": {
+        "postgres": [[0, 52, 0]],
+        "mysql": [[0, 52, 0]],
+        "mariadb": [[0, 52, 0]],
+        "sqlite": [[0, 52, 0]],
+        "mssql": [[0, 52, 0]],
+        "duckdb": [[0, 52, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-load",
+      "input": {
+        "sql": "SELECT load_extension('x'), LOAD_FILE('/etc/passwd')"
+      },
+      "output": {
+        "postgres": [[0, 52, 0]],
+        "mysql": [[0, 52, 0]],
+        "mariadb": [[0, 52, 0]],
+        "sqlite": [[0, 52, 0]],
+        "mssql": [[0, 52, 0]],
+        "duckdb": [[0, 52, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-lo-import",
+      "input": {
+        "sql": "SELECT lo_import('/etc/passwd')"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-name-no-call",
+      "input": {
+        "sql": "SELECT nextval FROM t"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "fix14:mysql-backslash-reading",
+      "input": {
+        "sql": "SELECT 'x\\'; DELETE FROM t; -- '"
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 32, 1]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 11, 0], [12, 32, 1]],
+        "mssql": [[0, 11, 0], [12, 32, 1]],
+        "duckdb": [[0, 11, 0], [12, 32, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "fix14:mysql-ansi-reading",
+      "input": {
+        "sql": "SELECT \"a\\\"; DELETE FROM t; -- \""
+      },
+      "output": {
+        "postgres": [[0, 11, 0], [12, 32, 1]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 11, 0], [12, 32, 1]],
+        "mssql": [[0, 11, 0], [12, 32, 1]],
+        "duckdb": [[0, 11, 0], [12, 32, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10]
+      }
+    },
+    {
+      "name": "fix11:explain-analyze-delete",
+      "input": {
+        "sql": "EXPLAIN ANALYZE DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix11:explain-options-update",
+      "input": {
+        "sql": "EXPLAIN (ANALYZE, COSTS OFF) UPDATE t SET a = 1"
+      },
+      "output": {
+        "postgres": [[0, 47, 0]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 47, 0]],
+        "mssql": [[0, 47, 0]],
+        "duckdb": [[0, 47, 0]]
+      }
+    },
+    {
+      "name": "fix11:explain-delete",
+      "input": {
+        "sql": "EXPLAIN DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "fix11:alter-drop-no-column",
+      "input": {
+        "sql": "ALTER TABLE t DROP c"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix11:alter-drop-default",
+      "input": {
+        "sql": "ALTER TABLE t ALTER COLUMN c DROP DEFAULT"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "fix11:alter-drop-constraint",
+      "input": {
+        "sql": "ALTER TABLE t DROP CONSTRAINT t_pk"
+      },
+      "output": {
+        "postgres": [[0, 34, 0]],
+        "mysql": [[0, 34, 0]],
+        "mariadb": [[0, 34, 0]],
+        "sqlite": [[0, 34, 0]],
+        "mssql": [[0, 34, 0]],
+        "duckdb": [[0, 34, 0]]
+      }
+    },
+    {
+      "name": "fix11:merge-delete",
+      "input": {
+        "sql": "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE"
+      },
+      "output": {
+        "postgres": [[0, 60, 0]],
+        "mysql": [[0, 60, 0]],
+        "mariadb": [[0, 60, 0]],
+        "sqlite": [[0, 60, 0]],
+        "mssql": [[0, 60, 0]],
+        "duckdb": [[0, 60, 0]]
+      }
+    },
+    {
+      "name": "fix11:merge-update",
+      "input": {
+        "sql": "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = s.a"
+      },
+      "output": {
+        "postgres": [[0, 72, 0]],
+        "mysql": [[0, 72, 0]],
+        "mariadb": [[0, 72, 0]],
+        "sqlite": [[0, 72, 0]],
+        "mssql": [[0, 72, 0]],
+        "duckdb": [[0, 72, 0]]
+      }
+    },
+    {
+      "name": "fix11:drop-materialized-view",
+      "input": {
+        "sql": "DROP MATERIALIZED VIEW mv"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "fix11:drop-sequence",
+      "input": {
+        "sql": "DROP SEQUENCE s"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "fix11:drop-function",
+      "input": {
+        "sql": "DROP FUNCTION f()"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "fix11:drop-temporary-table",
+      "input": {
+        "sql": "DROP TEMPORARY TABLE tt"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix11:mssql-select-delete",
+      "input": {
+        "sql": "SELECT 1 DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "fix11:mssql-nocount-update",
+      "input": {
+        "sql": "SET NOCOUNT ON UPDATE t SET a = 1"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "fix11:mssql-nocount-update-where",
+      "input": {
+        "sql": "SET NOCOUNT ON UPDATE t SET a = 1 WHERE id = 2"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix11:mssql-delete-then-select-where",
+      "input": {
+        "sql": "DELETE FROM t SELECT 1 FROM u WHERE a = 1"
+      },
+      "output": {
+        "postgres": [[0, 41, 0]],
+        "mysql": [[0, 41, 0]],
+        "mariadb": [[0, 41, 0]],
+        "sqlite": [[0, 41, 0]],
+        "mssql": [[0, 41, 0]],
+        "duckdb": [[0, 41, 0]]
+      }
+    },
+    {
+      "name": "fix11:fk-actions",
+      "input": {
+        "sql": "CREATE TABLE c (p int REFERENCES p (id) ON DELETE CASCADE ON UPDATE SET NULL)"
+      },
+      "output": {
+        "postgres": [[0, 77, 0]],
+        "mysql": [[0, 77, 0]],
+        "mariadb": [[0, 77, 0]],
+        "sqlite": [[0, 77, 0]],
+        "mssql": [[0, 77, 0]],
+        "duckdb": [[0, 77, 0]]
+      }
+    },
+    {
+      "name": "fix11:on-duplicate-key",
+      "input": {
+        "sql": "INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2"
+      },
+      "output": {
+        "postgres": [[0, 54, 0]],
+        "mysql": [[0, 54, 0]],
+        "mariadb": [[0, 54, 0]],
+        "sqlite": [[0, 54, 0]],
+        "mssql": [[0, 54, 0]],
+        "duckdb": [[0, 54, 0]]
+      }
+    },
+    {
+      "name": "fix11:update-subquery-where",
+      "input": {
+        "sql": "UPDATE t SET a = (SELECT b FROM u WHERE u.id = 1)"
+      },
+      "output": {
+        "postgres": [[0, 49, 0]],
+        "mysql": [[0, 49, 0]],
+        "mariadb": [[0, 49, 0]],
+        "sqlite": [[0, 49, 0]],
+        "mssql": [[0, 49, 0]],
+        "duckdb": [[0, 49, 0]]
+      }
+    },
+    {
+      "name": "fix11:delete-in-subquery",
+      "input": {
+        "sql": "DELETE FROM t WHERE id IN (SELECT id FROM u)"
+      },
+      "output": {
+        "postgres": [[0, 44, 0]],
+        "mysql": [[0, 44, 0]],
+        "mariadb": [[0, 44, 0]],
+        "sqlite": [[0, 44, 0]],
+        "mssql": [[0, 44, 0]],
+        "duckdb": [[0, 44, 0]]
+      }
+    },
+    {
+      "name": "fix18:mssql-binary-into",
+      "input": {
+        "sql": "SELECT a=0x1INTO #q"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix18:mssql-money-into",
+      "input": {
+        "sql": "SELECT a=$1INTO #m"
+      },
+      "output": {
+        "postgres": [[0, 18, 0]],
+        "mysql": [[0, 18, 0]],
+        "mariadb": [[0, 18, 0]],
+        "sqlite": [[0, 18, 0]],
+        "mssql": [[0, 18, 0]],
+        "duckdb": [[0, 18, 0]]
+      }
+    },
+    {
+      "name": "fix18:mssql-money-decimal-into",
+      "input": {
+        "sql": "SELECT a=$1.5INTO #m"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix18:mssql-literals",
+      "input": {
+        "sql": "SELECT 0x1F AS b, $5 AS m, $abc FROM t LIMIT 1"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix18:mysql-digit-name",
+      "input": {
+        "sql": "SELECT * FROM 2fa_codes"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix18:mysql-qualified-digit-name",
+      "input": {
+        "sql": "SELECT * FROM db.2fa_codes"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix18:mysql-digit-name-split",
+      "input": {
+        "sql": "SELECT 2fa_codes.id FROM 2fa_codes; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 34, 0], [35, 44, 1]],
+        "mysql": [[0, 34, 0], [35, 44, 1]],
+        "mariadb": [[0, 34, 0], [35, 44, 1]],
+        "sqlite": [[0, 34, 0], [35, 44, 1]],
+        "mssql": [[0, 34, 0], [35, 44, 1]],
+        "duckdb": [[0, 34, 0], [35, 44, 1]]
+      }
+    },
+    {
+      "name": "fix18:mysql-1into",
+      "input": {
+        "sql": "SELECT 1INTO @x"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "fix18:mysql-exponent-into",
+      "input": {
+        "sql": "SELECT 1e1INTO @v"
+      },
+      "output": {
+        "postgres": [[0, 17, 0]],
+        "mysql": [[0, 17, 0]],
+        "mariadb": [[0, 17, 0]],
+        "sqlite": [[0, 17, 0]],
+        "mssql": [[0, 17, 0]],
+        "duckdb": [[0, 17, 0]]
+      }
+    },
+    {
+      "name": "fix18:mysql-into-at",
+      "input": {
+        "sql": "SELECT 1 INTO@x"
+      },
+      "output": {
+        "postgres": [[0, 15, 0]],
+        "mysql": [[0, 15, 0]],
+        "mariadb": [[0, 15, 0]],
+        "sqlite": [[0, 15, 0]],
+        "mssql": [[0, 15, 0]],
+        "duckdb": [[0, 15, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-quoted",
+      "input": {
+        "sql": "SELECT \"setval\"('s', 1)"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-unicode-escaped",
+      "input": {
+        "sql": "SELECT U&\"\\0073etval\"('s', 1)"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 29, 0]],
+        "mariadb": [[0, 29, 0]],
+        "sqlite": [[0, 29, 0]],
+        "mssql": [[0, 29, 0]],
+        "duckdb": [[0, 29, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-backtick",
+      "input": {
+        "sql": "SELECT `load_file`('/etc/passwd')"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-qualified-quoted",
+      "input": {
+        "sql": "SELECT pg_catalog.\"pg_file_write\"('/tmp/x', 'y', false)"
+      },
+      "output": {
+        "postgres": [[0, 55, 0]],
+        "mysql": [[0, 55, 0]],
+        "mariadb": [[0, 55, 0]],
+        "sqlite": [[0, 55, 0]],
+        "mssql": [[0, 55, 0]],
+        "duckdb": [[0, 55, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-large-objects",
+      "input": {
+        "sql": "SELECT lo_unlink(1)"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-replication",
+      "input": {
+        "sql": "SELECT pg_create_logical_replication_slot('s', 'test_decoding')"
+      },
+      "output": {
+        "postgres": [[0, 63, 0]],
+        "mysql": [[0, 63, 0]],
+        "mariadb": [[0, 63, 0]],
+        "sqlite": [[0, 63, 0]],
+        "mssql": [[0, 63, 0]],
+        "duckdb": [[0, 63, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-notify",
+      "input": {
+        "sql": "SELECT pg_notify('c', 'x')"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-advisory-lock",
+      "input": {
+        "sql": "SELECT pg_advisory_lock(1)"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-pg-sleep",
+      "input": {
+        "sql": "SELECT pg_sleep(1e9)"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-stat-reset",
+      "input": {
+        "sql": "SELECT pg_stat_reset_shared('bgwriter')"
+      },
+      "output": {
+        "postgres": [[0, 39, 0]],
+        "mysql": [[0, 39, 0]],
+        "mariadb": [[0, 39, 0]],
+        "sqlite": [[0, 39, 0]],
+        "mssql": [[0, 39, 0]],
+        "duckdb": [[0, 39, 0]]
+      }
+    },
+    {
+      "name": "fix14:fn-mysql-sleep",
+      "input": {
+        "sql": "SELECT SLEEP(100), BENCHMARK(1e12, MD5('x')), GET_LOCK('a', 10)"
+      },
+      "output": {
+        "postgres": [[0, 63, 0]],
+        "mysql": [[0, 63, 0]],
+        "mariadb": [[0, 63, 0]],
+        "sqlite": [[0, 63, 0]],
+        "mssql": [[0, 63, 0]],
+        "duckdb": [[0, 63, 0]]
+      }
+    },
+    {
+      "name": "fix14:duckdb-egress",
+      "input": {
+        "sql": "SELECT * FROM read_csv('https://example.com/?' || (SELECT 1))"
+      },
+      "output": {
+        "postgres": [[0, 61, 0]],
+        "mysql": [[0, 61, 0]],
+        "mariadb": [[0, 61, 0]],
+        "sqlite": [[0, 61, 0]],
+        "mssql": [[0, 61, 0]],
+        "duckdb": [[0, 61, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-setuser",
+      "input": {
+        "sql": "SELECT 1 AS a SETUSER 'bob'"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-revert",
+      "input": {
+        "sql": "SELECT 1 AS a REVERT"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-add",
+      "input": {
+        "sql": "SELECT 1 AS a ADD SENSITIVITY CLASSIFICATION TO dbo.t.c WITH (LABEL = 'x')"
+      },
+      "output": {
+        "postgres": [[0, 74, 0]],
+        "mysql": [[0, 74, 0]],
+        "mariadb": [[0, 74, 0]],
+        "sqlite": [[0, 74, 0]],
+        "mssql": [[0, 74, 0]],
+        "duckdb": [[0, 74, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-open",
+      "input": {
+        "sql": "SELECT 1 AS a OPEN SYMMETRIC KEY k DECRYPTION BY PASSWORD = 'x'"
+      },
+      "output": {
+        "postgres": [[0, 63, 0]],
+        "mysql": [[0, 63, 0]],
+        "mariadb": [[0, 63, 0]],
+        "sqlite": [[0, 63, 0]],
+        "mssql": [[0, 63, 0]],
+        "duckdb": [[0, 63, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-checkpoint",
+      "input": {
+        "sql": "SELECT 1 AS a CHECKPOINT"
+      },
+      "output": {
+        "postgres": [[0, 24, 0]],
+        "mysql": [[0, 24, 0]],
+        "mariadb": [[0, 24, 0]],
+        "sqlite": [[0, 24, 0]],
+        "mssql": [[0, 24, 0]],
+        "duckdb": [[0, 24, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-end-conversation",
+      "input": {
+        "sql": "SELECT 1 AS a END CONVERSATION 'x'"
+      },
+      "output": {
+        "postgres": [[0, 34, 0]],
+        "mysql": [[0, 34, 0]],
+        "mariadb": [[0, 34, 0]],
+        "sqlite": [[0, 34, 0]],
+        "mssql": [[0, 34, 0]],
+        "duckdb": [[0, 34, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-move-conversation",
+      "input": {
+        "sql": "SELECT 1 AS a MOVE CONVERSATION 'x' TO 'y'"
+      },
+      "output": {
+        "postgres": [[0, 42, 0]],
+        "mysql": [[0, 42, 0]],
+        "mariadb": [[0, 42, 0]],
+        "sqlite": [[0, 42, 0]],
+        "mssql": [[0, 42, 0]],
+        "duckdb": [[0, 42, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-disable-trigger",
+      "input": {
+        "sql": "SELECT 1 AS a DISABLE TRIGGER ALL ON DATABASE"
+      },
+      "output": {
+        "postgres": [[0, 45, 0]],
+        "mysql": [[0, 45, 0]],
+        "mariadb": [[0, 45, 0]],
+        "sqlite": [[0, 45, 0]],
+        "mssql": [[0, 45, 0]],
+        "duckdb": [[0, 45, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-print",
+      "input": {
+        "sql": "SELECT 1 AS a PRINT 'x' RAISERROR('y', 1, 1)"
+      },
+      "output": {
+        "postgres": [[0, 44, 0]],
+        "mysql": [[0, 44, 0]],
+        "mariadb": [[0, 44, 0]],
+        "sqlite": [[0, 44, 0]],
+        "mssql": [[0, 44, 0]],
+        "duckdb": [[0, 44, 0]]
+      }
+    },
+    {
+      "name": "fix14:mssql-case-end",
+      "input": {
+        "sql": "SELECT CASE WHEN a = 1 THEN 'x' END AS b FROM t"
+      },
+      "output": {
+        "postgres": [[0, 47, 0]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 47, 0]],
+        "mssql": [[0, 47, 0]],
+        "duckdb": [[0, 47, 0]]
+      }
+    },
+    {
+      "name": "fix14:pg-backslash-reading",
+      "input": {
+        "sql": "SELECT 'a\\' -- ', 1 INTO t -- '"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix11:trigger-after-update",
+      "input": {
+        "sql": "CREATE TRIGGER tr ON t AFTER UPDATE AS SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 47, 0]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 47, 0]],
+        "mssql": [[0, 47, 0]],
+        "duckdb": [[0, 47, 0]]
+      }
+    },
+    {
+      "name": "fix11:trigger-instead-of-delete",
+      "input": {
+        "sql": "CREATE TRIGGER tr ON t INSTEAD OF DELETE AS SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 52, 0]],
+        "mysql": [[0, 52, 0]],
+        "mariadb": [[0, 52, 0]],
+        "sqlite": [[0, 52, 0]],
+        "mssql": [[0, 52, 0]],
+        "duckdb": [[0, 52, 0]]
+      }
+    },
+    {
+      "name": "fix11:trigger-event-list",
+      "input": {
+        "sql": "CREATE TRIGGER tr ON t AFTER INSERT, UPDATE, DELETE AS SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 63, 0]],
+        "mysql": [[0, 63, 0]],
+        "mariadb": [[0, 63, 0]],
+        "sqlite": [[0, 63, 0]],
+        "mssql": [[0, 63, 0]],
+        "duckdb": [[0, 63, 0]]
+      }
+    },
+    {
+      "name": "fix11:pg-trigger-or",
+      "input": {
+        "sql": "CREATE TRIGGER tr BEFORE INSERT OR UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f()"
+      },
+      "output": {
+        "postgres": [[0, 80, 0]],
+        "mysql": [[0, 80, 0]],
+        "mariadb": [[0, 80, 0]],
+        "sqlite": [[0, 80, 0]],
+        "mssql": [[0, 80, 0]],
+        "duckdb": [[0, 80, 0]]
+      }
+    },
+    {
+      "name": "fix11:grant",
+      "input": {
+        "sql": "GRANT DELETE, UPDATE ON t TO u"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    },
+    {
+      "name": "fix11:revoke",
+      "input": {
+        "sql": "REVOKE UPDATE ON t FROM u"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "fix11:if-update",
+      "input": {
+        "sql": "IF UPDATE(col) SELECT 1"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix11:update-statistics",
+      "input": {
+        "sql": "UPDATE STATISTICS t"
+      },
+      "output": {
+        "postgres": [[0, 19, 0]],
+        "mysql": [[0, 19, 0]],
+        "mariadb": [[0, 19, 0]],
+        "sqlite": [[0, 19, 0]],
+        "mssql": [[0, 19, 0]],
+        "duckdb": [[0, 19, 0]]
+      }
+    },
+    {
+      "name": "fix11:explain-costs-delete",
+      "input": {
+        "sql": "EXPLAIN (COSTS OFF) DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 33, 0]],
+        "mysql": [[0, 33, 0]],
+        "mariadb": [[0, 33, 0]],
+        "sqlite": [[0, 33, 0]],
+        "mssql": [[0, 33, 0]],
+        "duckdb": [[0, 33, 0]]
+      }
+    },
+    {
+      "name": "fix11:explain-analyze-option-delete",
+      "input": {
+        "sql": "EXPLAIN (ANALYZE) DELETE FROM t"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix19:thai",
+      "input": {
+        "sql": "SELECT * FROM ตารางที่ WHERE ชื่อ = 1"
+      },
+      "output": {
+        "postgres": [[0, 37, 0]],
+        "mysql": [[0, 37, 0]],
+        "mariadb": [[0, 37, 0]],
+        "sqlite": [[0, 37, 0]],
+        "mssql": [[0, 37, 0]],
+        "duckdb": [[0, 37, 0]]
+      }
+    },
+    {
+      "name": "fix19:devanagari",
+      "input": {
+        "sql": "SELECT * FROM तालिका; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 20, 0], [21, 30, 1]],
+        "mysql": [[0, 20, 0], [21, 30, 1]],
+        "mariadb": [[0, 20, 0], [21, 30, 1]],
+        "sqlite": [[0, 20, 0], [21, 30, 1]],
+        "mssql": [[0, 20, 0], [21, 30, 1]],
+        "duckdb": [[0, 20, 0], [21, 30, 1]]
+      }
+    },
+    {
+      "name": "fix19:nfd",
+      "input": {
+        "sql": "SELECT * FROM café LIMIT 1"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix19:astral",
+      "input": {
+        "sql": "SELECT * FROM 𝒯able; SELECT '𝒯'"
+      },
+      "output": {
+        "postgres": [[0, 20, 0], [21, 33, 1]],
+        "mysql": [[0, 20, 0], [21, 33, 1]],
+        "mariadb": [[0, 20, 0], [21, 33, 1]],
+        "sqlite": [[0, 20, 0], [21, 33, 1]],
+        "mssql": [[0, 20, 0], [21, 33, 1]],
+        "duckdb": [[0, 20, 0], [21, 33, 1]]
+      }
+    },
+    {
+      "name": "fix19:mark-on-keyword",
+      "input": {
+        "sql": "SELECT 1 INTÓ t"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "fix19:mark-glued-into",
+      "input": {
+        "sql": "SELECT 1 AS a INTÓ t"
+      },
+      "output": {
+        "postgres": [[0, 20, 0]],
+        "mysql": [[0, 20, 0]],
+        "mariadb": [[0, 20, 0]],
+        "sqlite": [[0, 20, 0]],
+        "mssql": [[0, 20, 0]],
+        "duckdb": [[0, 20, 0]]
+      }
+    },
+    {
+      "name": "fix19:astral-tag",
+      "input": {
+        "sql": "SELECT $𝒯$a;b$𝒯$; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 18, 0], [19, 28, 1]],
+        "mysql": [[0, 12, 0], [13, 18, 1], [19, 28, 2]],
+        "mariadb": [[0, 12, 0], [13, 18, 1], [19, 28, 2]],
+        "sqlite": [[0, 12, 0], [13, 18, 1], [19, 28, 2]],
+        "mssql": [[0, 12, 0], [13, 18, 1], [19, 28, 2]],
+        "duckdb": [[0, 18, 0], [19, 28, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "fix19:mark-tag",
+      "input": {
+        "sql": "SELECT $é$ {{p}} ; $é$ AS s"
+      },
+      "output": {
+        "postgres": [[0, 29, 0]],
+        "mysql": [[0, 18, 0], [19, 29, 1]],
+        "mariadb": [[0, 18, 0], [19, 29, 1]],
+        "sqlite": [[0, 18, 0], [19, 29, 1]],
+        "mssql": [[0, 18, 0], [19, 29, 1]],
+        "duckdb": [[0, 29, 0]]
+      },
+      "fixes": {
+        "postgres": [19],
+        "duckdb": [19]
+      }
+    },
+    {
+      "name": "fix10:mysql-dash-nbsp",
+      "input": {
+        "sql": "SELECT 1 -- x, LOAD_FILE('/etc/passwd')"
+      },
+      "output": {
+        "postgres": [[0, 39, 0]],
+        "mysql": [[0, 39, 0]],
+        "mariadb": [[0, 39, 0]],
+        "sqlite": [[0, 39, 0]],
+        "mssql": [[0, 39, 0]],
+        "duckdb": [[0, 39, 0]]
+      }
+    },
+    {
+      "name": "fix10:mysql-dash-tab",
+      "input": {
+        "sql": "SELECT 1 --\tx, 2; SELECT 3"
+      },
+      "output": {
+        "postgres": [[0, 26, 0]],
+        "mysql": [[0, 26, 0]],
+        "mariadb": [[0, 26, 0]],
+        "sqlite": [[0, 26, 0]],
+        "mssql": [[0, 26, 0]],
+        "duckdb": [[0, 26, 0]]
+      }
+    },
+    {
+      "name": "fix10:mysql-dash-nbsp-param",
+      "input": {
+        "sql": "SELECT 1 -- {{p}}\n, {{p}}"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "fix13:mariadb-exec-param",
+      "input": {
+        "sql": "SELECT 1 /*M! + {{a}} */, /*! + {{a}} */ {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 46, 0]],
+        "mysql": [[0, 46, 0]],
+        "mariadb": [[0, 46, 0]],
+        "sqlite": [[0, 46, 0]],
+        "mssql": [[0, 46, 0]],
+        "duckdb": [[0, 46, 0]]
+      }
+    },
+    {
+      "name": "fix10:duckdb-cr-param",
+      "input": {
+        "sql": "SELECT {{a}} -- note\r, {{a}}"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "fix10:long-tag",
+      "input": {
+        "sql": "SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$ {{p}}; $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 159, 0], [160, 169, 1]],
+        "mysql": [[0, 85, 0], [86, 159, 1], [160, 169, 2]],
+        "mariadb": [[0, 85, 0], [86, 159, 1], [160, 169, 2]],
+        "sqlite": [[0, 85, 0], [86, 159, 1], [160, 169, 2]],
+        "mssql": [[0, 85, 0], [86, 159, 1], [160, 169, 2]],
+        "duckdb": [[0, 159, 0], [160, 169, 1]]
+      },
+      "fixes": {
+        "mysql": [10],
+        "mariadb": [10],
+        "sqlite": [10],
+        "mssql": [10]
+      }
+    },
+    {
+      "name": "fix10:cr-comment",
+      "input": {
+        "sql": "SELECT 1; -- note\r; SELECT 2"
+      },
+      "output": {
+        "postgres": [[0, 8, 0], [9, 28, 1]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 8, 0], [9, 28, 1]]
+      },
+      "fixes": {
+        "postgres": [10],
+        "duckdb": [10]
+      }
+    },
+    {
+      "name": "fix10:cr-comment-limit",
+      "input": {
+        "sql": "SELECT a FROM t -- x\rLIMIT 5"
+      },
+      "output": {
+        "postgres": [[0, 28, 0]],
+        "mysql": [[0, 28, 0]],
+        "mariadb": [[0, 28, 0]],
+        "sqlite": [[0, 28, 0]],
+        "mssql": [[0, 28, 0]],
+        "duckdb": [[0, 28, 0]]
+      }
+    },
+    {
+      "name": "fix13:negative-inline",
+      "input": {
+        "sql": "SELECT 1-{{p}}, '{{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix13:mysql-strings",
+      "input": {
+        "sql": "SELECT '{{p}}', \"{{p}}\" -- {{p}}\n/*! + {{p}} */"
+      },
+      "output": {
+        "postgres": [[0, 47, 0]],
+        "mysql": [[0, 47, 0]],
+        "mariadb": [[0, 47, 0]],
+        "sqlite": [[0, 47, 0]],
+        "mssql": [[0, 47, 0]],
+        "duckdb": [[0, 47, 0]]
+      }
+    },
+    {
+      "name": "fix13:tag-edge-start",
+      "input": {
+        "sql": "SELECT $$Cost: ${{p}}$$"
+      },
+      "output": {
+        "postgres": [[0, 23, 0]],
+        "mysql": [[0, 23, 0]],
+        "mariadb": [[0, 23, 0]],
+        "sqlite": [[0, 23, 0]],
+        "mssql": [[0, 23, 0]],
+        "duckdb": [[0, 23, 0]]
+      }
+    },
+    {
+      "name": "fix13:tag-edge-end",
+      "input": {
+        "sql": "SELECT $${{p}}$ tail$$"
+      },
+      "output": {
+        "postgres": [[0, 22, 0]],
+        "mysql": [[0, 22, 0]],
+        "mariadb": [[0, 22, 0]],
+        "sqlite": [[0, 22, 0]],
+        "mssql": [[0, 22, 0]],
+        "duckdb": [[0, 22, 0]]
+      }
+    },
+    {
+      "name": "fix13:tag-edge-partial",
+      "input": {
+        "sql": "SELECT $tag$ $ta{{p}} $tag$"
+      },
+      "output": {
+        "postgres": [[0, 27, 0]],
+        "mysql": [[0, 27, 0]],
+        "mariadb": [[0, 27, 0]],
+        "sqlite": [[0, 27, 0]],
+        "mssql": [[0, 27, 0]],
+        "duckdb": [[0, 27, 0]]
+      }
+    },
+    {
+      "name": "fix13:tag-edge-two-values",
+      "input": {
+        "sql": "SELECT $${{a}}{{b}}$$"
+      },
+      "output": {
+        "postgres": [[0, 21, 0]],
+        "mysql": [[0, 21, 0]],
+        "mariadb": [[0, 21, 0]],
+        "sqlite": [[0, 21, 0]],
+        "mssql": [[0, 21, 0]],
+        "duckdb": [[0, 21, 0]]
+      }
+    },
+    {
+      "name": "fix13:tag-edge-unterminated",
+      "input": {
+        "sql": "SELECT $$ ${{p}}"
+      },
+      "output": {
+        "postgres": [[0, 16, 0]],
+        "mysql": [[0, 16, 0]],
+        "mariadb": [[0, 16, 0]],
+        "sqlite": [[0, 16, 0]],
+        "mssql": [[0, 16, 0]],
+        "duckdb": [[0, 16, 0]]
+      }
+    },
+    {
+      "name": "fix13:escaped-param",
+      "input": {
+        "sql": "SELECT E'\\{{p}}', '\\{{p}}', \"\\{{p}}\", E'\\\\{{p}}', E'\\\\\\{{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 61, 0]],
+        "mysql": [[0, 61, 0]],
+        "mariadb": [[0, 61, 0]],
+        "sqlite": [[0, 61, 0]],
+        "mssql": [[0, 61, 0]],
+        "duckdb": [[0, 61, 0]]
+      }
+    },
+    {
+      "name": "fix13:escaped-param-run",
+      "input": {
+        "sql": "SELECT '{{a}}\\{{b}}', '\\\\{{b}}'"
+      },
+      "output": {
+        "postgres": [[0, 31, 0]],
+        "mysql": [[0, 31, 0]],
+        "mariadb": [[0, 31, 0]],
+        "sqlite": [[0, 31, 0]],
+        "mssql": [[0, 31, 0]],
+        "duckdb": [[0, 31, 0]]
+      }
+    },
+    {
+      "name": "fix13:decimal-check",
+      "input": {
+        "sql": "SELECT {{d}}, '{{d}}', $${{d}}$$"
+      },
+      "output": {
+        "postgres": [[0, 32, 0]],
+        "mysql": [[0, 32, 0]],
+        "mariadb": [[0, 32, 0]],
+        "sqlite": [[0, 32, 0]],
+        "mssql": [[0, 32, 0]],
+        "duckdb": [[0, 32, 0]]
+      }
+    },
+    {
+      "name": "fix13:adjacent-quote",
+      "input": {
+        "sql": "SELECT E'a'{{p}}, 'b'{{p}}, \"c\"{{p}}, `d`{{p}}, x'{{p}}'"
+      },
+      "output": {
+        "postgres": [[0, 56, 0]],
+        "mysql": [[0, 56, 0]],
+        "mariadb": [[0, 56, 0]],
+        "sqlite": [[0, 56, 0]],
+        "mssql": [[0, 56, 0]],
+        "duckdb": [[0, 56, 0]]
+      }
+    },
+    {
+      "name": "fix13:adjacent-word",
+      "input": {
+        "sql": "SELECT {{p}}$t$ x $t$, {{p}}AS a, {{p}}{{p}}, {{p}}é, ({{p}})"
+      },
+      "output": {
+        "postgres": [[0, 61, 0]],
+        "mysql": [[0, 61, 0]],
+        "mariadb": [[0, 61, 0]],
+        "sqlite": [[0, 61, 0]],
+        "mssql": [[0, 61, 0]],
+        "duckdb": [[0, 61, 0]]
+      }
+    },
+    {
+      "name": "fix13:adjacent-dollar-comment",
+      "input": {
+        "sql": "SELECT {{p}}$$ -- $$ AS v"
+      },
+      "output": {
+        "postgres": [[0, 25, 0]],
+        "mysql": [[0, 25, 0]],
+        "mariadb": [[0, 25, 0]],
+        "sqlite": [[0, 25, 0]],
+        "mssql": [[0, 25, 0]],
+        "duckdb": [[0, 25, 0]]
+      }
+    },
+    {
+      "name": "fix13:int-digits",
+      "input": {
+        "sql": "SELECT {{a}}, 1-{{b}}, '{{b}}'"
+      },
+      "output": {
+        "postgres": [[0, 30, 0]],
+        "mysql": [[0, 30, 0]],
+        "mariadb": [[0, 30, 0]],
+        "sqlite": [[0, 30, 0]],
+        "mssql": [[0, 30, 0]],
+        "duckdb": [[0, 30, 0]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+/**
+ * MODEL of the fixed statement splitter (bug fix 10), for the phase 2b
+ * fixtures (Task 2).
+ *
+ * It splits on the `;` tokens of the scanner model (scan-model.ts: `sqlTokens`
+ * from src/lib/engine/sql-scan.ts, the per-engine tokenizer `seaquel-sql`
+ * ports, with fixes 18 and 10), so each engine's strings, quoted names and
+ * comments hide their semicolons. A MySQL/MariaDB executable comment
+ * (`/*! … *\/`, `/*M! … *\/`) is code, so a `;` inside it splits, as the
+ * mysql and mariadb clients do. A Postgres/DuckDB `--` comment ends at `\r`
+ * too. Everything else keeps the
+ * shape of `splitSqlStatements` (src/lib/db/sql-parser.ts):
+ *
+ * - `startOffset` is where the previous statement ended (after its `;`), 0 for
+ *   the first.
+ * - `endOffset` is the `;`'s index, or the input length minus one for the last
+ *   statement.
+ * - `sql` is the text between them, trimmed (comments included).
+ * - A statement with no significant token (only whitespace and comments) is
+ *   dropped, and the rest are re-indexed.
+ *
+ * `statementAtModel` is `getStatementAtOffset` over this splitter, rule for
+ * rule. sql.fixtures.test.ts records split.json and statement-at.json from it.
+ */
+import type { ParsedStatement } from "$lib/db/sql-parser";
+import { scanTokens } from "./scan-model";
+import type { DatabaseType } from "$lib/types";
+
+export function splitModel(sql: string, engine: DatabaseType): ParsedStatement[] {
+  const statements: ParsedStatement[] = [];
+  let start = 0;
+  let hasCode = false;
+  const push = (end: number, endOffset: number) => {
+    if (hasCode) {
+      statements.push({
+        sql: sql.slice(start, end).trim(),
+        index: statements.length,
+        startOffset: start,
+        endOffset,
+      });
+    }
+  };
+  for (const token of scanTokens(sql, engine, { execComments: true })) {
+    if (token.kind === "punct" && token.text === ";") {
+      push(token.start, token.start);
+      start = token.end;
+      hasCode = false;
+    } else {
+      hasCode = true;
+    }
+  }
+  push(sql.length, sql.length - 1);
+  return statements;
+}
+
+/** `getStatementAtOffset`'s rules over `statements`. */
+export function statementAtModel(
+  statements: ParsedStatement[],
+  offset: number,
+): ParsedStatement | null {
+  if (statements.length === 0) return null;
+  const found = statements.find((s) => offset >= s.startOffset && offset <= s.endOffset);
+  if (found) return found;
+  const first = statements[0];
+  const last = statements[statements.length - 1];
+  if (offset < first.startOffset) return first;
+  if (offset > last.endOffset) return last;
+  for (const s of statements) if (s.startOffset > offset) return s;
+  return last;
+}

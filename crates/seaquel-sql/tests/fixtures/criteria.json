@@ -1,0 +1,1176 @@
+{
+  "cases": [
+    {
+      "name": "tut:intro-1",
+      "input": {
+        "challengeId": "intro-1",
+        "sql": "SELECT * FROM categories"
+      },
+      "output": {
+        "has-categories": true
+      }
+    },
+    {
+      "name": "tut:intro-2",
+      "input": {
+        "challengeId": "intro-2",
+        "sql": "SELECT name FROM categories"
+      },
+      "output": {
+        "has-categories": true,
+        "has-name": true
+      }
+    },
+    {
+      "name": "tut:intro-3",
+      "input": {
+        "challengeId": "intro-3",
+        "sql": "SELECT name, description FROM categories"
+      },
+      "output": {
+        "has-categories": true,
+        "has-name": true,
+        "has-description": true
+      }
+    },
+    {
+      "name": "tut:intro-4",
+      "input": {
+        "challengeId": "intro-4",
+        "sql": "SELECT name, price FROM products"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true
+      }
+    },
+    {
+      "name": "tut:select-1",
+      "input": {
+        "challengeId": "select-1",
+        "sql": "SELECT name, price FROM products"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true
+      }
+    },
+    {
+      "name": "tut:select-2",
+      "input": {
+        "challengeId": "select-2",
+        "sql": "SELECT * FROM customers"
+      },
+      "output": {
+        "has-customers": true,
+        "has-id": true,
+        "has-name": true,
+        "has-email": true,
+        "has-country": true,
+        "has-created": true
+      }
+    },
+    {
+      "name": "tut:select-3",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "SELECT name, price FROM products WHERE price > 50"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "tut:select-4",
+      "input": {
+        "challengeId": "select-4",
+        "sql": "SELECT name, price FROM products ORDER BY price DESC"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-order": true
+      }
+    },
+    {
+      "name": "tut:select-5",
+      "input": {
+        "challengeId": "select-5",
+        "sql": "SELECT name, price FROM products ORDER BY price DESC LIMIT 5"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "tut:where-1",
+      "input": {
+        "challengeId": "where-1",
+        "sql": "SELECT name, price FROM products WHERE price = 29.99"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "tut:where-2",
+      "input": {
+        "challengeId": "where-2",
+        "sql": "SELECT * FROM products WHERE price > 100"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "tut:where-3",
+      "input": {
+        "challengeId": "where-3",
+        "sql": "SELECT name, country FROM customers WHERE country = 'USA'"
+      },
+      "output": {
+        "has-customers": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "tut:where-4",
+      "input": {
+        "challengeId": "where-4",
+        "sql": "SELECT name, stock FROM products WHERE stock <= 10"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-stock": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "tut:where-5",
+      "input": {
+        "challengeId": "where-5",
+        "sql": "SELECT p.name FROM products p WHERE p.price > 50 AND p.stock > 20"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-price-filter": true,
+        "has-stock-filter": true
+      }
+    },
+    {
+      "name": "tut:order-1",
+      "input": {
+        "challengeId": "order-1",
+        "sql": "SELECT name FROM customers ORDER BY name ASC"
+      },
+      "output": {
+        "has-customers": true,
+        "has-name": true,
+        "has-order": true
+      }
+    },
+    {
+      "name": "tut:order-2",
+      "input": {
+        "challengeId": "order-2",
+        "sql": "SELECT name, price FROM products ORDER BY price DESC"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": true
+      }
+    },
+    {
+      "name": "tut:order-3",
+      "input": {
+        "challengeId": "order-3",
+        "sql": "SELECT name, price FROM products ORDER BY price DESC LIMIT 3"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "tut:order-4",
+      "input": {
+        "challengeId": "order-4",
+        "sql": "SELECT name, created_at FROM customers ORDER BY created_at DESC LIMIT 5"
+      },
+      "output": {
+        "has-customers": true,
+        "has-name": true,
+        "has-created": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "tut:order-5",
+      "input": {
+        "challengeId": "order-5",
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price LIMIT 10"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "tut:joins-1",
+      "input": {
+        "challengeId": "joins-1",
+        "sql": "SELECT products.name, categories.name FROM products INNER JOIN categories ON products.category_id = categories.id"
+      },
+      "output": {
+        "has-products": true,
+        "has-categories": true,
+        "has-join": true
+      }
+    },
+    {
+      "name": "tut:joins-2",
+      "input": {
+        "challengeId": "joins-2",
+        "sql": "SELECT p.name, c.name FROM products p JOIN categories c ON p.category_id = c.id"
+      },
+      "output": {
+        "has-products": true,
+        "has-categories": true,
+        "has-join": true,
+        "has-product-name": true,
+        "has-category-name": true
+      }
+    },
+    {
+      "name": "tut:joins-3",
+      "input": {
+        "challengeId": "joins-3",
+        "sql": "SELECT customers.name, orders.total FROM orders JOIN customers ON customers.id = orders.customer_id"
+      },
+      "output": {
+        "has-orders": true,
+        "has-customers": true,
+        "has-join": true,
+        "has-name": true,
+        "has-total": true
+      }
+    },
+    {
+      "name": "tut:joins-4",
+      "input": {
+        "challengeId": "joins-4",
+        "sql": "SELECT products.name, reviews.rating FROM products LEFT JOIN reviews ON products.id = reviews.product_id"
+      },
+      "output": {
+        "has-products": true,
+        "has-reviews": true,
+        "has-join": true,
+        "has-left-join": true,
+        "has-name": true,
+        "has-rating": true
+      }
+    },
+    {
+      "name": "tut:joins-5",
+      "input": {
+        "challengeId": "joins-5",
+        "sql": "SELECT orders.id, products.name, order_items.quantity FROM order_items JOIN products ON order_items.product_id = products.id JOIN orders ON order_items.order_id = orders.id"
+      },
+      "output": {
+        "has-order-items": true,
+        "has-products": true,
+        "has-orders": true,
+        "has-join-products": true,
+        "has-join-orders": true,
+        "has-order-id": true,
+        "has-product-name": true,
+        "has-quantity": true
+      }
+    },
+    {
+      "name": "tut:agg-1",
+      "input": {
+        "challengeId": "agg-1",
+        "sql": "SELECT COUNT(*) FROM products"
+      },
+      "output": {
+        "has-count": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:agg-2",
+      "input": {
+        "challengeId": "agg-2",
+        "sql": "SELECT SUM(price * stock) AS stock_value FROM products"
+      },
+      "output": {
+        "has-sum": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:agg-2:hint",
+      "input": {
+        "challengeId": "agg-2",
+        "sql": "SELECT SUM(price * stock) FROM products"
+      },
+      "output": {
+        "has-sum": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:agg-3",
+      "input": {
+        "challengeId": "agg-3",
+        "sql": "SELECT AVG(price) FROM products"
+      },
+      "output": {
+        "has-avg": true,
+        "has-price": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:agg-4",
+      "input": {
+        "challengeId": "agg-4",
+        "sql": "SELECT MIN(price), MAX(price) FROM products"
+      },
+      "output": {
+        "has-min": true,
+        "has-max": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:agg-5",
+      "input": {
+        "challengeId": "agg-5",
+        "sql": "SELECT COUNT(*), AVG(price), SUM(stock) FROM products"
+      },
+      "output": {
+        "has-count": true,
+        "has-avg": true,
+        "has-sum": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:group-1",
+      "input": {
+        "challengeId": "group-1",
+        "sql": "SELECT category_id FROM products GROUP BY category_id"
+      },
+      "output": {
+        "has-products": true,
+        "has-category-col": true,
+        "has-group-by": true
+      }
+    },
+    {
+      "name": "tut:group-2",
+      "input": {
+        "challengeId": "group-2",
+        "sql": "SELECT country, COUNT(*) FROM customers GROUP BY country"
+      },
+      "output": {
+        "has-customers": true,
+        "has-country-col": true,
+        "has-group-by": true
+      }
+    },
+    {
+      "name": "tut:group-3",
+      "input": {
+        "challengeId": "group-3",
+        "sql": "SELECT category_id, COUNT(name) AS names FROM products GROUP BY category_id"
+      },
+      "output": {
+        "has-products": true,
+        "has-category-col": true,
+        "has-name-col": true,
+        "has-group-by": true
+      }
+    },
+    {
+      "name": "tut:group-4",
+      "input": {
+        "challengeId": "group-4",
+        "sql": "SELECT status FROM orders GROUP BY status"
+      },
+      "output": {
+        "has-orders": true,
+        "has-status-col": true,
+        "has-group-by": true
+      }
+    },
+    {
+      "name": "tut:group-5",
+      "input": {
+        "challengeId": "group-5",
+        "sql": "SELECT customer_id, status FROM orders GROUP BY customer_id, status"
+      },
+      "output": {
+        "has-orders": true,
+        "has-customer-col": true,
+        "has-status-col": true,
+        "has-group-by-customer": true,
+        "has-group-by-status": true
+      }
+    },
+    {
+      "name": "tut:having-1",
+      "input": {
+        "challengeId": "having-1",
+        "sql": "SELECT category_id, COUNT(*) FROM products GROUP BY category_id HAVING COUNT(*) > 3"
+      },
+      "output": {
+        "has-products": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "tut:having-2",
+      "input": {
+        "challengeId": "having-2",
+        "sql": "SELECT category_id, AVG(price) FROM products GROUP BY category_id HAVING AVG(price) > 75"
+      },
+      "output": {
+        "has-products": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "tut:having-3",
+      "input": {
+        "challengeId": "having-3",
+        "sql": "SELECT country, COUNT(*) FROM customers GROUP BY country HAVING COUNT(*) >= 2"
+      },
+      "output": {
+        "has-customers": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "tut:having-4",
+      "input": {
+        "challengeId": "having-4",
+        "sql": "SELECT category_id, COUNT(*) FROM products WHERE price > 20 GROUP BY category_id HAVING COUNT(*) > 2"
+      },
+      "output": {
+        "has-products": true,
+        "has-where": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "tut:having-5",
+      "input": {
+        "challengeId": "having-5",
+        "sql": "SELECT status, SUM(total) FROM orders GROUP BY status HAVING SUM(total) > 500"
+      },
+      "output": {
+        "has-orders": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "tut:sub-1",
+      "input": {
+        "challengeId": "sub-1",
+        "sql": "SELECT * FROM products WHERE price > (SELECT AVG(price) FROM products)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-avg": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:sub-2",
+      "input": {
+        "challengeId": "sub-2",
+        "sql": "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-in": true,
+        "has-customers": true,
+        "has-orders": true
+      }
+    },
+    {
+      "name": "tut:sub-3",
+      "input": {
+        "challengeId": "sub-3",
+        "sql": "SELECT name, price FROM products WHERE price = (SELECT MAX(price) FROM products)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-max": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:sub-3:hint",
+      "input": {
+        "challengeId": "sub-3",
+        "sql": "SELECT * FROM products WHERE price = (SELECT MAX(price) FROM products)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-max": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:sub-4",
+      "input": {
+        "challengeId": "sub-4",
+        "sql": "SELECT * FROM products WHERE id NOT IN (SELECT product_id FROM order_items)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-not-in": true,
+        "has-products": true,
+        "has-order-items": true
+      }
+    },
+    {
+      "name": "tut:sub-5",
+      "input": {
+        "challengeId": "sub-5",
+        "sql": "SELECT name, price - (SELECT AVG(price) FROM products) AS diff FROM products"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-avg": true,
+        "has-name": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:cte-1",
+      "input": {
+        "challengeId": "cte-1",
+        "sql": "WITH expensive_products AS (SELECT * FROM products WHERE price > 50) SELECT * FROM expensive_products"
+      },
+      "output": {
+        "has-with": true,
+        "has-as": true,
+        "has-cte-name": true,
+        "has-products": true,
+        "has-where": true,
+        "has-price-filter": true
+      }
+    },
+    {
+      "name": "tut:cte-2",
+      "input": {
+        "challengeId": "cte-2",
+        "sql": "WITH avg_order AS (SELECT AVG(total) AS avg_total FROM orders) SELECT orders.* FROM orders, avg_order WHERE orders.total > avg_order.avg_total"
+      },
+      "output": {
+        "has-with": true,
+        "has-avg": true,
+        "has-orders": true,
+        "has-where": true,
+        "has-comparison": true
+      }
+    },
+    {
+      "name": "tut:cte-2:hint",
+      "input": {
+        "challengeId": "cte-2",
+        "sql": "WITH avg_order AS (SELECT AVG(total) as avg_total FROM orders) SELECT * FROM orders, avg_order WHERE total > avg_total"
+      },
+      "output": {
+        "has-with": true,
+        "has-avg": true,
+        "has-orders": true,
+        "has-where": true,
+        "has-comparison": true
+      }
+    },
+    {
+      "name": "tut:cte-3",
+      "input": {
+        "challengeId": "cte-3",
+        "sql": "WITH category_counts AS (SELECT category_id, COUNT(*) AS product_count FROM products GROUP BY category_id), avg_count AS (SELECT AVG(product_count) AS avg_products FROM category_counts) SELECT category_id, product_count FROM category_counts, avg_count WHERE product_count > avg_products"
+      },
+      "output": {
+        "has-with": true,
+        "has-count": true,
+        "has-avg": true,
+        "has-category": true,
+        "has-where": true,
+        "has-comparison": true
+      }
+    },
+    {
+      "name": "tut:cte-4",
+      "input": {
+        "challengeId": "cte-4",
+        "sql": "WITH recent_orders AS (SELECT * FROM orders WHERE created_at >= '2024-01-01') SELECT SUM(total) FROM recent_orders"
+      },
+      "output": {
+        "has-with": true,
+        "has-sum": true,
+        "has-orders": true,
+        "has-where": true,
+        "has-2024": true
+      }
+    },
+    {
+      "name": "tut:cte-4:hint",
+      "input": {
+        "challengeId": "cte-4",
+        "sql": "WITH recent_orders AS (SELECT * FROM orders WHERE created_at >= \"2024-01-01\") SELECT SUM(total) FROM recent_orders"
+      },
+      "output": {
+        "has-with": true,
+        "has-sum": true,
+        "has-orders": true,
+        "has-where": true,
+        "has-2024": true
+      }
+    },
+    {
+      "name": "tut:cte-5",
+      "input": {
+        "challengeId": "cte-5",
+        "sql": "WITH customer_totals AS (SELECT customer_id, SUM(total) AS total_spent FROM orders GROUP BY customer_id) SELECT * FROM customer_totals WHERE total_spent > 200"
+      },
+      "output": {
+        "has-with": true,
+        "has-sum": true,
+        "has-group-by": true,
+        "has-customer": true,
+        "has-where": true,
+        "has-200-filter": true
+      }
+    },
+    {
+      "name": "tut:cte-5:hint",
+      "input": {
+        "challengeId": "cte-5",
+        "sql": "WITH customer_totals AS (SELECT customer_id, SUM(total) as total_spent FROM orders GROUP BY customer_id) SELECT * FROM customer_totals WHERE total_spent > 200"
+      },
+      "output": {
+        "has-with": true,
+        "has-sum": true,
+        "has-group-by": true,
+        "has-customer": true,
+        "has-where": true,
+        "has-200-filter": true
+      }
+    },
+    {
+      "name": "tut:window-1",
+      "input": {
+        "challengeId": "window-1",
+        "sql": "SELECT name, price, ROW_NUMBER() OVER (ORDER BY price DESC) AS row_num FROM products"
+      },
+      "output": {
+        "has-row-number": true,
+        "has-over": true,
+        "has-order": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:window-1:hint",
+      "input": {
+        "challengeId": "window-1",
+        "sql": "SELECT name, price, ROW_NUMBER() OVER (ORDER BY price DESC) as rank FROM products"
+      },
+      "output": {
+        "has-row-number": true,
+        "has-over": true,
+        "has-order": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:window-2",
+      "input": {
+        "challengeId": "window-2",
+        "sql": "SELECT name, category_id, price, RANK() OVER (PARTITION BY category_id ORDER BY price DESC) AS price_rank FROM products"
+      },
+      "output": {
+        "has-rank": true,
+        "has-over": true,
+        "has-partition": true,
+        "has-category": true
+      }
+    },
+    {
+      "name": "tut:window-2:hint",
+      "input": {
+        "challengeId": "window-2",
+        "sql": "SELECT name, category_id, price, RANK() OVER (PARTITION BY category_id ORDER BY price DESC) FROM products"
+      },
+      "output": {
+        "has-rank": true,
+        "has-over": true,
+        "has-partition": true,
+        "has-category": true
+      }
+    },
+    {
+      "name": "tut:window-3",
+      "input": {
+        "challengeId": "window-3",
+        "sql": "SELECT id, total, SUM(total) OVER (ORDER BY created_at) AS running_total FROM orders"
+      },
+      "output": {
+        "has-sum": true,
+        "has-over": true,
+        "has-order": true,
+        "has-orders": true
+      }
+    },
+    {
+      "name": "tut:window-3:hint",
+      "input": {
+        "challengeId": "window-3",
+        "sql": "SELECT id, total, SUM(total) OVER (ORDER BY created_at) as running_total FROM orders"
+      },
+      "output": {
+        "has-sum": true,
+        "has-over": true,
+        "has-order": true,
+        "has-orders": true
+      }
+    },
+    {
+      "name": "tut:window-4",
+      "input": {
+        "challengeId": "window-4",
+        "sql": "SELECT name, price, AVG(price) OVER (PARTITION BY category_id) AS category_avg FROM products"
+      },
+      "output": {
+        "has-avg": true,
+        "has-over": true,
+        "has-partition": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:window-4:hint",
+      "input": {
+        "challengeId": "window-4",
+        "sql": "SELECT name, price, AVG(price) OVER (PARTITION BY category_id) as category_avg FROM products"
+      },
+      "output": {
+        "has-avg": true,
+        "has-over": true,
+        "has-partition": true,
+        "has-products": true
+      }
+    },
+    {
+      "name": "tut:window-5",
+      "input": {
+        "challengeId": "window-5",
+        "sql": "WITH order_counts AS (SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id) SELECT customer_id, order_count, DENSE_RANK() OVER (ORDER BY order_count DESC) AS rnk FROM order_counts"
+      },
+      "output": {
+        "has-dense-rank": true,
+        "has-over": true,
+        "has-count": true,
+        "has-customer": true
+      }
+    },
+    {
+      "name": "var:select-3:0",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "select name, price from products where price > 50"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:select-3:1",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "SELECT name, price FROM products WHERE (price > 50)"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:select-3:2",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "SELECT name, price FROM products WHERE price > 50.0"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": false
+      }
+    },
+    {
+      "name": "var:select-3:3",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "-- expensive ones\nSELECT name, price FROM products /* all */ WHERE price > 50;"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:select-3:4",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "SELECT \"name\", \"price\" FROM \"products\" WHERE \"price\" > 50"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:select-3:5",
+      "input": {
+        "challengeId": "select-3",
+        "sql": "SELECT name, price FROM products WHERE price > 50; SELECT 1"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:where-1:6",
+      "input": {
+        "challengeId": "where-1",
+        "sql": "SELECT * FROM products WHERE price = 29.990"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-filter": false
+      }
+    },
+    {
+      "name": "var:where-3:7",
+      "input": {
+        "challengeId": "where-3",
+        "sql": "SELECT * FROM customers WHERE country = \"USA\""
+      },
+      "output": {
+        "has-customers": true,
+        "has-columns": true,
+        "has-filter": false
+      }
+    },
+    {
+      "name": "var:where-3:8",
+      "input": {
+        "challengeId": "where-3",
+        "sql": "SELECT * FROM customers c WHERE c.country = 'USA' AND c.name <> 'x'"
+      },
+      "output": {
+        "has-customers": true,
+        "has-columns": true,
+        "has-filter": true
+      }
+    },
+    {
+      "name": "var:where-5:9",
+      "input": {
+        "challengeId": "where-5",
+        "sql": "SELECT name FROM products WHERE price > 50 AND (stock > 20 OR stock IS NULL)"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-price-filter": true,
+        "has-stock-filter": true
+      }
+    },
+    {
+      "name": "var:where-5:10",
+      "input": {
+        "challengeId": "where-5",
+        "sql": "SELECT name FROM products WHERE stock > 20 AND price > 50 AND category_id IN (1, 2)"
+      },
+      "output": {
+        "has-products": true,
+        "has-columns": true,
+        "has-price-filter": true,
+        "has-stock-filter": true
+      }
+    },
+    {
+      "name": "var:order-5:11",
+      "input": {
+        "challengeId": "order-5",
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY 2 LIMIT 10"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": false,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "var:order-5:12",
+      "input": {
+        "challengeId": "order-5",
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price ASC NULLS LAST LIMIT 10"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "var:order-5:13",
+      "input": {
+        "challengeId": "order-5",
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price ASC LIMIT 10 OFFSET 0"
+      },
+      "output": {
+        "has-products": true,
+        "has-name": true,
+        "has-price": true,
+        "has-order": true,
+        "has-limit": true
+      }
+    },
+    {
+      "name": "var:joins-2:14",
+      "input": {
+        "challengeId": "joins-2",
+        "sql": "SELECT p.name, c.name FROM products AS p INNER JOIN categories AS c ON (p.category_id = c.id)"
+      },
+      "output": {
+        "has-products": true,
+        "has-categories": true,
+        "has-join": true,
+        "has-product-name": true,
+        "has-category-name": true
+      }
+    },
+    {
+      "name": "var:joins-2:15",
+      "input": {
+        "challengeId": "joins-2",
+        "sql": "SELECT p.name, c.name FROM products p JOIN categories c ON c.id = p.category_id AND c.id > 0"
+      },
+      "output": {
+        "has-products": true,
+        "has-categories": true,
+        "has-join": false,
+        "has-product-name": true,
+        "has-category-name": true
+      }
+    },
+    {
+      "name": "var:joins-4:16",
+      "input": {
+        "challengeId": "joins-4",
+        "sql": "SELECT p.name, r.rating FROM products p LEFT OUTER JOIN reviews r ON p.id = r.product_id"
+      },
+      "output": {
+        "has-products": true,
+        "has-reviews": true,
+        "has-join": true,
+        "has-left-join": true,
+        "has-name": true,
+        "has-rating": true
+      }
+    },
+    {
+      "name": "var:joins-4:17",
+      "input": {
+        "challengeId": "joins-4",
+        "sql": "SELECT p.name, r.rating FROM products p LEFT JOIN reviews r USING (id)"
+      },
+      "output": {
+        "has-products": true,
+        "has-reviews": true,
+        "has-join": false,
+        "has-left-join": false,
+        "has-name": true,
+        "has-rating": true
+      }
+    },
+    {
+      "name": "var:group-2:18",
+      "input": {
+        "challengeId": "group-2",
+        "sql": "SELECT country, count(*) FROM customers GROUP BY 1"
+      },
+      "output": {
+        "has-customers": true,
+        "has-country-col": true,
+        "has-group-by": false
+      }
+    },
+    {
+      "name": "var:group-2:19",
+      "input": {
+        "challengeId": "group-2",
+        "sql": "SELECT country, COUNT(id) FROM customers GROUP BY country"
+      },
+      "output": {
+        "has-customers": true,
+        "has-country-col": true,
+        "has-group-by": true
+      }
+    },
+    {
+      "name": "var:having-1:20",
+      "input": {
+        "challengeId": "having-1",
+        "sql": "SELECT category_id, COUNT(*) AS n FROM products GROUP BY category_id HAVING n > 3"
+      },
+      "output": {
+        "has-products": true,
+        "has-group-by": true,
+        "has-having": false
+      }
+    },
+    {
+      "name": "var:having-1:21",
+      "input": {
+        "challengeId": "having-1",
+        "sql": "SELECT category_id FROM products GROUP BY category_id HAVING count(*) > 3"
+      },
+      "output": {
+        "has-products": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "var:having-2:22",
+      "input": {
+        "challengeId": "having-2",
+        "sql": "SELECT category_id FROM products GROUP BY category_id HAVING AVG(price) > 75.00"
+      },
+      "output": {
+        "has-products": true,
+        "has-group-by": true,
+        "has-having": false
+      }
+    },
+    {
+      "name": "var:having-3:23",
+      "input": {
+        "challengeId": "having-3",
+        "sql": "SELECT country FROM customers GROUP BY country HAVING COUNT(*) >= 2 AND COUNT(*) < 100"
+      },
+      "output": {
+        "has-customers": true,
+        "has-group-by": true,
+        "has-having": true
+      }
+    },
+    {
+      "name": "var:sub-2:24",
+      "input": {
+        "challengeId": "sub-2",
+        "sql": "SELECT * FROM customers WHERE EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = customers.id)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-in": false,
+        "has-customers": true,
+        "has-orders": true
+      }
+    },
+    {
+      "name": "var:sub-4:25",
+      "input": {
+        "challengeId": "sub-4",
+        "sql": "SELECT p.* FROM products p WHERE p.id NOT IN (SELECT oi.product_id FROM order_items oi)"
+      },
+      "output": {
+        "has-subquery": true,
+        "has-not-in": true,
+        "has-products": true,
+        "has-order-items": true
+      }
+    },
+    {
+      "name": "var:cte-5:26",
+      "input": {
+        "challengeId": "cte-5",
+        "sql": "WITH t AS (SELECT customer_id, SUM(total) AS s FROM orders GROUP BY customer_id) SELECT * FROM t WHERE s > 200;"
+      },
+      "output": {
+        "has-with": true,
+        "has-sum": true,
+        "has-group-by": true,
+        "has-customer": true,
+        "has-where": true,
+        "has-200-filter": true
+      }
+    },
+    {
+      "name": "var:window-2:27",
+      "input": {
+        "challengeId": "window-2",
+        "sql": "SELECT name, RANK() OVER w FROM products WINDOW w AS (PARTITION BY category_id ORDER BY price DESC)"
+      },
+      "output": {
+        "has-rank": true,
+        "has-over": true,
+        "has-partition": true,
+        "has-category": true
+      }
+    }
+  ]
+}

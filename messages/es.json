@@ -1094,6 +1094,11 @@
   "destructive_reason_truncate": "Vacía una tabla",
   "destructive_reason_delete_no_where": "Elimina todas las filas (sin cláusula WHERE)",
   "destructive_reason_update_no_where": "Actualiza todas las filas (sin cláusula WHERE)",
+  "destructive_reason_drop_sequence": "Elimina una secuencia",
+  "destructive_reason_drop_function": "Elimina una función o procedimiento",
+  "destructive_reason_merge_delete": "Elimina filas (MERGE … THEN DELETE)",
+  "destructive_check_failed": "No se pudo comprobar si la consulta contenía instrucciones destructivas, así que no se ejecutó: {error}",
+  "statement_at_cursor_failed": "No se pudo determinar la instrucción en la posición del cursor, así que no se ejecutó nada: {error}",
 
   "ext_sidebar_extensions": "Extensiones",
   "ext_search_placeholder": "Buscar extensiones...",
@@ -1116,5 +1121,11 @@
   "ext_group_available": "Disponibles",
   "ext_action_install_and_load": "Instalar y cargar",
   "ext_action_load": "Cargar",
-  "ext_action_update": "Actualizar"
+  "ext_action_update": "Actualizar",
+  "wasm_error_title": "Seaquel no pudo iniciarse",
+  "wasm_error_description": "El módulo SQL (seaquel-wasm) no se cargó, por lo que el editor y las herramientas de consulta no pueden funcionar.",
+  "wasm_error_hint": "Esto suele significar que el archivo .wasm no se pudo descargar (un problema de red o proxy) o que una Content Security Policy no permite WebAssembly (necesita 'wasm-unsafe-eval' en script-src). Inténtalo de nuevo y, si el problema persiste, copia el error a continuación y envíanoslo.",
+  "wasm_error_copy": "Copiar error",
+  "wasm_error_copied": "Copiado",
+  "wasm_error_retry": "Intentar de nuevo"
 }

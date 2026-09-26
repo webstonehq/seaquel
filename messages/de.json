@@ -1094,6 +1094,11 @@
   "destructive_reason_truncate": "Leert eine Tabelle",
   "destructive_reason_delete_no_where": "Löscht alle Zeilen (keine WHERE-Klausel)",
   "destructive_reason_update_no_where": "Aktualisiert alle Zeilen (keine WHERE-Klausel)",
+  "destructive_reason_drop_sequence": "Löscht eine Sequenz",
+  "destructive_reason_drop_function": "Löscht eine Funktion oder Prozedur",
+  "destructive_reason_merge_delete": "Löscht Zeilen (MERGE … THEN DELETE)",
+  "destructive_check_failed": "Die Abfrage konnte nicht auf destruktive Anweisungen geprüft werden, daher wurde sie nicht ausgeführt: {error}",
+  "statement_at_cursor_failed": "Die Anweisung an der Cursorposition konnte nicht ermittelt werden, daher wurde nichts ausgeführt: {error}",
 
   "ext_sidebar_extensions": "Erweiterungen",
   "ext_search_placeholder": "Erweiterungen suchen...",
@@ -1116,5 +1121,11 @@
   "ext_group_available": "Verfügbar",
   "ext_action_install_and_load": "Installieren & Laden",
   "ext_action_load": "Laden",
-  "ext_action_update": "Aktualisieren"
+  "ext_action_update": "Aktualisieren",
+  "wasm_error_title": "Seaquel konnte nicht gestartet werden",
+  "wasm_error_description": "Das SQL-Modul (seaquel-wasm) konnte nicht geladen werden, daher stehen der Editor und die Abfragewerkzeuge nicht zur Verfügung.",
+  "wasm_error_hint": "Das bedeutet meist, dass die .wasm-Datei nicht heruntergeladen werden konnte (ein Netzwerk- oder Proxy-Problem) oder dass eine Content-Security-Policy WebAssembly nicht zulässt (dafür wird 'wasm-unsafe-eval' in script-src benötigt). Versuchen Sie es erneut, und falls der Fehler weiterhin auftritt, kopieren Sie die Fehlermeldung unten und senden Sie sie uns.",
+  "wasm_error_copy": "Fehler kopieren",
+  "wasm_error_copied": "Kopiert",
+  "wasm_error_retry": "Erneut versuchen"
 }

@@ -3,6 +3,8 @@
   "ignorePatterns": [
     "src-tauri",
     "src/lib/types/generated",
-    "crates/seaquel-engine-postgres/tests/fixtures"
+    "src/lib/wasm/pkg",
+    "crates/seaquel-engine-postgres/tests/fixtures",
+    "crates/seaquel-sql/tests/fixtures"
   ]
 }

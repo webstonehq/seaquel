@@ -23,3 +23,7 @@
 !components.json
 !server.js
 !shared/
+!scripts/build-wasm.mjs
+# Built in the wasm-builder stage, never copied from the host.
+src/lib/wasm/pkg
+src/lib/wasm/.pkg-tmp-*

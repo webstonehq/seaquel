@@ -1098,6 +1098,11 @@
   "destructive_reason_truncate": "يفرغ جدولاً",
   "destructive_reason_delete_no_where": "يحذف جميع الصفوف (بدون شرط WHERE)",
   "destructive_reason_update_no_where": "يحدّث جميع الصفوف (بدون شرط WHERE)",
+  "destructive_reason_drop_sequence": "يحذف تسلسلاً",
+  "destructive_reason_drop_function": "يحذف دالة أو إجراءً",
+  "destructive_reason_merge_delete": "يحذف صفوفاً (MERGE … THEN DELETE)",
+  "destructive_check_failed": "تعذّر التحقق مما إذا كان الاستعلام يحتوي على عبارات مدمرة، لذا لم يتم تنفيذه: {error}",
+  "statement_at_cursor_failed": "تعذّر تحديد العبارة عند موضع المؤشر، لذا لم يتم تنفيذ أي شيء: {error}",
 
   "ext_sidebar_extensions": "الإضافات",
   "ext_search_placeholder": "البحث عن إضافات...",
@@ -1120,5 +1125,11 @@
   "ext_group_available": "متاحة",
   "ext_action_install_and_load": "تثبيت وتحميل",
   "ext_action_load": "تحميل",
-  "ext_action_update": "تحديث"
+  "ext_action_update": "تحديث",
+  "wasm_error_title": "تعذّر تشغيل Seaquel",
+  "wasm_error_description": "لم يتم تحميل وحدة SQL (seaquel-wasm)، لذا لا يمكن تشغيل المحرر وأدوات الاستعلام.",
+  "wasm_error_hint": "يعني هذا عادةً أنه تعذّر تنزيل ملف .wasm (مشكلة في الشبكة أو الخادم الوكيل) أو أن سياسة أمان المحتوى (Content Security Policy) لا تسمح بـ WebAssembly (يجب أن تتضمن 'wasm-unsafe-eval' في script-src). حاول مرة أخرى، وإذا استمر الفشل، انسخ الخطأ أدناه وأرسله إلينا.",
+  "wasm_error_copy": "نسخ الخطأ",
+  "wasm_error_copied": "تم النسخ",
+  "wasm_error_retry": "إعادة المحاولة"
 }

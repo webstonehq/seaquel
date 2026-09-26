@@ -4,12 +4,7 @@ import type { DatabaseType } from "$lib/types/database";
 import type { DashboardWidget } from "$lib/types/dashboard";
 import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 import { getKeyringService } from "$lib/services/keyring";
-import {
-  buildSchemaContext,
-  buildSystemPrompt,
-  validateReadOnlyQuery,
-  runAndFormat,
-} from "./context.js";
+import { buildSchemaContext, buildSystemPrompt, readOnlyError, runAndFormat } from "./context.js";
 import { RUN_QUERY_TOOL, DASHBOARD_TOOLS, DASHBOARD_TOOL_NAMES } from "./tool-definitions.js";
 import { handleDashboardToolCall } from "./dashboard-tools.js";
 import type { DashboardCallbacks, DashboardGetResult } from "./dashboard-tools.js";
@@ -32,7 +27,11 @@ export interface SendAIMessageParams {
   shareSchema: boolean;
   shareData: boolean;
   connectionName: string;
-  databaseType?: DatabaseType;
+  /**
+   * The connection's engine. The `run_query` tool's read-only check reads
+   * the query with its quoting, and refuses every query when it's unknown.
+   */
+  databaseType: DatabaseType | undefined;
   executeQuery: (query: string) => Promise<Record<string, unknown>[]>;
   aiAllowAllQueries: boolean;
   onApprovalRequired: (
@@ -95,7 +94,8 @@ function getDashboardCallbacks(params: SendAIMessageParams): DashboardCallbacks 
   };
 }
 
-async function handleToolCall(
+/** One tool call from the model. Exported for tests. */
+export async function handleToolCall(
   toolName: string,
   input: Record<string, unknown>,
   params: SendAIMessageParams,
@@ -103,7 +103,9 @@ async function handleToolCall(
   if (DASHBOARD_TOOL_NAMES.has(toolName)) {
     const callbacks = getDashboardCallbacks(params);
     if (!callbacks) return JSON.stringify({ error: "Dashboard tools not available" });
-    const result = await handleDashboardToolCall(toolName, input, callbacks);
+    const result = await handleDashboardToolCall(toolName, input, callbacks, (query) =>
+      readOnlyError(query, params.databaseType),
+    );
     if (toolName === "create_dashboard" && params.onDashboardCreated) {
       try {
         const parsed = JSON.parse(result);
@@ -122,7 +124,7 @@ async function handleToolCall(
   }
 
   const query = typeof input.query === "string" ? input.query : "";
-  const validationError = validateReadOnlyQuery(query);
+  const validationError = readOnlyError(query, params.databaseType);
   if (validationError) return validationError;
 
   if (params.aiAllowAllQueries) {

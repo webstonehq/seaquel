@@ -38,6 +38,38 @@ RUN cargo build --release -p seaquel-server \
  && strip target/release/seaquel-server
 
 # ---------------------------------------------------------------------------
+# Stage 1b: Build seaquel-wasm (crates/seaquel-wasm) for the frontend.
+#
+# The Node stage has no Rust, so cargo and wasm-bindgen run here and the Node
+# stage finishes the module with `scripts/build-wasm.mjs --opt-only` (the glue
+# patch and the npm binaryen's wasm-opt, the same wasm-opt as everywhere else).
+# wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock exactly.
+# ---------------------------------------------------------------------------
+
+# Only the version, so the wasm-bindgen-cli install below (~45 s) is rebuilt
+# when that version changes, not on every Cargo.lock change.
+FROM debian:bookworm-slim AS wasm-bindgen-version
+COPY Cargo.lock ./
+RUN awk '$0 == "name = \"wasm-bindgen\"" { getline; gsub(/^version = "|"$/, ""); print; exit }' \
+      Cargo.lock > /wasm-bindgen-version \
+ && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' /wasm-bindgen-version
+
+# The image's own toolchain plus the wasm32 target. rust-toolchain.toml isn't
+# copied in: it follows `stable` and would make rustup download a second one.
+FROM chef AS wasm-builder
+RUN rustup target add wasm32-unknown-unknown
+COPY --from=wasm-bindgen-version /wasm-bindgen-version /wasm-bindgen-version
+RUN cargo install wasm-bindgen-cli --locked --version "$(cat /wasm-bindgen-version)"
+COPY --from=rust-planner /build/recipe.json recipe.json
+RUN cargo chef cook --profile wasm-release --target wasm32-unknown-unknown -p seaquel-wasm --recipe-path recipe.json
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY src-tauri/Cargo.toml src-tauri/build.rs src-tauri/
+RUN mkdir -p src-tauri/src && echo "" > src-tauri/src/lib.rs && echo "fn main(){}" > src-tauri/src/main.rs
+RUN cargo build --profile wasm-release --target wasm32-unknown-unknown -p seaquel-wasm \
+ && wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/wasm-release/seaquel_wasm.wasm
+
+# ---------------------------------------------------------------------------
 # Stage 2: Build the SvelteKit frontend (adapter-node)
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS node-builder
@@ -62,7 +94,9 @@ RUN npm ci
 # smallest value that completes reliably; raise the Docker engine's container
 # memory limit accordingly if a host enforces one.
 COPY . .
-RUN NODE_OPTIONS="--max-old-space-size=8192" npm run build:web
+COPY --from=wasm-builder /build/pkg src/lib/wasm/pkg
+RUN node scripts/build-wasm.mjs --opt-only
+RUN SEAQUEL_WASM_PREBUILT=1 NODE_OPTIONS="--max-old-space-size=8192" npm run build:web
 
 # Prune to production deps only. better-sqlite3's native .node file is
 # already compiled from the `npm ci` above, so the production install

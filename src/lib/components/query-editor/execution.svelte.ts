@@ -1,11 +1,16 @@
 import {
   findDestructiveStatements,
+  getStatementAtOffsetOrThrow,
+  hasParameters,
   isDestructiveStatement,
+  splitSqlStatementsOrThrow,
   type DestructiveStatement,
-} from "$lib/db/query-utils.js";
-import { splitSqlStatements, getStatementAtOffset } from "$lib/db/sql-parser.js";
-import { hasParameters } from "$lib/db/query-params.js";
-import type { ParameterValue, DatabaseType } from "$lib/types";
+  type ParsedStatement,
+} from "$lib/sql";
+import { extractErrorMessage } from "$lib/errors";
+import { m } from "$lib/paraglide/messages.js";
+import { errorToast } from "$lib/utils/toast";
+import type { ParameterValue } from "$lib/types";
 import type { QueryEditorContext } from "./types.js";
 import type { ParamDialog } from "./param-dialog.svelte.js";
 
@@ -20,6 +25,15 @@ export function createExecution(
   let destructiveStatements = $state<DestructiveStatement[]>([]);
   let pendingDestructiveAction = $state<(() => void) | null>(null);
 
+  /**
+   * The statement split or a check failed (the SQL module threw), so the
+   * query isn't run: the lenient versions' `[]`/`null` would skip the
+   * destructive check or run the whole buffer.
+   */
+  function reportCheckFailure(error: unknown) {
+    errorToast(m.destructive_check_failed({ error: extractErrorMessage(error) }));
+  }
+
   function proceedWithExecute(query: string, tabId: string) {
     if (hasParameters(query)) {
       paramDialog.params = paramDialog.getParameterDefinitions(query);
@@ -31,13 +45,10 @@ export function createExecution(
   }
 
   function proceedWithExecuteCurrent(
-    query: string,
+    currentStatement: ParsedStatement | null,
     tabId: string,
     cursorOffset: number,
-    dbType: DatabaseType,
   ) {
-    const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
-
     if (currentStatement && hasParameters(currentStatement.sql)) {
       paramDialog.params = paramDialog.getParameterDefinitions(currentStatement.sql);
       paramDialog.action = { type: "query-current", cursorOffset };
@@ -57,8 +68,15 @@ export function createExecution(
     const query = activeTab.query;
     const dbType = db.state.activeConnection?.type ?? "postgres";
 
-    const statements = splitSqlStatements(query, dbType);
-    const dangerous = findDestructiveStatements(statements);
+    let dangerous: DestructiveStatement[];
+    try {
+      const statements = splitSqlStatementsOrThrow(query, dbType);
+      dangerous = findDestructiveStatements(statements, dbType);
+    } catch (error) {
+      // The check couldn't run: don't run the script unconfirmed.
+      reportCheckFailure(error);
+      return;
+    }
 
     if (dangerous.length > 0) {
       destructiveStatements = dangerous;
@@ -81,21 +99,29 @@ export function createExecution(
     const cursorOffset = ctx.getMonacoRef()?.getCursorOffset() ?? 0;
     const dbType = db.state.activeConnection?.type ?? "postgres";
 
-    const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+    let currentStatement: ParsedStatement | null;
+    let reason: DestructiveStatement["reason"] | null = null;
+    try {
+      currentStatement = getStatementAtOffsetOrThrow(query, cursorOffset, dbType);
+      if (currentStatement) reason = isDestructiveStatement(currentStatement.sql, dbType);
+    } catch (error) {
+      reportCheckFailure(error);
+      return;
+    }
     if (currentStatement) {
-      const reason = isDestructiveStatement(currentStatement.sql);
       if (reason) {
         destructiveStatements = [
           { sql: currentStatement.sql, index: currentStatement.index, reason },
         ];
+        const statement = currentStatement;
         pendingDestructiveAction = () =>
-          proceedWithExecuteCurrent(query, activeTabId, cursorOffset, dbType);
+          proceedWithExecuteCurrent(statement, activeTabId, cursorOffset);
         showDestructiveConfirm = true;
         return;
       }
     }
 
-    proceedWithExecuteCurrent(query, activeTabId, cursorOffset, dbType);
+    proceedWithExecuteCurrent(currentStatement, activeTabId, cursorOffset);
   }
 
   function handleDestructiveConfirm() {

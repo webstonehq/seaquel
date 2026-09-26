@@ -22,6 +22,16 @@ npm run check
 npm run check:watch
 ```
 
+Every script that runs Vite, svelte-check or vitest first runs `npm run wasm:build` (`scripts/build-wasm.mjs`), which builds `crates/seaquel-wasm` into `src/lib/wasm/pkg/` (gitignored). It needs the wasm32 target and wasm-bindgen-cli at the exact version in `Cargo.lock`:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version "$(node scripts/build-wasm.mjs --bindgen-version)" --locked
+```
+
+- If that toolchain is missing but `pkg/` exists, the script warns and keeps the old `pkg/`. CI, the release runners and the Docker image start without `pkg/`, so there a missing toolchain fails the build. `SEAQUEL_WASM_PREBUILT=1` uses `pkg/` as it is without building or warning (the Docker image does this).
+- `dev` builds the module once at startup. After changing `crates/seaquel-sql` or `crates/seaquel-wasm`, rerun `npm run wasm:build`; Vite then reloads the new module.
+
 ## Architecture
 
 ### Frontend (src/)
@@ -37,8 +47,10 @@ All database logic lives in Rust crates under `crates/`, shared by every interfa
 
 - `seaquel-core` — the only entry point interfaces use: engine registry, open connections, streaming and cancellation. `disconnect` cancels the connection's running streams, which end with a `CONNECTION_CLOSED` error event.
 - `seaquel-engine` — the `Driver`/`Engine` plugin traits, the pure `Dialect` trait, and the generic DDL/CRUD builders (`ddl.rs`, `crud.rs`) that dialects parameterize. `Driver` has default `NOT_SUPPORTED` introspection methods (`list_schemas`, `schema_tables`, `table_metadata`, `statistics`, `explain`). One crate per engine: `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}`.
-- `seaquel-types` — wire types, including the dialect types (`SchemaTable`, `ExplainResult`, `CreateTableDefinition`, …) and `Value`. `npm run types:gen` regenerates `src/lib/types/generated/` from `seaquel-types` and `seaquel-rpc`; never edit those by hand.
+- `seaquel-types` — wire types, including the dialect types (`SchemaTable`, `ExplainResult`, `CreateTableDefinition`, …) and `Value`. `npm run types:gen` regenerates `src/lib/types/generated/` from `seaquel-types`, `seaquel-rpc`, `seaquel-sql` and `seaquel-wasm`; never edit those by hand.
 - `seaquel-rpc` — `EngineCall`/`EngineRequest`/`EngineResponse` and `dispatch` onto Core, for dialect and introspection calls on one connection. Served as the `db_engine` Tauri command and `POST /api/db/engine`.
+- `seaquel-sql` — pure SQL text work, no I/O: one hand scanner that follows each engine's quoting (`scan.rs`), with statement splitting, statement at cursor and the row-limit check on top; `statements.rs` (query type, the destructive-statement check, the source table for inline editing); `read_only.rs` (the AI's read-only check); `params.rs` (`{{param}}` substitution); `create_table.rs` (the table editor's SQL pane); and `ast/`, sqlparser-rs used only where an AST is needed (query builder and tutorial `ParsedQuery`, the Visual tab, column sources). It works in UTF-8 byte offsets. Parity fixtures in `crates/seaquel-sql/tests/fixtures` are frozen (see its README). Nothing in it may panic on user input: in the browser a panic is a trap.
+- `seaquel-wasm` — wasm-bindgen glue over `seaquel-sql`, loaded by the Svelte app on desktop, web and the demo. Strings and JSON in and out, and every position that crosses is a UTF-16 offset (`offsets.rs`). The root `src/routes/+layout.ts` awaits `initSeaquelWasm` before anything renders, so calls are synchronous. Linked with a 2 MB stack (`build.rs`).
 - `seaquel-runtime` — `MaybeSend`, `BoxStream`, `Executor`, `#[seaquel_runtime::async_trait]`. Core crates must build for wasm32: no `tokio::spawn`, `Instant` or `SystemTime` (enforced by `crates/clippy.toml`).
 - Interfaces: `src-tauri/` (desktop; Tauri commands in `src/db/commands.rs` forward to Core) and `crates/seaquel-server/` (web; axum, loopback-only behind the Node server).
 - `npm run crates:check` (`scripts/check-crate-deps.mjs`) enforces which crates may depend on which.
@@ -47,9 +59,10 @@ All database logic lives in Rust crates under `crates/`, shared by every interfa
 
 ### Dialects and engine calls
 
+- **UI code never scans or parses SQL itself.** Splitting, statement at cursor, `{{param}}` handling, query type, the destructive and read-only checks, `CREATE TABLE` parsing and the AST helpers all come from `$lib/sql` (`src/lib/sql`), which calls `seaquel-wasm`. Pass the connection's engine; the checks follow its quoting. If the module traps, `callWasm` re-instantiates it and the per-keystroke functions return their "couldn't parse" value, so on the run path (anything that decides what SQL executes) use the `…OrThrow` variants, which fail instead of letting SQL run unchecked.
 - **UI code never does dialect work itself.** Introspection, EXPLAIN, statistics, pagination, CRUD and DDL generation all go through `EngineClient` (`src/lib/engine`): `getEngineClient(connection, state)`. Pass the app state so the client reads the live provider connection id on every call (it survives `reconnect()`). Don't cache clients across operations, and don't call `getAdapter(` outside `src/lib/engine/` and `src/lib/db/`.
 - **Identifiers:** quote a name with `EngineClient.quoteIdent` and build a table name from a listed schema with `EngineClient.qualifiedTable` (DuckDB lists attached catalogs' schemas as `catalog.schema`, two names). Never hand-build `"${name}"`.
-- `getEngineClient` returns `RustEngineClient` (the `db_engine` endpoint) for Postgres, MySQL, MariaDB, SQLite, MSSQL and DuckDB on desktop and web, and `TsEngineClient` (the TypeScript `DatabaseAdapter` plus a provider) for the browser demo, which has no Rust core. `src/lib/db/duckdb.ts` is the only TypeScript adapter left, and it is demo-only (as are `alter-table.ts` and `crud-helpers.ts`; `index.ts` only re-exports the `SqlWithBindings` type from the latter); `getAdapter` throws for every other engine. The rest of `src/lib/db` is engine-independent query-editor code (statement splitting, `{{param}}` substitution, query type detection, visual query parsing).
+- `getEngineClient` returns `RustEngineClient` (the `db_engine` endpoint) for Postgres, MySQL, MariaDB, SQLite, MSSQL and DuckDB on desktop and web, and `TsEngineClient` (the TypeScript `DatabaseAdapter` plus a provider) for the browser demo, which has no Rust core. `src/lib/db/duckdb.ts` is the only TypeScript adapter left, and it is demo-only (as are `alter-table.ts` and `crud-helpers.ts`; `index.ts` only re-exports the `SqlWithBindings` type from the latter); `getAdapter` throws for every other engine.
 - **Every engine crate** has `dialect.rs` (the pure `Dialect`), `introspect.rs` (catalog SQL, parsers, EXPLAIN) and `decode.rs` (with `bind.rs` in all but DuckDB) for values. Postgres adds `numeric.rs`, the NUMERIC binary codec. `crates/seaquel-engine-mysql` serves MySQL and MariaDB: a `"mariadb"` connection connects with driver `"mysql"`.
 - **SQLite:** cells decode by storage class (`typeof`), not declared type; BLOBs are bytes. SQLite has no `DEFAULT` in `UPDATE`, so Set to default sends the column's default expression from its metadata (`buildSetDefault`'s `columnDefault`). Edits SQLite can't make come back from `alterTable` as `-- …` note lines; the table editor shows them (`splitDdlScript` in `src/lib/utils/ddl-script.ts`).
 - **MSSQL:** cells are native: decimal and money are `Decimal`, binary is `Bytes`, dates and times are SQL Server's own text (datetimeoffset as `2024-01-02 03:04:05.5 +01:00`). tiberius hands money over as an f64: it is exact only for |value| < 2^39 ≈ 5.5·10¹¹; above 2^53 units tiberius itself loses bits (up to ~1536 units near the ends of the range), and the maximum reads `922337203685477.5808`, which is out of range when bound back. A `Null` parameter is sent as the `NULL` literal (`inline_nulls`), since no declared type assigns to every column; so a column made only from it is int (`SELECT @P1 INTO`, `UNION`), `COALESCE`/`CASE`/`IIF` with only such NULLs fail (4127, 8133), and so does passing one as an `OUTPUT` argument (179). A `@Pn =` naming a parameter in an `EXEC` argument list is left alone. Query parameters (`{{name}}`) are inlined, strings as `N'…'`, so they work in `TOP`, `CREATE VIEW` and defaults. CRUD binds `@P1…`; EXPLAIN runs `SET SHOWPLAN_XML`/`STATISTICS XML` as separate batches and parses the ShowPlan XML with roxmltree; statistics are `NOT_SUPPORTED`.
@@ -87,7 +100,7 @@ Core interfaces: `DatabaseConnection`, `SchemaTable`, `QueryTab`, `QueryResult`,
 
 ## Configuration Files
 
-- `src-tauri/tauri.conf.json` - Tauri app configuration
+- `src-tauri/tauri.conf.json` - Tauri app configuration. Its CSP has `'wasm-unsafe-eval'` in `script-src` because WebKit and Chromium won't compile `seaquel-wasm` without it. The token allows compiling WebAssembly and nothing else (`eval()` and `new Function` stay blocked); don't swap it for `'unsafe-eval'`. The web build sends no CSP.
 - `svelte.config.js` - SvelteKit config with static adapter
 - `vite.config.js` - Vite bundler config
 
@@ -102,6 +115,8 @@ npm run demo:update
 ```
 
 This script removes old demo files, builds the demo with `BUILD_TARGET=demo`, and copies the output to `static/demo/`. Commit and deploy the website changes afterward.
+
+The build runs `npm run wasm:build` in this repo, so the machine needs the wasm toolchain from "Development Commands" (Rust, the wasm32 target and the matching wasm-bindgen-cli). Without it an existing `src/lib/wasm/pkg/` is reused with a warning, and it may be out of date.
 
 ## Releasing a New Version
 

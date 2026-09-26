@@ -1,0 +1,453 @@
+/**
+ * MODEL of the fixed `parseCreateTableSql` (bug fixes 16 and 17), for the
+ * phase 2b fixtures (Task 2).
+ *
+ * A copy of src/lib/db/parse-create-table.ts with the fixes applied, each
+ * edit tagged `FIX n` and switched on by `fixes`, so the recorder can tell
+ * which fix changed a case (it runs the model with each fix left out). With
+ * no fixes on, it is the TS. sql.fixtures.test.ts records create-table.json
+ * from it.
+ *
+ * - FIX 16 (dropped data): a `SERIAL`/`SMALLSERIAL`/`BIGSERIAL` column keeps
+ *   its type as written (the engines' column-type lists have `serial` and
+ *   `bigserial`; the table editor matches type names case-insensitively);
+ *   comments are removed before the column list is split, so a column after
+ *   a comment is kept; `CONSTRAINT name PRIMARY KEY (…)`/`UNIQUE (…)` are
+ *   read; a column's inline `REFERENCES t (c)` is a foreign key; a column's
+ *   `COLLATE name` goes into `collation` instead of the type.
+ * - FIX 17 (names): a quoted name may hold its doubled quote (`""`, ` `` `,
+ *   `]]`), and it's unescaped; the column list is split with backtick and
+ *   bracket names taken as names; a three-part `catalog.schema.table` name
+ *   parses, with the schema `catalog.schema` (DuckDB's attached catalogs, as
+ *   the DuckDB engine's CreateTableDefinition names them; a part holding `.`
+ *   or `"` is double-quoted, as DuckDB's part() writes it); index and
+ *   constraint names use the same name rules.
+ *
+ * Not app code: nothing under src/ imports it.
+ */
+import type {
+  CreateTableDefinition,
+  CreateTableColumn,
+  CreateTableIndex,
+  CreateTableForeignKey,
+} from "$lib/types";
+
+export const CREATE_TABLE_FIXES = [16, 17] as const;
+let enabled = new Set<number>(CREATE_TABLE_FIXES);
+const on = (fix: number) => enabled.has(fix);
+
+export function parseCreateTableSql(
+  sql: string,
+  fixes: readonly number[] = CREATE_TABLE_FIXES,
+): CreateTableDefinition | null {
+  enabled = new Set(fixes);
+  try {
+    return doParse(sql);
+  } catch {
+    return null;
+  } finally {
+    enabled = new Set(CREATE_TABLE_FIXES);
+  }
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────
+
+/** Strip one layer of quotes (double, backtick, or square bracket) from an identifier. */
+function unquote(s: string): string {
+  s = s.trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("`") && s.endsWith("`"))) {
+    // FIX 17: a doubled quote inside is one quote.
+    return on(17) ? s.slice(1, -1).replaceAll(s[0] + s[0], s[0]) : s.slice(1, -1);
+  }
+  if (s.startsWith("[") && s.endsWith("]")) {
+    return on(17) ? s.slice(1, -1).replaceAll("]]", "]") : s.slice(1, -1);
+  }
+  return s;
+}
+
+/** Match a possibly-quoted identifier. */
+const ID_TS = String.raw`(?:"[^"]+"|` + "`[^`]+" + "`" + String.raw`|\[[^\]]+\]|[A-Za-z_]\w*)`;
+// FIX 17: doubled quotes inside quoted names.
+const ID_FIXED =
+  String.raw`(?:"(?:[^"]|"")+"|` +
+  "`(?:[^`]|``)+`" +
+  String.raw`|\[(?:[^\]]|\]\])+\]|[A-Za-z_]\w*)`;
+const id = () => (on(17) ? ID_FIXED : ID_TS);
+
+/**
+ * FIX 16: `sql` without its comments (`--` to the end of the line, `/* … *\/`),
+ * leaving quoted text alone. A comment becomes one space.
+ */
+function stripComments(sql: string): string {
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const close = c === "[" ? "]" : c;
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === close && sql[j + 1] === close) j += 2;
+        else if (sql[j] === close) {
+          j++;
+          break;
+        } else j++;
+      }
+      out += sql.slice(i, j);
+      i = j;
+    } else if (c === "-" && sql[i + 1] === "-") {
+      const eol = sql.indexOf("\n", i);
+      out += " ";
+      i = eol === -1 ? sql.length : eol;
+    } else if (c === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      out += " ";
+      i = end === -1 ? sql.length : end + 2;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+// ── main parser ─────────────────────────────────────────────────────────
+
+function doParse(input: string): CreateTableDefinition | null {
+  const sql = on(16) ? stripComments(input) : input;
+  const ID = id();
+  // ── 1. Extract CREATE TABLE header ────────────────────────────────
+  const createRe = on(17)
+    ? new RegExp(
+        String.raw`CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` +
+          String.raw`(${ID})(?:\s*\.\s*(${ID}))?(?:\s*\.\s*(${ID}))?\s*\(`,
+        "i",
+      )
+    : new RegExp(
+        String.raw`CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` +
+          String.raw`(${ID})(?:\.(${ID}))?\s*\(`,
+        "i",
+      );
+  const headerMatch = sql.match(createRe);
+  if (!headerMatch) return null;
+
+  let schemaName: string;
+  let tableName: string;
+
+  if (headerMatch[3]) {
+    // FIX 17: catalog.schema.table
+    // A part holding `.` or `"` is double-quoted, as DuckDB's part() writes it, so
+    // the schema name round-trips through the DuckDB engine's quoting.
+    const part = (raw: string) => {
+      const p = unquote(raw);
+      return /[."]/.test(p) ? `"${p.replaceAll('"', '""')}"` : p;
+    };
+    schemaName = `${part(headerMatch[1])}.${part(headerMatch[2])}`;
+    tableName = unquote(headerMatch[3]);
+  } else if (headerMatch[2]) {
+    // schema.table
+    schemaName = unquote(headerMatch[1]);
+    tableName = unquote(headerMatch[2]);
+  } else {
+    schemaName = "public";
+    tableName = unquote(headerMatch[1]);
+  }
+
+  // ── 2. Extract body between the outer ( … ) of CREATE TABLE ───────
+  const bodyStart = sql.indexOf("(", headerMatch.index! + headerMatch[0].length - 1);
+  const bodyEnd = findMatchingParen(sql, bodyStart);
+  if (bodyEnd === -1) return null;
+
+  const body = sql.slice(bodyStart + 1, bodyEnd);
+
+  // ── 3. Split body into top-level comma-separated items ────────────
+  const items = splitTopLevel(body);
+
+  const columns: CreateTableColumn[] = [];
+  const pkColumns = new Set<string>();
+  const uniqueColumns = new Set<string>();
+  const foreignKeys: CreateTableForeignKey[] = [];
+  // FIX 16: `CONSTRAINT name` before PRIMARY KEY / UNIQUE.
+  const constraintName = on(16) ? String.raw`(?:CONSTRAINT\s+${ID}\s+)?` : "";
+
+  for (const raw of items) {
+    const item = raw.trim();
+    if (!item) continue;
+
+    // ── Table-level PRIMARY KEY ───────────────────────────────────
+    if (new RegExp(String.raw`^${constraintName}PRIMARY\s+KEY\b`, "i").test(item)) {
+      const cols = extractParenList(item);
+      for (const c of cols) pkColumns.add(c);
+      continue;
+    }
+
+    // ── Table-level UNIQUE ────────────────────────────────────────
+    if (new RegExp(String.raw`^${constraintName}UNIQUE\b`, "i").test(item)) {
+      const cols = extractParenList(item);
+      for (const c of cols) uniqueColumns.add(c);
+      continue;
+    }
+
+    // ── Table-level FOREIGN KEY ───────────────────────────────────
+    // FIX 17: the constraint's name is a name (it may be quoted, with spaces).
+    const fkStart = on(17)
+      ? new RegExp(String.raw`^(?:CONSTRAINT\s+${ID}\s+)?FOREIGN\s+KEY\b`, "i")
+      : /^(?:CONSTRAINT\s+\S+\s+)?FOREIGN\s+KEY\b/i;
+    if (fkStart.test(item)) {
+      const fk = parseForeignKey(item);
+      if (fk) foreignKeys.push(fk);
+      continue;
+    }
+
+    // ── CHECK / CONSTRAINT (skip) ─────────────────────────────────
+    if (/^(?:CONSTRAINT|CHECK)\b/i.test(item)) continue;
+
+    // ── Column definition ─────────────────────────────────────────
+    const col = parseColumnDef(item);
+    if (col) {
+      columns.push(col);
+      // FIX 16: an inline REFERENCES is a foreign key.
+      if (on(16)) {
+        const ref = new RegExp(
+          String.raw`\bREFERENCES\s+(${ID})(?:\s*\.\s*(${ID}))?(?:\s*\(\s*(${ID})\s*\))?`,
+          "i",
+        ).exec(item.slice(item.search(/\s/)));
+        if (ref) {
+          foreignKeys.push({
+            id: crypto.randomUUID(),
+            column: col.name,
+            referencedSchema: ref[2] ? unquote(ref[1]) : "",
+            referencedTable: unquote(ref[2] ?? ref[1]),
+            referencedColumn: ref[3] ? unquote(ref[3]) : "",
+          });
+        }
+      }
+    }
+  }
+
+  // Apply table-level PK / UNIQUE back to columns
+  for (const col of columns) {
+    if (pkColumns.has(col.name)) {
+      col.isPrimaryKey = true;
+      col.nullable = false;
+    }
+    if (uniqueColumns.has(col.name)) {
+      col.isUnique = true;
+    }
+  }
+
+  // ── 4. Parse CREATE INDEX statements after the CREATE TABLE ───────
+  const indexes: CreateTableIndex[] = [];
+  const afterTable = sql.slice(bodyEnd + 1);
+  // FIX 17: index and table names follow the name rules (quoted names may hold spaces).
+  const indexRe = on(17)
+    ? new RegExp(
+        String.raw`CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(${ID})\s+ON\s+${ID}(?:\s*\.\s*${ID}){0,2}\s*\(([^)]+)\)`,
+        "gi",
+      )
+    : /CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\S+)\s+ON\s+\S+(?:\.\S+)?\s*\(([^)]+)\)/gi;
+  let idxMatch;
+  while ((idxMatch = indexRe.exec(afterTable)) !== null) {
+    const isUnique = !!idxMatch[1];
+    const name = unquote(idxMatch[2]);
+    const cols = (on(17) ? splitTopLevel(idxMatch[3]) : idxMatch[3].split(",")).map((c) =>
+      unquote(c.trim()),
+    );
+    indexes.push({
+      id: crypto.randomUUID(),
+      name,
+      columns: cols,
+      unique: isUnique,
+      type: "btree",
+    });
+  }
+
+  return { tableName, schemaName, columns, indexes, foreignKeys };
+}
+
+// ── item parsers ────────────────────────────────────────────────────────
+
+function parseColumnDef(item: string): CreateTableColumn | null {
+  // Pattern: <name> <type> [constraints...]
+  const idRe = new RegExp(`^(${id()})\\s+`, "i");
+  const nameMatch = item.match(idRe);
+  if (!nameMatch) return null;
+
+  const name = unquote(nameMatch[1]);
+  let rest = item.slice(nameMatch[0].length);
+
+  // Extract type — everything up to the first constraint keyword or end
+  // FIX 16: SERIAL is a type, not a constraint (the TS cut `serial` to ""); a
+  // COLLATE clause isn't part of the type.
+  const typeEnd = rest.search(
+    on(16)
+      ? /\b(?:NOT\s+NULL|NULL|DEFAULT|PRIMARY\s+KEY|UNIQUE|REFERENCES|CHECK|CONSTRAINT|AUTO_INCREMENT|AUTOINCREMENT|IDENTITY|GENERATED|COLLATE)\b/i
+      : /\b(?:NOT\s+NULL|NULL|DEFAULT|PRIMARY\s+KEY|UNIQUE|REFERENCES|CHECK|CONSTRAINT|AUTO_INCREMENT|AUTOINCREMENT|IDENTITY|GENERATED|SERIAL)\b/i,
+  );
+  let typeStr: string;
+  if (typeEnd === -1) {
+    typeStr = rest.trim();
+    rest = "";
+  } else {
+    typeStr = rest.slice(0, typeEnd).trim();
+    rest = rest.slice(typeEnd);
+  }
+
+  // Remove trailing comma from type if present
+  typeStr = typeStr.replace(/,$/, "").trim();
+
+  // Parse type into base + length/precision
+  let type = typeStr;
+  let length: string | undefined;
+  let precision: string | undefined;
+
+  const parenMatch = typeStr.match(/^([^(]+)\(([^)]+)\)/);
+  if (parenMatch) {
+    type = parenMatch[1].trim();
+    const params = parenMatch[2].trim();
+    if (params.includes(",")) {
+      precision = params;
+    } else {
+      length = params;
+    }
+  }
+
+  // Parse constraints from the rest
+  const upper = rest.toUpperCase();
+  const nullable = !upper.includes("NOT NULL");
+  const isPrimaryKey = /PRIMARY\s+KEY/i.test(rest);
+  const isUnique = /\bUNIQUE\b/i.test(rest);
+
+  let defaultValue = "";
+  const defaultMatch = rest.match(
+    on(16)
+      ? /DEFAULT\s+(.+?)(?:\s+(?:NOT\s+NULL|NULL|PRIMARY|UNIQUE|CHECK|REFERENCES|CONSTRAINT|AUTO_INCREMENT|AUTOINCREMENT|IDENTITY|GENERATED|COLLATE)|$)/i
+      : /DEFAULT\s+(.+?)(?:\s+(?:NOT\s+NULL|NULL|PRIMARY|UNIQUE|CHECK|REFERENCES|CONSTRAINT|AUTO_INCREMENT|AUTOINCREMENT|IDENTITY|GENERATED)|$)/i,
+  );
+  if (defaultMatch) {
+    defaultValue = defaultMatch[1].trim().replace(/,$/, "").trim();
+  }
+
+  // FIX 16: `COLLATE name` goes into `collation` (MSSQL's own DDL writes it).
+  const collate = on(16) ? new RegExp(String.raw`\bCOLLATE\s+(${id()})`, "i").exec(rest) : null;
+
+  return {
+    id: crypto.randomUUID(),
+    name,
+    type,
+    length,
+    precision,
+    nullable: isPrimaryKey ? false : nullable,
+    defaultValue,
+    isPrimaryKey,
+    isUnique,
+    ...(collate ? { collation: unquote(collate[1]) } : {}),
+  };
+}
+
+function parseForeignKey(item: string): CreateTableForeignKey | null {
+  // FOREIGN KEY ("col") REFERENCES "schema"."table" ("col")
+  // or FOREIGN KEY ("col") REFERENCES "table" ("col")
+  const ID = id();
+  const fkRe = new RegExp(
+    String.raw`FOREIGN\s+KEY\s*\(\s*(${ID})\s*\)\s*REFERENCES\s+(${ID})(?:\.(${ID}))?\s*\(\s*(${ID})\s*\)`,
+    "i",
+  );
+  const m = item.match(fkRe);
+  if (!m) return null;
+
+  let referencedSchema: string;
+  let referencedTable: string;
+  let referencedColumn: string;
+  const column = unquote(m[1]);
+
+  if (m[3]) {
+    referencedSchema = unquote(m[2]);
+    referencedTable = unquote(m[3]);
+    referencedColumn = unquote(m[4]);
+  } else {
+    referencedSchema = "";
+    referencedTable = unquote(m[2]);
+    referencedColumn = unquote(m[4] ?? m[3] ?? "");
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    column,
+    referencedSchema,
+    referencedTable,
+    referencedColumn,
+  };
+}
+
+// ── utility ─────────────────────────────────────────────────────────────
+
+/**
+ * The quote a character opens, if any: `'` and `"` as in the TS, and with
+ * FIX 17 also `` ` `` and `[` (whose close is `]`).
+ */
+function opens(ch: string): string | undefined {
+  if (ch === "'" || ch === '"') return ch;
+  if (on(17) && ch === "`") return "`";
+  if (on(17) && ch === "[") return "]";
+  return undefined;
+}
+
+/** Find the index of the closing paren that matches the opening paren at `start`. */
+function findMatchingParen(sql: string, start: number): number {
+  let depth = 0;
+  let close: string | undefined; // the quote we're inside, if any
+  for (let i = start; i < sql.length; i++) {
+    const ch = sql[i];
+    if (close) {
+      // A doubled quote toggles twice, so it stays inside, as the TS did for ' and ".
+      if (ch === close) close = undefined;
+    } else if (opens(ch)) {
+      close = opens(ch);
+    } else if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Split a string by commas, but only at the top level (not inside parentheses or quotes). */
+function splitTopLevel(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let close: string | undefined;
+  let current = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (close) {
+      if (ch === close) close = undefined;
+    } else if (opens(ch)) {
+      close = opens(ch);
+    } else if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+/** Extract the list of identifiers from the first parenthesised group. */
+function extractParenList(s: string): string[] {
+  if (on(17)) {
+    // FIX 17: a quoted name may hold `)` or `,`.
+    const start = s.indexOf("(");
+    const end = start === -1 ? -1 : findMatchingParen(s, start);
+    if (end === -1) return [];
+    return splitTopLevel(s.slice(start + 1, end)).map((c) => unquote(c.trim()));
+  }
+  const m = s.match(/\(([^)]+)\)/);
+  if (!m) return [];
+  return m[1].split(",").map((c) => unquote(c.trim()));
+}

@@ -5,7 +5,7 @@ import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
 import { getEngineClient, usesRustEngine, type CastMap, type TableMetadata } from "$lib/engine";
-import { describePendingChange } from "$lib/db/pending-change-description";
+import { describePendingChange } from "./pending-change-description.js";
 import type { SchemaColumn } from "$lib/types";
 import { storeTableMetadata } from "./schema-cache.js";
 import { noRowMatchedMessage } from "./stale-edit.js";

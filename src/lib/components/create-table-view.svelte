@@ -27,7 +27,7 @@
 		CreateTableForeignKey,
 		ColumnTypeInfo,
 	} from "$lib/types";
-	import { parseCreateTableSql } from "$lib/db/parse-create-table";
+	import { parseCreateTableSql } from "$lib/sql";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 

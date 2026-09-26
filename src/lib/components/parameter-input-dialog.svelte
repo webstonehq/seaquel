@@ -17,7 +17,7 @@
 		SelectTrigger
 	} from "$lib/components/ui/select";
 	import type { QueryParameter, ParameterValue } from "$lib/types";
-	import { coerceValue } from "$lib/db/query-params";
+	import { coerceValue } from "$lib/sql";
 	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {

@@ -41,8 +41,26 @@ jobs:
       - uses: jdx/mise-action@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
       - run: npm ci
+
+      # seaquel-wasm is built by `npm run build` (the `prebuild` hook), which
+      # tauri-action runs as beforeBuildCommand. It needs wasm-bindgen-cli at
+      # the exact Cargo.lock version: a prebuilt binary where install-action
+      # has one, cargo install on Windows ARM, which it doesn't cover.
+      - name: wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        shell: bash
+        run: echo "version=$(node scripts/build-wasm.mjs --bindgen-version)" >> "$GITHUB_OUTPUT"
+      - name: Install wasm-bindgen-cli (prebuilt)
+        if: matrix.platform != 'windows-11-arm'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Install wasm-bindgen-cli (from source)
+        if: matrix.platform == 'windows-11-arm'
+        shell: bash
+        run: cargo install wasm-bindgen-cli --version "${{ steps.wasm-bindgen.outputs.version }}" --locked
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

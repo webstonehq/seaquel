@@ -11,7 +11,7 @@
 [![Discord](https://img.shields.io/discord/1452421515164385436?label=Discord&logo=discord&logoColor=white)](https://seaquel.app/discord)
 [![Try Demo](https://img.shields.io/badge/Try-Live%20Demo-brightgreen)](https://seaquel.app/demo)
 
-![Seaquel Screenshot](https://seaquel.app/product-screenshot.png)
+![Seaquel Screenshot](https://seaquel.app/product-screenshot.jpg)
 
 Works with 6 database engines. No account required. Open source, free for personal use.<br>
 [Try it in your browser](https://seaquel.app/demo) in seconds.

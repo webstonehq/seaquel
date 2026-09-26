@@ -1016,10 +1016,10 @@ async fn unique_checkbox_runs() {
     outcome.expect("UNIQUE checkbox DDL");
 }
 
-/// Task 18: the query runner's row count (`countQuery` in
-/// src/lib/engine/sql-scan.ts) strips a top-level ORDER BY on SQL Server,
-/// which rejects it in a derived table, and keeps ORDER BY in OVER() and in
-/// a TOP subquery. These are the strings its vitest cases produce.
+/// Task 18: the query runner's row count (`countQuery` in `$lib/sql`, which
+/// is `seaquel_sql::scan::count_query` since phase 2b) strips a top-level
+/// ORDER BY on SQL Server, which rejects it in a derived table, and keeps
+/// ORDER BY in OVER() and in a TOP subquery. These are the strings its vitest cases produce.
 #[tokio::test]
 async fn row_count_without_trailing_order_by() {
     let Some(driver) = common::open().await else {

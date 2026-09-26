@@ -5,7 +5,7 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { toast } from 'svelte-sonner';
-	import { parseSql } from '$lib/tutorial/sql-parser';
+	import { parseSql } from '$lib/sql';
 	import { getTutorialSchema } from '$lib/tutorial/database';
 	import { TUTORIAL_SCHEMA } from '$lib/tutorial/schema';
 	import type { SchemaTable } from '$lib/types';
@@ -62,8 +62,8 @@
 		if (editorValue !== generated && !isUpdatingFromExternal) {
 			// Check if the current value parses to the same visual state
 			// If so, don't update (user's formatting is preserved)
-			const currentParsed = parseSql(editorValue, { validTableNames });
-			const generatedParsed = parseSql(generated, { validTableNames });
+			const currentParsed = parseSql(editorValue, { validTableNames, engine: qb.engine });
+			const generatedParsed = parseSql(generated, { validTableNames, engine: qb.engine });
 
 			// If both parse to equivalent states, keep user's formatting
 			if (currentParsed && generatedParsed && statesEqual(currentParsed, generatedParsed)) {
@@ -83,7 +83,7 @@
 		qb.customSql = sql;
 
 		// Try to parse the SQL and update visual state
-		const parsed = parseSql(sql, { validTableNames });
+		const parsed = parseSql(sql, { validTableNames, engine: qb.engine });
 		if (parsed) {
 			// Valid SQL - update visual state (two-way sync)
 			qb.applyFromParsedSql(parsed);

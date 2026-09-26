@@ -9,6 +9,12 @@ Phase 2: implemented for the engines (see 2026-09-26-rust-core-phase-2-plan.md).
 All five engines run in Rust on desktop and web; the demo keeps `duckdb.ts`.
 `seaquel-sql`, `seaquel-wasm` and the parser switch moved to phase 2b. Phase
 2's measured cost and the phase 2b estimate are in "Phase 2 cost" below.
+Phase 2b: implemented (see 2026-09-27-rust-core-phase-2b-plan.md). The editor,
+query runner, Visual tab, query builder, tutorial, table editor and the AI's
+read-only check call `seaquel-sql` through `seaquel-wasm` on desktop, web and
+the demo. node-sql-parser and the TypeScript scanners are gone. Its measured
+cost, and the case for doing the two AI read-only Follow-ups before phase 3,
+are in "Phase 2b cost" below.
 
 ## Problem
 
@@ -23,7 +29,11 @@ The split is worst for database engines. Postgres support today is:
 - `src/lib/db/postgres.ts`: 473 lines of TypeScript with the introspection SQL,
   result parsing, EXPLAIN parsing, DDL generation, CRUD SQL and quoting. Shared
   helpers (`alter-table.ts`, `crud-helpers.ts`, `parse-create-table.ts`,
-  `column-sources.ts`) add more.
+  `column-sources.ts`) add more. (As built: `postgres.ts` went into
+  `seaquel-engine-postgres` in phase 1. `alter-table.ts` and `crud-helpers.ts`
+  became the generic builders in `seaquel-engine` (`ddl.rs`, `crud.rs`), and
+  the TS copies stay only for the demo's `duckdb.ts`. `parse-create-table.ts`
+  and `column-sources.ts` went into `seaquel-sql` in phase 2b.)
 
 Most engine bugs land in the TypeScript half. A Rust CLI would only get the
 driver half, so a Postgres fix wouldn't reach it.
@@ -108,9 +118,9 @@ web) and loads `seaquel-wasm` for pure hot-path functions.
 | Crate | Kind | Owns | Moves from |
 |---|---|---|---|
 | `seaquel-types` | pure | Serde DTOs (`SchemaTable`, `QueryResult`, `Value`, `SavedQuery`, …) plus TS codegen (specta or ts-rs) | `src/lib/types/*`, `src/lib/types.ts` |
-| `seaquel-sql` | pure | Statement splitter, `{{param}}` extraction/substitution, comment stripping, read-only validator, sqlparser-rs AST helpers (column sources, visual AST, query builder parse/generate), tutorial lesson checks | `db/sql-parser.ts`, `db/query-params.ts`, `db/query-utils.ts`, `db/column-sources.ts`, `db/sql-ast-parser.ts`, `tutorial/sql-parser.ts`, `tutorial/criteria.ts`, `hooks/query-builder-*.ts`, `services/ai/context.ts` (`validateReadOnlyQuery`) |
+| `seaquel-sql` | pure | Built in phase 2b. One hand scanner that follows each engine's quoting, with statement splitting, statement at cursor, the row-limit check and count query on it; query type, the destructive-statement check and the source table for inline editing; the AI's read-only check; `{{param}}` extraction and substitution; the `CREATE TABLE` parser for the table editor; sqlparser-rs AST helpers (query builder and tutorial parse, Visual tab AST, column references) | Moved: `db/sql-parser.ts`, `engine/sql-scan.ts`, `db/query-utils.ts`, `db/query-params.ts` (all but `createDefaultParameters`, `coerceValue` and `ParameterSubstitutionError`, now in `src/lib/sql/parameters.ts`), `services/ai/context.ts` (`validateReadOnlyQuery`), `db/parse-create-table.ts`, `db/sql-ast-parser.ts`, `tutorial/sql-parser.ts`, and the SQL half of `db/column-sources.ts` (the primary-key lookup stays in `src/lib/sql`). Stayed in TS: `tutorial/criteria.ts`, the builder hooks (`hooks/query-builder-*.ts`, including `buildSql`), and `describePendingChange` (now `hooks/database/pending-change-description.ts`) |
 | `seaquel-engine` | pure + async traits | `Engine`, `Driver`, `Dialect` traits, generic DDL/CRUD builders, `EngineRegistry`, `DbError` | `crates/seaquel-db/src/lib.rs`, `db/index.ts` |
-| `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}` | plugin | Driver, value decoding, dialect, introspection, EXPLAIN parsing. The `mysql` crate also registers `mariadb` | `crates/seaquel-db/src/*`, `db/{postgres,mysql,sqlite,mssql,duckdb}.ts`, `db/alter-table.ts`, `db/crud-helpers.ts`, `db/parse-create-table.ts` |
+| `seaquel-engine-{postgres,mysql,sqlite,mssql,duckdb}` | plugin | Driver, value decoding, dialect, introspection, EXPLAIN parsing. The `mysql` crate also registers `mariadb` | `crates/seaquel-db/src/*`, `db/{postgres,mysql,sqlite,mssql,duckdb}.ts`, `db/alter-table.ts`, `db/crud-helpers.ts` (as built: the generic builders are in `seaquel-engine`; `duckdb.ts`, `alter-table.ts` and `crud-helpers.ts` stay for the demo until phase 8; `db/parse-create-table.ts` went to `seaquel-sql`) |
 | `seaquel-engine-testkit` | dev | Conformance suite every engine must pass | new |
 | `seaquel-storage` | infra | App metadata SQLite: schema, migrations, repos, data dir resolution. Native (sqlx) and browser backends | `storage/*`, `src/lib/server/storage.ts`, `storage-guard.ts` |
 | `seaquel-secrets` | infra | `SecretStore` trait, OS keychain implementation (`keyring` crate) | `services/keyring.ts` |
@@ -413,6 +423,12 @@ These call `seaquel-wasm`, which is `seaquel-sql` plus each engine's `Dialect`
 compiled with wasm-bindgen. It's the same Rust code, so the rule still holds.
 Schema data for completions comes from Core and is cached in the GUI.
 
+(As built in phase 2b: `seaquel-wasm` has `seaquel-sql` only. Statement at
+cursor, `{{param}}` handling and the builder's parse run in it. Identifier
+quoting and pagination still use TS mirrors of the Rust dialects, because the
+engine crates can't build for wasm32 until their drivers sit behind a Cargo
+feature. Completion ranking is still `monaco-sql-languages`.)
+
 ## Interfaces after the move
 
 | Interface | Keeps | Loses to Core |
@@ -625,6 +641,9 @@ that's fine.
 - The editor, query builder and tutorial parser switch to `seaquel-wasm`.
 - Delete `src/lib/db/*`, except the demo's `duckdb.ts` and the two helpers it
   uses (`alter-table.ts`, `crud-helpers.ts`), which go in phase 8.
+- (As built: `db/index.ts` stays too, since it holds the `DatabaseAdapter`
+  interface and `getAdapter`. The TS that moved is listed in the `seaquel-sql`
+  row of the crate table.)
 
 **Phase 3: storage, secrets, infrastructure**
 - Move `seaquel-storage` (and migrate the web backend off better-sqlite3),
@@ -1045,6 +1064,271 @@ the desktop, web and demo builds and measure size and init time. If most
 queries map cleanly, 2b is near the low end. If the lesson criteria have to be
 rewritten, plan for the high end and consider keeping node-sql-parser for the
 tutorial.
+
+## Phase 2b cost
+
+Source: `2026-09-27-phase-2b-effort.md` and the phase 2b plan's execution
+notes, plus line counts measured against a copy of the tree taken before phase
+2b started. Times are framed as in phases 1 and 2: agent wall time as logged,
+review fixes included (they have their own lines in the log), but not the plan,
+the review passes themselves or the owner's checkpoints. Tasks 3–7 ran in
+parallel, so the calendar time was shorter than the sum.
+
+### Time per task
+
+| Part | Tasks | Estimate | First pass | Review fixes, follow-ups | Logged |
+|---|---|---|---|---|---|
+| Spike | — | 4–6 h | ~1.3 h | — | ~1.3 h |
+| Crates | 1 | 0.5–1 h | ~0.5 h | — | ~0.5 h |
+| TS baseline and models | 2 | 1.5–2.5 h | ~0.5 h | ~1.6 h | ~2.1 h |
+| Scanner and statement checks | 3 | 1.5–3 h | ~0.8 h | ~0.6 h | ~1.4 h |
+| `{{param}}` substitution | 4 | 1.5–3 h | ~0.7 h | ~1.5 h | ~2.2 h |
+| `parse_create_table` | 5 | 1–1.5 h | ~0.6 h | ~0.4 h | ~1 h |
+| AST helpers | 6 | 2.5–3.5 h | ~1.1 h | ~0.6 h | ~1.7 h |
+| Build and load the module | 7 | 1.5–2.5 h | ~0.9 h | ~0.8 h | ~1.7 h |
+| Exports, offsets, `src/lib/sql` | 8 | 1.5–2 h | ~0.8 h | ~0.4 h | ~1.2 h |
+| Switch the call sites | 9–10 | 2–3 h | ~1.4 h | ~0.6 h | ~2 h |
+| CI, docs | 11–12 | 0.75–1.25 h | ~0.7 h | — | ~0.7 h |
+| Measure | 13 | 0.25 h | ~0.4 h | — | ~0.4 h |
+| Review fixes (the plan's own row) | | 3.5–5.5 h | | | |
+| **Total, Tasks 1–13** | | **~18–29 h** | **~8.4 h** | **~6.5 h** | **~14.9 h** |
+
+With the spike, ~16.2 h, against the design doc's 27–45 h plus a 4–6 h spike.
+The whole phase came in under the low end of both estimates.
+
+The two halves went opposite ways. First passes took about 8.4 h against 14.5–23.5
+h in the plan's task rows: every port matched its fixtures on the first
+run, and the spike had already ported most of the AST code. Review fixes and
+follow-ups took ~6.5 h against 3.5–5.5 h, over the top of the range, and made
+up over 40% of the logged time, against a floor of a quarter in phase 2. Tasks
+2 and 4 account for half of it: the read-only check (fix 14) and `{{param}}`
+substitution (fix 13) went through three review rounds each, and Task
+4's reviews took twice as long as its port.
+
+The ~1.6 h under Task 2 is spread over five log lines: the owner's checkpoint
+fixes, the Task 2 review and re-review, and a model update after the Task 3 and
+4 reviews. Task 7's column includes the 2 MB stack (~0.2 h), which came out of
+Task 6's measurements rather than a review.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~7,120 | 0 |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~3,500 | — |
+| Fixtures (JSON) | ~129,400 | — |
+| TypeScript/Svelte, production | ~1,110 | ~3,810 (net ~−2,700) |
+| TypeScript, tests | ~2,190 | ~500 |
+| Generated TS types | ~390 | — |
+| Build scripts (JS) | ~390 | — |
+
+Measured as in phase 2 (`crates/`, `src/`, `src-tauri/src`, `scripts/` and the
+root config files, generated paraglide output and `src/lib/wasm/pkg` left out).
+`pending-change-description.ts` moved from `src/lib/db` to `hooks/database`
+unchanged and is in neither column. The spike (~1,980 lines of Rust and ~1,430
+of TS/JS) and the fixture recorder with its models (~5,400 lines of TS/JS when
+deleted) were deleted in Task 12, so they aren't counted either; reference
+copies are in `docs/plans/artifacts`. node-sql-parser left `package.json`.
+
+Where the production Rust went (`seaquel-sql` ~6,510, `seaquel-wasm` ~610):
+
+- **Scanner and statement checks, ~1,930:** `scan.rs` ~665, `statements.rs`
+  ~560, `read_only.rs` ~250, `js_word.rs` ~350 (mostly the generated Unicode
+  tables of fix 19), `engine.rs` and `js_ws.rs` ~110. The TS it replaces
+  (`sql-parser.ts`, `query-utils.ts`, `sql-scan.ts` and the read-only check)
+  was about 590 lines. The growth is fixes 10–14, 18 and 19: per-engine
+  quoting, comment, number and word rules, and the destructive and read-only
+  checks on tokens.
+- **`{{param}}` substitution, ~1,070** (`params.rs`), for 715 lines of
+  `query-params.ts`. Most of the extra is fix 13's value rules.
+- **`parse_create_table`, ~1,060**, for 306 lines of TS. About a third of it is
+  the backtracking matcher with JavaScript regex semantics, with its step
+  budget.
+- **AST helpers, ~2,420:** tutorial and builder `ParsedQuery` ~960, the visual
+  AST ~900, the depth guard and parse helpers ~400, column references ~110. The
+  TS was 1,926 lines (`tutorial/sql-parser.ts`, `sql-ast-parser.ts`,
+  `column-sources.ts`), so this part was close to one to one.
+- **`seaquel-wasm`, ~610:** 16 exports and the `{ok}`/`{error}` envelope ~410,
+  UTF-16 offsets ~180, the stack-size build script 22.
+
+About 3,510 lines of TS files were deleted, close to the plan's ~3,500. The
+Rust that replaced them is twice the size, as in phase 2. The AST code ported
+at about one to one; the scanners grew to three times their size, because the
+TS scanners ignored the engine, and fixing that is most of what phase 2b's bug
+fixes are.
+
+Of the fixture JSON, about 29,400 lines are `split.json`, 17,000
+`statements.json`, 15,600 `params.json` and 13,600 `bugfixes.json` (1,585 model
+cases, each naming its fix).
+
+### Bugs found
+
+19 numbered bug fixes, each with fixture cases and a reason in
+`bugfixes.json`. By where they were first found:
+
+| Area | Spike | Plan research | Recording (Task 2) | Review |
+|---|---|---|---|---|
+| Visual tab | 1–8 | — | 15 | — |
+| Query builder | 9 | — | — | — |
+| Scanner and checks | 10 | 11–14 | — | 18, 19 |
+| Table editor | — | — | 16, 17 | — |
+| **Total** | **10** | **4** | **3** | **2** |
+
+That table undercounts recording and review, because both widened fixes that
+already had a number. Recording found that a plain function call hid the whole
+query from the Visual tab (fix 3) and that placeholders printed as `""` (fix 6),
+so those two are half spike, half recording. Reviews widened four fixes:
+
+- **Fix 10:** MySQL executable comments, `--` ending at `\r`, MySQL's `--`
+  rule and dollar tags of any length (Task 2, 3 and 4 reviews).
+- **Fix 11:** EXPLAIN ANALYZE, `DROP c` without `COLUMN`, data-modifying CTEs,
+  `MERGE … THEN DELETE`, the other DROP kinds and SQL Server without `;`, each
+  of which ran with no confirmation (Task 2 review and re-review).
+- **Fix 13:** the forced-inline contexts (Task 2 checkpoint and review), then
+  the four value rules and the spacing rule after two live breakouts (Task 4's
+  two review rounds).
+- **Fix 14:** the read-only bypasses confirmed live on MySQL, MariaDB and SQL
+  Server, about 40 blocked functions, and the NBSP and combining-mark keyword
+  tricks (Task 2 review and re-review, Task 3 review).
+
+By count of rules added, the reviews found more than any other source,
+including every bypass of the new checks.
+
+**The parity fixtures caught no port bugs**, as in phases 1 and 2. Every Rust
+port and the TS wrapper matched every recorded case on the first run, except
+the planned fixes and a few pinned exceptions.
+
+Outside the numbered list:
+
+- **Older than 2b:** AI dashboard widgets ran the model's query with no
+  read-only check (Tasks 9/10 review, fixed); the AI tool checks a query
+  against one connection and may run it on another (found in Task 9, not
+  fixed, a Follow-up); the Visual panel dropped SQL it couldn't parse (plan
+  research, fixed in Task 10); the runner resolved column sources against the
+  active connection instead of the one running the query (fixed in Task 9; the
+  log doesn't say whether the implementer or the review found it).
+- **In the new code, before it shipped:** `has_where` was quadratic (Task 3,
+  implementer); `destructive_reason` still was (1.2 s on 690 KB, Task 3
+  review); the CREATE TABLE matcher was quadratic on long whitespace (62 s on
+  50k spaces, Task 5 review); operator chains overflowed the stack inside
+  sqlparser (Task 6, implementer); `callWasm` only recovered from a
+  `RuntimeError`, not V8's `RangeError` (Task 7 review); and the first fallback
+  contract failed open on the run path (Tasks 9/10 review).
+
+### Module size and init time
+
+The module the three builds ship, measured again on the final build:
+
+| | Raw | gzip -9 | brotli 11 |
+|---|---|---|---|
+| `seaquel_wasm_bg.wasm` | 1,710,767 B (1.71 MB) | 634 KB | 484 KB |
+| The spike's stub, for comparison | 1.56 MB | 561 KB | 428 KB |
+
+Compressed with Node's zlib, as `build-wasm.mjs` prints them. The growth
+over the stub is our own code (the scanner, checks, substitution,
+the CREATE TABLE parser and the Unicode tables); sqlparser is about the same
+1.08 MB inside it. Desktop, web and demo ship the same file.
+
+Dropping node-sql-parser and the TS it served took 2.65 MB raw and 516 KB
+gzipped out of the JS (27.78 → 25.13 MB raw, 6.23 → 5.72 MB gzip; the Task 8
+build against the final one, all builds the same). Net of the module, the app
+is ~118 KB gzipped heavier than before phase 2b, where the spike expected
+~140 KB.
+
+Init time, with the spike's Playwright script adapted to the shipped module:
+from the start of the `.wasm` fetch to the instance being ready, five cold
+loads each, headless, from localhost. The desktop static build is served with
+Tauri's CSP.
+
+| Target | Chromium | WebKit |
+|---|---|---|
+| Desktop static build | 3.7–6.8 ms (median 4.2) | 22–42 ms (median 23) |
+| Web (adapter-node) | 4.0–7.5 ms (median 4.2) | 21–26 ms (median 22) |
+| Demo (`/demo` base path) | 3.7–5.0 ms (median 3.9) | 22–29 ms (median 26) |
+| Spike stub, for comparison | 3.4–7 ms | 16–27 ms |
+
+So the full module loads about as fast as the stub did; WebKit is still five
+times slower than Chromium and still under 45 ms. The demo editor check passed
+in both browsers: typing 43 characters and Run at cursor after `東京😀` ran the
+second statement. The web build still sends the `.wasm` uncompressed
+(1,711,067 bytes over the wire; `precompress` is a Follow-up).
+
+### What was harder than expected
+
+- **Security review rounds, not the ports.** The ports of fixes 13 and 14
+  matched their models on the first run, and the models were wrong. The first
+  read-only model was bypassed live on three servers in the Task 2 review
+  (`/*! DELETE … */` deleted rows on MySQL and MariaDB, `SELECT 1. INTO t`
+  created a table, `SELECT 1 AS k KILL 9999` ran on SQL Server), then again
+  through a digit glued to `INTO`, an NBSP after `--` and a combining mark
+  after `INTO`. The check ended up scanning each input under two sql_modes and
+  two word rules and refusing if either reading refuses, and the plan now says
+  plainly that it isn't a sandbox. Substitution went the same way: after the
+  port matched, one review broke out of a `$$…$$` string on Postgres, DuckDB
+  and MySQL, and the next, a randomized pass of 7 million checks, merged a
+  value into the literal before it (`E'a'{{p}}`) on the DuckDB CLI. In both
+  cases the fixture pipeline did its job, and the model it pinned was the weak
+  point.
+- **The CREATE TABLE matcher.** The TS was a dozen regexes, and its output
+  depends on regex details, so matching it meant writing a small backtracking
+  matcher with JavaScript's semantics. The review found it 45 times slower than
+  V8 on long whitespace (62 s for 50k spaces). Possessive `\s+`, a run cache
+  and a step budget fixed it, and replacing the matcher with a parser is a
+  Follow-up.
+- **Nesting and stack limits.** sqlparser's recursion limit doesn't cover
+  left-deep chains, and 20,000 `AND`s overflowed its own stack. The fix was a
+  depth guard counted from the tokens, an iterative printer, a cap of 2,000 and
+  a 2 MB module stack. Natively, sqlparser still overflows a 1 MB stack on
+  nested FROM subqueries from depth 25, so the AST helpers need a bigger thread
+  stack before Core, the CLI or MCP call them.
+- **Trap recovery in wasm-bindgen 0.2.128.** `initSync` returns early once a
+  module is set, and the reset-state flag generates a call to an export that
+  doesn't exist. The build script now patches the glue, and `callWasm` has to
+  handle three different errors from a trap. The fallback answers that made
+  sense per keystroke failed open on the run path, which took another review
+  round to find.
+- **Agents sharing one crate.** Tasks 3–6 edited `seaquel-sql` at the same
+  time. `cargo fmt -p` reformatted other agents' files, a check-list run failed
+  twice on another task's half-written module, parallel lib tests aborted twice
+  with SIGABRT while another agent was mid-edit, and a concurrent vite build
+  broke paraglide's output. None of it caused a wrong result, only reruns, and
+  the log doesn't time them.
+
+### Follow-ups and phase 3
+
+The Follow-ups don't change phase 3's scope. Storage, secrets, SSH, git and
+licensing don't touch `seaquel-sql`. Two items touch phase 3's edges: the web
+server should precompress or compress the `.wasm`, which fits with phase 3's
+changes to the Node server, and the wasm32 CI build of Core has a working
+template now (`build-wasm.mjs`, the CI toolchain steps, the stack-size check).
+
+The two high-priority AI items should come before phase 3, as a short phase of
+their own:
+
+- **Read-only enforced in the database.** With "allow all queries" on, fix 14's
+  token check is the only thing between the model and a write. Phase 2b showed
+  twice that a blocklist can be bypassed, and it can't see inside user-defined
+  functions. The engines can enforce it: `BEGIN READ ONLY` on Postgres, `START
+  TRANSACTION READ ONLY` on MySQL/MariaDB, `PRAGMA query_only` on SQLite, a
+  read-only connection on DuckDB. SQL Server has no equivalent, so it keeps the
+  token check and should say that a read-only login is the real guard. This is
+  engine and Core work (one connection per call, a read-only flag through
+  `seaquel-rpc`), and phase 2 showed that session semantics are where engine
+  work runs long, so budget 4–8 h with live tests on every engine. AI dashboard
+  widgets need the same session.
+- **Bind the AI tool call to its connection.** The tool checks a query under
+  one connection's rules and runs it on whatever is active when it executes.
+  Passing the connection id with the call and refusing if it's gone is under an
+  hour of TS.
+
+Neither depends on phase 3, and phase 3 doesn't touch these paths, so doing
+them first costs nothing in rework. Waiting for phase 6 (AI in Rust) would
+leave the gap open for several phases. Neither closes network egress
+(DuckDB's httpfs); that needs httpfs off for the AI's connection.
+
+For estimating phase 3: first passes ran at about half of phase 2b's estimate
+and review fixes over it. Where code decides what SQL runs, or holds secrets as
+phase 3's will, plan review fixes at 40% rather than a quarter.
 
 ## Risks
 

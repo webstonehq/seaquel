@@ -1094,6 +1094,11 @@
   "destructive_reason_truncate": "Vide une table",
   "destructive_reason_delete_no_where": "Supprime toutes les lignes (sans clause WHERE)",
   "destructive_reason_update_no_where": "Met à jour toutes les lignes (sans clause WHERE)",
+  "destructive_reason_drop_sequence": "Supprime une séquence",
+  "destructive_reason_drop_function": "Supprime une fonction ou une procédure",
+  "destructive_reason_merge_delete": "Supprime des lignes (MERGE … THEN DELETE)",
+  "destructive_check_failed": "Impossible de vérifier si la requête contenait des instructions destructives, elle n'a donc pas été exécutée : {error}",
+  "statement_at_cursor_failed": "Impossible de déterminer l'instruction à la position du curseur, rien n'a donc été exécuté : {error}",
 
   "ext_sidebar_extensions": "Extensions",
   "ext_search_placeholder": "Rechercher des extensions...",
@@ -1116,5 +1121,11 @@
   "ext_group_available": "Disponibles",
   "ext_action_install_and_load": "Installer et charger",
   "ext_action_load": "Charger",
-  "ext_action_update": "Mettre à jour"
+  "ext_action_update": "Mettre à jour",
+  "wasm_error_title": "Seaquel n'a pas pu démarrer",
+  "wasm_error_description": "Le module SQL (seaquel-wasm) ne s'est pas chargé, donc l'éditeur et les outils de requête ne peuvent pas fonctionner.",
+  "wasm_error_hint": "Cela signifie généralement que le fichier .wasm n'a pas pu être téléchargé (problème réseau ou proxy) ou qu'une Content Security Policy n'autorise pas WebAssembly (elle doit inclure 'wasm-unsafe-eval' dans script-src). Réessayez, et si le problème persiste, copiez l'erreur ci-dessous et envoyez-la nous.",
+  "wasm_error_copy": "Copier l'erreur",
+  "wasm_error_copied": "Copié",
+  "wasm_error_retry": "Réessayer"
 }

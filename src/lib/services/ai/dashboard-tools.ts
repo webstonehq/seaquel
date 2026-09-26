@@ -78,11 +78,20 @@ function parseTextConfig(raw: unknown): TextConfig {
 
 // --- Dashboard tool handler ---
 
+/**
+ * Runs one dashboard tool call from the model. `readOnlyError` is the
+ * `run_query` tool's check (`readOnlyError` in `./context.ts`): a widget's
+ * query runs as soon as the widget is added or updated, so a query it
+ * refuses is never stored.
+ */
 export async function handleDashboardToolCall(
   toolName: string,
   input: Record<string, unknown>,
   callbacks: DashboardCallbacks,
+  readOnlyError: (query: string) => string | null,
 ): Promise<string> {
+  /** The refusal for a widget query, or `null` (no query, or a read-only one). */
+  const refuse = (query: string) => (query.trim() ? readOnlyError(query) : null);
   try {
     switch (toolName) {
       case "create_dashboard": {
@@ -125,6 +134,8 @@ export async function handleDashboardToolCall(
               ? parseTextConfig(input.text_config)
               : undefined,
         };
+        const refusal = refuse(widget.query);
+        if (refusal) return JSON.stringify({ error: refusal });
         const result = await callbacks.onAddWidget(dashboardId, widget);
         if (!result) return JSON.stringify({ error: "Failed to add widget" });
         return JSON.stringify({ widget_id: result.widgetId });
@@ -161,6 +172,8 @@ export async function handleDashboardToolCall(
         if (input.kpi_config !== undefined) updates.kpiConfig = parseKpiConfig(input.kpi_config);
         if (input.text_config !== undefined)
           updates.textConfig = parseTextConfig(input.text_config);
+        const refusal = updates.query === undefined ? null : refuse(updates.query);
+        if (refusal) return JSON.stringify({ error: refusal });
         await callbacks.onUpdateWidget(dashboardId, widgetId, updates);
         return JSON.stringify({ success: true });
       }

@@ -1,0 +1,167 @@
+// The CREATE TABLE corpus for create-table.json (`parseCreateTableSql`, the
+// table editor's SQL pane): every ddl-create output in the engine crates'
+// frozen fixtures (the DDL the pane shows first), including the bug-fix
+// outputs that superseded some of them, the e2e schema files' CREATE TABLE
+// statements, and hand-written cases for what users type.
+import { existsSync, readFileSync } from "node:fs";
+import type { DatabaseType } from "$lib/types";
+import { splitModel } from "./split-model";
+
+export interface CreateTableInput {
+  name: string;
+  sql: string;
+}
+
+const repo = new URL("../../", import.meta.url);
+
+const ENGINE_FIXTURES: [string, string][] = [
+  ["postgres", "crates/seaquel-engine-postgres/tests/fixtures/"],
+  ["mysql", "crates/seaquel-engine-mysql/tests/fixtures/mysql/"],
+  ["sqlite", "crates/seaquel-engine-sqlite/tests/fixtures/"],
+  ["mssql", "crates/seaquel-engine-mssql/tests/fixtures/"],
+  ["duckdb", "crates/seaquel-engine-duckdb/tests/fixtures/"],
+];
+
+const SCHEMA_FILES: [string, DatabaseType][] = [
+  ["postgresql", "postgres"],
+  ["mysql", "mysql"],
+  ["mariadb", "mariadb"],
+  ["sqlite", "sqlite"],
+  ["sqlserver", "mssql"],
+  ["duckdb", "duckdb"],
+];
+
+const HAND: [string, string][] = [
+  [
+    "comments between columns",
+    `CREATE TABLE t (
+  -- the key
+  id integer PRIMARY KEY, /* the name */ name text NOT NULL,
+  -- trailing note
+  note text
+)`,
+  ],
+  [
+    "constraint names",
+    `CREATE TABLE orders (
+  id integer NOT NULL,
+  user_id integer,
+  code varchar(10),
+  CONSTRAINT orders_pk PRIMARY KEY (id),
+  CONSTRAINT orders_code_key UNIQUE (code),
+  CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES public.users (id),
+  CONSTRAINT orders_code_check CHECK (length(code) > 2)
+)`,
+  ],
+  [
+    "composite primary key",
+    "CREATE TABLE region_stock (region text NOT NULL, sku varchar(32) NOT NULL, qty integer DEFAULT 0, PRIMARY KEY (region, sku))",
+  ],
+  [
+    "default with commas and parentheses",
+    "CREATE TABLE t (id int, tags text DEFAULT concat('a', ',', 'b') NOT NULL, at timestamp DEFAULT (now() - interval '1 day'), n numeric(10,2) DEFAULT round(1.234, 2))",
+  ],
+  [
+    "enum with a comma",
+    "CREATE TABLE `t` (`id` int NOT NULL AUTO_INCREMENT, `size` ENUM('a,b', 'c') DEFAULT 'c', PRIMARY KEY (`id`))",
+  ],
+  [
+    "decimal precision",
+    "CREATE TABLE prices (amount DECIMAL(10,2) NOT NULL, rate numeric(5, 4), code char(3))",
+  ],
+  [
+    "bracket name with ]]",
+    "CREATE TABLE [dbo].[odd]]name] ([id]] x] int NOT NULL, [v] nvarchar(max) NULL)",
+  ],
+  [
+    'double-quoted name with ""',
+    'CREATE TABLE "public"."say ""hi""" ("id" integer PRIMARY KEY, "a ""b""" text)',
+  ],
+  [
+    "check constraints",
+    "CREATE TABLE t (id int CHECK (id > 0), qty int NOT NULL CHECK (qty BETWEEN 1 AND 10), CHECK (id <> qty))",
+  ],
+  ["trailing comma", "CREATE TABLE t (id int PRIMARY KEY, name text,)"],
+  [
+    "if not exists, schema-qualified",
+    "CREATE TABLE IF NOT EXISTS app.users (id bigserial PRIMARY KEY, email text UNIQUE NOT NULL)",
+  ],
+  [
+    "indexes after the table",
+    `CREATE TABLE "public"."items" ("id" serial NOT NULL, "sku" text, "name" text, PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "items_sku_key" ON "public"."items" ("sku");
+CREATE INDEX items_name_idx ON public.items (name, sku);`,
+  ],
+  [
+    "default string with a quote",
+    "CREATE TABLE t (note text DEFAULT 'it''s', flag boolean DEFAULT false)",
+  ],
+  [
+    "lower case",
+    "create table things (id integer primary key autoincrement, label text not null default '')",
+  ],
+  [
+    "unquoted and quoted mixed",
+    'CREATE TABLE s."T" (Id INT IDENTITY(1,1) PRIMARY KEY, "Name" NVARCHAR(50) COLLATE Latin1_General_CI_AS NULL)',
+  ],
+  ["generated column", "CREATE TABLE t (a int, b int GENERATED ALWAYS AS (a * 2) STORED)"],
+  [
+    "foreign key without schema",
+    "CREATE TABLE c (id int, p_id int, FOREIGN KEY (p_id) REFERENCES parent (id) ON DELETE CASCADE)",
+  ],
+  ["not a create table", "SELECT 1"],
+  ["unbalanced parentheses", "CREATE TABLE t (id int, name varchar(10)"],
+  ["empty", ""],
+  [
+    "serial types",
+    "CREATE TABLE t (a serial PRIMARY KEY, b BIGSERIAL NOT NULL, c smallserial, d SERIAL4)",
+  ],
+  [
+    "inline references",
+    "CREATE TABLE items (id integer PRIMARY KEY, order_id integer REFERENCES orders(id) ON DELETE CASCADE, sku text NOT NULL REFERENCES shop.products (sku), parent_id integer REFERENCES items)",
+  ],
+  [
+    "three-part name",
+    'CREATE TABLE "aux"."main"."links" ("id" INTEGER NOT NULL, "note" VARCHAR, PRIMARY KEY ("id"));\nCREATE INDEX "links note idx" ON "aux"."main"."links" ("note");',
+  ],
+  [
+    "quoted names with commas and parentheses",
+    "CREATE TABLE `a,b` (`x (1)` int NOT NULL, [y,z] text, PRIMARY KEY (`x (1)`), UNIQUE ([y,z]))",
+  ],
+  [
+    "collate",
+    "CREATE TABLE t (a text COLLATE \"C\" NOT NULL, b varchar(10) COLLATE utf8mb4_bin DEFAULT 'x', c NVARCHAR(50) COLLATE Latin1_General_CI_AS NULL)",
+  ],
+  ["three-part name with a dot and a quote", 'CREATE TABLE "my.cat"."ma""in"."t" ("id" INTEGER)'],
+  ["non-ascii names", 'CREATE TABLE "東京" ("名前" text NOT NULL, "😀" int)'],
+];
+
+export function CREATE_TABLE_CASES(): CreateTableInput[] {
+  const out: CreateTableInput[] = [];
+  for (const [engine, dir] of ENGINE_FIXTURES) {
+    const ddl = JSON.parse(readFileSync(new URL(`${dir}ddl-create.json`, repo), "utf8")) as {
+      cases: { name: string; output: string }[];
+    };
+    for (const c of ddl.cases)
+      out.push({ name: `${engine}: ddl-create: ${c.name}`, sql: c.output });
+    const bugfixesPath = new URL(`${dir}bugfixes.json`, repo);
+    if (!existsSync(bugfixesPath)) continue;
+    const bugfixes = JSON.parse(readFileSync(bugfixesPath, "utf8")) as {
+      cases: { name: string; kind: string; output: unknown }[];
+    };
+    for (const c of bugfixes.cases) {
+      if (c.kind === "ddl-create" && typeof c.output === "string") {
+        out.push({ name: `${engine}: bugfixes: ${c.name}`, sql: c.output });
+      }
+    }
+  }
+  for (const [dir, engine] of SCHEMA_FILES) {
+    const sql = readFileSync(new URL(`e2e/test-databases/${dir}/schema.sql`, repo), "utf8");
+    splitModel(sql, engine).forEach((s) => {
+      if (/\bCREATE\s+TABLE\b/i.test(s.sql))
+        out.push({ name: `e2e ${dir}: statement ${s.index}`, sql: s.sql });
+    });
+  }
+  for (const [name, sql] of HAND) out.push({ name: `hand: ${name}`, sql });
+  return out;
+}

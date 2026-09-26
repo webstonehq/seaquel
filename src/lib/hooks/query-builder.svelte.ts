@@ -20,6 +20,7 @@ import type {
   SubqueryRole,
   CanvasCTE,
   QueryBuilderTable,
+  DatabaseType,
 } from "$lib/types";
 import { TUTORIAL_SCHEMA } from "$lib/tutorial/schema";
 import { tutorialToQueryBuilder, getQueryBuilderTable } from "$lib/utils/schema-adapter";
@@ -30,7 +31,7 @@ import {
   type SerializableQueryBuilderState,
 } from "./query-builder-serialization";
 import { applyParsedSqlToState } from "./query-builder-parsed-sql";
-import type { ParsedQuery } from "$lib/tutorial/sql-parser";
+import type { ParsedQuery } from "$lib/sql";
 import {
   cloneSubqueries,
   cloneCtes,
@@ -73,6 +74,13 @@ function generateId(): string {
  */
 export class QueryBuilderState {
   // === STATE PROPERTIES ===
+
+  /**
+   * The engine whose dialect the builder's SQL is parsed in: the connection's
+   * for the Visual panel, so backtick and bracket names round-trip (fix 9).
+   * The tutorial keeps the default, `postgres`.
+   */
+  engine = $state<DatabaseType>("postgres");
 
   /** Schema tables available for the query builder. Defaults to tutorial schema. */
   schema = $state<QueryBuilderTable[]>(tutorialToQueryBuilder(TUTORIAL_SCHEMA));

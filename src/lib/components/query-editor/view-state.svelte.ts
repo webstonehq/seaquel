@@ -1,7 +1,7 @@
 import type { ResultViewMode, ChartConfig, ResolvedQueryVersion } from "$lib/types";
 import { createDefaultChartConfig } from "$lib/components/charts/index.js";
 import { DEFAULT_LAYOUT_OPTIONS, type QueryLayoutOptions } from "$lib/utils/query-visual-layout";
-import { splitSqlStatements } from "$lib/db/sql-parser.js";
+import { splitSqlStatements } from "$lib/sql";
 import { schemaToQueryBuilder } from "$lib/utils/schema-adapter";
 import { editorQualifiedTable, getEngineClient } from "$lib/engine";
 import { sampleQueries } from "$lib/config/sample-queries.js";

@@ -254,20 +254,8 @@ export function queryNameToFilename(name: string): string {
   return `${nameToFilename(name)}.sql`;
 }
 
-/**
- * Extracts parameter names from a query using {{name}} placeholders.
- */
-export function extractParameters(query: string): string[] {
-  const regex = /\{\{(\w+)\}\}/g;
-  const params = new Set<string>();
-  let match;
-
-  while ((match = regex.exec(query)) !== null) {
-    params.add(match[1]);
-  }
-
-  return Array.from(params);
-}
+/** Extracts `{{name}}` parameter names from a query (`$lib/sql`). */
+export { extractParameters } from "$lib/sql";
 
 /**
  * Validates that a query file path is valid for the repo.

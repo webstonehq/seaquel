@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { DestructiveReason, DestructiveStatement } from "$lib/db/query-utils";
+	import type { DestructiveReason, DestructiveStatement } from "$lib/sql";
 	import * as AlertDialog from "$lib/components/ui/alert-dialog/index.js";
 	import * as m from "$lib/paraglide/messages.js";
 
@@ -21,6 +21,9 @@
 		truncate: m.destructive_reason_truncate,
 		delete_no_where: m.destructive_reason_delete_no_where,
 		update_no_where: m.destructive_reason_update_no_where,
+		drop_sequence: m.destructive_reason_drop_sequence,
+		drop_function: m.destructive_reason_drop_function,
+		merge_delete: m.destructive_reason_merge_delete,
 	};
 
 	function truncateSql(sql: string, maxLength = 80): string {

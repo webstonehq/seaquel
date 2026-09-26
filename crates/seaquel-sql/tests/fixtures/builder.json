@@ -1,0 +1,2747 @@
+{
+  "cases": [
+    {
+      "name": "rt:star-only",
+      "input": {
+        "sql": "SELECT products.*\nFROM products",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["id", "name", "description", "price", "stock", "category_id", "created_at"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.id, products.name, products.description, products.price, products.stock, products.category_id, products.created_at\nFROM products"
+      }
+    },
+    {
+      "name": "rt:two-cols",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-num",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 50",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "50",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 50"
+      }
+    },
+    {
+      "name": "rt:filter-decimal",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price = 29.99",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": "=",
+              "value": "29.99",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price = 29.99"
+      }
+    },
+    {
+      "name": "rt:filter-str",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.country = 'USA'",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.country",
+              "operator": "=",
+              "value": "USA",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.country = 'USA'"
+      }
+    },
+    {
+      "name": "rt:filter-and-or",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 10\n  AND products.stock < 5\n  OR products.category_id = 2",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "10",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": "<",
+              "value": "5",
+              "connector": "AND"
+            },
+            {
+              "column": "products.category_id",
+              "operator": "=",
+              "value": "2",
+              "connector": "OR"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 10\n  AND products.stock < 5\n  AND products.category_id = 2"
+      }
+    },
+    {
+      "name": "rt:filter-ne",
+      "input": {
+        "sql": "SELECT orders.id\nFROM orders\nWHERE orders.status != 'shipped'",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "orders.status",
+              "operator": "!=",
+              "value": "shipped",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.id\nFROM orders\nWHERE orders.status != 'shipped'"
+      }
+    },
+    {
+      "name": "rt:filter-like",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name LIKE '%phone%'",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.name",
+              "operator": "LIKE",
+              "value": "%phone%",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name LIKE '%phone%'"
+      }
+    },
+    {
+      "name": "rt:filter-not-like",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name NOT LIKE 'A%'",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.name",
+              "operator": "NOT LIKE",
+              "value": "A%",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name NOT LIKE 'A%'"
+      }
+    },
+    {
+      "name": "rt:filter-is-null",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.description IS NULL",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-is-not-null",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.description IS NOT NULL",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-in-list",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.category_id IN (1, 2, 3)",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-not-in-list",
+      "input": {
+        "sql": "SELECT orders.id\nFROM orders\nWHERE orders.status NOT IN ('cancelled', 'refunded')",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.id\nFROM orders"
+      }
+    },
+    {
+      "name": "rt:filter-between",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price BETWEEN 10 AND 20",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-is-true",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.stock IS NOT FALSE",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:filter-template",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price >= {{min_price}}",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": null,
+        "sql": null
+      }
+    },
+    {
+      "name": "rt:filter-date",
+      "input": {
+        "sql": "SELECT orders.id, orders.total\nFROM orders\nWHERE orders.created_at >= '2024-01-01'",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id", "total"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "orders.created_at",
+              "operator": ">=",
+              "value": "2024-01-01",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.id, orders.total\nFROM orders\nWHERE orders.created_at >= '2024-01-01'"
+      }
+    },
+    {
+      "name": "rt:order-two",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products\nORDER BY products.price DESC, products.name ASC",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [
+            {
+              "column": "products.price",
+              "direction": "DESC"
+            },
+            {
+              "column": "products.name",
+              "direction": "ASC"
+            }
+          ],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM products\nORDER BY products.price DESC, products.name ASC"
+      }
+    },
+    {
+      "name": "rt:limit",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nLIMIT 10",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": 10,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nLIMIT 10"
+      }
+    },
+    {
+      "name": "rt:join-inner",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM products\n  INNER JOIN categories ON products.category_id = categories.id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM products\n  INNER JOIN categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:join-left",
+      "input": {
+        "sql": "SELECT products.name, reviews.rating\nFROM products\n  LEFT JOIN reviews ON products.id = reviews.product_id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "reviews",
+              "alias": null,
+              "selectedColumns": ["rating"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "id",
+              "targetColumn": "product_id",
+              "joinType": "LEFT",
+              "targetTable": "reviews"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, reviews.rating\nFROM products\n  LEFT JOIN reviews ON products.id = reviews.product_id"
+      }
+    },
+    {
+      "name": "rt:join-right",
+      "input": {
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  RIGHT JOIN customers ON orders.customer_id = customers.id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id"]
+            },
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "orders",
+              "sourceColumn": "customer_id",
+              "targetColumn": "id",
+              "joinType": "RIGHT",
+              "targetTable": "customers"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  RIGHT JOIN customers ON orders.customer_id = customers.id"
+      }
+    },
+    {
+      "name": "rt:join-full",
+      "input": {
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  FULL JOIN customers ON orders.customer_id = customers.id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id"]
+            },
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "orders",
+              "sourceColumn": "customer_id",
+              "targetColumn": "id",
+              "joinType": "FULL",
+              "targetTable": "customers"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  FULL JOIN customers ON orders.customer_id = customers.id"
+      }
+    },
+    {
+      "name": "rt:join-three",
+      "input": {
+        "sql": "SELECT order_items.quantity, products.name, orders.id\nFROM order_items\n  INNER JOIN products ON order_items.product_id = products.id\n  INNER JOIN orders ON order_items.order_id = orders.id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "order_items",
+              "alias": null,
+              "selectedColumns": ["quantity"]
+            },
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["id"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "order_items",
+              "sourceColumn": "product_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "products"
+            },
+            {
+              "sourceTable": "order_items",
+              "sourceColumn": "order_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "orders"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT order_items.quantity, products.name, orders.id\nFROM order_items\n  INNER JOIN products ON order_items.product_id = products.id\n  INNER JOIN orders ON order_items.order_id = orders.id"
+      }
+    },
+    {
+      "name": "rt:col-agg",
+      "input": {
+        "sql": "SELECT orders.status, SUM(orders.total) AS \"sum_total\"\nFROM orders\nGROUP BY orders.status",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "orders",
+              "alias": null,
+              "selectedColumns": ["status", "total"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [
+            {
+              "column": "orders.status"
+            }
+          ],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [
+            {
+              "tableName": "orders",
+              "column": "total",
+              "function": "SUM",
+              "alias": "sum_total"
+            }
+          ],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT orders.status, SUM(orders.total) AS \"sum_total\"\nFROM orders\nGROUP BY orders.status"
+      }
+    },
+    {
+      "name": "rt:select-agg",
+      "input": {
+        "sql": "SELECT products.category_id, COUNT(*) AS \"n\"\nFROM products\nGROUP BY products.category_id",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            }
+          ],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, COUNT(*) AS \"n\"\nFROM products\nGROUP BY products.category_id"
+      }
+    },
+    {
+      "name": "rt:having-one",
+      "input": {
+        "sql": "SELECT products.category_id, COUNT(*)\nFROM products\nGROUP BY products.category_id\nHAVING COUNT(*) > 3",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "3",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, COUNT(*)\nFROM products\nGROUP BY products.category_id\nHAVING COUNT(*) > 3"
+      }
+    },
+    {
+      "name": "rt:having-two",
+      "input": {
+        "sql": "SELECT products.category_id\nFROM products\nGROUP BY products.category_id\nHAVING AVG(products.price) > 75\n  AND SUM(products.stock) < 100",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "AVG",
+              "column": "price",
+              "operator": ">",
+              "value": "75",
+              "connector": "AND"
+            },
+            {
+              "aggregateFunction": "SUM",
+              "column": "stock",
+              "operator": "<",
+              "value": "100",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id\nFROM products\nGROUP BY products.category_id\nHAVING AVG(price) > 75\n  AND SUM(stock) < 100"
+      }
+    },
+    {
+      "name": "rt:sub-in",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders)",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders)"
+      }
+    },
+    {
+      "name": "rt:sub-scalar",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products\nWHERE products.price > (SELECT AVG(products.price)\nFROM products)",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "products",
+                    "alias": null,
+                    "selectedColumns": ["price"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [
+                  {
+                    "tableName": "products",
+                    "column": "price",
+                    "function": "AVG"
+                  }
+                ],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM products\nWHERE products.price > (SELECT AVG(products.price)\nFROM products)"
+      }
+    },
+    {
+      "name": "rt:sub-not-in",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.id NOT IN (SELECT order_items.product_id\nFROM order_items)",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "products.id",
+              "operator": "NOT IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "order_items",
+                    "alias": null,
+                    "selectedColumns": ["product_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products\nWHERE products.id NOT IN (SELECT order_items.product_id\nFROM order_items)"
+      }
+    },
+    {
+      "name": "rt:sub-select",
+      "input": {
+        "sql": "SELECT products.name, (SELECT AVG(products.price)\nFROM products) AS \"avg_price\"\nFROM products",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name\nFROM products"
+      }
+    },
+    {
+      "name": "rt:sub-from",
+      "input": {
+        "sql": "SELECT big_orders.*\nFROM (SELECT orders.id, orders.total\nFROM orders\nWHERE orders.total > 100) AS big_orders",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "from",
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["id", "total"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [
+                  {
+                    "column": "orders.total",
+                    "operator": ">",
+                    "value": "100",
+                    "connector": "AND"
+                  }
+                ],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT *\nFROM (SELECT orders.id, orders.total\nFROM orders\nWHERE orders.total > 100) AS subquery"
+      }
+    },
+    {
+      "name": "rt:sub-nested",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders\nWHERE orders.id IN (SELECT order_items.order_id\nFROM order_items\nWHERE order_items.quantity > 5))",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [
+                  {
+                    "column": "orders.id",
+                    "operator": "IN",
+                    "value": "",
+                    "connector": "AND",
+                    "subqueryIndex": 0
+                  }
+                ],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": [
+                  {
+                    "id": "subquery-0",
+                    "role": "where",
+                    "linkedFilterIndex": 0,
+                    "innerQuery": {
+                      "tables": [
+                        {
+                          "tableName": "order_items",
+                          "alias": null,
+                          "selectedColumns": ["order_id"],
+                          "isCteReference": false
+                        }
+                      ],
+                      "joins": [],
+                      "filters": [
+                        {
+                          "column": "order_items.quantity",
+                          "operator": ">",
+                          "value": "5",
+                          "connector": "AND"
+                        }
+                      ],
+                      "groupBy": [],
+                      "having": [],
+                      "orderBy": [],
+                      "limit": null,
+                      "selectAggregates": [],
+                      "columnAggregates": [],
+                      "subqueries": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders\nWHERE orders.id IN (SELECT order_items.order_id\nFROM order_items\nWHERE order_items.quantity > 5))"
+      }
+    },
+    {
+      "name": "rt:cte-one",
+      "input": {
+        "sql": "WITH expensive AS (\n  SELECT products.id, products.name\n  FROM products\n  WHERE products.price > 50\n)\nSELECT expensive.*\nFROM expensive",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "expensive",
+              "alias": null,
+              "selectedColumns": []
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": [
+            {
+              "id": "cte-0",
+              "name": "expensive",
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "products",
+                    "alias": null,
+                    "selectedColumns": ["id", "name"]
+                  }
+                ],
+                "joins": [],
+                "filters": [
+                  {
+                    "column": "products.price",
+                    "operator": ">",
+                    "value": "50",
+                    "connector": "AND"
+                  }
+                ],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ]
+        },
+        "sql": "WITH expensive AS (\n  SELECT products.id, products.name\n  FROM products\n  WHERE products.price > 50\n)\nSELECT expensive.*\nFROM expensive"
+      }
+    },
+    {
+      "name": "rt:cte-two",
+      "input": {
+        "sql": "WITH big AS (\n  SELECT orders.id, orders.customer_id\n  FROM orders\n  WHERE orders.total > 100\n),\nusa AS (\n  SELECT customers.id, customers.name\n  FROM customers\n  WHERE customers.country = 'USA'\n)\nSELECT big.*\nFROM big",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "big",
+              "alias": null,
+              "selectedColumns": []
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": [
+            {
+              "id": "cte-0",
+              "name": "big",
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["id", "customer_id"]
+                  }
+                ],
+                "joins": [],
+                "filters": [
+                  {
+                    "column": "orders.total",
+                    "operator": ">",
+                    "value": "100",
+                    "connector": "AND"
+                  }
+                ],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            },
+            {
+              "id": "cte-1",
+              "name": "usa",
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "customers",
+                    "alias": null,
+                    "selectedColumns": ["id", "name"]
+                  }
+                ],
+                "joins": [],
+                "filters": [
+                  {
+                    "column": "customers.country",
+                    "operator": "=",
+                    "value": "USA",
+                    "connector": "AND"
+                  }
+                ],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ]
+        },
+        "sql": "WITH big AS (\n  SELECT orders.id, orders.customer_id\n  FROM orders\n  WHERE orders.total > 100\n),\nusa AS (\n  SELECT customers.id, customers.name\n  FROM customers\n  WHERE customers.country = 'USA'\n)\nSELECT big.*\nFROM big"
+      }
+    },
+    {
+      "name": "rt:kitchen",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM products\n  LEFT JOIN categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "postgres",
+        "tableRef": "bare",
+        "validTables": "tutorial"
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM products\n  LEFT JOIN categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    },
+    {
+      "name": "rt:two-cols:postgres",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM public.products",
+        "engine": "postgres",
+        "tableRef": "postgres",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM public.products"
+      }
+    },
+    {
+      "name": "rt:two-cols:mysql",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM shop.products",
+        "engine": "mysql",
+        "tableRef": "mysql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM shop.products"
+      }
+    },
+    {
+      "name": "rt:two-cols:mssql",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM dbo.products",
+        "engine": "mssql",
+        "tableRef": "mssql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM dbo.products"
+      }
+    },
+    {
+      "name": "rt:two-cols:sqlite",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM main.products",
+        "engine": "sqlite",
+        "tableRef": "sqlite",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM main.products"
+      }
+    },
+    {
+      "name": "rt:two-cols:duckdb",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM main.products",
+        "engine": "duckdb",
+        "tableRef": "duckdb",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name", "price"]
+            }
+          ],
+          "joins": [],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, products.price\nFROM main.products"
+      }
+    },
+    {
+      "name": "rt:join-inner:postgres",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM public.products\n  INNER JOIN public.categories ON products.category_id = categories.id",
+        "engine": "postgres",
+        "tableRef": "postgres",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM public.products\n  INNER JOIN public.categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:join-inner:mysql",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM shop.products\n  INNER JOIN shop.categories ON products.category_id = categories.id",
+        "engine": "mysql",
+        "tableRef": "mysql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM shop.products\n  INNER JOIN shop.categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:join-inner:mssql",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM dbo.products\n  INNER JOIN dbo.categories ON products.category_id = categories.id",
+        "engine": "mssql",
+        "tableRef": "mssql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM dbo.products\n  INNER JOIN dbo.categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:join-inner:sqlite",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id",
+        "engine": "sqlite",
+        "tableRef": "sqlite",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:join-inner:duckdb",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id",
+        "engine": "duckdb",
+        "tableRef": "duckdb",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["name"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "INNER",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id"
+      }
+    },
+    {
+      "name": "rt:sub-in:postgres",
+      "input": {
+        "sql": "SELECT customers.name\nFROM \"Sales\".\"customers\"\nWHERE customers.id IN (SELECT orders.customer_id\nFROM public.orders)",
+        "engine": "postgres",
+        "tableRef": "postgres",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM \"Sales\".\"customers\"\nWHERE customers.id IN (SELECT orders.customer_id\nFROM public.orders)"
+      }
+    },
+    {
+      "name": "rt:sub-in:mysql",
+      "input": {
+        "sql": "SELECT customers.name\nFROM `Sales`.`customers`\nWHERE customers.id IN (SELECT orders.customer_id\nFROM shop.orders)",
+        "engine": "mysql",
+        "tableRef": "mysql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM `Sales`.`customers`\nWHERE customers.id IN (SELECT orders.customer_id\nFROM shop.orders)"
+      }
+    },
+    {
+      "name": "rt:sub-in:mssql",
+      "input": {
+        "sql": "SELECT customers.name\nFROM [Sales].[customers]\nWHERE customers.id IN (SELECT orders.customer_id\nFROM dbo.orders)",
+        "engine": "mssql",
+        "tableRef": "mssql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": null,
+        "sql": null
+      }
+    },
+    {
+      "name": "rt:sub-in:sqlite",
+      "input": {
+        "sql": "SELECT customers.name\nFROM main.customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)",
+        "engine": "sqlite",
+        "tableRef": "sqlite",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM main.customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)"
+      }
+    },
+    {
+      "name": "rt:sub-in:duckdb",
+      "input": {
+        "sql": "SELECT customers.name\nFROM \"Sales\".customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)",
+        "engine": "duckdb",
+        "tableRef": "duckdb",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "customers",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [],
+          "filters": [
+            {
+              "column": "customers.id",
+              "operator": "IN",
+              "value": "",
+              "connector": "AND",
+              "subqueryIndex": 0
+            }
+          ],
+          "groupBy": [],
+          "having": [],
+          "orderBy": [],
+          "limit": null,
+          "selectAggregates": [],
+          "columnAggregates": [],
+          "subqueries": [
+            {
+              "id": "subquery-0",
+              "role": "where",
+              "linkedFilterIndex": 0,
+              "innerQuery": {
+                "tables": [
+                  {
+                    "tableName": "orders",
+                    "alias": null,
+                    "selectedColumns": ["customer_id"],
+                    "isCteReference": false
+                  }
+                ],
+                "joins": [],
+                "filters": [],
+                "groupBy": [],
+                "having": [],
+                "orderBy": [],
+                "limit": null,
+                "selectAggregates": [],
+                "columnAggregates": [],
+                "subqueries": []
+              }
+            }
+          ],
+          "ctes": []
+        },
+        "sql": "SELECT customers.name\nFROM \"Sales\".customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)"
+      }
+    },
+    {
+      "name": "rt:kitchen:postgres",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM public.products\n  LEFT JOIN public.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "postgres",
+        "tableRef": "postgres",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM public.products\n  LEFT JOIN public.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    },
+    {
+      "name": "rt:kitchen:mysql",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM shop.products\n  LEFT JOIN shop.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "mysql",
+        "tableRef": "mysql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM shop.products\n  LEFT JOIN shop.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    },
+    {
+      "name": "rt:kitchen:mssql",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM dbo.products\n  LEFT JOIN dbo.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "mssql",
+        "tableRef": "mssql",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM dbo.products\n  LEFT JOIN dbo.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    },
+    {
+      "name": "rt:kitchen:sqlite",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "sqlite",
+        "tableRef": "sqlite",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    },
+    {
+      "name": "rt:kitchen:duckdb",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "duckdb",
+        "tableRef": "duckdb",
+        "validTables": null
+      },
+      "output": {
+        "parsed": {
+          "tables": [
+            {
+              "tableName": "products",
+              "alias": null,
+              "selectedColumns": ["category_id"]
+            },
+            {
+              "tableName": "categories",
+              "alias": null,
+              "selectedColumns": ["name"]
+            }
+          ],
+          "joins": [
+            {
+              "sourceTable": "products",
+              "sourceColumn": "category_id",
+              "targetColumn": "id",
+              "joinType": "LEFT",
+              "targetTable": "categories"
+            }
+          ],
+          "filters": [
+            {
+              "column": "products.price",
+              "operator": ">",
+              "value": "20",
+              "connector": "AND"
+            },
+            {
+              "column": "products.stock",
+              "operator": ">",
+              "value": "0",
+              "connector": "AND"
+            }
+          ],
+          "groupBy": [
+            {
+              "column": "products.category_id"
+            },
+            {
+              "column": "categories.name"
+            }
+          ],
+          "having": [
+            {
+              "aggregateFunction": "COUNT",
+              "column": "",
+              "operator": ">",
+              "value": "2",
+              "connector": "AND"
+            }
+          ],
+          "orderBy": [
+            {
+              "column": "products.category_id",
+              "direction": "ASC"
+            }
+          ],
+          "limit": 20,
+          "selectAggregates": [
+            {
+              "function": "COUNT",
+              "expression": "*",
+              "alias": "n"
+            }
+          ],
+          "columnAggregates": [],
+          "subqueries": [],
+          "ctes": []
+        },
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20"
+      }
+    }
+  ]
+}

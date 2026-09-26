@@ -3,7 +3,7 @@
  * @module types/query
  */
 
-import type { QueryType } from "../db/query-utils";
+import type { QueryType } from "./generated/QueryType";
 import type { ConnectionLabel } from "./project";
 import type { ExplainResult } from "./explain";
 import type { ParsedQueryVisual } from "./visualize";

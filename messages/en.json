@@ -1090,6 +1090,11 @@
   "destructive_reason_truncate": "Truncates a table",
   "destructive_reason_delete_no_where": "Deletes all rows (no WHERE clause)",
   "destructive_reason_update_no_where": "Updates all rows (no WHERE clause)",
+  "destructive_reason_drop_sequence": "Drops a sequence",
+  "destructive_reason_drop_function": "Drops a function or procedure",
+  "destructive_reason_merge_delete": "Deletes rows (MERGE … THEN DELETE)",
+  "destructive_check_failed": "Couldn't check the query for destructive statements, so it wasn't run: {error}",
+  "statement_at_cursor_failed": "Couldn't find the statement at the cursor, so nothing was run: {error}",
 
   "ext_sidebar_extensions": "Extensions",
   "ext_search_placeholder": "Search extensions...",
@@ -1112,5 +1117,11 @@
   "ext_group_available": "Available",
   "ext_action_install_and_load": "Install & Load",
   "ext_action_load": "Load",
-  "ext_action_update": "Update"
+  "ext_action_update": "Update",
+  "wasm_error_title": "Seaquel couldn't start",
+  "wasm_error_description": "The SQL module (seaquel-wasm) didn't load, so the editor and query tools can't run.",
+  "wasm_error_hint": "This usually means the .wasm file couldn't be downloaded (a network or proxy problem) or a Content Security Policy doesn't allow WebAssembly (it needs 'wasm-unsafe-eval' in script-src). Try again, and if it keeps failing, copy the error below and send it to us.",
+  "wasm_error_copy": "Copy error",
+  "wasm_error_copied": "Copied",
+  "wasm_error_retry": "Try again"
 }

@@ -1448,7 +1448,7 @@ async fn unique_checkbox_from_metadata() {
         .open(&config)
         .await
         .expect("open");
-    let schema = scratch_name("seaquel_uq_");
+    let schema = scratch_name("seaquel_uqm_");
     let setup = format!(
         "CREATE SCHEMA \"{schema}\";\n\
          CREATE TABLE \"{schema}\".\"u\"\"q 't\" (id int PRIMARY KEY, \"e'mail\" text UNIQUE, code int, note text);\n\
@@ -1489,7 +1489,7 @@ async fn unique_checkbox_skips_partial_and_include_indexes() {
         .open(&config)
         .await
         .expect("open");
-    let schema = scratch_name("seaquel_uq_");
+    let schema = scratch_name("seaquel_uqp_");
     let setup = format!(
         "CREATE SCHEMA \"{schema}\";\n\
          CREATE TABLE \"{schema}\".t (id int PRIMARY KEY, email text, deleted_at timestamp, code int, extra int, tag text UNIQUE);\n\

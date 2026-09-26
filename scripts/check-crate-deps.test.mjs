@@ -27,6 +27,52 @@ describe("checkCrateDeps", () => {
     expect(checkCrateDeps(packages)).toEqual([]);
   });
 
+  it("accepts the phase 2b workspace", () => {
+    const packages = [
+      pkg("seaquel-macros"),
+      pkg("seaquel-runtime", "seaquel-macros"),
+      pkg("seaquel-types"),
+      pkg("seaquel-engine", "seaquel-runtime", "seaquel-types"),
+      pkg("seaquel-sql", "seaquel-types"),
+      pkg("seaquel-wasm", "seaquel-sql", "seaquel-types"),
+      pkg("seaquel-engine-postgres", "seaquel-engine", "seaquel-runtime", "seaquel-sql"),
+      pkg("seaquel-core", "seaquel-engine", "seaquel-types", "seaquel-engine-postgres"),
+    ];
+    expect(checkCrateDeps(packages)).toEqual([]);
+  });
+
+  it("rejects the wasm glue reaching Core", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-wasm", "seaquel-sql", "seaquel-core"),
+      pkg("seaquel-sql"),
+      pkg("seaquel-core"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-wasm -> seaquel-core: wasm glue may only depend on pure crates",
+    ]);
+  });
+
+  it("rejects an engine depending on the wasm glue", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-engine-postgres", "seaquel-engine", "seaquel-wasm"),
+      pkg("seaquel-engine"),
+      pkg("seaquel-wasm"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-engine-postgres -> seaquel-wasm: engine crates may only depend on seaquel-engine, seaquel-runtime, seaquel-types and seaquel-sql",
+    ]);
+  });
+
+  it("rejects seaquel-sql depending on an engine", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-sql", "seaquel-engine-postgres"),
+      pkg("seaquel-engine-postgres"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-sql -> seaquel-engine-postgres: pure crates may only depend on other pure crates",
+    ]);
+  });
+
   it("rejects an engine depending on another engine", () => {
     const errors = checkCrateDeps([
       pkg("seaquel-engine-postgres", "seaquel-engine-mysql"),

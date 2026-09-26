@@ -12,6 +12,8 @@ members = [
     "crates/seaquel-engine-duckdb",
     "crates/seaquel-core",
     "crates/seaquel-rpc",
+    "crates/seaquel-sql",
+    "crates/seaquel-wasm",
     "crates/seaquel-server",
     "src-tauri",
 ]
@@ -31,6 +33,15 @@ uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 ts-rs = "12"
 
+# seaquel-sql / seaquel-wasm (phase 2b). sqlparser's default features
+# (recursive-protection) made no size difference in the spike; its own
+# recursion limit still applies.
+sqlparser = { version = "0.63", default-features = false, features = ["std"] }
+ryu-js = "1"
+# Exact pin: the version Cargo.lock already had through chrono. It also has to
+# match the wasm-bindgen-cli that builds the module (scripts/build-wasm.mjs).
+wasm-bindgen = "=0.2.128"
+
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "sqlite", "json", "time", "rust_decimal", "ipnetwork", "mac_address", "bit-vec"] }
 tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "rustls"] }
 duckdb = { version = "1.1", features = ["bundled"] }
@@ -42,3 +53,15 @@ axum = { version = "0.8", features = ["ws", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
 http-body-util = "0.1"
+
+# The WebAssembly module (seaquel-wasm):
+#   cargo build --profile wasm-release --target wasm32-unknown-unknown -p seaquel-wasm
+# Kept out of [profile.release] so seaquel-server and the desktop app aren't
+# built for size.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -15,7 +15,19 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 /** Must build for wasm32. May only depend on each other. */
-const PURE = new Set(["seaquel-macros", "seaquel-runtime", "seaquel-types", "seaquel-engine"]);
+const PURE = new Set([
+  "seaquel-macros",
+  "seaquel-runtime",
+  "seaquel-types",
+  "seaquel-engine",
+  "seaquel-sql",
+]);
+
+/**
+ * wasm-bindgen glue that exposes pure crates to the Svelte app as one
+ * WebAssembly module. It may depend on pure crates only.
+ */
+const WASM_GLUE = new Set(["seaquel-wasm"]);
 
 /** Registers the default plugins, so it's the one crate allowed to name engines. */
 const CORE = new Set(["seaquel-core"]);
@@ -63,6 +75,7 @@ const isEngine = (name) => name.startsWith("seaquel-engine-") && !TESTKIT.has(na
 
 function classify(name) {
   if (PURE.has(name)) return "pure";
+  if (WASM_GLUE.has(name)) return "wasm-glue";
   if (CORE.has(name)) return "core";
   if (INTERFACES.has(name)) return "interface";
   if (INTERFACE_GLUE.has(name)) return "interface-glue";
@@ -99,6 +112,9 @@ export function checkCrateDeps(packages) {
     switch (kind) {
       case "pure":
         forbid((d) => PURE.has(d), "pure crates may only depend on other pure crates");
+        break;
+      case "wasm-glue":
+        forbid((d) => PURE.has(d), "wasm glue may only depend on pure crates");
         break;
       case "engine":
         forbid(

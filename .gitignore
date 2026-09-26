@@ -37,3 +37,6 @@ e2e/test-databases/sqlite/*.db-wal
 e2e/test-databases/sqlite/*.sqlite
 e2e/test-databases/sqlite/*.sqlite-shm
 e2e/test-databases/sqlite/*.sqlite-wal
+# seaquel-wasm build output (npm run wasm:build)
+/src/lib/wasm/pkg/
+/src/lib/wasm/.pkg-tmp-*/

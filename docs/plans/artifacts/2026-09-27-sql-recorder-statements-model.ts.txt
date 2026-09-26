@@ -1,0 +1,521 @@
+/**
+ * MODELS of the fixed statement checks (bug fixes 11, 12 and 14), for the
+ * phase 2b fixtures (Task 2). Each works on the significant tokens of the
+ * scanner model (scan-model.ts: `sqlTokens` with fixes 18 and 10, and a
+ * MySQL/MariaDB executable comment read as code): no whitespace, no
+ * comments, and a string or quoted name is one token whose words don't count.
+ * sql.fixtures.test.ts records statements.json and read-only.json from them.
+ */
+import type { QueryType } from "$lib/db/query-utils";
+import type { SqlToken } from "$lib/engine/sql-scan";
+import type { DatabaseType } from "$lib/types";
+import { isName, scanTokens, withoutFix, type ScanOptions } from "./scan-model";
+
+/**
+ * The TS reasons plus fix 11's: `drop_sequence`, `drop_function` (DROP
+ * FUNCTION and DROP PROCEDURE) and `merge_delete` (MERGE … THEN DELETE).
+ * Task 9 adds their labels to the confirmation dialog.
+ */
+export type DestructiveReasonModel =
+  | "drop_table"
+  | "drop_index"
+  | "drop_view"
+  | "drop_schema"
+  | "drop_database"
+  | "drop_sequence"
+  | "drop_function"
+  | "drop_column"
+  | "truncate"
+  | "delete_no_where"
+  | "update_no_where"
+  | "merge_delete";
+
+const tokensOf = (sql: string, engine: DatabaseType, options: ScanOptions = {}) =>
+  scanTokens(sql, engine, { execComments: true, ...options });
+
+const word = (t: SqlToken | undefined): string | undefined =>
+  t?.kind === "word" ? t.text.toUpperCase() : undefined;
+
+/**
+ * Fix 11, `detectQueryType`: the first significant token decides, so a leading
+ * `#` comment (MySQL) or nested comment no longer hides it, and a MySQL
+ * executable comment's contents count. The TS compared a prefix (`SELECTED`
+ * counted as a SELECT); a token has to be the keyword.
+ */
+export function queryTypeModel(sql: string, engine: DatabaseType): QueryType {
+  switch (word(tokensOf(sql, engine)[0])) {
+    case "SELECT":
+      return "select";
+    case "INSERT":
+      return "insert";
+    case "UPDATE":
+      return "update";
+    case "DELETE":
+      return "delete";
+    default:
+      return "other";
+  }
+}
+
+/** Words after ALTER TABLE … DROP that don't name a column. */
+const NOT_A_COLUMN = new Set([
+  "CONSTRAINT",
+  "INDEX",
+  "KEY",
+  "PRIMARY",
+  "FOREIGN",
+  "CHECK",
+  "DEFAULT",
+  "NOT",
+  "IDENTITY",
+  "EXPRESSION",
+  "PARTITION",
+  "UNIQUE",
+  "TRIGGER",
+  "ROW",
+  "SYSTEM",
+  "PERIOD",
+  "FULLTEXT",
+  "SPATIAL",
+]);
+
+/** Words after ON DELETE / ON UPDATE in a foreign key or a MySQL column default. */
+const ON_ACTIONS = new Set(["CASCADE", "SET", "NO", "RESTRICT", "CURRENT_TIMESTAMP", "NOW"]);
+
+/** T-SQL statement words that end the statement before them when there's no `;`. */
+const TSQL_STATEMENTS = new Set([
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "MERGE",
+  "DECLARE",
+  "EXEC",
+  "EXECUTE",
+  "DROP",
+  "CREATE",
+  "ALTER",
+  "TRUNCATE",
+  "SET",
+]);
+
+/**
+ * Fix 11, `isDestructiveStatement`, on tokens:
+ *
+ * - DROP TABLE (TEMPORARY/TEMP TABLE too), INDEX, VIEW (MATERIALIZED VIEW
+ *   too), SCHEMA, DATABASE, SEQUENCE, FUNCTION/PROCEDURE, and TRUNCATE, at
+ *   the start of a statement.
+ * - ALTER TABLE with DROP COLUMN, or DROP followed by a column's name (MySQL
+ *   lets COLUMN out); not DROP CONSTRAINT/INDEX/DEFAULT/NOT NULL/….
+ * - DELETE or UPDATE where a statement can start: first, after `;`, in a CTE
+ *   (after `(` or `)`), after EXPLAIN ANALYZE [VERBOSE], or, on SQL Server,
+ *   after any token (T-SQL needs no `;`: `SELECT 1 DELETE FROM t`). Not
+ *   after a `.`, `FOR` (FOR UPDATE) or `KEY` (ON DUPLICATE KEY UPDATE), and
+ *   not ON DELETE/UPDATE CASCADE/SET/NO/RESTRICT. It has no WHERE if no WHERE
+ *   token follows it at its own parenthesis depth before its statement ends
+ *   (`;`, the end of its parentheses, or on SQL Server the next statement
+ *   word), so a CTE's or a subquery's WHERE no longer counts.
+ * - MERGE … THEN DELETE: `merge_delete`.
+ * - Not flagged (Task 2 re-review): a trigger's or policy's event list
+ *   (`AFTER UPDATE`, `INSTEAD OF DELETE`, `INSERT OR UPDATE`, a list after
+ *   `,`), a GRANT/REVOKE privilege list, T-SQL `IF UPDATE(col)` (a function)
+ *   and `UPDATE STATISTICS`, and `EXPLAIN (…) DELETE` whose options have no
+ *   ANALYZE (it doesn't run the DELETE).
+ *
+ * The first reason in the text wins. Strings, comments and quoted names
+ * don't count; a MySQL executable comment's contents do.
+ */
+export function destructiveModel(sql: string, engine: DatabaseType): DestructiveReasonModel | null {
+  const tokens = tokensOf(sql, engine);
+  const mssql = engine === "mssql";
+  const w = (k: number) => word(tokens[k]);
+  const statementStart = (k: number) => k === 0 || tokens[k - 1].text === ";";
+
+  const dropReason = (k: number): DestructiveReasonModel | null => {
+    let j = k + 1;
+    if (w(j) === "TEMPORARY" || w(j) === "TEMP") j++;
+    switch (w(j)) {
+      case "TABLE":
+        return "drop_table";
+      case "INDEX":
+        return "drop_index";
+      case "VIEW":
+        return "drop_view";
+      case "MATERIALIZED":
+        return w(j + 1) === "VIEW" ? "drop_view" : null;
+      case "SCHEMA":
+        return "drop_schema";
+      case "DATABASE":
+        return "drop_database";
+      case "SEQUENCE":
+        return "drop_sequence";
+      case "FUNCTION":
+      case "PROCEDURE":
+        return "drop_function";
+      default:
+        return null;
+    }
+  };
+
+  const dropsColumn = (k: number): boolean => {
+    for (let j = k + 2; j < tokens.length && tokens[j].text !== ";"; j++) {
+      if (w(j) !== "DROP") continue;
+      if (w(j + 1) === "COLUMN") return true;
+      const next = tokens[j + 1];
+      if (next && isName(next, engine) && !NOT_A_COLUMN.has(word(next) ?? "")) return true;
+    }
+    return false;
+  };
+
+  /** Whether the `(…)` group closing just before `k` follows EXPLAIN, and holds no ANALYZE. */
+  const explainWithoutAnalyze = (k: number): boolean => {
+    let j = k - 1;
+    const depth = tokens[j].depth;
+    let analyze = false;
+    for (j--; j >= 0 && !(tokens[j].text === "(" && tokens[j].depth === depth); j--) {
+      if (w(j) === "ANALYZE") analyze = true;
+    }
+    return j > 0 && w(j - 1) === "EXPLAIN" && !analyze;
+  };
+
+  const dmlStart = (k: number): boolean => {
+    const prev = tokens[k - 1];
+    const p = word(prev);
+    // A trigger's or policy's event list (AFTER UPDATE, INSTEAD OF DELETE,
+    // INSERT OR UPDATE, INSERT, UPDATE), a GRANT/REVOKE privilege list, T-SQL's
+    // IF UPDATE(col) and UPDATE STATISTICS.
+    if (p && ["AFTER", "BEFORE", "OF", "OR", "GRANT", "REVOKE"].includes(p)) return false;
+    if (prev?.text === ",") return false;
+    if (tokens[k + 1]?.text === "(" || w(k + 1) === "STATISTICS") return false;
+    if (prev?.text === ")" && explainWithoutAnalyze(k)) return false;
+    // FOR UPDATE, ON DUPLICATE KEY UPDATE, MERGE … THEN UPDATE (a MERGE's
+    // THEN DELETE is `merge_delete`, above).
+    if (prev?.text === "." || p === "FOR" || p === "KEY" || p === "THEN") return false;
+    if (p === "ON" && ON_ACTIONS.has(w(k + 1) ?? "")) return false;
+    if (statementStart(k) || prev.text === "(" || prev.text === ")") return true;
+    if (p === "ANALYZE" || p === "VERBOSE") return true;
+    return mssql;
+  };
+
+  const hasWhere = (k: number): boolean => {
+    const depth = tokens[k].depth;
+    let sawSet = false;
+    for (let j = k + 1; j < tokens.length; j++) {
+      const t = tokens[j];
+      if (t.depth < depth || (t.depth === depth && t.text === ";")) return false;
+      if (t.depth !== depth) continue;
+      const wj = w(j);
+      if (wj === "WHERE") return true;
+      if (mssql && wj && TSQL_STATEMENTS.has(wj) && tokens[j - 1]?.text !== ".") {
+        // UPDATE's own SET isn't a new statement.
+        if (wj === "SET" && w(k) === "UPDATE" && !sawSet) {
+          sawSet = true;
+          continue;
+        }
+        return false;
+      }
+    }
+    return false;
+  };
+
+  for (let k = 0; k < tokens.length; k++) {
+    const wk = w(k);
+    if (!wk) continue;
+    const start = statementStart(k) || (mssql && tokens[k - 1]?.text !== ".");
+    if (start && wk === "DROP") {
+      const reason = dropReason(k);
+      if (reason) return reason;
+    }
+    if (start && wk === "TRUNCATE") return "truncate";
+    if (start && wk === "ALTER" && w(k + 1) === "TABLE" && dropsColumn(k)) return "drop_column";
+    if (wk === "DELETE" && w(k - 1) === "THEN") return "merge_delete";
+    if ((wk === "DELETE" || wk === "UPDATE") && dmlStart(k) && !hasWhere(k)) {
+      return wk === "DELETE" ? "delete_no_where" : "update_no_where";
+    }
+  }
+  return null;
+}
+
+/** A quoted token's name, per engine; `undefined` for a string literal or an unterminated name. */
+function unquoteName(token: SqlToken, engine: DatabaseType, ansiMysql = false): string | undefined {
+  if (token.kind === "word") return token.text;
+  if (token.kind !== "quoted") return undefined;
+  const text = token.text;
+  const open = text[0];
+  const mysql = engine === "mysql" || engine === "mariadb";
+  const names = mysql
+    ? ansiMysql
+      ? '`"'
+      : "`"
+    : engine === "sqlite"
+      ? '"`['
+      : engine === "mssql"
+        ? '"['
+        : '"';
+  if (!names.includes(open)) return undefined;
+  const close = open === "[" ? "]" : open;
+  // SQLite's `[…]` has no escape; every other name quote doubles itself.
+  const doubles = !(open === "[" && engine === "sqlite");
+  let name = "";
+  for (let j = 1; j < text.length; j++) {
+    if (text[j] !== close) name += text[j];
+    else if (doubles && text[j + 1] === close) name += text[++j];
+    else return j === text.length - 1 ? name : undefined;
+  }
+  return undefined; // unterminated
+}
+
+/**
+ * Fix 12, `extractTableFromSelect`: the table after the first top-level FROM
+ * (not in parentheses, not after a `.`), unquoted per engine. A name is a word
+ * or the engine's quoted name; `schema.table` gives both. Nothing for a
+ * subquery (`FROM (`), a table function (`FROM f(`), a string, or a name of
+ * three parts or more (the TS read the first two). Only the first FROM counts:
+ * a join's other tables never did.
+ */
+export function tableFromSelectModel(
+  sql: string,
+  engine: DatabaseType,
+): { schema?: string; table: string } | null {
+  const tokens = tokensOf(sql, engine);
+  const k = tokens.findIndex(
+    (t, i) => t.depth === 0 && word(t) === "FROM" && (i === 0 || tokens[i - 1].text !== "."),
+  );
+  if (k === -1) return null;
+  const parts: string[] = [];
+  let i = k + 1;
+  for (;;) {
+    const token = tokens[i];
+    const name = token ? unquoteName(token, engine) : undefined;
+    if (name === undefined) return null;
+    parts.push(name);
+    i++;
+    if (tokens[i]?.text !== ".") break;
+    i++;
+  }
+  if (tokens[i]?.text === "(") return null;
+  if (parts.length === 1) return { schema: undefined, table: parts[0] };
+  if (parts.length === 2) return { schema: parts[0], table: parts[1] };
+  return null;
+}
+
+export const READ_ONLY_MESSAGE = "Only read-only SELECT queries are permitted";
+
+/** The TS list plus fix 14's additions. */
+const BLOCKED = new Set([
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "DROP",
+  "ALTER",
+  "TRUNCATE",
+  "CREATE",
+  "GRANT",
+  "REVOKE",
+  "EXEC",
+  "MERGE",
+  "COPY",
+  "CALL",
+  "DO",
+  "EXECUTE",
+  "SET",
+  "LOAD",
+  "INSTALL",
+  "ATTACH",
+  "DETACH",
+  "PRAGMA",
+  "VACUUM",
+  "REPLACE",
+  "LOCK",
+  // SELECT … INTO creates a table; FOR UPDATE is caught by UPDATE.
+  "INTO",
+]);
+
+/**
+ * SQL Server runs statements that follow each other without a `;`
+ * (`SELECT 1 AS k KILL 9999`), so every T-SQL statement word is blocked there.
+ * FETCH stays allowed: OFFSET … FETCH uses it, and a cursor FETCH needs a
+ * DECLARE, which is blocked. RAISERROR and PRINT are harmless.
+ */
+const BLOCKED_MSSQL = new Set([
+  "KILL",
+  "SHUTDOWN",
+  "DBCC",
+  "BACKUP",
+  "RESTORE",
+  "DENY",
+  "RECONFIGURE",
+  "WAITFOR",
+  "RECEIVE",
+  "WRITETEXT",
+  "UPDATETEXT",
+  "BEGIN",
+  "COMMIT",
+  "ROLLBACK",
+  "SAVE",
+  "DECLARE",
+  "IF",
+  "WHILE",
+  "USE",
+  "SETUSER",
+  "REVERT",
+  "ADD",
+  "OPEN",
+  "CLOSE",
+  "DEALLOCATE",
+  "CHECKPOINT",
+  "ENABLE",
+  "DISABLE",
+]);
+
+/** T-SQL statement words that are blocked only before CONVERSATION (Service Broker). */
+const BLOCKED_MSSQL_BEFORE_CONVERSATION = new Set(["END", "MOVE"]);
+
+/** Blocked words that are also string functions, which a read may call: `REPLACE(`, MySQL's `INSERT(`. */
+const FUNCTIONS = new Set(["REPLACE", "INSERT"]);
+
+/** Functions with side effects outside the query, blocked as a name followed by `(`. */
+const BLOCKED_FUNCTIONS = new Set([
+  // Postgres: other connections, files, large objects, sequences, settings
+  "dblink",
+  "lo_import",
+  "lo_export",
+  "lo_unlink",
+  "lo_put",
+  "lo_from_bytea",
+  "lo_create",
+  "pg_terminate_backend",
+  "pg_cancel_backend",
+  "set_config",
+  "setval",
+  "nextval",
+  "pg_reload_conf",
+  "pg_read_file",
+  "pg_read_binary_file",
+  "pg_ls_dir",
+  "pg_file_write",
+  "pg_file_unlink",
+  "pg_file_rename",
+  // Postgres: replication, notifications, locks, admin
+  "pg_create_physical_replication_slot",
+  "pg_create_logical_replication_slot",
+  "pg_drop_replication_slot",
+  "pg_logical_slot_get_changes",
+  "pg_logical_slot_peek_changes",
+  "pg_notify",
+  "pg_advisory_lock",
+  "pg_advisory_xact_lock",
+  "pg_switch_wal",
+  "pg_promote",
+  "pg_rotate_logfile",
+  "pg_import_system_collations",
+  // Sleeping and locks
+  "pg_sleep",
+  "sleep",
+  "benchmark",
+  "get_lock",
+  // SQL Server: other servers and files
+  "openquery",
+  "openrowset",
+  "opendatasource",
+  // SQLite, MySQL: files
+  "load_extension",
+  "load_file",
+]);
+
+const BLOCKED_FUNCTION_PREFIXES = ["dblink_", "pg_stat_reset"];
+
+const blockedFunction = (name: string) =>
+  BLOCKED_FUNCTIONS.has(name) || BLOCKED_FUNCTION_PREFIXES.some((p) => name.startsWith(p));
+
+/** The statements of `tokens`, split on `;`, without the empty ones. */
+function statementsOf(tokens: SqlToken[]): SqlToken[][] {
+  const out: SqlToken[][] = [[]];
+  for (const t of tokens) {
+    if (t.kind === "punct" && t.text === ";") out.push([]);
+    else out[out.length - 1].push(t);
+  }
+  return out.filter((s) => s.length > 0);
+}
+
+/** Whether one reading of the input holds anything but read-only statements. */
+function refused(tokens: SqlToken[], engine: DatabaseType, ansiMysql = false): boolean {
+  const statements = statementsOf(tokens);
+  if (statements.length === 0) return true;
+  for (const s of statements) {
+    const first = word(s[0]);
+    if (first !== "SELECT" && first !== "WITH") return true;
+    for (let k = 0; k < s.length; k++) {
+      const t = s[k];
+      const next = s[k + 1];
+      if (t.kind === "quoted" && next?.text === "(") {
+        // Postgres `U&"\0073etval"(`: a Unicode-escaped name called as a function.
+        if (s[k - 1]?.text === "&" && /^[Uu]$/.test(s[k - 2]?.text ?? "")) return true;
+        // A quoted function name: `"setval"(`, `` `load_file`( ``.
+        const name = unquoteName(t, engine, ansiMysql);
+        if (name !== undefined && blockedFunction(name.toLowerCase())) return true;
+      }
+      if (t.kind !== "word") continue;
+      // A function with side effects, qualified or not.
+      if (next?.text === "(" && blockedFunction(t.text.toLowerCase())) return true;
+      if (
+        engine === "mssql" &&
+        BLOCKED_MSSQL_BEFORE_CONVERSATION.has(t.text.toUpperCase()) &&
+        word(next) === "CONVERSATION"
+      ) {
+        return true;
+      }
+      const w = t.text.toUpperCase();
+      if (!BLOCKED.has(w) && !(engine === "mssql" && BLOCKED_MSSQL.has(w))) continue;
+      // `t.set` is a column: a word after a `.` that follows a name. After a
+      // number (`1. INTO t`) it's still a keyword.
+      if (s[k - 1]?.text === "." && isName(s[k - 2], engine)) continue;
+      if (FUNCTIONS.has(w) && next?.text === "(") continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Fix 14, `validateReadOnlyQuery`, on tokens. This check gates which
+ * statements the AI may run; it isn't a sandbox (a user-defined function can
+ * do anything, and no list can cover those).
+ *
+ * - Every statement's first token is SELECT or WITH, and an input with no
+ *   statement is refused, as before.
+ * - No statement holds a blocked word outside strings, comments and quoted
+ *   names: the TS list plus fix 14's, and on SQL Server every T-SQL statement
+ *   word (it needs no `;`). A word after a `.` that follows a name is a name
+ *   (`t.set`); `REPLACE(` and `INSERT(` are string functions.
+ * - No statement calls a function with outside effects (`dblink`,
+ *   `pg_read_file`, `OPENROWSET`, `LOAD_FILE`, …), qualified or not.
+ * - MySQL/MariaDB: any executable comment (`/*!`, `/*M!`) is refused, since
+ *   the server runs it; and the input is scanned twice, with the default
+ *   sql_mode and with NO_BACKSLASH_ESCAPES + ANSI_QUOTES, and refused if
+ *   either reading is. Postgres likewise with `standard_conforming_strings`
+ *   on and off.
+ * - A quoted name called as a function (`"setval"(`, `` `load_file`( ``) is
+ *   unquoted and checked like a word; a Postgres `U&"…"` name called as a
+ *   function is refused.
+ * - Every reading is also scanned with the TS word rule (fix 19 off), and
+ *   refused if either word rule refuses.
+ * - Blocklists can't be complete: DuckDB's `read_csv('https://…' || …)` can
+ *   send data out through httpfs and stays allowed. The in-database read-only
+ *   Follow-up doesn't stop network egress either.
+ */
+export function readOnlyModel(sql: string, engine: DatabaseType): string | null {
+  const mysql = engine === "mysql" || engine === "mariadb";
+  if (mysql && /\/\*M?!/.test(sql)) return READ_ONLY_MESSAGE;
+  const readings: ScanOptions[] = mysql
+    ? [{}, { ansiMysql: true }]
+    : engine === "postgres"
+      ? [{}, { pgBackslash: true }]
+      : [{}];
+  const refusedIn = (r: ScanOptions) => refused(tokensOf(sql, engine, r), engine, !!r.ansiMysql);
+  // Fix 19: also with the TS word rule, so a mark glued to a keyword (`INTÓ`
+  // on SQL Server) can't hide it from one of the two readings.
+  return readings.some((r) => refusedIn(r) || withoutFix(19, () => refusedIn(r)))
+    ? READ_ONLY_MESSAGE
+    : null;
+}

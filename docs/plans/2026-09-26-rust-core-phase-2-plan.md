@@ -493,7 +493,7 @@ These produce invalid SQL today, and none needs a new endpoint:
 
 Final verification: the full check list, plus the manual GUI checks per engine (desktop and web; the demo for DuckDB), listed for the user.
 
-**Status (Task 22):** done. The "Phase 2 cost" section of the design doc has the measured time (~39.8 h logged, ~30.3 h of it the four engines against the 16–22 h estimate), lines, bugs by source and the phase 2b estimate (~27–45 h, with a 4–6 h spike first). The full check list passed; the manual GUI checks are listed below under "Manual checks outstanding".
+**Status (Task 22):** done. The "Phase 2 cost" section of the design doc has the measured time (~39.8 h logged, ~30.3 h of it the four engines against the 16–22 h estimate), lines, bugs by source and the phase 2b estimate (~27–45 h, with a 4–6 h spike first). The full check list passed; the manual GUI checks below were verified by the user on 2026-09-25.
 
 ---
 
@@ -544,7 +544,7 @@ Outside the numbered lists:
 - **Pending changes stay one by one** (Task 18). `executeAll` runs each change through `execute` and checks a keyed change's `rowsAffected`. A statement that hit 0 rows changed nothing, so there's nothing to roll back: the failed change and the ones after it stay pending, and the failed one is highlighted. The plan's all-or-nothing batch wasn't needed.
 - **`expectRows` is wire-only.** `BatchStatement.expectRows` and the `NO_ROWS_AFFECTED` error work in all five drivers (checked before COMMIT, rolled back on a shortfall, live-tested), but no UI code sends it yet. MSSQL connections send `SET NOCOUNT OFF` on open, since a server-wide NOCOUNT would make every edit report 0 rows.
 
-**Manual checks outstanding.** None of these has been done by a person. Phase 1's list, in its own plan, was still open when phase 2 started.
+**Manual checks.** Verified by the user on 2026-09-25.
 
 - Every engine, on desktop (`npm run tauri:dev` with the Docker databases), and briefly on web (`npm run dev:web:full`):
   - the schema tree, column and index details, Statistics, EXPLAIN and EXPLAIN ANALYZE;

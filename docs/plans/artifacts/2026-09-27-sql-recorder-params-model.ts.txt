@@ -1,0 +1,588 @@
+/**
+ * MODEL of fixed `{{param}}` substitution (bug fixes 13 and 10), for the
+ * phase 2b fixtures (Task 2). Every engine path takes each `{{name}}`'s
+ * context (code, string literal, quoted name, comment, `$tag$` string) from
+ * the scanner model (scan-model.ts), as `seaquel-sql` will from its one
+ * tokenizer, instead of each path's own loop in src/lib/db/query-params.ts.
+ * The value formatting (escapeValueForInline, the MySQL CONCAT text, the SQL
+ * Server and DuckDB literals) is the TS's, copied where it isn't exported.
+ *
+ * Postgres and SQLite, bound (fix 13):
+ * - In code: `$n`, numbered by first bound use, as today.
+ * - In a `'…'` string: `' || $n || '`, as today. In an `E'…'` string the
+ *   rest of the literal reopens as `E'`, so its backslash escapes keep
+ *   their meaning: `' || $n || E'`.
+ * - In a `$tag$…$tag$` string (Postgres): the value's raw text, as DuckDB
+ *   does (open question 4), with DuckDB's check and message for a value that
+ *   holds the closing tag. Not bound, so it takes no `$n`.
+ * - In a comment or a quoted name: left as it is, not bound.
+ *
+ * Forced inline on Postgres, SQLite, MySQL and MariaDB (fix 13): in code
+ * `escapeValueForInline(value)`, with a negative number in parentheses so
+ * `1-{{p}}` can't become the comment `1--1`, and on MySQL `\` doubled in a
+ * quoted value. In a string `escapeValueForInline(value, true)`; in an
+ * `E'…'` string `\` is doubled too, as DuckDB does; on MySQL `\` is doubled
+ * (default sql_mode) and in a `"…"` string `"` is doubled instead of `'`. In
+ * a `$tag$` string the raw text as above. A comment or quoted name is left
+ * as it is.
+ *
+ * MySQL and MariaDB, bound: the TS rules (one `?` per occurrence; a literal
+ * run holding parameters, with its charset introducer, becomes one `?` bound
+ * to its CONCAT text), on the scanner's contexts. Fix 13: a `/*M! … *\/`
+ * comment is code on MariaDB (MariaDB runs it), as `/*! … *\/` already was.
+ * Fix 10: `--` followed by a non-ASCII space (NBSP) isn't a comment.
+ *
+ * SQL Server: the TS rules on the scanner's contexts; no intended change.
+ *
+ * DuckDB: the TS rules on the scanner's contexts (fix 10): a `--` comment ends
+ * at `\r` too, and a `$tag$` follows the shared tag rule.
+ *
+ * On MySQL/MariaDB a `/*! … *\/` comment is code everywhere; a MySQL `/*M! … *\/`
+ * is a comment (MySQL doesn't run it).
+ *
+ * Value rules (fix 13, Task 4 review), each switchable for the recorder
+ * (`withoutValueRule`), because a value could break out of its literal:
+ * - `tag-edge`: after a `$tag$` string is filled, the tag's first occurrence
+ *   after the opener must be the original closing tag (or absent when the
+ *   string was unterminated). A value can form the tag with the text next to
+ *   it (`$$Cost: ${{p}}$$` with `$ || 'INJ' --`), which the "contains the
+ *   tag" check doesn't see.
+ * - `escaped`: in a string that takes backslash escapes (`E'…'`, MySQL
+ *   `'…'` and `"…"`), a `{{` after an odd run of `\` isn't a parameter: the
+ *   `\` escapes the `{`, and filling it would leave the `\` to escape the
+ *   first quote of the value's doubled `''`. It's left as it is.
+ * - `decimal`: a `SqlDecimal` whose text isn't a finite decimal
+ *   (`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`, so no `NaN`) is refused
+ *   wherever its text goes into the SQL. Bound values aren't checked.
+ * - `int-digits`: a `bigint` inlines as its digits (negative in parentheses
+ *   in code), like a number, not as the quoted string
+ *   `escapeValueForInline` made of it.
+ * - `adjacent`: a value inlined in code is spaced off what it would run
+ *   into. A quoted value right after a quote (`E'a'{{p}}`) would merge with
+ *   that literal through `''`, and in a string that takes backslash escapes
+ *   a `\` in the value then ends it early; a space goes before it. A value
+ *   ending in a word character (a number, `NULL`, `1`/`0`) followed by a
+ *   word character or `$` (`NULL$$…`, `1$t$`) would fuse into one word; a
+ *   space goes after it.
+ */
+import { ParameterSubstitutionError, escapeValueForInline } from "$lib/db/query-params";
+import type { SqlToken } from "$lib/engine/sql-scan";
+import type { DatabaseType, ParameterValue } from "$lib/types";
+import { SqlDecimal } from "$lib/values";
+import { dollarTag, scanTokens } from "./scan-model";
+
+const PARAM_REGEX = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+
+/** Fix 13's value rules, which the recorder switches off one at a time. */
+export const VALUE_RULES = ["tag-edge", "escaped", "decimal", "int-digits", "adjacent"] as const;
+export type ValueRule = (typeof VALUE_RULES)[number];
+const rulesOff = new Set<ValueRule>();
+const rule = (r: ValueRule) => !rulesOff.has(r);
+
+/** Runs `fn` with value rule `r` switched off. */
+export function withoutValueRule<T>(r: ValueRule, fn: () => T): T {
+  const wasOff = rulesOff.has(r);
+  rulesOff.add(r);
+  try {
+    return fn();
+  } finally {
+    if (!wasOff) rulesOff.delete(r);
+  }
+}
+
+const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/** Rule `decimal`: a value whose text goes into the SQL, checked. */
+function checked(name: string, value: unknown): unknown {
+  if (rule("decimal") && value instanceof SqlDecimal && !DECIMAL.test(value.value)) {
+    throw new ParameterSubstitutionError(
+      `The value for {{${name}}} is not a finite decimal number`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Rule `adjacent`: output that spaces an inlined value off its neighbours.
+ * `value(text)` appends a value inlined in code: a space before it when it's
+ * quoted and follows a quote, and one after it (before the next output) when
+ * it ends in a word character and the next output starts with one or `$`.
+ */
+class Out {
+  sql = "";
+  private pending = false;
+  text(t: string) {
+    if (this.pending && t && /^[\w$\u0080-\u{10FFFF}]/u.test(t)) this.sql += " ";
+    if (t) this.pending = false;
+    this.sql += t;
+  }
+  /**
+   * `isWord`: SQL Server and DuckDB's `append`, which already spaces a value
+   * off a word it follows. `inlined`: false for SQL Server's `N` prefix, which
+   * isn't a value.
+   */
+  value(t: string, isWord?: (c: string | undefined) => boolean, inlined = true) {
+    const last = this.sql.at(-1);
+    const space =
+      (isWord !== undefined && isWord(last) && isWord(t[0])) ||
+      (inlined && rule("adjacent") && t.startsWith("'") && /['"`]/.test(last ?? ""));
+    if (space) {
+      this.sql += " ";
+      this.pending = false;
+    }
+    this.text(t);
+    this.pending = inlined && rule("adjacent") && /\w$/.test(t);
+  }
+}
+
+/** `escapeValueForInline`, with rule `int-digits`: a bigint is its digits. */
+function inlineText(value: unknown, insideString = false): string {
+  if (rule("int-digits") && typeof value === "bigint") return String(value);
+  return escapeValueForInline(value, insideString);
+}
+
+// ── Copied from query-params.ts (not exported there) ────────────────────
+
+function plainDecimal(text: string): string {
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?[eE]([+-]?\d+)$/.exec(text.trim());
+  if (!m || (!m[2] && !m[3])) return text;
+  const [, sign, int, frac = ""] = m;
+  const exp = Number(m[4]);
+  let digits = int + frac;
+  let point = int.length + exp;
+  if (point < 0) {
+    digits = "0".repeat(-point) + digits;
+    point = 0;
+  } else if (point > digits.length) {
+    digits += "0".repeat(point - digits.length);
+  }
+  const whole = digits.slice(0, point).replace(/^0+(?=\d)/, "") || "0";
+  const rest = digits.slice(point);
+  return `${sign === "-" ? "-" : ""}${whole}${rest ? `.${rest}` : ""}`;
+}
+
+/** A value's raw text in a dollar-quoted string: DuckDB's rule. */
+function rawText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof SqlDecimal) return plainDecimal(value.value);
+  // oxlint-disable-next-line typescript/no-base-to-string
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+const MYSQL_ESCAPES: Record<string, string> = {
+  "0": "\0",
+  b: "\b",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  Z: "\x1a",
+  "%": "\\%",
+  _: "\\_",
+};
+
+function concatText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return null;
+  if (typeof value === "boolean") return value ? "1" : "0";
+  if (value instanceof Date) return value.toISOString();
+  // oxlint-disable-next-line typescript/no-base-to-string
+  return String(value);
+}
+
+/**
+ * One MySQL string literal starting at `start` (a quote): its text with
+ * escapes resolved. `fill` gives the text of a parameter starting at `j`, and
+ * where it ends, or `null` when there's none.
+ */
+function mysqlLiteralText(
+  query: string,
+  start: number,
+  fill: (j: number) => { text: string; end: number } | null = () => null,
+): string {
+  const quote = query[start];
+  let j = start + 1;
+  let text = "";
+  while (j < query.length) {
+    const c = query[j];
+    const param = c === "{" ? fill(j) : null;
+    if (param) {
+      text += param.text;
+      j = param.end;
+    } else if (c === "\\" && j + 1 < query.length) {
+      const e = query[j + 1];
+      text += MYSQL_ESCAPES[e] ?? e;
+      j += 2;
+    } else if (c === quote && query[j + 1] === quote) {
+      text += quote;
+      j += 2;
+    } else if (c === quote) {
+      return text;
+    } else {
+      text += c;
+      j++;
+    }
+  }
+  return text;
+}
+
+function mssqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  let text: string;
+  if (typeof value === "bigint") text = String(value);
+  else if (value instanceof SqlDecimal) text = plainDecimal(value.value);
+  else if (value instanceof Uint8Array) {
+    return `0x${Array.from(value, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+  } else if (typeof value === "string" || value instanceof Date) {
+    return `N${escapeValueForInline(value)}`;
+  } else text = escapeValueForInline(value);
+  return text.startsWith("-") ? `(${text})` : text;
+}
+
+function mssqlLiteralText(value: unknown): string {
+  if (typeof value === "bigint") return String(value);
+  if (value instanceof SqlDecimal) return plainDecimal(value.value);
+  return escapeValueForInline(value, true);
+}
+
+const isTsqlWord = (c: string | undefined) => c !== undefined && /[\w@#$]/.test(c);
+
+function duckdbLiteral(value: unknown): string {
+  let text: string;
+  if (typeof value === "bigint") text = String(value);
+  else if (value instanceof SqlDecimal) text = plainDecimal(value.value);
+  else if (value instanceof Uint8Array) {
+    return `from_hex('${Array.from(value, (b) => b.toString(16).padStart(2, "0")).join("")}')`;
+  } else text = escapeValueForInline(value);
+  return text.startsWith("-") ? `(${text})` : text;
+}
+
+function duckdbLiteralText(value: unknown, backslashEscapes: boolean): string {
+  let text: string;
+  if (typeof value === "bigint") text = String(value);
+  else if (value instanceof SqlDecimal) text = plainDecimal(value.value);
+  else text = escapeValueForInline(value, true);
+  return backslashEscapes ? text.replaceAll("\\", "\\\\") : text;
+}
+
+const isDuckdbWord = (c: string | undefined) => c !== undefined && /[\w$]/.test(c);
+
+// ── Contexts ─────────────────────────────────────────────────────────────
+
+type Context =
+  | { kind: "comment" }
+  | { kind: "code" }
+  | { kind: "string"; token: SqlToken }
+  | { kind: "tag"; token: SqlToken; tag: string }
+  | { kind: "name" }
+  | { kind: "escaped" };
+
+/** Each `{{name}}` with its context. */
+function paramsOf(query: string, engine: DatabaseType) {
+  const mysql = engine === "mysql" || engine === "mariadb";
+  const tokens = scanTokens(query, engine, { execComments: true });
+  const stringQuotes = mysql ? "'\"" : "'";
+  return [...query.matchAll(PARAM_REGEX)].map((m) => {
+    const at = m.index;
+    const k = tokens.findIndex((t) => t.start <= at && at < t.end);
+    const token = tokens[k];
+    let context: Context;
+    if (!token) context = { kind: "comment" };
+    else if (token.kind !== "quoted") context = { kind: "code" };
+    else if (stringQuotes.includes(token.text[0]) || /^[Ee]'/.test(token.text)) {
+      // Rule `escaped`: `\{{p}}` in a string that takes backslash escapes.
+      const backslashes = mysql || /^[Ee]'/.test(token.text);
+      let run = 0;
+      while (backslashes && at - run - 1 > token.start && query[at - run - 1] === "\\") run++;
+      context = rule("escaped") && run % 2 === 1 ? { kind: "escaped" } : { kind: "string", token };
+    } else if (token.text.startsWith("$") && (engine === "postgres" || engine === "duckdb")) {
+      context = { kind: "tag", token, tag: dollarTag().exec(token.text)![0] };
+    } else context = { kind: "name" };
+    return { at, end: at + m[0].length, name: m[1], text: m[0], context, tokenIndex: k, tokens };
+  });
+}
+
+function tagCheck(name: string, text: string, tag: string): string {
+  if (text.includes(tag)) {
+    throw new ParameterSubstitutionError(
+      `The value for {{${name}}} contains the dollar-quote tag ${tag}; use a different tag or a '…' string`,
+    );
+  }
+  return text;
+}
+
+type Param = ReturnType<typeof paramsOf>[number];
+
+/**
+ * A `$tag$` string token with its parameters' raw text in. Each value is
+ * checked for the tag, and (rule `tag-edge`) the filled string must still end
+ * where the original did: a value can form the tag with the text next to it.
+ */
+function fillTag(
+  query: string,
+  t: SqlToken,
+  tag: string,
+  ps: Param[],
+  value: (n: string) => unknown,
+): string {
+  let out = "";
+  let last = t.start;
+  const ranges: [number, number, string][] = [];
+  for (const p of ps) {
+    out += query.slice(last, p.at);
+    const s = out.length;
+    out += tagCheck(p.name, rawText(checked(p.name, value(p.name))), tag);
+    ranges.push([s, out.length, p.name]);
+    last = p.end;
+  }
+  out += query.slice(last, t.end);
+  if (!rule("tag-edge")) return out;
+  const close = query.indexOf(tag, t.start + tag.length);
+  const terminated = close !== -1 && close + tag.length === t.end;
+  const first = out.indexOf(tag, tag.length);
+  if (first === (terminated ? out.length - tag.length : -1)) return out;
+  const hit =
+    ranges.find(([s, e]) => s < first + tag.length && e > first) ??
+    ranges.find(([s, e]) => s <= first + tag.length && e >= first) ??
+    ranges[0];
+  throw new ParameterSubstitutionError(
+    `The value for {{${hit[2]}}} forms the dollar-quote tag ${tag} with the text next to it; use a different tag or a '…' string`,
+  );
+}
+
+/** The parameters of `ps` in token `k` whose context is `kind`. */
+const inToken = (ps: Param[], k: number, kind: Context["kind"]) =>
+  ps.filter((p) => p.tokenIndex === k && p.context.kind === kind);
+
+type Result = { sql: string; bindValues: unknown[] };
+
+// ── Postgres and SQLite (bound and inline), MySQL/MariaDB inline ──────────
+
+function substituteByToken(
+  query: string,
+  paramMap: Map<string, unknown>,
+  engine: DatabaseType,
+  forceInline: boolean,
+): Result {
+  const mysql = engine === "mysql" || engine === "mariadb";
+  const inCode = (value: unknown) => {
+    let text = inlineText(value);
+    if (mysql && text.startsWith("'")) text = text.replaceAll("\\", "\\\\");
+    return text.startsWith("-") ? `(${text})` : text;
+  };
+  const inMysqlString = (value: unknown, quote: string) =>
+    inlineText(value, true)
+      .replaceAll("''", "'")
+      .replaceAll("\\", "\\\\")
+      .replaceAll(quote, quote + quote);
+  const bindValues: unknown[] = [];
+  const positions = new Map<string, number>();
+  const bind = (name: string) => {
+    if (!positions.has(name)) {
+      bindValues.push(paramMap.get(name) ?? null);
+      positions.set(name, bindValues.length);
+    }
+    return positions.get(name)!;
+  };
+  const params = paramsOf(query, engine);
+  const out = new Out();
+  let last = 0;
+  for (const p of params) {
+    if (p.at < last) continue; // in a `$tag$` string already filled
+    const value = () => checked(p.name, paramMap.get(p.name));
+    const c = p.context;
+    let replacement: string;
+    if (c.kind === "comment" || c.kind === "name" || c.kind === "escaped") replacement = p.text;
+    else if (c.kind === "code" && forceInline) {
+      out.text(query.slice(last, p.at));
+      out.value(inCode(value()));
+      last = p.end;
+      continue;
+    } else if (c.kind === "code") replacement = `$${bind(p.name)}`;
+    else if (c.kind === "tag") {
+      const t = c.token;
+      out.text(query.slice(last, t.start));
+      out.text(
+        fillTag(query, t, c.tag, inToken(params, p.tokenIndex, "tag"), (n) => paramMap.get(n)),
+      );
+      last = t.end;
+      continue;
+    } else if (mysql) replacement = inMysqlString(value(), c.token.text[0]);
+    else if (c.token.text.startsWith("'")) {
+      replacement = forceInline ? inlineText(value(), true) : `' || $${bind(p.name)} || '`;
+    } else {
+      replacement = forceInline
+        ? inlineText(value(), true).replaceAll("\\", "\\\\")
+        : `' || $${bind(p.name)} || E'`;
+    }
+    out.text(query.slice(last, p.at));
+    out.text(replacement);
+    last = p.end;
+  }
+  out.text(query.slice(last));
+  return { sql: out.sql, bindValues };
+}
+
+// ── MySQL and MariaDB, bound ──────────────────────────────────────────────
+
+function substituteMysqlBound(
+  query: string,
+  paramMap: Map<string, unknown>,
+  engine: DatabaseType,
+): Result {
+  const params = paramsOf(query, engine);
+  const tokens = params[0]?.tokens ?? [];
+  const value = (name: string) => paramMap.get(name) ?? null;
+  const isString = (t: SqlToken | undefined) =>
+    !!t && t.kind === "quoted" && (t.text[0] === "'" || t.text[0] === '"');
+  /** The run of adjacent string literals (joined by whitespace only) that token `k` is in. */
+  const runOf = (k: number) => {
+    let first = k;
+    while (
+      isString(tokens[first - 1]) &&
+      /^\s*$/.test(query.slice(tokens[first - 1].end, tokens[first].start))
+    ) {
+      first--;
+    }
+    let last = k;
+    while (
+      isString(tokens[last + 1]) &&
+      /^\s*$/.test(query.slice(tokens[last].end, tokens[last + 1].start))
+    ) {
+      last++;
+    }
+    return { first, last };
+  };
+  const bindValues: unknown[] = [];
+  let sql = "";
+  let pos = 0;
+  let skipUntil = -1;
+  for (const p of params) {
+    if (p.at < skipUntil) continue;
+    const c = p.context;
+    if (c.kind === "code") {
+      sql += query.slice(pos, p.at) + "?";
+      bindValues.push(value(p.name));
+      pos = p.end;
+    } else if (c.kind === "string") {
+      const { first, last } = runOf(p.tokenIndex);
+      const run = tokens.slice(first, last + 1);
+      let isNull = false;
+      let filled: string;
+      if (rule("escaped")) {
+        // Only the parameters written in the literals, with the escapes around them resolved.
+        const real = new Map(
+          params.filter((q) => q.context.kind === "string").map((q) => [q.at, q] as const),
+        );
+        filled = run
+          .map((t) =>
+            mysqlLiteralText(query, t.start, (j) => {
+              const q = real.get(j);
+              if (!q) return null;
+              const text = concatText(value(q.name));
+              if (text === null) isNull = true;
+              return { text: text ?? "", end: q.end };
+            }),
+          )
+          .join("");
+      } else {
+        const text = run.map((t) => mysqlLiteralText(query, t.start)).join("");
+        filled = text.replace(PARAM_REGEX, (_m, name: string) => {
+          const t = concatText(value(name));
+          if (t === null) isNull = true;
+          return t ?? "";
+        });
+      }
+      // A charset introducer right before: `N` touching the quote, or `_charset` and spaces.
+      const prev = tokens[first - 1];
+      let start = tokens[first].start;
+      if (prev?.kind === "word") {
+        const gap = query.slice(prev.end, start);
+        if (
+          (/^[Nn]$/.test(prev.text) && gap === "") ||
+          (/^_[A-Za-z0-9_]+$/.test(prev.text) && /^\s*$/.test(gap))
+        ) {
+          start = prev.start;
+        }
+      }
+      sql += query.slice(pos, start) + "?";
+      bindValues.push(isNull ? null : filled);
+      pos = tokens[last].end;
+      skipUntil = pos;
+    }
+    // A comment or a backtick name: left as it is.
+  }
+  return { sql: sql + query.slice(pos), bindValues };
+}
+
+// ── SQL Server and DuckDB (inline) ──────────────────────────────────────────
+
+function substituteInline(
+  query: string,
+  paramMap: Map<string, unknown>,
+  engine: "mssql" | "duckdb",
+): Result {
+  const value = (name: string) => checked(name, paramMap.get(name));
+  const isWord = engine === "mssql" ? isTsqlWord : isDuckdbWord;
+  const out = new Out();
+  let pos = 0;
+  let skipUntil = -1;
+  const params = paramsOf(query, engine);
+  /** Token `t`'s text with its string-context parameters replaced by `fn(name)`. */
+  const fillString = (t: SqlToken, k: number, fn: (name: string) => string) => {
+    let out = "";
+    let last = t.start;
+    for (const q of inToken(params, k, "string")) {
+      out += query.slice(last, q.at) + fn(q.name);
+      last = q.end;
+    }
+    return out + query.slice(last, t.end);
+  };
+  for (const p of params) {
+    if (p.at < skipUntil) continue;
+    const c = p.context;
+    if (c.kind === "code") {
+      out.text(query.slice(pos, p.at));
+      out.value(
+        engine === "mssql" ? mssqlLiteral(value(p.name)) : duckdbLiteral(value(p.name)),
+        isWord,
+      );
+      pos = p.end;
+    } else if (c.kind === "string" || c.kind === "tag") {
+      const t = c.token;
+      out.text(query.slice(pos, t.start));
+      let filled: string;
+      if (c.kind === "tag") {
+        filled = fillTag(query, t, c.tag, inToken(params, p.tokenIndex, "tag"), (n) =>
+          paramMap.get(n),
+        );
+      } else if (engine === "mssql") {
+        filled = fillString(t, p.tokenIndex, (name) => mssqlLiteralText(value(name)));
+        const prefixed = /(?:^|[^\w@#$])[Nn]$/.test(out.sql);
+        // oxlint-disable-next-line no-control-regex
+        if (!prefixed && /[^\x00-\x7f]/.test(filled)) out.value("N", isWord, false);
+      } else {
+        const escapes = /^[Ee]'/.test(t.text);
+        filled = fillString(t, p.tokenIndex, (name) => duckdbLiteralText(value(name), escapes));
+      }
+      out.text(filled);
+      pos = t.end;
+      skipUntil = pos;
+    }
+    // A comment or a quoted name: left as it is.
+  }
+  out.text(query.slice(pos));
+  return { sql: out.sql, bindValues: [] };
+}
+
+export function substituteModel(
+  query: string,
+  parameterValues: ParameterValue[],
+  engine: DatabaseType,
+  forceInline = false,
+): Result {
+  const paramMap = new Map(parameterValues.map((p) => [p.name, p.value]));
+  const mysql = engine === "mysql" || engine === "mariadb";
+  if (engine === "mssql" || engine === "duckdb") return substituteInline(query, paramMap, engine);
+  if (mysql && !forceInline) return substituteMysqlBound(query, paramMap, engine);
+  return substituteByToken(query, paramMap, engine, forceInline);
+}

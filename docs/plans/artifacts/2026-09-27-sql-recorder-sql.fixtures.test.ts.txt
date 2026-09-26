@@ -1,0 +1,1010 @@
+/**
+ * Parity fixtures for `seaquel-sql` (Rust Core Phase 2b, Task 2).
+ *
+ * Runs today's TypeScript SQL code, and the bug-fix models next to it, on the
+ * AST corpus (corpus.ts), the scanner corpus (scanner-corpus.ts), the
+ * CREATE TABLE corpus below and the acceptance statements (acceptance.ts),
+ * and compares the results with crates/seaquel-sql/tests/fixtures/*.json.
+ *
+ *   RECORD_FIXTURES=1 npx vitest run scripts/sql-fixtures   # write them
+ *   npx vitest run scripts/sql-fixtures                     # check them
+ *
+ * Check mode needs no database and no cargo. Record mode also runs the
+ * spike's `accept-cli` (spike/sql-spike, through cargo) for acceptance.json.
+ *
+ * Every fixture file is `{ "cases": [{ "name", "input", "output" }] }`, the
+ * shape the engine fixtures use, plus shared inputs at the top level where a
+ * file needs them. Where a bug-fix model decides the output, the case has
+ * `"fixes": [n, …]` and bugfixes.json's `modelCases` has an entry with the
+ * reason and what the TS gives. bugfixes.json's `cases` are written by hand;
+ * a case there with `replaces` supersedes a recorded case. See the README.
+ *
+ * This file and its models are deleted with the TS (Task 12 keeps a copy in
+ * docs/plans/artifacts/).
+ */
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Parser } from "node-sql-parser";
+import { describe, expect, it, vi } from "vitest";
+import { resolveColumnSources } from "$lib/db/column-sources";
+import { parseCreateTableSql } from "$lib/db/parse-create-table";
+import {
+  ParameterSubstitutionError,
+  extractParameters,
+  hasParameters,
+  substituteParameters,
+} from "$lib/db/query-params";
+import {
+  detectQueryType,
+  extractTableFromSelect,
+  isDestructiveStatement,
+} from "$lib/db/query-utils";
+import { getParseError, parseQueryForVisualization } from "$lib/db/sql-ast-parser";
+import { getStatementAtOffset, splitSqlStatements, type ParsedStatement } from "$lib/db/sql-parser";
+import { countQuery, hasRowLimit, sqlTokens } from "$lib/engine/sql-scan";
+import { applyParsedSqlToState } from "$lib/hooks/query-builder-parsed-sql";
+import { buildSql } from "$lib/hooks/query-builder-sql";
+import { validateReadOnlyQuery } from "$lib/services/ai/context";
+import { parseSql, type ParsedQuery } from "$lib/tutorial/sql-parser";
+import { LESSONS } from "$lib/tutorial/lessons";
+import { TUTORIAL_SCHEMA, getTableNames } from "$lib/tutorial/schema";
+import type {
+  Challenge,
+  CreateTableDefinition,
+  DatabaseType,
+  QueryBuilderSnapshot,
+  SchemaTable,
+} from "$lib/types";
+import { tutorialToQueryBuilder } from "$lib/utils/schema-adapter";
+import { encodeParam } from "$lib/values";
+import { buildAcceptanceItems } from "./acceptance";
+import { buildCorpus, tableRefFor, type CorpusEntry, type TableRefKind } from "./corpus";
+import { CREATE_TABLE_CASES } from "./create-table-corpus";
+import { substituteModel, VALUE_RULES, withoutValueRule, type ValueRule } from "./params-model";
+import { buildScannerCorpus, DEFAULT_VALUE, ENGINES, type ParamValue } from "./scanner-corpus";
+import { countQueryModel, hasRowLimitModel, SWITCHABLE_FIXES, withoutFix } from "./scan-model";
+import { splitModel, statementAtModel } from "./split-model";
+import {
+  destructiveModel,
+  queryTypeModel,
+  readOnlyModel,
+  tableFromSelectModel,
+} from "./statements-model";
+import { parseQueryForVisualization as visualModel, VISUAL_FIXES } from "./visual-fixed";
+import { CREATE_TABLE_FIXES, parseCreateTableSql as createTableModel } from "./create-table-fixed";
+
+const RECORD = process.env.RECORD_FIXTURES === "1";
+
+/** Each engine's openers of a literal or quoted name (sql-scan.ts's header). */
+const QUOTE_STYLES: Record<DatabaseType, string[]> = {
+  postgres: ["'", '"', "E'", "$$", "$t$"],
+  duckdb: ["'", '"', "E'", "$$", "$t$"],
+  mysql: ["'", '"', "`"],
+  mariadb: ["'", '"', "`"],
+  sqlite: ["'", '"', "`", "["],
+  mssql: ["'", '"', "["],
+};
+const DIR = fileURLToPath(new URL("../../crates/seaquel-sql/tests/fixtures/", import.meta.url));
+const SPIKE_CRATE = fileURLToPath(new URL("../../spike/sql-spike/", import.meta.url));
+
+// ---------------------------------------------------------------------------
+// Shapes
+// ---------------------------------------------------------------------------
+
+interface FixtureCase {
+  name: string;
+  input: unknown;
+  output: unknown;
+  /**
+   * Bug fixes whose model decided `output`, where today's TS gives something
+   * else. Per engine (`{ "mysql": [10] }`) in the scanner files, whose
+   * `output` is per engine too.
+   */
+  fixes?: number[] | Record<string, number[]>;
+}
+
+type FixtureFile = Record<string, unknown> & { cases: FixtureCase[] };
+
+/** A case a model changed: generated, in bugfixes.json's `modelCases`. */
+interface ModelCase {
+  name: string;
+  fixes: number[];
+  /** `<file>: <case name>` of the fixture case it describes. */
+  case: string;
+  /** Scanner files: the engine whose output it describes. */
+  engine?: DatabaseType;
+  reason: string;
+  /** Where today's TS differs from the fixture: `path: <TS> → <fixed>`. */
+  diff: string[];
+}
+
+/** A case written by hand, in bugfixes.json's `cases`. */
+interface HandCase {
+  name: string;
+  fix: number;
+  kind: string;
+  /** `<file>: <case name>`: this case's output supersedes that fixture case's. */
+  replaces?: string;
+  reason: string;
+  input: unknown;
+  output: unknown;
+  /** Standalone cases: what today's TS gives, checked here. */
+  ts?: unknown;
+}
+
+interface Bugfixes {
+  about: string;
+  cases: HandCase[];
+  modelCases: ModelCase[];
+}
+
+/** JSON as the fixture holds it: `undefined` dropped, NaN as null. */
+const json = <T = unknown>(v: unknown): T => JSON.parse(JSON.stringify(v ?? null)) as T;
+
+/** Paths where `a` (today's TS) and `b` (fixed) differ. */
+function diff(a: unknown, b: unknown, path = "$", out: string[] = []): string[] {
+  if (a === b) return out;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") {
+    out.push(`${path}: ${JSON.stringify(a)} → ${JSON.stringify(b)}`);
+    return out;
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) {
+    out.push(`${path}: ${JSON.stringify(a)} → ${JSON.stringify(b)}`);
+    return out;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) out.push(`${path}.length: ${a.length} → ${b.length}`);
+    for (let i = 0; i < Math.min(a.length, b.length); i++) diff(a[i], b[i], `${path}[${i}]`, out);
+    return out;
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(ao), ...Object.keys(bo)])) {
+    diff(ao[k], bo[k], `${path}.${k}`, out);
+  }
+  return out;
+}
+
+const MAX_DIFF = 8;
+const capped = (lines: string[]) =>
+  lines.length > MAX_DIFF
+    ? [...lines.slice(0, MAX_DIFF), `(+${lines.length - MAX_DIFF} more)`]
+    : lines;
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(json(a)) === JSON.stringify(json(b));
+
+// ---------------------------------------------------------------------------
+// AST corpus: tutorial, builder, criteria, visual, parse-error, column sources
+// ---------------------------------------------------------------------------
+
+const builderSchema = tutorialToQueryBuilder(TUTORIAL_SCHEMA);
+
+/** Every tutorial table in each schema the qualified round trips use (the spike's schema). */
+const columnSchemas = ["public", "Sales", "shop", "dbo", "main"].flatMap((schemaName) =>
+  TUTORIAL_SCHEMA.map((t) => ({
+    name: t.name,
+    schema: schemaName,
+    columns: t.columns.map((c) => ({ name: c.name, isPrimaryKey: !!c.primaryKey })),
+  })),
+);
+
+const challenges = new Map<string, Challenge>();
+for (const lesson of Object.values(LESSONS))
+  for (const c of lesson.challenges) challenges.set(c.id, c);
+
+function emptySnapshot(): QueryBuilderSnapshot {
+  return {
+    tables: [],
+    joins: [],
+    filters: [],
+    groupBy: [],
+    having: [],
+    orderBy: [],
+    limit: null,
+    selectAggregates: [],
+    subqueries: [],
+    ctes: [],
+  };
+}
+
+const tutorialParse = (e: { sql: string; validTables: "tutorial" | null }) =>
+  parseSql(e.sql, { validTableNames: e.validTables === "tutorial" ? undefined : null });
+
+/** The SQL `buildSql` regenerates from a `ParsedQuery`, with the entry's table-name resolver. */
+function regenerate(parsed: ParsedQuery | null, tableRef: TableRefKind): string | null {
+  if (!parsed) return null;
+  const s = applyParsedSqlToState(builderSchema, parsed, [], [], []);
+  return buildSql(
+    s.tables,
+    s.joins,
+    s.filters,
+    s.groupBy,
+    s.having,
+    s.orderBy,
+    s.limit,
+    s.selectAggregates,
+    s.subqueries,
+    s.ctes,
+    tableRefFor(tableRef),
+  );
+}
+
+/** Each lesson criterion's verdict, with a null parse keeping the (empty) last state, as the tutorial does. */
+function criteria(challengeId: string, parsed: ParsedQuery | null, sql: string) {
+  const challenge = challenges.get(challengeId);
+  if (!challenge) throw new Error(`no challenge ${challengeId}`);
+  const snap = parsed ? applyParsedSqlToState(builderSchema, parsed, [], [], []) : emptySnapshot();
+  return Object.fromEntries(challenge.criteria.map((c) => [c.id, c.check(snap, sql)]));
+}
+
+const VISUAL_REASONS: Record<number, string> = {
+  1: "fix 1: column names printed as [object Object] (node-sql-parser 5.x wraps them in objects)",
+  2: "fix 2: a query without LIMIT got a LIMIT node with count NaN (5.x gives `limit` as { value: [] })",
+  3: 'fix 3: window and other non-aggregate function calls printed as "" or [object Object](…)',
+  4: "fix 4: DISTINCT was never detected (5.x gives `distinct` as an object)",
+  6: 'fix 6: a `var` node (`$1`, `$$…$$`, `@v`) printed as "", and a `:name` parameter as `$name`',
+  15: "fix 15: a cast printed as CAST(x AS unknown) (for `::` too), and a `::` cast was dropped from GROUP BY",
+};
+
+/**
+ * The fixes that make the model's visual output differ from the TS: fixes
+ * 1–4 by the spike's patterns (on the model with 6 and 15 off), fixes 6 and 15
+ * by leaving each out.
+ */
+function visualFixes(
+  sql: string,
+  engine: DatabaseType,
+  ts: unknown,
+  fixed: unknown,
+  pattern: (line: string) => number,
+): number[] {
+  const base = json(visualModel(sql, engine, []));
+  const fixes = new Set(diff(ts, base).map(pattern));
+  if (!sameJson(base, fixed)) {
+    const ablated = VISUAL_FIXES.filter(
+      (f) =>
+        !sameJson(
+          json(
+            visualModel(
+              sql,
+              engine,
+              VISUAL_FIXES.filter((x) => x !== f),
+            ),
+          ),
+          fixed,
+        ),
+    );
+    if (ablated.length === 0)
+      throw new Error(`visual model: no fix explains the change for ${sql}`);
+    for (const f of ablated) fixes.add(f);
+  }
+  return [...fixes].sort((a, b) => a - b);
+}
+
+const nodeParser = new Parser();
+const NODE_DIALECT: Record<DatabaseType, string> = {
+  postgres: "PostgreSQL",
+  mysql: "MySQL",
+  mariadb: "MariaDB",
+  sqlite: "SQLite",
+  mssql: "TransactSQL",
+  duckdb: "PostgreSQL",
+};
+
+/**
+ * The fix a visual diff line comes from: the spike's four patterns
+ * (spike/harness/harness.test.ts, `visualCategory`), with a function name's
+ * `[object Object](` told apart as fix 3, and a TS `null` for SQL
+ * node-sql-parser parses (the TS threw on a function name) as fix 3 too.
+ */
+function visualFix(line: string, e: CorpusEntry): number {
+  if (line.includes("[object Object](")) return 3;
+  if (line.includes("[object Object]")) return 1;
+  if (/\$(\.\w+\[\d+\]\.subquery)*\.limit: \{"count":null\} → null/.test(line)) return 2;
+  if (/\.distinct: false → true/.test(line)) return 4;
+  if (/\.expression: "" → "[A-Z_]+\(/.test(line)) return 3;
+  if (line.startsWith("$: null → {")) {
+    nodeParser.astify(e.sql, { database: NODE_DIALECT[e.dialect] }); // throws if it doesn't parse
+    return 3;
+  }
+  throw new Error(
+    `${e.id}: the visual model differs from the TS in a way fixes 1–4 don't explain: ${line}`,
+  );
+}
+
+function astFixtures() {
+  const corpus = buildCorpus();
+  const tutorial: FixtureCase[] = [];
+  const builder: FixtureCase[] = [];
+  const criteriaCases: FixtureCase[] = [];
+  const visual: FixtureCase[] = [];
+  const parseError: FixtureCase[] = [];
+  const columnSources: FixtureCase[] = [];
+  const modelCases: ModelCase[] = [];
+
+  for (const e of corpus) {
+    const input = { sql: e.sql, engine: e.dialect };
+    const parsed = tutorialParse(e);
+    tutorial.push({
+      name: e.id,
+      input: { sql: e.sql, validTables: e.validTables },
+      output: json(parsed),
+    });
+
+    if (e.kind === "roundtrip") {
+      builder.push({
+        name: e.id,
+        input: {
+          sql: e.sql,
+          engine: e.dialect,
+          tableRef: e.tableRef ?? "bare",
+          validTables: e.validTables,
+        },
+        output: json({ parsed, sql: regenerate(parsed, e.tableRef ?? "bare") }),
+      });
+    }
+    if (e.kind === "tutorial") {
+      criteriaCases.push({
+        name: e.id,
+        input: { challengeId: e.challengeId, sql: e.sql },
+        output: criteria(e.challengeId!, parsed, e.sql),
+      });
+    }
+
+    const ts = json(parseQueryForVisualization(e.sql, e.dialect));
+    const fixed = json(visualModel(e.sql, e.dialect));
+    const lines = diff(ts, fixed);
+    const fixes = visualFixes(e.sql, e.dialect, ts, fixed, (l) => visualFix(l, e));
+    visual.push({ name: e.id, input, output: fixed, ...(fixes.length ? { fixes } : {}) });
+    if (fixes.length) {
+      modelCases.push({
+        name: `visual: ${e.id}`,
+        fixes,
+        case: `visual.json: ${e.id}`,
+        reason: fixes.map((f) => VISUAL_REASONS[f]).join("; "),
+        diff: capped(lines),
+      });
+    }
+
+    parseError.push({ name: e.id, input, output: getParseError(e.sql, e.dialect) !== null });
+    columnSources.push({
+      name: e.id,
+      input,
+      output: json(
+        resolveColumnSources(e.sql, e.dialect, columnSchemas as unknown as SchemaTable[]),
+      ),
+    });
+  }
+
+  const tutorialSchema = Object.fromEntries(
+    TUTORIAL_SCHEMA.map((t) => [t.name, t.columns.map((c) => c.name)]),
+  );
+  return {
+    files: {
+      "tutorial.json": { tutorialSchema, tutorialTables: getTableNames(), cases: tutorial },
+      "builder.json": { cases: builder },
+      "criteria.json": { cases: criteriaCases },
+      "visual.json": { cases: visual },
+      "parse-error.json": { cases: parseError },
+      "column-sources.json": { schemas: columnSchemas, cases: columnSources },
+    } satisfies Record<string, FixtureFile>,
+    modelCases,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Scanner corpus: split, statement at, row limit, count, statements, read-only, params
+// ---------------------------------------------------------------------------
+
+/** Statement at every UTF-16 offset 0..=length, as runs `[from, to, index | null]` (inclusive). */
+function runs(n: number, at: (offset: number) => number | null): [number, number, number | null][] {
+  const out: [number, number, number | null][] = [];
+  for (let o = 0; o <= n; o++) {
+    const v = at(o);
+    const last = out[out.length - 1];
+    if (last && last[2] === v) last[1] = o;
+    else out.push([o, o, v]);
+  }
+  return out;
+}
+
+const statementKey = (s: ParsedStatement | null) => JSON.stringify(s);
+const short = (s: string) =>
+  s.length > 40 ? `${JSON.stringify(s.slice(0, 40))}…` : JSON.stringify(s);
+
+/** Where the TS statement at cursor differs from the model: offset ranges. */
+function statementAtDiff(sql: string, engine: DatabaseType, model: ParsedStatement[]): string[] {
+  const lines: string[] = [];
+  let from = -1;
+  let prev = "";
+  const flush = (to: number) => {
+    if (from < 0) return;
+    const ts = getStatementAtOffset(sql, from, engine);
+    const fixed = statementAtModel(model, from);
+    lines.push(
+      `offsets ${from}–${to}: ${ts ? `${ts.index} ${short(ts.sql)}` : "null"} → ${fixed ? `${fixed.index} ${short(fixed.sql)}` : "null"}`,
+    );
+    from = -1;
+  };
+  for (let o = 0; o <= sql.length; o++) {
+    const ts = statementKey(getStatementAtOffset(sql, o, engine));
+    const fixed = statementKey(statementAtModel(model, o));
+    const key = ts === fixed ? "" : `${ts}|${fixed}`;
+    if (key !== prev) {
+      flush(o - 1);
+      if (key) from = o;
+      prev = key;
+    }
+  }
+  flush(sql.length);
+  return lines;
+}
+
+const SCANNER_REASONS: Record<number, string> = {
+  10: "fix 10: the TS scanners ignore the engine's quoting and comments (MySQL executable comments are code; a Postgres/DuckDB `--` comment ends at \\r too; a MySQL `--` comment needs ASCII space or a control char after it; a `$tag$` of any length; DuckDB's substitution uses the shared scanner)",
+  11: "fix 11: the query type and the destructive check now read tokens, so strings and comments (and MySQL `#` comments) no longer hide or fake keywords; EXPLAIN ANALYZE, CTE and MERGE deletes, DROP without COLUMN, more DROP kinds and T-SQL statements without `;` are caught, and only the DELETE's or UPDATE's own WHERE counts",
+  12: "fix 12: the source table is the first top-level FROM's, read from tokens and unquoted per engine",
+  13: "fix 13: {{param}} substitution takes comments, quoted names, E'…' and $tag$ strings from the tokenizer (Postgres/SQLite bound and forced inline, MySQL forced inline; MariaDB runs /*M! … */, so its {{param}} is substituted)",
+  14: "fix 14: the read-only check runs on tokens, statement by statement, with the longer keyword list, blocked functions, SQL Server's statement words, MySQL's executable comments refused and both MySQL sql_mode readings",
+  18: "fix 18: a number token ends where the numeric literal ends (the TS ran `1INTO` into one word)",
+  19: "fix 19: word characters follow each engine's identifier rule (the TS split words at combining marks and astral letters)",
+};
+
+/** Why each of fix 13's value rules (params-model.ts) changed a case. */
+const VALUE_RULE_REASONS: Record<ValueRule, string> = {
+  "tag-edge":
+    "a value that forms the $tag$ with the text next to it would end the dollar-quoted string early, so it's refused",
+  escaped:
+    "a {{param}} after an odd run of \\ in a string that takes backslash escapes (E'…', MySQL '…' and \"…\") is escaped text, not a parameter: filling it let the \\ escape the value's first quote",
+  decimal:
+    "a decimal value that isn't a finite decimal number is refused where its text goes into the SQL",
+  "int-digits": "a bigint inlines as its digits, like a number, not as a quoted string",
+  adjacent:
+    "a value inlined in code is spaced off its neighbours: a quoted value right after a quote would merge with that literal through '' (and a \\ in it could then end an E'…' string early), and a number, NULL or boolean followed by a word character or $ would fuse into one word",
+};
+
+/** Runs `fn` with every value rule of fix 13 switched off. */
+const withoutValueRules = <T>(fn: () => T): T =>
+  VALUE_RULES.reduce<() => T>((f, r) => () => withoutValueRule(r, f), fn)();
+
+const valuesOf = (v: Record<string, ParamValue>) =>
+  Object.entries(v).map(([name, value]) => ({ name, value }));
+
+function substituteOutput(run: () => { sql: string; bindValues: unknown[] }): unknown {
+  try {
+    const { sql, bindValues } = run();
+    return { sql, bindValues: bindValues.map(encodeParam) };
+  } catch (e) {
+    if (e instanceof ParameterSubstitutionError) return { error: e.message };
+    throw e;
+  }
+}
+
+/**
+ * A model's output and the fixes that make it differ from today's TS: each of
+ * the scanner's switchable fixes (10's comment and tag rules, 18's number
+ * tokens, 19's word characters) whose leaving out changes the output, and the
+ * model's own fixes (`base`, given the diff lines) if the model with all of
+ * them off still differs from the TS. `lines` is where the TS differs.
+ */
+function attributed<T>(
+  ts: unknown,
+  run: () => T,
+  base: (lines: string[]) => number[],
+): { out: T; fixes: number[]; lines: string[] } {
+  const out = run();
+  const lines = diff(json(ts), json(out));
+  if (lines.length === 0) return { out, fixes: [], lines };
+  const fixes = new Set<number>();
+  for (const f of SWITCHABLE_FIXES) if (!sameJson(out, withoutFix(f, run))) fixes.add(f);
+  const allOff = SWITCHABLE_FIXES.reduce<() => T>((fn, f) => () => withoutFix(f, fn), run)();
+  const baseLines = diff(json(ts), json(allOff));
+  if (baseLines.length) for (const f of base(baseLines)) fixes.add(f);
+  return { out, fixes: [...fixes].sort((a, b) => a - b), lines };
+}
+
+/** Per-engine outputs of one scanner input, and the fixes that decided them. */
+class PerEngine {
+  output: Record<string, unknown> = {};
+  fixes: Record<string, number[]> = {};
+  set(engine: DatabaseType, value: unknown, fixes: number[]) {
+    this.output[engine] = value;
+    if (fixes.length) this.fixes[engine] = fixes;
+  }
+  toCase(name: string, input: unknown): FixtureCase {
+    return Object.keys(this.fixes).length
+      ? { name, input, output: this.output, fixes: this.fixes }
+      : { name, input, output: this.output };
+  }
+}
+
+function scannerFixtures() {
+  const corpus = buildScannerCorpus();
+  const split: FixtureCase[] = [];
+  const statementAt: FixtureCase[] = [];
+  const rowLimit: FixtureCase[] = [];
+  const count: FixtureCase[] = [];
+  const statements: FixtureCase[] = [];
+  const readOnly: FixtureCase[] = [];
+  const params: FixtureCase[] = [];
+  const modelCases: ModelCase[] = [];
+  const note = (
+    file: string,
+    name: string,
+    engine: DatabaseType,
+    fixes: number[],
+    lines: string[],
+    extra = "",
+  ) => {
+    modelCases.push({
+      name: `${file.replace(/\.json$/, "")}: ${name} [${engine}]`,
+      fixes,
+      case: `${file}: ${name}`,
+      engine,
+      reason: fixes.map((f) => SCANNER_REASONS[f]).join("; ") + extra,
+      diff: capped(lines),
+    });
+  };
+
+  for (const entry of corpus) {
+    const { id, sql } = entry;
+    const splitOut = new PerEngine();
+    const atOut = new PerEngine();
+    const limitOut = new PerEngine();
+    const countOut = new PerEngine();
+    const stOut = new PerEngine();
+    const roOut = new PerEngine();
+
+    for (const engine of ENGINES) {
+      // Split (fix 10, and 18 where number tokens change it)
+      const ts = splitSqlStatements(sql, engine);
+      const split = attributed(
+        ts,
+        () => splitModel(sql, engine),
+        () => [10],
+      );
+      const model = split.out;
+      splitOut.set(engine, model, split.fixes);
+      if (split.fixes.length) {
+        note(
+          "split.json",
+          id,
+          engine,
+          split.fixes,
+          split.lines,
+          ` (${ts.length} statement(s) → ${model.length})`,
+        );
+      }
+
+      // Statement at every offset (follows the split)
+      const atLines = statementAtDiff(sql, engine, model);
+      const atFixes = atLines.length ? (split.fixes.length ? split.fixes : [10]) : [];
+      atOut.set(
+        engine,
+        runs(sql.length, (o) => statementAtModel(model, o)?.index ?? null),
+        atFixes,
+      );
+      if (atLines.length) note("statement-at.json", id, engine, atFixes, atLines);
+
+      // Row limit and count (fix 18's number tokens, fix 10's `\r` comment end)
+      const limit = attributed(
+        hasRowLimit(sql, engine),
+        () => hasRowLimitModel(sql, engine),
+        () => [10],
+      );
+      limitOut.set(engine, limit.out, limit.fixes);
+      if (limit.fixes.length) note("row-limit.json", id, engine, limit.fixes, limit.lines);
+      if (!id.startsWith("schema:")) {
+        const count = attributed(
+          countQuery(sql, engine),
+          () => countQueryModel(sql, engine),
+          () => [10],
+        );
+        countOut.set(engine, count.out, count.fixes);
+        if (count.fixes.length) note("count-query.json", id, engine, count.fixes, count.lines);
+      }
+
+      // Statement checks (fixes 11 and 12)
+      const tsStatements = json({
+        queryType: detectQueryType(sql),
+        destructive: isDestructiveStatement(sql),
+        table: extractTableFromSelect(sql),
+      });
+      const st = attributed(
+        tsStatements,
+        () =>
+          json({
+            queryType: queryTypeModel(sql, engine),
+            destructive: destructiveModel(sql, engine),
+            table: tableFromSelectModel(sql, engine),
+          }),
+        (lines) => [
+          ...(lines.some((l) => !l.startsWith("$.table")) ? [11] : []),
+          ...(lines.some((l) => l.startsWith("$.table")) ? [12] : []),
+        ],
+      );
+      stOut.set(engine, st.out, st.fixes);
+      if (st.fixes.length) note("statements.json", id, engine, st.fixes, st.lines);
+
+      // Read-only check (fix 14)
+      const ro = attributed(
+        validateReadOnlyQuery(sql),
+        () => readOnlyModel(sql, engine),
+        () => [14],
+      );
+      roOut.set(engine, ro.out, ro.fixes);
+      if (ro.fixes.length) note("read-only.json", id, engine, ro.fixes, ro.lines);
+    }
+
+    const input = { sql };
+    split.push(splitOut.toCase(id, input));
+    statementAt.push(atOut.toCase(id, input));
+    rowLimit.push(limitOut.toCase(id, input));
+    // A count query wraps one statement; the whole schema files add nothing but bytes.
+    if (!id.startsWith("schema:")) count.push(countOut.toCase(id, input));
+    statements.push(stOut.toCase(id, input));
+    readOnly.push(roOut.toCase(id, input));
+
+    // {{param}}: extraction is engine-agnostic.
+    params.push({
+      name: id,
+      input: { kind: "extract", sql },
+      output: { parameters: extractParameters(sql), hasParameters: hasParameters(sql) },
+    });
+
+    // Substitution (fix 13): every input with parameters, per value set and forceInline.
+    if (!hasParameters(sql)) continue;
+    const sets = entry.values ?? [
+      Object.fromEntries(extractParameters(sql).map((p) => [p, DEFAULT_VALUE])),
+    ];
+    sets.forEach((set, k) => {
+      for (const forceInline of [false, true]) {
+        const name = `${id} values ${k}${forceInline ? " inline" : ""}`;
+        const values = valuesOf(set);
+        const out = new PerEngine();
+        for (const engine of ENGINES) {
+          const tsOut = substituteOutput(() =>
+            substituteParameters(sql, values, engine, forceInline),
+          );
+          const run = () =>
+            substituteOutput(() => substituteModel(sql, values, engine, forceInline));
+          // The value rules are fix 13's own: the scanner's fixes and the base
+          // fix are judged with them off, and each rule that changes the
+          // output adds 13 with its reason.
+          const p = attributed(
+            withoutValueRules(() => tsOut),
+            () => withoutValueRules(run),
+            () => (engine === "duckdb" ? [10] : [13]),
+          );
+          const outFixed = run();
+          const rules = VALUE_RULES.filter((r) => !sameJson(outFixed, withoutValueRule(r, run)));
+          const lines = diff(json(tsOut), json(outFixed));
+          const fixes = [...new Set([...p.fixes, ...(rules.length ? [13] : [])])].sort(
+            (a, b) => a - b,
+          );
+          out.set(engine, outFixed, lines.length ? fixes : []);
+          if (lines.length && fixes.length) {
+            const extra = rules.length
+              ? ` (${rules.map((r) => VALUE_RULE_REASONS[r]).join("; ")})`
+              : "";
+            note("params.json", name, engine, fixes, lines, extra);
+          }
+        }
+        params.push(
+          out.toCase(name, {
+            kind: "substitute",
+            sql,
+            values: values.map((v) => ({ name: v.name, value: encodeParam(v.value) })),
+            forceInline,
+          }),
+        );
+      }
+    });
+  }
+
+  return {
+    files: {
+      "split.json": { cases: split },
+      "statement-at.json": { cases: statementAt },
+      "row-limit.json": { cases: rowLimit },
+      "count-query.json": { cases: count },
+      "statements.json": { cases: statements },
+      "read-only.json": { cases: readOnly },
+      "params.json": { cases: params },
+    } satisfies Record<string, FixtureFile>,
+    modelCases,
+    inputs: corpus.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CREATE TABLE
+// ---------------------------------------------------------------------------
+
+/** A CREATE TABLE definition without its random `id`s. */
+function withoutIds(def: CreateTableDefinition | null): unknown {
+  if (!def) return null;
+  const strip = <T extends { id: string }>({ id: _id, ...rest }: T) => rest;
+  return json({
+    ...def,
+    columns: def.columns.map(strip),
+    indexes: def.indexes.map(strip),
+    foreignKeys: def.foreignKeys.map(strip),
+  });
+}
+
+const CREATE_TABLE_REASONS: Record<number, string> = {
+  16: "fix 16: parseCreateTableSql dropped data (a SERIAL column's type, a column after a comment, CONSTRAINT … PRIMARY KEY/UNIQUE, an inline REFERENCES)",
+  17: 'fix 17: parseCreateTableSql gave null for a name with a doubled quote ("", ``, ]]) or a three-part name, which the engines\' own DDL writes',
+};
+
+function createTableFixtures() {
+  const cases: FixtureCase[] = [];
+  const modelCases: ModelCase[] = [];
+  for (const { name, sql } of CREATE_TABLE_CASES()) {
+    const ts = withoutIds(parseCreateTableSql(sql));
+    // The model with no fix on is the TS.
+    const untouched = withoutIds(createTableModel(sql, []));
+    if (!sameJson(ts, untouched)) {
+      throw new Error(`create-table-fixed.ts with no fix differs from the TS on ${name}`);
+    }
+    const fixed = withoutIds(createTableModel(sql));
+    const fixes = sameJson(ts, fixed)
+      ? []
+      : CREATE_TABLE_FIXES.filter(
+          (f) =>
+            !sameJson(
+              withoutIds(
+                createTableModel(
+                  sql,
+                  CREATE_TABLE_FIXES.filter((x) => x !== f),
+                ),
+              ),
+              fixed,
+            ),
+        );
+    if (!sameJson(ts, fixed) && fixes.length === 0) {
+      // Only both fixes together change it: name both.
+      fixes.push(...CREATE_TABLE_FIXES);
+    }
+    cases.push({
+      name,
+      input: { sql },
+      output: fixed,
+      ...(fixes.length ? { fixes: [...fixes] } : {}),
+    });
+    if (fixes.length) {
+      modelCases.push({
+        name: `create-table: ${name}`,
+        fixes: [...fixes],
+        case: `create-table.json: ${name}`,
+        reason: fixes.map((f) => CREATE_TABLE_REASONS[f]).join("; "),
+        diff: capped(diff(ts, fixed)),
+      });
+    }
+  }
+  return {
+    files: { "create-table.json": { cases } } satisfies Record<string, FixtureFile>,
+    modelCases,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance (sqlparser, through the spike's accept-cli)
+// ---------------------------------------------------------------------------
+
+function acceptanceInputs(): FixtureCase[] {
+  return buildAcceptanceItems().map((i) => ({
+    name: i.id,
+    input: { sql: i.sql, engine: i.dialect, source: i.source },
+    output: null,
+  }));
+}
+
+function recordAcceptance(cases: FixtureCase[]): FixtureCase[] {
+  const dir = mkdtempSync(join(tmpdir(), "seaquel-accept-"));
+  try {
+    const items = cases.map((c) => {
+      const { sql, engine } = c.input as { sql: string; engine: string };
+      return { id: c.name, sql, dialect: engine };
+    });
+    writeFileSync(join(dir, "in.json"), JSON.stringify(items));
+    execFileSync(
+      "cargo",
+      [
+        "run",
+        "--release",
+        "-q",
+        "--bin",
+        "accept-cli",
+        "--",
+        join(dir, "in.json"),
+        join(dir, "out.json"),
+      ],
+      { cwd: SPIKE_CRATE, stdio: "inherit" },
+    );
+    const out = new Map(
+      (
+        JSON.parse(readFileSync(join(dir, "out.json"), "utf8")) as { id: string; ok: boolean }[]
+      ).map((r) => [r.id, r.ok]),
+    );
+    return cases.map((c) => ({ ...c, output: { parses: out.get(c.name) } }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hand-written bug-fix cases
+// ---------------------------------------------------------------------------
+
+/** What today's TS gives for a standalone hand case. */
+function handCaseTs(c: HandCase): unknown {
+  const input = c.input as { sql: string; engine: DatabaseType; tableRef?: TableRefKind };
+  switch (c.kind) {
+    case "visual":
+      return json(parseQueryForVisualization(input.sql, input.engine));
+    case "parse-error":
+      return getParseError(input.sql, input.engine) !== null;
+    case "column-sources":
+      return json(
+        resolveColumnSources(input.sql, input.engine, columnSchemas as unknown as SchemaTable[]),
+      );
+    case "builder": {
+      const parsed = parseSql(input.sql, { validTableNames: null });
+      return json({ parsed, sql: regenerate(parsed, input.tableRef ?? "bare") });
+    }
+    default:
+      throw new Error(`${c.name}: no TS for standalone kind ${c.kind}`);
+  }
+}
+
+function checkHandCases(cases: HandCase[], files: Record<string, FixtureFile>): void {
+  const names = new Set<string>();
+  for (const c of cases) {
+    expect(names.has(c.name), `bugfixes.json: duplicate case "${c.name}"`).toBe(false);
+    names.add(c.name);
+    expect(Number.isInteger(c.fix) && c.fix > 0, `${c.name}: fix number`).toBe(true);
+    expect(c.reason?.trim(), `${c.name}: reason`).toBeTruthy();
+    if (c.replaces) {
+      const [file, caseName] = c.replaces.split(/: (.*)/s);
+      const target = files[file]?.cases.find((x) => x.name === caseName);
+      expect(target, `${c.name}: replaces ${c.replaces}, which doesn't exist`).toBeDefined();
+      expect(c.input, `${c.name}: input differs from ${c.replaces}`).toStrictEqual(target!.input);
+      expect(sameJson(c.output, target!.output), `${c.name}: output equals ${c.replaces}`).toBe(
+        false,
+      );
+    } else {
+      const ts = handCaseTs(c);
+      expect(c.ts, `${c.name}: today's output changed`).toStrictEqual(ts);
+      expect(sameJson(c.output, ts), `${c.name}: output equals today's`).toBe(false);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+const readJson = <T>(file: string): T => JSON.parse(readFileSync(`${DIR}${file}`, "utf8")) as T;
+/**
+ * JSON with two-space indents, except that an array of scalars (or of arrays
+ * of scalars, like statement-at.json's runs) stays on one line.
+ */
+function format(value: unknown, indent = ""): string {
+  const scalar = (v: unknown) => v === null || typeof v !== "object";
+  const flat = (v: unknown): boolean =>
+    scalar(v) ||
+    (Array.isArray(v) && v.every((x) => scalar(x) || (Array.isArray(x) && x.every(scalar))));
+  if (scalar(value)) return JSON.stringify(value);
+  const inner = `${indent}  `;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    if (flat(value)) return `[${value.map((v) => format(v)).join(", ")}]`;
+    return `[\n${value.map((v) => inner + format(v, inner)).join(",\n")}\n${indent}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([, v]) => v !== undefined,
+  );
+  if (entries.length === 0) return "{}";
+  return `{\n${entries.map(([k, v]) => `${inner}${JSON.stringify(k)}: ${format(v, inner)}`).join(",\n")}\n${indent}}`;
+}
+
+const writeJson = (file: string, value: unknown) =>
+  writeFileSync(`${DIR}${file}`, `${format(json(value))}\n`);
+
+describe("seaquel-sql fixtures", () => {
+  // The TS logs every parse failure (sql-ast-parser.ts); the corpus has plenty on purpose.
+  const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+  const ast = astFixtures();
+  const scanner = scannerFixtures();
+  const createTable = createTableFixtures();
+  const files: Record<string, FixtureFile> = {
+    ...ast.files,
+    ...scanner.files,
+    ...createTable.files,
+  };
+  quiet.mockRestore();
+  const modelCases = [...ast.modelCases, ...scanner.modelCases, ...createTable.modelCases];
+
+  for (const [file, content] of Object.entries(files)) {
+    it(file, () => {
+      const names = new Set<string>();
+      for (const c of content.cases) {
+        expect(names.has(c.name), `${file}: duplicate case "${c.name}"`).toBe(false);
+        names.add(c.name);
+      }
+      if (RECORD) writeJson(file, content);
+      else expect(readJson(file), file).toStrictEqual(json(content));
+    });
+  }
+
+  // A cold cargo build of the spike's accept-cli takes 20–35 s.
+  it("acceptance.json", { timeout: 600_000 }, () => {
+    const inputs = acceptanceInputs();
+    if (RECORD) {
+      const recorded = recordAcceptance(inputs);
+      expect(recorded.filter((c) => (c.output as { parses: boolean }).parses).length).toBe(138);
+      writeJson("acceptance.json", { cases: recorded });
+    } else {
+      const stored = readJson<FixtureFile>("acceptance.json").cases;
+      expect(stored.map(({ output: _o, ...c }) => c)).toStrictEqual(
+        inputs.map(({ output: _o, ...c }) => c),
+      );
+    }
+  });
+
+  it("bugfixes.json", () => {
+    const path = `${DIR}bugfixes.json`;
+    const stored: Bugfixes = existsSync(path)
+      ? readJson<Bugfixes>("bugfixes.json")
+      : { about: "", cases: [], modelCases: [] };
+    for (const m of modelCases) expect(m.reason.trim(), `${m.name}: reason`).toBeTruthy();
+    const quietHand = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      checkHandCases(stored.cases, json(files));
+    } finally {
+      quietHand.mockRestore();
+    }
+    if (RECORD) writeJson("bugfixes.json", { ...stored, modelCases });
+    else expect(stored.modelCases).toStrictEqual(json(modelCases));
+  });
+
+  it("scanner corpus", () => {
+    expect(scanner.inputs).toBeGreaterThanOrEqual(150);
+    // At least one input ends inside an unterminated literal or name, per quote style per engine.
+    const corpus = buildScannerCorpus();
+    for (const engine of ENGINES) {
+      for (const open of QUOTE_STYLES[engine]) {
+        const found = corpus.some(({ sql }) => {
+          const last = sqlTokens(sql, engine).at(-1);
+          if (!last || last.kind !== "quoted" || last.end !== sql.length) return false;
+          if (!last.text.startsWith(open)) return false;
+          // Unterminated: text after it is swallowed instead of becoming a token.
+          return sqlTokens(`${sql} x`, engine).at(-1)?.start === last.start;
+        });
+        expect(found, `${engine}: no unterminated ${open}… input`).toBe(true);
+      }
+    }
+    // Comments, which sqlTokens doesn't return: the input's end is in no token, and text after it is swallowed.
+    for (const [opener, engine] of [
+      ["/*", "postgres"],
+      ["/* /*", "postgres"],
+      ["/*", "sqlite"],
+      ["--", "postgres"],
+      ["#", "mysql"],
+    ] as const) {
+      const found = corpus.some(({ sql }) => {
+        const tokens = sqlTokens(sql, engine);
+        const tail = sql.slice(tokens.at(-1)?.end ?? 0);
+        return (
+          tail.includes(opener.split(" ")[0]) &&
+          (opener !== "/* /*" || /\/\*[^]*\/\*/.test(tail)) &&
+          sqlTokens(`${sql} x`, engine).length === tokens.length
+        );
+      });
+      expect(found, `${engine}: no input ending in an unterminated ${opener} comment`).toBe(true);
+    }
+  });
+});

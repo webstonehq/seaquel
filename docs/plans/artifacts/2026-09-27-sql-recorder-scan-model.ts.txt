@@ -1,0 +1,375 @@
+/**
+ * MODEL of the fixed scanner, for the phase 2b fixtures (Task 2): a copy of
+ * `sqlTokens`, `hasRowLimit`, `stripTrailingOrderBy` and `countQuery` from
+ * src/lib/engine/sql-scan.ts with these changes, each tagged:
+ *
+ * - FIX 18 (number tokens): a token that starts with a digit (or `.` and a
+ *   digit) is a numeric literal and ends where the literal ends: digits, an
+ *   optional `.` and digits, an optional exponent (`e`, sign, digits). In the
+ *   TS a number ran on through word characters, so `1INTO` was one word and
+ *   hid INTO. Can be switched off (`withoutNumberFix`) so the recorder can tell
+ *   which cases it changes.
+ * - FIX 10 (comments): on Postgres and DuckDB a `--` comment also ends at
+ *   `\r` (their lexers end a comment at `\n` or `\r`).
+ * - `execComments` (MySQL/MariaDB only; used by the split, statement checks,
+ *   read-only check and forced inline, not by the row-limit check, which is a
+ *   Follow-up): an executable comment `/*! … *\/`, `/*!50700 … *\/` or
+ *   `/*M! … *\/` (MariaDB only; MySQL reads that as a plain comment) is code. Its opener (with the version digits) and its `*\/`
+ *   are skipped and what's inside is scanned as SQL, so a `;` inside splits,
+ *   as the mysql and mariadb clients split it.
+ * - `ansiMysql`: MySQL/MariaDB read with `NO_BACKSLASH_ESCAPES` and
+ *   `ANSI_QUOTES`: no backslash escapes, `"…"` is a name. The read-only
+ *   check scans both readings.
+ * - `pgBackslash`: Postgres with `standard_conforming_strings = off`, where
+ *   `'…'` takes backslash escapes. The read-only check scans both readings.
+ * - FIX 18 per engine: on SQL Server `0x` plus hex digits and `$` plus a
+ *   number (money) are numbers too. On MySQL/MariaDB a digit run followed by a
+ *   word character is one word (a name like `2fa_codes`; MySQL reads `1INTO`
+ *   as a name too), unless the literal has a `.` or an exponent (`1.5INTO`,
+ *   `1e1INTO` are a number and INTO), and a digit-led run after a `.` is a
+ *   name (`db.2fa_codes`). On MySQL `@` is a word character only at the start
+ *   of a word, so `INTO@x` is INTO and `@x`.
+ */
+import type { SqlToken } from "$lib/engine/sql-scan";
+import type { DatabaseType } from "$lib/types";
+
+export interface ScanOptions {
+  execComments?: boolean;
+  ansiMysql?: boolean;
+  /** Postgres with `standard_conforming_strings = off`: backslash escapes in `'…'`. */
+  pgBackslash?: boolean;
+}
+
+/** The fixes that can be switched off, so the recorder can tell what each changes. */
+export const SWITCHABLE_FIXES = [10, 18, 19] as const;
+const off = new Set<number>();
+let numberFix = true;
+let identFix = true;
+/** Fix 10's scanner rules: `\r` ends a PG/DuckDB `--` comment, MySQL's `--` rule, no `$tag$` length limit. */
+let commentFix = true;
+
+/** Runs `fn` with `fix` (10, 18 or 19) switched off. */
+export function withoutFix<T>(fix: number, fn: () => T): T {
+  const wasOff = off.has(fix);
+  off.add(fix);
+  numberFix = !off.has(18);
+  identFix = !off.has(19);
+  commentFix = !off.has(10);
+  try {
+    return fn();
+  } finally {
+    if (!wasOff) off.delete(fix);
+    numberFix = !off.has(18);
+    identFix = !off.has(19);
+    commentFix = !off.has(10);
+  }
+}
+
+/** Runs `fn` with fix 18 switched off. */
+export const withoutNumberFix = <T>(fn: () => T): T => withoutFix(18, fn);
+
+/**
+ * The length in UTF-16 units of the word character at `j`, or 0 if there is
+ * none. `#` is part of a T-SQL name (`#temp`); on MySQL it starts a comment,
+ * even mid-word.
+ *
+ * The TS rule (fix 19 off): one UTF-16 unit matching `[\p{L}\p{N}_$@]`, so a
+ * combining mark (`ตารางที่`, NFD `café`) or an astral letter ended the word.
+ *
+ * FIX 19, each engine's identifier rule:
+ * - Postgres, DuckDB, SQLite: any non-ASCII character (both halves of an
+ *   astral one) is a word character, as their lexers take any byte >= 0x80.
+ * - MySQL/MariaDB: any non-ASCII BMP character (U+0080–U+FFFF); an astral one
+ *   isn't.
+ * - SQL Server: the TS set plus `\p{M}`, with astral letters and marks read by
+ *   code point.
+ */
+function wordCharLen(sql: string, j: number, type: DatabaseType, inside: boolean): number {
+  const c = sql[j];
+  if (c === undefined) return 0;
+  const mysql = type === "mysql" || type === "mariadb";
+  if (c === "#") return mysql ? 0 : 1;
+  // FIX 18: on MySQL `@` only starts a word (`INTO@x` is two tokens).
+  if (c === "@") return mysql && inside && numberFix ? 0 : 1;
+  if (/[A-Za-z0-9_$]/.test(c)) return 1;
+  const code = c.charCodeAt(0);
+  if (code < 0x80) return 0;
+  if (!identFix) return /[\p{L}\p{N}]/u.test(c) ? 1 : 0;
+  const surrogate = code >= 0xd800 && code <= 0xdfff;
+  switch (type) {
+    case "postgres":
+    case "duckdb":
+    case "sqlite":
+      return 1;
+    case "mysql":
+    case "mariadb":
+      return surrogate ? 0 : 1;
+    default: {
+      const cp = sql.codePointAt(j)!;
+      const ch = String.fromCodePoint(cp);
+      return /[\p{L}\p{N}\p{M}]/u.test(ch) ? ch.length : 0;
+    }
+  }
+}
+const isSpace = (c: string) => /\s/.test(c);
+const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+
+/**
+ * A Postgres/DuckDB dollar-quote tag. FIX 19: any non-ASCII character may
+ * start or continue it (PG's `dolq_start`/`dolq_cont` take bytes >= 0x80); the
+ * TS took `\p{L}` only, so a combining mark ended the tag.
+ */
+export const dollarTag = () =>
+  identFix
+    ? /^\$(?:[A-Za-z_\u0080-\u{10FFFF}][\w\u0080-\u{10FFFF}]*)?\$/u
+    : /^\$(?:[A-Za-z_\p{L}][\w\p{L}]*)?\$/u;
+
+export function scanTokens(sql: string, type: DatabaseType, options: ScanOptions = {}): SqlToken[] {
+  const mysql = type === "mysql" || type === "mariadb";
+  const ansi = mysql && !!options.ansiMysql;
+  const pgLike = type === "postgres" || type === "duckdb";
+  const nestedComments = pgLike || type === "mssql";
+  const nameQuotes = mysql
+    ? ansi
+      ? '`"'
+      : "`"
+    : type === "sqlite"
+      ? '"`['
+      : type === "mssql"
+        ? '"['
+        : '"';
+  const tokens: SqlToken[] = [];
+  const n = sql.length;
+  let depth = 0;
+  let i = 0;
+  let inExec = false; // inside a MySQL executable comment
+
+  const skipQuoted = (open: string, backslash: boolean): number => {
+    const close = open === "[" ? "]" : open;
+    let j = i + 1;
+    while (j < n) {
+      const c = sql[j];
+      if (backslash && c === "\\") {
+        j += 2;
+        continue;
+      }
+      if (c === close) {
+        const doubles = open !== "[" || type === "mssql";
+        if (doubles && sql[j + 1] === close) {
+          j += 2;
+          continue;
+        }
+        return j + 1;
+      }
+      j++;
+    }
+    return n;
+  };
+
+  const push = (kind: SqlToken["kind"], end: number, at = depth) => {
+    tokens.push({ kind, text: sql.slice(i, end), start: i, end, depth: at });
+    i = end;
+  };
+
+  while (i < n) {
+    const c = sql[i];
+    const next = sql[i + 1];
+    if (isSpace(c)) {
+      i++;
+    } else if (inExec && c === "*" && next === "/") {
+      // The end of an executable comment.
+      inExec = false;
+      i += 2;
+    } else if (
+      c === "-" &&
+      next === "-" &&
+      (!mysql ||
+        i + 2 >= n ||
+        // FIX 10: MySQL/MariaDB start a `--` comment only before ASCII space or
+        // a control character; `--` + NBSP is minus minus (checked on MySQL 8.4
+        // and MariaDB 11). The TS took any JS whitespace.
+        (commentFix
+          ? sql.charCodeAt(i + 2) <= 0x20 || sql.charCodeAt(i + 2) === 0x7f
+          : /\s/.test(sql[i + 2])))
+    ) {
+      let eol = sql.indexOf("\n", i);
+      // FIX 10: Postgres and DuckDB end a `--` comment at `\r` too.
+      const cr = pgLike && commentFix ? sql.indexOf("\r", i) : -1;
+      if (cr !== -1 && (eol === -1 || cr < eol)) eol = cr;
+      i = eol === -1 ? n : eol + 1;
+    } else if (c === "#" && mysql) {
+      const eol = sql.indexOf("\n", i);
+      i = eol === -1 ? n : eol + 1;
+    } else if (c === "/" && next === "*") {
+      // `/*M!` is MariaDB's; MySQL reads it as a plain comment (the mysql client too).
+      const exec =
+        mysql &&
+        options.execComments &&
+        (type === "mariadb" ? /^\/\*M?!/ : /^\/\*!/).test(sql.slice(i, i + 4));
+      if (exec && !inExec) {
+        // An executable comment: skip `/*!` or `/*M!` and its version digits.
+        i += sql[i + 2] === "M" ? 4 : 3;
+        while (isDigit(sql[i])) i++;
+        inExec = true;
+        continue;
+      }
+      let level = 1;
+      let j = i + 2;
+      while (j < n && level > 0) {
+        if (nestedComments && sql[j] === "/" && sql[j + 1] === "*") {
+          level++;
+          j += 2;
+        } else if (sql[j] === "*" && sql[j + 1] === "/") {
+          level--;
+          j += 2;
+        } else {
+          j++;
+        }
+      }
+      i = j;
+    } else if (c === "'") {
+      push(
+        "quoted",
+        skipQuoted("'", (mysql && !ansi) || (type === "postgres" && !!options.pgBackslash)),
+      );
+    } else if (nameQuotes.includes(c)) {
+      push("quoted", skipQuoted(c, mysql && !ansi && c === '"'));
+    } else if (mysql && c === '"') {
+      push("quoted", skipQuoted('"', !ansi));
+    } else if (pgLike && (c === "e" || c === "E") && next === "'") {
+      i++;
+      const end = skipQuoted("'", true);
+      i--;
+      push("quoted", end);
+    } else if (
+      pgLike &&
+      c === "$" &&
+      // FIX 10: a tag of any length (the TS looked at 64 UTF-16 units only).
+      dollarTag().test(commentFix ? sql.slice(i) : sql.slice(i, i + 64))
+    ) {
+      const tag = dollarTag().exec(sql.slice(i))![0];
+      const close = sql.indexOf(tag, i + tag.length);
+      push("quoted", close === -1 ? n : close + tag.length);
+    } else if (numberFix && type === "mssql" && c === "0" && (next === "x" || next === "X")) {
+      // FIX 18: a T-SQL binary literal `0x…`.
+      let j = i + 2;
+      while (j < n && /[0-9a-fA-F]/.test(sql[j])) j++;
+      push("word", j);
+    } else if (
+      numberFix &&
+      (isDigit(c) ||
+        (c === "." && isDigit(next)) ||
+        (type === "mssql" &&
+          c === "$" &&
+          (isDigit(next) || (next === "." && isDigit(sql[i + 2]))))) &&
+      // MySQL: a digit-led run after a `.` is a name (`db.2fa_codes`), and a
+      // `.` right after a name is the qualifier's dot, not `.5`.
+      !(mysql && tokens.at(-1)?.text === "." && tokens.at(-1)?.end === i) &&
+      !(
+        mysql &&
+        c === "." &&
+        tokens.at(-1)?.end === i &&
+        (tokens.at(-1)?.kind === "word" || tokens.at(-1)?.kind === "quoted")
+      )
+    ) {
+      // FIX 18: a numeric literal ends where the literal ends (on SQL Server
+      // a money literal `$1.5` too).
+      let j = c === "$" ? i + 1 : i;
+      while (isDigit(sql[j])) j++;
+      let plain = true;
+      if (sql[j] === ".") {
+        plain = false;
+        j++;
+        while (isDigit(sql[j])) j++;
+      }
+      if ((sql[j] === "e" || sql[j] === "E") && /^[eE][+-]?\d/.test(sql.slice(j, j + 3))) {
+        plain = false;
+        j++;
+        if (sql[j] === "+" || sql[j] === "-") j++;
+        while (isDigit(sql[j])) j++;
+      }
+      // MySQL: digits running into a word character are a name (`2fa_codes`).
+      if (mysql && plain && j < n && wordCharLen(sql, j, type, true) > 0) {
+        for (let len; j < n && (len = wordCharLen(sql, j, type, true)) > 0;) j += len;
+      }
+      push("word", j);
+    } else if (wordCharLen(sql, i, type, false) > 0) {
+      let j = i + wordCharLen(sql, i, type, false);
+      for (let len; j < n && (len = wordCharLen(sql, j, type, true)) > 0;) j += len;
+      push("word", j);
+    } else if (c === "(") {
+      push("punct", i + 1);
+      depth++;
+    } else if (c === ")") {
+      depth = Math.max(0, depth - 1);
+      push("punct", i + 1);
+    } else {
+      // One character: an astral one (a surrogate pair) stays whole.
+      const code = c.charCodeAt(0);
+      const pair = code >= 0xd800 && code <= 0xdbff && /[\udc00-\udfff]/.test(next ?? "");
+      push("punct", i + (pair ? 2 : 1));
+    }
+  }
+  return tokens;
+}
+
+/**
+ * Whether a token is a number: a word starting with a digit or `.` (fix 18's
+ * rule, `0x…` included), or SQL Server money (`$1`). A MySQL name that starts
+ * with digits (`2fa_codes`) counts as a number here, which only makes the
+ * `.` exemption stricter.
+ */
+export const isNumber = (t: SqlToken | undefined) =>
+  !!t && t.kind === "word" && /^(?:[\d.]|\$[\d.])/.test(t.text);
+
+/** Whether a token is a name: a word that isn't a number, or a quoted token that isn't a string. */
+export function isName(t: SqlToken | undefined, type: DatabaseType): boolean {
+  if (!t) return false;
+  if (t.kind === "word") return !isNumber(t);
+  if (t.kind !== "quoted") return false;
+  const mysql = type === "mysql" || type === "mariadb";
+  const names = mysql ? "`" : type === "sqlite" ? '"`[' : type === "mssql" ? '"[' : '"';
+  return names.includes(t.text[0]);
+}
+
+// ── The row-limit checks, over the model tokens (executable comments stay comments) ──
+
+function topLevelWords(tokens: SqlToken[]): Array<{ word: string; token: SqlToken }> {
+  const words: Array<{ word: string; token: SqlToken }> = [];
+  tokens.forEach((t, k) => {
+    if (t.depth !== 0 || t.kind !== "word") return;
+    if (k > 0 && tokens[k - 1].text === ".") return;
+    words.push({ word: t.text.toUpperCase(), token: t });
+  });
+  return words;
+}
+
+function limits(words: Array<{ word: string }>, type: DatabaseType): boolean {
+  return words.some(
+    ({ word }, k) =>
+      word === "LIMIT" ||
+      word === "OFFSET" ||
+      (word === "FETCH" && ["FIRST", "NEXT"].includes(words[k + 1]?.word ?? "")) ||
+      (type === "mssql" && word === "TOP"),
+  );
+}
+
+export function hasRowLimitModel(sql: string, type: DatabaseType): boolean {
+  return limits(topLevelWords(scanTokens(sql, type)), type);
+}
+
+function stripTrailingOrderBy(sql: string, type: DatabaseType): string {
+  const words = topLevelWords(scanTokens(sql, type));
+  if (limits(words, type)) return sql;
+  for (let k = words.length - 2; k >= 0; k--) {
+    if (words[k].word === "ORDER" && words[k + 1].word === "BY") {
+      return sql.slice(0, words[k].token.start).trimEnd();
+    }
+  }
+  return sql;
+}
+
+export function countQueryModel(sql: string, type: DatabaseType): string {
+  const inner = type === "mssql" ? stripTrailingOrderBy(sql, type) : sql;
+  return `SELECT COUNT(*) as total FROM (${inner}) AS count_query`;
+}

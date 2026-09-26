@@ -1,0 +1,3528 @@
+{
+  "schemas": [
+    {
+      "name": "categories",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "price",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "stock",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "category_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "email",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "country",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "status",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "total",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "order_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "quantity",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "unit_price",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "schema": "public",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "rating",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "comment",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "price",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "stock",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "category_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "email",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "country",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "status",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "total",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "order_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "quantity",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "unit_price",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "schema": "Sales",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "rating",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "comment",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "price",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "stock",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "category_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "email",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "country",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "status",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "total",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "order_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "quantity",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "unit_price",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "schema": "shop",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "rating",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "comment",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "price",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "stock",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "category_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "email",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "country",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "status",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "total",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "order_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "quantity",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "unit_price",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "schema": "dbo",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "rating",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "comment",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "description",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "price",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "stock",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "category_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "name",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "email",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "country",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "status",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "total",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "order_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "quantity",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "unit_price",
+          "isPrimaryKey": false
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "schema": "main",
+      "columns": [
+        {
+          "name": "id",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "product_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "customer_id",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "rating",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "comment",
+          "isPrimaryKey": false
+        },
+        {
+          "name": "created_at",
+          "isPrimaryKey": false
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "tut:intro-1",
+      "input": {
+        "sql": "SELECT * FROM categories",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:intro-2",
+      "input": {
+        "sql": "SELECT name FROM categories",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "tut:intro-3",
+      "input": {
+        "sql": "SELECT name, description FROM categories",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "description"
+        }
+      ]
+    },
+    {
+      "name": "tut:intro-4",
+      "input": {
+        "sql": "SELECT name, price FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:select-1",
+      "input": {
+        "sql": "SELECT name, price FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:select-2",
+      "input": {
+        "sql": "SELECT * FROM customers",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:select-3",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE price > 50",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:select-4",
+      "input": {
+        "sql": "SELECT name, price FROM products ORDER BY price DESC",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:select-5",
+      "input": {
+        "sql": "SELECT name, price FROM products ORDER BY price DESC LIMIT 5",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:where-1",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE price = 29.99",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:where-2",
+      "input": {
+        "sql": "SELECT * FROM products WHERE price > 100",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:where-3",
+      "input": {
+        "sql": "SELECT name, country FROM customers WHERE country = 'USA'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        }
+      ]
+    },
+    {
+      "name": "tut:where-4",
+      "input": {
+        "sql": "SELECT name, stock FROM products WHERE stock <= 10",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "stock"
+        }
+      ]
+    },
+    {
+      "name": "tut:where-5",
+      "input": {
+        "sql": "SELECT p.name FROM products p WHERE p.price > 50 AND p.stock > 20",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "tut:order-1",
+      "input": {
+        "sql": "SELECT name FROM customers ORDER BY name ASC",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "tut:order-2",
+      "input": {
+        "sql": "SELECT name, price FROM products ORDER BY price DESC",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:order-3",
+      "input": {
+        "sql": "SELECT name, price FROM products ORDER BY price DESC LIMIT 3",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:order-4",
+      "input": {
+        "sql": "SELECT name, created_at FROM customers ORDER BY created_at DESC LIMIT 5",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "created_at"
+        }
+      ]
+    },
+    {
+      "name": "tut:order-5",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price LIMIT 10",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:joins-1",
+      "input": {
+        "sql": "SELECT products.name, categories.name FROM products INNER JOIN categories ON products.category_id = categories.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "tut:joins-2",
+      "input": {
+        "sql": "SELECT p.name, c.name FROM products p JOIN categories c ON p.category_id = c.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "tut:joins-3",
+      "input": {
+        "sql": "SELECT customers.name, orders.total FROM orders JOIN customers ON customers.id = orders.customer_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "total"
+        }
+      ]
+    },
+    {
+      "name": "tut:joins-4",
+      "input": {
+        "sql": "SELECT products.name, reviews.rating FROM products LEFT JOIN reviews ON products.id = reviews.product_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "reviews",
+          "primaryKeys": ["id"],
+          "column": "rating"
+        }
+      ]
+    },
+    {
+      "name": "tut:joins-5",
+      "input": {
+        "sql": "SELECT orders.id, products.name, order_items.quantity FROM order_items JOIN products ON order_items.product_id = products.id JOIN orders ON order_items.order_id = orders.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "order_items",
+          "primaryKeys": ["id"],
+          "column": "quantity"
+        }
+      ]
+    },
+    {
+      "name": "tut:agg-1",
+      "input": {
+        "sql": "SELECT COUNT(*) FROM products",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:agg-2",
+      "input": {
+        "sql": "SELECT SUM(price * stock) AS stock_value FROM products",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:agg-2:hint",
+      "input": {
+        "sql": "SELECT SUM(price * stock) FROM products",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:agg-3",
+      "input": {
+        "sql": "SELECT AVG(price) FROM products",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:agg-4",
+      "input": {
+        "sql": "SELECT MIN(price), MAX(price) FROM products",
+        "engine": "postgres"
+      },
+      "output": [null, null]
+    },
+    {
+      "name": "tut:agg-5",
+      "input": {
+        "sql": "SELECT COUNT(*), AVG(price), SUM(stock) FROM products",
+        "engine": "postgres"
+      },
+      "output": [null, null, null]
+    },
+    {
+      "name": "tut:group-1",
+      "input": {
+        "sql": "SELECT category_id FROM products GROUP BY category_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        }
+      ]
+    },
+    {
+      "name": "tut:group-2",
+      "input": {
+        "sql": "SELECT country, COUNT(*) FROM customers GROUP BY country",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:group-3",
+      "input": {
+        "sql": "SELECT category_id, COUNT(name) AS names FROM products GROUP BY category_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:group-4",
+      "input": {
+        "sql": "SELECT status FROM orders GROUP BY status",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "status"
+        }
+      ]
+    },
+    {
+      "name": "tut:group-5",
+      "input": {
+        "sql": "SELECT customer_id, status FROM orders GROUP BY customer_id, status",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "customer_id"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "status"
+        }
+      ]
+    },
+    {
+      "name": "tut:having-1",
+      "input": {
+        "sql": "SELECT category_id, COUNT(*) FROM products GROUP BY category_id HAVING COUNT(*) > 3",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:having-2",
+      "input": {
+        "sql": "SELECT category_id, AVG(price) FROM products GROUP BY category_id HAVING AVG(price) > 75",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:having-3",
+      "input": {
+        "sql": "SELECT country, COUNT(*) FROM customers GROUP BY country HAVING COUNT(*) >= 2",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:having-4",
+      "input": {
+        "sql": "SELECT category_id, COUNT(*) FROM products WHERE price > 20 GROUP BY category_id HAVING COUNT(*) > 2",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:having-5",
+      "input": {
+        "sql": "SELECT status, SUM(total) FROM orders GROUP BY status HAVING SUM(total) > 500",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "status"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:sub-1",
+      "input": {
+        "sql": "SELECT * FROM products WHERE price > (SELECT AVG(price) FROM products)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:sub-2",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:sub-3",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE price = (SELECT MAX(price) FROM products)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "tut:sub-3:hint",
+      "input": {
+        "sql": "SELECT * FROM products WHERE price = (SELECT MAX(price) FROM products)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:sub-4",
+      "input": {
+        "sql": "SELECT * FROM products WHERE id NOT IN (SELECT product_id FROM order_items)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:sub-5",
+      "input": {
+        "sql": "SELECT name, price - (SELECT AVG(price) FROM products) AS diff FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:cte-1",
+      "input": {
+        "sql": "WITH expensive_products AS (SELECT * FROM products WHERE price > 50) SELECT * FROM expensive_products",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:cte-2",
+      "input": {
+        "sql": "WITH avg_order AS (SELECT AVG(total) AS avg_total FROM orders) SELECT orders.* FROM orders, avg_order WHERE orders.total > avg_order.avg_total",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:cte-2:hint",
+      "input": {
+        "sql": "WITH avg_order AS (SELECT AVG(total) as avg_total FROM orders) SELECT * FROM orders, avg_order WHERE total > avg_total",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:cte-3",
+      "input": {
+        "sql": "WITH category_counts AS (SELECT category_id, COUNT(*) AS product_count FROM products GROUP BY category_id), avg_count AS (SELECT AVG(product_count) AS avg_products FROM category_counts) SELECT category_id, product_count FROM category_counts, avg_count WHERE product_count > avg_products",
+        "engine": "postgres"
+      },
+      "output": [null, null]
+    },
+    {
+      "name": "tut:cte-4",
+      "input": {
+        "sql": "WITH recent_orders AS (SELECT * FROM orders WHERE created_at >= '2024-01-01') SELECT SUM(total) FROM recent_orders",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:cte-4:hint",
+      "input": {
+        "sql": "WITH recent_orders AS (SELECT * FROM orders WHERE created_at >= \"2024-01-01\") SELECT SUM(total) FROM recent_orders",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "tut:cte-5",
+      "input": {
+        "sql": "WITH customer_totals AS (SELECT customer_id, SUM(total) AS total_spent FROM orders GROUP BY customer_id) SELECT * FROM customer_totals WHERE total_spent > 200",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:cte-5:hint",
+      "input": {
+        "sql": "WITH customer_totals AS (SELECT customer_id, SUM(total) as total_spent FROM orders GROUP BY customer_id) SELECT * FROM customer_totals WHERE total_spent > 200",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "tut:window-1",
+      "input": {
+        "sql": "SELECT name, price, ROW_NUMBER() OVER (ORDER BY price DESC) AS row_num FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-1:hint",
+      "input": {
+        "sql": "SELECT name, price, ROW_NUMBER() OVER (ORDER BY price DESC) as rank FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-2",
+      "input": {
+        "sql": "SELECT name, category_id, price, RANK() OVER (PARTITION BY category_id ORDER BY price DESC) AS price_rank FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-2:hint",
+      "input": {
+        "sql": "SELECT name, category_id, price, RANK() OVER (PARTITION BY category_id ORDER BY price DESC) FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-3",
+      "input": {
+        "sql": "SELECT id, total, SUM(total) OVER (ORDER BY created_at) AS running_total FROM orders",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "total"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-3:hint",
+      "input": {
+        "sql": "SELECT id, total, SUM(total) OVER (ORDER BY created_at) as running_total FROM orders",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "total"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-4",
+      "input": {
+        "sql": "SELECT name, price, AVG(price) OVER (PARTITION BY category_id) AS category_avg FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-4:hint",
+      "input": {
+        "sql": "SELECT name, price, AVG(price) OVER (PARTITION BY category_id) as category_avg FROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        },
+        null
+      ]
+    },
+    {
+      "name": "tut:window-5",
+      "input": {
+        "sql": "WITH order_counts AS (SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id) SELECT customer_id, order_count, DENSE_RANK() OVER (ORDER BY order_count DESC) AS rnk FROM order_counts",
+        "engine": "postgres"
+      },
+      "output": [null, null, null]
+    },
+    {
+      "name": "var:select-3:0",
+      "input": {
+        "sql": "select name, price from products where price > 50",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:select-3:1",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE (price > 50)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:select-3:2",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE price > 50.0",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:select-3:3",
+      "input": {
+        "sql": "-- expensive ones\nSELECT name, price FROM products /* all */ WHERE price > 50;",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:select-3:4",
+      "input": {
+        "sql": "SELECT \"name\", \"price\" FROM \"products\" WHERE \"price\" > 50",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:select-3:5",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE price > 50; SELECT 1",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:where-1:6",
+      "input": {
+        "sql": "SELECT * FROM products WHERE price = 29.990",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:where-3:7",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE country = \"USA\"",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:where-3:8",
+      "input": {
+        "sql": "SELECT * FROM customers c WHERE c.country = 'USA' AND c.name <> 'x'",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:where-5:9",
+      "input": {
+        "sql": "SELECT name FROM products WHERE price > 50 AND (stock > 20 OR stock IS NULL)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "var:where-5:10",
+      "input": {
+        "sql": "SELECT name FROM products WHERE stock > 20 AND price > 50 AND category_id IN (1, 2)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "var:order-5:11",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY 2 LIMIT 10",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:order-5:12",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price ASC NULLS LAST LIMIT 10",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:order-5:13",
+      "input": {
+        "sql": "SELECT name, price FROM products WHERE stock > 0 ORDER BY price ASC LIMIT 10 OFFSET 0",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "var:joins-2:14",
+      "input": {
+        "sql": "SELECT p.name, c.name FROM products AS p INNER JOIN categories AS c ON (p.category_id = c.id)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "var:joins-2:15",
+      "input": {
+        "sql": "SELECT p.name, c.name FROM products p JOIN categories c ON c.id = p.category_id AND c.id > 0",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "var:joins-4:16",
+      "input": {
+        "sql": "SELECT p.name, r.rating FROM products p LEFT OUTER JOIN reviews r ON p.id = r.product_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "reviews",
+          "primaryKeys": ["id"],
+          "column": "rating"
+        }
+      ]
+    },
+    {
+      "name": "var:joins-4:17",
+      "input": {
+        "sql": "SELECT p.name, r.rating FROM products p LEFT JOIN reviews r USING (id)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "reviews",
+          "primaryKeys": ["id"],
+          "column": "rating"
+        }
+      ]
+    },
+    {
+      "name": "var:group-2:18",
+      "input": {
+        "sql": "SELECT country, count(*) FROM customers GROUP BY 1",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        },
+        null
+      ]
+    },
+    {
+      "name": "var:group-2:19",
+      "input": {
+        "sql": "SELECT country, COUNT(id) FROM customers GROUP BY country",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        },
+        null
+      ]
+    },
+    {
+      "name": "var:having-1:20",
+      "input": {
+        "sql": "SELECT category_id, COUNT(*) AS n FROM products GROUP BY category_id HAVING n > 3",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "var:having-1:21",
+      "input": {
+        "sql": "SELECT category_id FROM products GROUP BY category_id HAVING count(*) > 3",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        }
+      ]
+    },
+    {
+      "name": "var:having-2:22",
+      "input": {
+        "sql": "SELECT category_id FROM products GROUP BY category_id HAVING AVG(price) > 75.00",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        }
+      ]
+    },
+    {
+      "name": "var:having-3:23",
+      "input": {
+        "sql": "SELECT country FROM customers GROUP BY country HAVING COUNT(*) >= 2 AND COUNT(*) < 100",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        }
+      ]
+    },
+    {
+      "name": "var:sub-2:24",
+      "input": {
+        "sql": "SELECT * FROM customers WHERE EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = customers.id)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:sub-4:25",
+      "input": {
+        "sql": "SELECT p.* FROM products p WHERE p.id NOT IN (SELECT oi.product_id FROM order_items oi)",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:cte-5:26",
+      "input": {
+        "sql": "WITH t AS (SELECT customer_id, SUM(total) AS s FROM orders GROUP BY customer_id) SELECT * FROM t WHERE s > 200;",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "var:window-2:27",
+      "input": {
+        "sql": "SELECT name, RANK() OVER w FROM products WINDOW w AS (PARTITION BY category_id ORDER BY price DESC)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:star-only",
+      "input": {
+        "sql": "SELECT products.*\nFROM products",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "rt:two-cols",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-num",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 50",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-decimal",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price = 29.99",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-str",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.country = 'USA'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-and-or",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price > 10\n  AND products.stock < 5\n  OR products.category_id = 2",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-ne",
+      "input": {
+        "sql": "SELECT orders.id\nFROM orders\nWHERE orders.status != 'shipped'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-like",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name LIKE '%phone%'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-not-like",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.name NOT LIKE 'A%'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-is-null",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.description IS NULL",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-is-not-null",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.description IS NOT NULL",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-in-list",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.category_id IN (1, 2, 3)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-not-in-list",
+      "input": {
+        "sql": "SELECT orders.id\nFROM orders\nWHERE orders.status NOT IN ('cancelled', 'refunded')",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-between",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price BETWEEN 10 AND 20",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-is-true",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.stock IS NOT FALSE",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:filter-template",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.price >= {{min_price}}",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "rt:filter-date",
+      "input": {
+        "sql": "SELECT orders.id, orders.total\nFROM orders\nWHERE orders.created_at >= '2024-01-01'",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "total"
+        }
+      ]
+    },
+    {
+      "name": "rt:order-two",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products\nORDER BY products.price DESC, products.name ASC",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:limit",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nLIMIT 10",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM products\n  INNER JOIN categories ON products.category_id = categories.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-left",
+      "input": {
+        "sql": "SELECT products.name, reviews.rating\nFROM products\n  LEFT JOIN reviews ON products.id = reviews.product_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "reviews",
+          "primaryKeys": ["id"],
+          "column": "rating"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-right",
+      "input": {
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  RIGHT JOIN customers ON orders.customer_id = customers.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-full",
+      "input": {
+        "sql": "SELECT orders.id, customers.name\nFROM orders\n  FULL JOIN customers ON orders.customer_id = customers.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-three",
+      "input": {
+        "sql": "SELECT order_items.quantity, products.name, orders.id\nFROM order_items\n  INNER JOIN products ON order_items.product_id = products.id\n  INNER JOIN orders ON order_items.order_id = orders.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "order_items",
+          "primaryKeys": ["id"],
+          "column": "quantity"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        }
+      ]
+    },
+    {
+      "name": "rt:col-agg",
+      "input": {
+        "sql": "SELECT orders.status, SUM(orders.total) AS \"sum_total\"\nFROM orders\nGROUP BY orders.status",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "status"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:select-agg",
+      "input": {
+        "sql": "SELECT products.category_id, COUNT(*) AS \"n\"\nFROM products\nGROUP BY products.category_id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:having-one",
+      "input": {
+        "sql": "SELECT products.category_id, COUNT(*)\nFROM products\nGROUP BY products.category_id\nHAVING COUNT(*) > 3",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:having-two",
+      "input": {
+        "sql": "SELECT products.category_id\nFROM products\nGROUP BY products.category_id\nHAVING AVG(products.price) > 75\n  AND SUM(products.stock) < 100",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-scalar",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM products\nWHERE products.price > (SELECT AVG(products.price)\nFROM products)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-not-in",
+      "input": {
+        "sql": "SELECT products.name\nFROM products\nWHERE products.id NOT IN (SELECT order_items.product_id\nFROM order_items)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-select",
+      "input": {
+        "sql": "SELECT products.name, (SELECT AVG(products.price)\nFROM products) AS \"avg_price\"\nFROM products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:sub-from",
+      "input": {
+        "sql": "SELECT big_orders.*\nFROM (SELECT orders.id, orders.total\nFROM orders\nWHERE orders.total > 100) AS big_orders",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "rt:sub-nested",
+      "input": {
+        "sql": "SELECT customers.name\nFROM customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM orders\nWHERE orders.id IN (SELECT order_items.order_id\nFROM order_items\nWHERE order_items.quantity > 5))",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:cte-one",
+      "input": {
+        "sql": "WITH expensive AS (\n  SELECT products.id, products.name\n  FROM products\n  WHERE products.price > 50\n)\nSELECT expensive.*\nFROM expensive",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "rt:cte-two",
+      "input": {
+        "sql": "WITH big AS (\n  SELECT orders.id, orders.customer_id\n  FROM orders\n  WHERE orders.total > 100\n),\nusa AS (\n  SELECT customers.id, customers.name\n  FROM customers\n  WHERE customers.country = 'USA'\n)\nSELECT big.*\nFROM big",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "rt:kitchen",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM products\n  LEFT JOIN categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:two-cols:postgres",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM public.products",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:two-cols:mysql",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM shop.products",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "shop",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "shop",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:two-cols:mssql",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM dbo.products",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:two-cols:sqlite",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM main.products",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:two-cols:duckdb",
+      "input": {
+        "sql": "SELECT products.name, products.price\nFROM main.products",
+        "engine": "duckdb"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner:postgres",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM public.products\n  INNER JOIN public.categories ON products.category_id = categories.id",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner:mysql",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM shop.products\n  INNER JOIN shop.categories ON products.category_id = categories.id",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "shop",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "shop",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner:mssql",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM dbo.products\n  INNER JOIN dbo.categories ON products.category_id = categories.id",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "dbo",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner:sqlite",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "main",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:join-inner:duckdb",
+      "input": {
+        "sql": "SELECT products.name, categories.name\nFROM main.products\n  INNER JOIN main.categories ON products.category_id = categories.id",
+        "engine": "duckdb"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "main",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in:postgres",
+      "input": {
+        "sql": "SELECT customers.name\nFROM \"Sales\".\"customers\"\nWHERE customers.id IN (SELECT orders.customer_id\nFROM public.orders)",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "Sales",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in:mysql",
+      "input": {
+        "sql": "SELECT customers.name\nFROM `Sales`.`customers`\nWHERE customers.id IN (SELECT orders.customer_id\nFROM shop.orders)",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "Sales",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in:mssql",
+      "input": {
+        "sql": "SELECT customers.name\nFROM [Sales].[customers]\nWHERE customers.id IN (SELECT orders.customer_id\nFROM dbo.orders)",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "Sales",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in:sqlite",
+      "input": {
+        "sql": "SELECT customers.name\nFROM main.customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:sub-in:duckdb",
+      "input": {
+        "sql": "SELECT customers.name\nFROM \"Sales\".customers\nWHERE customers.id IN (SELECT orders.customer_id\nFROM main.orders)",
+        "engine": "duckdb"
+      },
+      "output": [
+        {
+          "schema": "Sales",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "rt:kitchen:postgres",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM public.products\n  LEFT JOIN public.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:kitchen:mysql",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM shop.products\n  LEFT JOIN shop.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "shop",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "shop",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:kitchen:mssql",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM dbo.products\n  LEFT JOIN dbo.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "dbo",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:kitchen:sqlite",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "main",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "rt:kitchen:duckdb",
+      "input": {
+        "sql": "SELECT products.category_id, categories.name, COUNT(*) AS \"n\"\nFROM main.products\n  LEFT JOIN main.categories ON products.category_id = categories.id\nWHERE products.price > 20\n  AND products.stock > 0\nGROUP BY products.category_id, categories.name\nHAVING COUNT(*) > 2\nORDER BY products.category_id ASC\nLIMIT 20",
+        "engine": "duckdb"
+      },
+      "output": [
+        {
+          "schema": "main",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        {
+          "schema": "main",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        null
+      ]
+    },
+    {
+      "name": "ed:distinct",
+      "input": {
+        "sql": "SELECT DISTINCT country FROM customers",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "customers",
+          "primaryKeys": ["id"],
+          "column": "country"
+        }
+      ]
+    },
+    {
+      "name": "ed:limit-offset",
+      "input": {
+        "sql": "SELECT id FROM orders ORDER BY id LIMIT 10 OFFSET 20",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        }
+      ]
+    },
+    {
+      "name": "ed:case",
+      "input": {
+        "sql": "SELECT id, CASE WHEN total > 100 THEN 'big' ELSE 'small' END AS size FROM orders",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "ed:cast",
+      "input": {
+        "sql": "SELECT CAST(total AS integer) AS t FROM orders WHERE total BETWEEN 1 AND 5",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "ed:in-like",
+      "input": {
+        "sql": "SELECT * FROM products WHERE category_id IN (1, 2) AND name LIKE 'A%'",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:is-null",
+      "input": {
+        "sql": "SELECT * FROM products WHERE description IS NULL OR stock = 0",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:count-distinct",
+      "input": {
+        "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "ed:pg-cast-op",
+      "input": {
+        "sql": "SELECT created_at::date AS d, COUNT(*) FROM orders GROUP BY created_at::date",
+        "engine": "postgres"
+      },
+      "output": [null, null]
+    },
+    {
+      "name": "ed:pg-param",
+      "input": {
+        "sql": "SELECT * FROM orders WHERE id = $1",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:union",
+      "input": {
+        "sql": "SELECT id FROM orders UNION SELECT id FROM customers",
+        "engine": "postgres"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "orders",
+          "primaryKeys": ["id"],
+          "column": "id"
+        }
+      ]
+    },
+    {
+      "name": "ed:insert",
+      "input": {
+        "sql": "INSERT INTO categories (name) VALUES ('Toys')",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:update",
+      "input": {
+        "sql": "UPDATE products SET price = price * 1.1 WHERE category_id = 3",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:delete",
+      "input": {
+        "sql": "DELETE FROM reviews WHERE rating < 2",
+        "engine": "postgres"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:pg-dollar",
+      "input": {
+        "sql": "SELECT $$it's$$ AS s FROM products",
+        "engine": "postgres"
+      },
+      "output": [null]
+    },
+    {
+      "name": "ed:mysql-backtick",
+      "input": {
+        "sql": "SELECT `p`.`name` FROM `products` AS `p` WHERE `p`.`price` > 10 LIMIT 5, 10",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "ed:mysql-group-concat",
+      "input": {
+        "sql": "SELECT category_id, GROUP_CONCAT(name) FROM products GROUP BY category_id",
+        "engine": "mysql"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "category_id"
+        },
+        null
+      ]
+    },
+    {
+      "name": "ed:mysql-update-join",
+      "input": {
+        "sql": "UPDATE products p JOIN categories c ON p.category_id = c.id SET p.price = 0 WHERE c.name = 'x'",
+        "engine": "mysql"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:mariadb-basic",
+      "input": {
+        "sql": "SELECT name FROM products WHERE price > 10 ORDER BY name",
+        "engine": "mariadb"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "ed:mssql-top",
+      "input": {
+        "sql": "SELECT TOP 10 [name], price FROM [dbo].[products] WHERE price > 10 ORDER BY price DESC",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "dbo",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "price"
+        }
+      ]
+    },
+    {
+      "name": "ed:mssql-offset",
+      "input": {
+        "sql": "SELECT name FROM products ORDER BY name OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+        "engine": "mssql"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "ed:sqlite-basic",
+      "input": {
+        "sql": "SELECT p.name, c.name FROM products p LEFT JOIN categories c ON c.id = p.category_id",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        },
+        {
+          "schema": "public",
+          "table": "categories",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "ed:sqlite-glob",
+      "input": {
+        "sql": "SELECT name FROM products WHERE name GLOB 'A*'",
+        "engine": "sqlite"
+      },
+      "output": [
+        {
+          "schema": "public",
+          "table": "products",
+          "primaryKeys": ["id"],
+          "column": "name"
+        }
+      ]
+    },
+    {
+      "name": "ed:duckdb-basic",
+      "input": {
+        "sql": "SELECT category_id, AVG(price) FROM products GROUP BY ALL",
+        "engine": "duckdb"
+      },
+      "output": null
+    },
+    {
+      "name": "ed:duckdb-list",
+      "input": {
+        "sql": "SELECT name FROM products WHERE category_id IN (1, 2) QUALIFY ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY price) = 1",
+        "engine": "duckdb"
+      },
+      "output": null
+    }
+  ]
+}

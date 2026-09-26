@@ -275,6 +275,7 @@
 							<VisualQueryPanel
 								schema={viewState.queryBuilderSchema}
 								monacoSchema={db.state.activeSchema ?? undefined}
+								engine={db.state.activeConnection?.type ?? 'postgres'}
 								initialSql={activeTab.query}
 								bind:getSql={viewState.visualPanelGetSql}
 							/>

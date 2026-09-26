@@ -1,0 +1,78 @@
+// Drives the demo build's SQL editor to check the synchronous call site: the
+// statement count in view-state.svelte.ts calls splitSqlStatements (switched
+// to seaquel-wasm in the scratch copy) on every keystroke, and running the
+// query goes through getStatementAtOffset.
+//
+//   PLAYWRIGHT_DIR=... node spike/wasm-stub/demo-editor-check.mjs <build-demo dir> [screenshot.png]
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { readFile, stat } from "node:fs/promises";
+import { extname, join } from "node:path";
+
+const require = createRequire(`${process.env.PLAYWRIGHT_DIR}/package.json`);
+const { chromium, webkit } = require("playwright");
+const [dir, shot] = process.argv.slice(2);
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml" };
+
+const server = createServer(async (req, res) => {
+  let p = decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/demo/, "") || "/";
+  let file = join(dir, p);
+  try {
+    if ((await stat(file)).isDirectory()) file = join(file, "index.html");
+  } catch {
+    file = join(dir, "index.html");
+  }
+  try {
+    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" }).end(await readFile(file));
+  } catch {
+    res.writeHead(404).end();
+  }
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const url = `http://127.0.0.1:${server.address().port}/demo/`;
+
+const out = [];
+for (const [name, type] of [["chromium", chromium], ["webkit", webkit]]) {
+  const browser = await type.launch();
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message.slice(0, 200)));
+  await page.goto(url);
+  const r = { browser: name };
+  try {
+    // The demo opens on its dashboard tab; switch to the query tab.
+    await page.getByText("Query 1", { exact: true }).first().click({ timeout: 30000 });
+    await page.waitForSelector(".monaco-editor textarea", { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    r.callsAfterMount = await page.evaluate(() => globalThis.__seaquelSql?.calls ?? -1);
+    await page.click(".monaco-editor .view-lines");
+    // Monaco's CtrlCmd is Meta on macOS in both engines.
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${mod}+A`);
+    await page.keyboard.press("Backspace");
+    const before = await page.evaluate(() => globalThis.__seaquelSql?.calls ?? -1);
+    const text = "SELECT 1 AS a;\nSELECT '東京😀' AS city, 2 AS b";
+    await page.keyboard.type(text, { delay: 5 });
+    await page.waitForTimeout(300);
+    r.keystrokes = [...text].length;
+    r.callsWhileTyping = (await page.evaluate(() => globalThis.__seaquelSql?.calls ?? -1)) - before;
+    // Run the statement under the cursor (the second, after the non-ASCII text).
+    await page.keyboard.press("Escape"); // close the completion popup
+    await page.keyboard.press(`${mod}+Enter`);
+    await page.waitForTimeout(2500);
+    // The editor shows the text once; a result row shows it again. The
+    // result's header has `city` (statement 2), not `a` (statement 1).
+    const count = (s, t) => s.split(t).length - 1;
+    const body = await page.evaluate(() => document.body.innerText);
+    r.resultRowShown = count(body, "東京😀") >= 2;
+    r.ranSecondStatement = count(body, "city") >= 2;
+    if (shot && name === "chromium") await page.screenshot({ path: shot });
+  } catch (e) {
+    r.error = String(e).split("\n")[0];
+  }
+  r.pageErrors = errors.slice(0, 5);
+  out.push(r);
+  await browser.close();
+}
+server.close();
+console.log(JSON.stringify(out, null, 2));

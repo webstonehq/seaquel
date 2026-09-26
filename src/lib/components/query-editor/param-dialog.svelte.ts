@@ -1,5 +1,5 @@
 import type { QueryParameter } from "$lib/types";
-import { extractParameters, createDefaultParameters } from "$lib/db/query-params.js";
+import { extractParameters, createDefaultParameters } from "$lib/sql";
 import type { QueryEditorContext } from "./types.js";
 
 export type PendingAction =

@@ -1,0 +1,29 @@
+[package]
+name = "seaquel-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "seaquel-sql as one WebAssembly module for the Svelte app (wasm-bindgen). Build it with scripts/build-wasm.mjs."
+
+# build.rs links the wasm32 cdylib with a 2 MiB stack.
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# A hidden `__test_trap` export that traps on purpose, for the vitest check
+# that `callWasm` recovers (src/lib/sql/wasm-trap.test.ts builds a module with
+# it). The app's module, built by scripts/build-wasm.mjs, never has it.
+test-trap = []
+# Generates the boundary shapes into src/lib/types/generated/ (WasmStatement,
+# WireParameterValue, SubstituteResult, VisualResult). Run through
+# `npm run types:gen`.
+ts = ["dep:ts-rs", "seaquel-sql/ts"]
+
+[dependencies]
+seaquel-sql = { path = "../seaquel-sql" }
+seaquel-types = { path = "../seaquel-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+ts-rs = { workspace = true, optional = true }

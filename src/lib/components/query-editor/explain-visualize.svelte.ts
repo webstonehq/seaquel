@@ -1,5 +1,7 @@
-import { hasParameters } from "$lib/db/query-params.js";
-import { getStatementAtOffset } from "$lib/db/sql-parser.js";
+import { getStatementAtOffsetOrThrow, hasParameters, type ParsedStatement } from "$lib/sql";
+import { extractErrorMessage } from "$lib/errors";
+import { m } from "$lib/paraglide/messages.js";
+import { errorToast } from "$lib/utils/toast";
 import type { QueryEditorContext } from "./types.js";
 import type { ParamDialog, PendingAction } from "./param-dialog.svelte.js";
 import type { ViewState } from "./view-state.svelte.js";
@@ -33,7 +35,15 @@ export function createExplainVisualize(
     const query = activeTab.query;
     const cursorOffset = ctx.getMonacoRef()?.getCursorOffset() ?? 0;
     const dbType = db.state.activeConnection?.type ?? "postgres";
-    const currentStatement = getStatementAtOffset(query, cursorOffset, dbType);
+    // Strict: EXPLAIN ANALYZE runs the statement, and a failed lookup must not
+    // fall back to the whole buffer.
+    let currentStatement: ParsedStatement | null;
+    try {
+      currentStatement = getStatementAtOffsetOrThrow(query, cursorOffset, dbType);
+    } catch (error) {
+      errorToast(m.statement_at_cursor_failed({ error: extractErrorMessage(error) }));
+      return null;
+    }
     const queryToCheck = currentStatement?.sql ?? query;
 
     return { activeTabId, query, cursorOffset, queryToCheck };

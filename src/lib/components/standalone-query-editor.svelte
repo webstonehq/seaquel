@@ -11,9 +11,9 @@
 		hasParameters,
 		extractParameters,
 		createDefaultParameters,
-		substituteParameters
-	} from '$lib/db/query-params.js';
-	import { parseSql } from '$lib/tutorial/sql-parser';
+		substituteParameters,
+		parseSql
+	} from '$lib/sql';
 	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte';
 	import type { QueryExecutor, QueryParameter, ParameterValue, SchemaTable } from '$lib/types';
 	import { m } from '$lib/paraglide/messages.js';
@@ -70,8 +70,10 @@
 
 		// Two-way sync: parse SQL and update visual query builder
 		if (qb) {
-			// Use null for validTableNames to accept any table (for real databases too)
-			const parsed = parseSql(sql, { validTableNames: null });
+			// Use null for validTableNames to accept any table (for real databases too).
+			// Parse in the builder's dialect: the tutorial keeps PostgreSQL, though
+			// its executor runs DuckDB (decision 4 of the phase 2b plan).
+			const parsed = parseSql(sql, { validTableNames: null, engine: qb.engine });
 			if (parsed) {
 				qb.applyFromParsedSql(parsed);
 			}

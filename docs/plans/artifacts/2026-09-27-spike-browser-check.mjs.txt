@@ -1,0 +1,127 @@
+// Opens a built app (desktop static build, demo, or a running web server) in
+// headless Chromium and WebKit and checks that the stub seaquel-wasm loaded
+// before the page rendered, how long init took, and that sync calls work.
+//
+//   PLAYWRIGHT_DIR=<dir with node_modules/playwright> \
+//     node spike/wasm-stub/browser-check.mjs <label> <dir-or-url> [--base /demo] [--csp "<policy>"] [--wasm-mime <type>]
+//
+// A directory is served by a small static server (index.html fallback, like
+// adapter-static's). A URL is opened as it is.
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import { extname, join } from "node:path";
+
+const require = createRequire(`${process.env.PLAYWRIGHT_DIR}/package.json`);
+const { chromium, webkit } = require("playwright");
+
+const args = process.argv.slice(2);
+const label = args[0];
+const target = args[1];
+const opt = (name) => {
+  const i = args.indexOf(name);
+  return i === -1 ? undefined : args[i + 1];
+};
+const base = opt("--base") ?? "";
+const csp = opt("--csp");
+const wasmMime = opt("--wasm-mime") ?? "application/wasm";
+const path = opt("--path") ?? "/";
+
+const MIME = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".woff2": "font/woff2",
+  ".wasm": wasmMime,
+};
+
+async function serve(dir) {
+  const server = createServer(async (req, res) => {
+    let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    if (base && p.startsWith(base)) p = p.slice(base.length) || "/";
+    let file = join(dir, p);
+    try {
+      if ((await stat(file)).isDirectory()) file = join(file, "index.html");
+    } catch {
+      file = join(dir, "index.html");
+    }
+    try {
+      const body = await readFile(file);
+      const headers = { "content-type": MIME[extname(file)] ?? "application/octet-stream" };
+      if (csp && extname(file) === ".html") {
+        const hashes = [...body.toString("utf8").matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+          (m) => `'sha256-${createHash("sha256").update(m[1]).digest("base64")}'`,
+        );
+        headers["content-security-policy"] = csp.replace(/script-src ([^;]*)/, (_, v) => `script-src ${v} ${hashes.join(" ")}`);
+      }
+      res.writeHead(200, headers).end(body);
+    } catch {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return server;
+}
+
+const isUrl = /^https?:/.test(target);
+const server = isUrl ? null : await serve(target);
+const url = isUrl ? target : `http://127.0.0.1:${server.address().port}${base}${path}`;
+
+const results = [];
+for (const [name, type] of [
+  ["chromium", chromium],
+  ["webkit", webkit],
+]) {
+  const browser = await type.launch();
+  const page = await browser.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => {
+    if (m.type() === "error" || /wasm|WebAssembly/i.test(m.text())) errors.push(`console.${m.type()}: ${m.text().slice(0, 200)}`);
+  });
+  let wasmResponse = null;
+  page.on("response", (r) => {
+    if (r.url().endsWith(".wasm") && /seaquel_wasm/.test(r.url()))
+      wasmResponse = { status: r.status(), type: r.headers()["content-type"], url: r.url().replace(/^https?:\/\/[^/]+/, "") };
+  });
+  const t0 = Date.now();
+  await page.goto(url, { waitUntil: "load" });
+  let probe = null;
+  try {
+    await page.waitForFunction(() => globalThis.__seaquelSql?.ready || globalThis.__seaquelSql?.errors?.length, null, {
+      timeout: 20000,
+    });
+    probe = await page.evaluate(() => {
+      const p = globalThis.__seaquelSql;
+      const nav = performance.getEntriesByType("navigation")[0];
+      const wasmEntry = performance.getEntriesByType("resource").find((e) => /seaquel_wasm.*\.wasm/.test(e.name));
+      let split = null;
+      let syncMs = null;
+      if (p.ready) {
+        const t = performance.now();
+        split = p.split("SELECT '東京'; SELECT '😀' AS f; SELECT 3", "postgres");
+        syncMs = performance.now() - t;
+      }
+      return {
+        ready: p.ready,
+        initMs: +p.initMs.toFixed(1),
+        callsBeforeProbe: p.calls,
+        errors: p.errors,
+        domContentLoadedMs: nav ? +nav.domContentLoadedEventEnd.toFixed(0) : null,
+        wasmFetchMs: wasmEntry ? +wasmEntry.duration.toFixed(1) : null,
+        split,
+        syncCallMs: syncMs === null ? null : +syncMs.toFixed(2),
+      };
+    });
+  } catch (e) {
+    probe = { timeout: String(e).split("\n")[0] };
+  }
+  results.push({ label, browser: name, url, wallMs: Date.now() - t0, wasmResponse, probe, errors: errors.slice(0, 6) });
+  await browser.close();
+}
+server?.close();
+console.log(JSON.stringify(results, null, 2));

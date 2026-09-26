@@ -9,20 +9,27 @@ import type {
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
-import { detectQueryType, isSelectQuery, extractTableFromSelect } from "$lib/db/query-utils";
-import { resolveColumnSources } from "$lib/db/column-sources";
-import { splitSqlStatements } from "$lib/db/sql-parser";
-import { substituteParameters } from "$lib/db/query-params";
+import {
+  countQuery,
+  detectQueryType,
+  detectQueryTypeOrThrow,
+  extractTableFromSelect,
+  hasRowLimit,
+  resolveColumnSources,
+  splitSqlStatementsOrThrow,
+  substituteParameters,
+  type ParsedStatement,
+  type QueryType,
+} from "$lib/sql";
 import { m } from "$lib/paraglide/messages.js";
 import type { ProviderRegistry } from "$lib/providers";
 import type { DatabaseProvider } from "$lib/providers/types";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
-import { resolveQuery } from "./resolve-query.js";
+import { resolveQueryOrThrow } from "./resolve-query.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import type { PendingChangeOrigin } from "$lib/types";
 import { getEngineClient } from "$lib/engine";
-import { countQuery, hasRowLimit } from "$lib/engine/sql-scan";
 import { QueryCrudManager } from "./query-crud.svelte.js";
 import { dedupeColumnNames, rowToObject } from "$lib/utils/row-access";
 
@@ -105,12 +112,19 @@ export class QueryExecutionManager {
    * Resolve the source table for a SELECT query, if any — used to enable
    * inline cell editing in the result viewer.
    */
-  private resolveSourceTable(baseQuery: string): QueryResult["sourceTable"] | undefined {
-    const tableInfo = extractTableFromSelect(baseQuery);
+  private resolveSourceTable(
+    baseQuery: string,
+    connection: DatabaseConnection,
+  ): QueryResult["sourceTable"] | undefined {
+    const tableInfo = extractTableFromSelect(baseQuery, connection.type);
     if (!tableInfo) return undefined;
 
     if (tableInfo.schema) {
-      const primaryKeys = this.getPrimaryKeysForTable(tableInfo.schema, tableInfo.table);
+      const primaryKeys = this.getPrimaryKeysForTable(
+        tableInfo.schema,
+        tableInfo.table,
+        connection.id,
+      );
       if (primaryKeys.length > 0) {
         return {
           schema: tableInfo.schema,
@@ -122,7 +136,7 @@ export class QueryExecutionManager {
     }
 
     // No schema specified in query — search all cached schemas for the table
-    const tables = this.state.schemas[this.state.activeConnectionId!] ?? [];
+    const tables = this.state.schemas[connection.id] ?? [];
     const match = tables.find((t) => t.name === tableInfo.table);
     if (!match) return undefined;
     const primaryKeys = match.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
@@ -142,10 +156,11 @@ export class QueryExecutionManager {
    * (bare `*`, subqueries, unparseable SQL) — callers fall back to the single
    * `sourceTable` in that case.
    */
-  private resolveColumnSources(baseQuery: string): QueryResult["columnSources"] | undefined {
-    const connection = this.state.activeConnection;
-    if (!connection) return undefined;
-    const schemas = this.state.schemas[this.state.activeConnectionId!] ?? [];
+  private resolveColumnSources(
+    baseQuery: string,
+    connection: DatabaseConnection,
+  ): QueryResult["columnSources"] | undefined {
+    const schemas = this.state.schemas[connection.id] ?? [];
     return resolveColumnSources(baseQuery, connection.type, schemas);
   }
 
@@ -251,6 +266,7 @@ export class QueryExecutionManager {
     statementSql: string,
     baseQuery: string,
     pageSize: number,
+    connection: DatabaseConnection,
   ): StatementResult {
     return {
       columns: [],
@@ -258,9 +274,9 @@ export class QueryExecutionManager {
       rowCount: 0,
       totalRows: 0,
       executionTime: 0,
-      queryType: detectQueryType(baseQuery),
-      sourceTable: this.resolveSourceTable(baseQuery),
-      columnSources: this.resolveColumnSources(baseQuery),
+      queryType: detectQueryType(baseQuery, connection.type),
+      sourceTable: this.resolveSourceTable(baseQuery, connection),
+      columnSources: this.resolveColumnSources(baseQuery, connection),
       page: 1,
       pageSize,
       totalPages: 1,
@@ -332,11 +348,16 @@ export class QueryExecutionManager {
   }
 
   /**
-   * Get primary keys for a table.
+   * Get primary keys for a table, from the cached schema of `connectionId`
+   * (the active connection by default).
    */
-  getPrimaryKeysForTable(schema: string, tableName: string): string[] {
-    if (!this.state.activeConnectionId) return [];
-    const tables = this.state.schemas[this.state.activeConnectionId] ?? [];
+  getPrimaryKeysForTable(
+    schema: string,
+    tableName: string,
+    connectionId: string | null = this.state.activeConnectionId,
+  ): string[] {
+    if (!connectionId) return [];
+    const tables = this.state.schemas[connectionId] ?? [];
     const table = tables.find((t) => t.name === tableName && t.schema === schema);
     if (!table) return [];
     return table.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
@@ -360,7 +381,8 @@ export class QueryExecutionManager {
   ): Promise<QueryResult> {
     const start = performance.now();
     const baseQuery = sql.replace(/;$/, "").trim();
-    const queryType = detectQueryType(baseQuery);
+    // Strict: "other" would run a SELECT unpaged, as a utility statement.
+    const queryType = detectQueryTypeOrThrow(baseQuery, connection.type);
     const providerConnectionId = connection.providerConnectionId;
     if (!providerConnectionId) {
       throw new Error("No connection established");
@@ -468,7 +490,9 @@ export class QueryExecutionManager {
             bindValues,
           );
           totalRows = parseInt(String(countResult[0]?.total ?? "0"), 10);
-        } catch {
+        } catch (error) {
+          // The COUNT query (or building it) failed: estimate the total.
+          void log.warn(`Row count failed on ${connection.id}: ${extractErrorMessage(error)}`);
           totalRows = offset + pageSize + 1;
         }
       }
@@ -488,35 +512,7 @@ export class QueryExecutionManager {
       hasPagination || pageSize === 0 ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
 
     // Try to extract source table info for CRUD operations
-    const tableInfo = extractTableFromSelect(baseQuery);
-    let sourceTable: QueryResult["sourceTable"] | undefined;
-
-    if (tableInfo) {
-      if (tableInfo.schema) {
-        const primaryKeys = this.getPrimaryKeysForTable(tableInfo.schema, tableInfo.table);
-        if (primaryKeys.length > 0) {
-          sourceTable = {
-            schema: tableInfo.schema,
-            name: tableInfo.table,
-            primaryKeys,
-          };
-        }
-      } else {
-        // No schema specified in query — search all cached schemas for the table
-        const tables = this.state.schemas[this.state.activeConnectionId!] ?? [];
-        const match = tables.find((t) => t.name === tableInfo.table);
-        if (match) {
-          const primaryKeys = match.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
-          if (primaryKeys.length > 0) {
-            sourceTable = {
-              schema: match.schema,
-              name: match.name,
-              primaryKeys,
-            };
-          }
-        }
-      }
-    }
+    const sourceTable = this.resolveSourceTable(baseQuery, connection);
 
     // Generate results
     return {
@@ -527,7 +523,7 @@ export class QueryExecutionManager {
       executionTime: Math.round(totalMs * 100) / 100,
       queryType,
       sourceTable,
-      columnSources: this.resolveColumnSources(baseQuery),
+      columnSources: this.resolveColumnSources(baseQuery, connection),
       page,
       pageSize,
       totalPages,
@@ -554,7 +550,15 @@ export class QueryExecutionManager {
     }
 
     // Resolve the statement at cursor once (without params) to get the original SQL
-    const baseResolved = resolveQuery(this.state, tabId, cursorOffset);
+    let baseResolved: ReturnType<typeof resolveQueryOrThrow>;
+    try {
+      baseResolved = resolveQueryOrThrow(this.state, tabId, cursorOffset);
+    } catch (error) {
+      // Don't fall back to the whole buffer: it may hold statements the
+      // user didn't pick.
+      errorToast(m.statement_at_cursor_failed({ error: extractErrorMessage(error) }));
+      return;
+    }
     if (!baseResolved) {
       toast.info(m.query_no_executable_statements());
       return;
@@ -591,33 +595,46 @@ export class QueryExecutionManager {
     );
     const effectivePageSize = pageSize ?? previousSelectResult?.pageSize ?? this.DEFAULT_PAGE_SIZE;
 
+    // The statement's kind, and whether a SELECT goes through the streaming
+    // path. Both checks throw if the SQL module fails.
+    const baseQuery = query.replace(/;$/, "").trim();
+    let queryType: QueryType;
+    let isStreamingSelect: boolean;
+    try {
+      queryType = detectQueryTypeOrThrow(query, dbType);
+      isStreamingSelect =
+        queryType === "select" && this.shouldStream(baseQuery, dbType, effectivePageSize);
+    } catch (error) {
+      // A check couldn't run: report it rather than guess.
+      this.updateQueryTabState(tabId, {
+        results: [this.createErrorResult(originalSql, error, 0, effectivePageSize)],
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+      return;
+    }
+
     // Queue non-SELECT statements when pending changes is enabled
-    if (this.pendingChanges.isEnabled() && !isSelectQuery(query)) {
+    if (this.pendingChanges.isEnabled() && queryType !== "select") {
       const origin: PendingChangeOrigin = "query-editor";
-      this.pendingChanges.add(
-        connection.id,
-        query,
-        detectQueryType(query),
-        origin,
-        tabId,
-        bindValues,
-      );
+      this.pendingChanges.add(connection.id, query, queryType, origin, tabId, bindValues);
       this.updateQueryTabState(tabId, { isExecuting: false });
       toast.info("Statement added to pending changes");
       this.pendingChanges.openSheet();
       return;
     }
 
-    // Decide whether this SELECT goes through the streaming path.
-    const baseQuery = query.replace(/;$/, "").trim();
-    const isStreamingSelect =
-      isSelectQuery(query) && this.shouldStream(baseQuery, connection.type, effectivePageSize);
-
     if (isStreamingSelect) {
       // Seed a streaming result and install it in tab state BEFORE awaiting
       // the stream, so the UI shows an empty table + "streaming…" indicator
       // while rows are flowing in.
-      const seed = this.createStreamingSeed(0, originalSql, baseQuery, effectivePageSize);
+      const seed = this.createStreamingSeed(
+        0,
+        originalSql,
+        baseQuery,
+        effectivePageSize,
+        connection,
+      );
       this.updateQueryTabState(tabId, {
         results: [seed],
         activeResultIndex: 0,
@@ -750,8 +767,19 @@ export class QueryExecutionManager {
     // Get database type for parsing
     const dbType = connection.type ?? "postgres";
 
-    // Parse SQL into individual statements
-    const statements = splitSqlStatements(tab.query, dbType);
+    // Parse SQL into individual statements. Strict: `[]` would read as
+    // "nothing to run".
+    let statements: ParsedStatement[];
+    try {
+      statements = splitSqlStatementsOrThrow(tab.query, dbType);
+    } catch (error) {
+      this.updateQueryTabState(tabId, {
+        results: [this.createErrorResult(tab.query, error, 0, effectivePageSize)],
+        activeResultIndex: 0,
+        isExecuting: false,
+      });
+      return;
+    }
 
     // Handle case where all statements are comments
     if (statements.length === 0) {
@@ -785,25 +813,21 @@ export class QueryExecutionManager {
           bindValues = substituted.bindValues;
         }
 
+        // Strict: a module failure becomes this statement's error result.
+        const queryType = detectQueryTypeOrThrow(sql, dbType);
+
         // Queue write/DDL statements when pending changes is enabled
-        if (this.pendingChanges.isEnabled() && !isSelectQuery(sql)) {
+        if (this.pendingChanges.isEnabled() && queryType !== "select") {
           const origin: PendingChangeOrigin = "query-editor";
-          this.pendingChanges.add(
-            connection.id,
-            sql,
-            detectQueryType(sql),
-            origin,
-            tabId,
-            bindValues,
-          );
+          this.pendingChanges.add(connection.id, sql, queryType, origin, tabId, bindValues);
           queuedCount++;
           continue;
         }
 
         const baseQueryForDetection = sql.replace(/;$/, "").trim();
         const isStreamingSelect =
-          isSelectQuery(sql) &&
-          this.shouldStream(baseQueryForDetection, connection.type, effectivePageSize);
+          queryType === "select" &&
+          this.shouldStream(baseQueryForDetection, dbType, effectivePageSize);
 
         if (isStreamingSelect) {
           // Seed a streaming result, install it so the UI shows progress,
@@ -814,6 +838,7 @@ export class QueryExecutionManager {
             stmt.sql,
             baseQueryForDetection,
             effectivePageSize,
+            connection,
           );
           const seedIndex = allResults.length;
           allResults.push(seed);
@@ -980,9 +1005,22 @@ export class QueryExecutionManager {
     this.abortTabStream(tabId);
 
     const baseQuery = existingResult.statementSql.replace(/;$/, "").trim();
-    const isStreamingSelect =
-      isSelectQuery(existingResult.statementSql) &&
-      this.shouldStream(baseQuery, connection.type, pageSize);
+    let isStreamingSelect: boolean;
+    try {
+      isStreamingSelect =
+        detectQueryTypeOrThrow(existingResult.statementSql, connection.type) === "select" &&
+        this.shouldStream(baseQuery, connection.type, pageSize);
+    } catch (error) {
+      // A check couldn't run: report it rather than guess.
+      const errResults = [...tab.results];
+      errResults[resultIndex] = {
+        ...existingResult,
+        error: extractErrorMessage(error),
+        isError: true,
+      };
+      this.updateQueryTabState(tabId, { results: errResults });
+      return;
+    }
 
     if (isStreamingSelect) {
       const seed = this.createStreamingSeed(
@@ -990,6 +1028,7 @@ export class QueryExecutionManager {
         existingResult.statementSql,
         baseQuery,
         pageSize,
+        connection,
       );
       const newResults = [...tab.results];
       newResults[resultIndex] = seed;

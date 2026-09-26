@@ -1,0 +1,1544 @@
+{
+  "cases": [
+    {
+      "name": "sample:pg-list-tables",
+      "input": {
+        "sql": "SELECT table_name, table_type\nFROM information_schema.tables\nWHERE table_schema = 'public'\nORDER BY table_name;",
+        "engine": "postgres",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:pg-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;",
+        "engine": "postgres",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:pg-table-size",
+      "input": {
+        "sql": "SELECT\n    relname AS table_name,\n    pg_size_pretty(pg_total_relation_size(relid)) AS total_size\nFROM pg_catalog.pg_statio_user_tables\nORDER BY pg_total_relation_size(relid) DESC;",
+        "engine": "postgres",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mysql-list-tables",
+      "input": {
+        "sql": "SHOW TABLES;",
+        "engine": "mysql",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mysql-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;",
+        "engine": "mysql",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mysql-table-size",
+      "input": {
+        "sql": "SELECT\n    table_name,\n    ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb\nFROM information_schema.tables\nWHERE table_schema = DATABASE()\nORDER BY (data_length + index_length) DESC;",
+        "engine": "mysql",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mariadb-list-tables",
+      "input": {
+        "sql": "SHOW TABLES;",
+        "engine": "mariadb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mariadb-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;",
+        "engine": "mariadb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:sqlite-list-tables",
+      "input": {
+        "sql": "SELECT name, type\nFROM sqlite_master\nWHERE type IN ('table', 'view')\nORDER BY name;",
+        "engine": "sqlite",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:sqlite-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;",
+        "engine": "sqlite",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:sqlite-table-info",
+      "input": {
+        "sql": "PRAGMA table_info(your_table);",
+        "engine": "sqlite",
+        "source": "sample"
+      },
+      "output": {
+        "parses": false
+      }
+    },
+    {
+      "name": "sample:mssql-list-tables",
+      "input": {
+        "sql": "SELECT TABLE_NAME, TABLE_TYPE\nFROM INFORMATION_SCHEMA.TABLES\nWHERE TABLE_TYPE = 'BASE TABLE'\nORDER BY TABLE_NAME;",
+        "engine": "mssql",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:mssql-sample-data",
+      "input": {
+        "sql": "SELECT TOP 10 *\nFROM your_table;",
+        "engine": "mssql",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:duckdb-list-tables",
+      "input": {
+        "sql": "SELECT table_schema, table_name\nFROM information_schema.tables\nWHERE table_type = 'BASE TABLE'\nORDER BY table_schema, table_name;",
+        "engine": "duckdb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:duckdb-sample-data",
+      "input": {
+        "sql": "SELECT *\nFROM your_table\nLIMIT 10;",
+        "engine": "duckdb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:duckdb-describe-table",
+      "input": {
+        "sql": "DESCRIBE your_table;",
+        "engine": "duckdb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:duckdb-import-csv",
+      "input": {
+        "sql": "CREATE TABLE my_data AS\nSELECT * FROM read_csv_auto('/path/to/file.csv');",
+        "engine": "duckdb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "sample:duckdb-import-parquet",
+      "input": {
+        "sql": "CREATE TABLE my_data AS\nSELECT * FROM read_parquet('/path/to/file.parquet');",
+        "engine": "duckdb",
+        "source": "sample"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - PostgreSQL\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:1",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS order_items",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:2",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS orders",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:3",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS products",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:4",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS users",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:5",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS categories",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:6",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:7",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:8",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:9",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id SERIAL PRIMARY KEY,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:10",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id SERIAL PRIMARY KEY,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:11",
+      "input": {
+        "sql": "-- All types table (regression coverage for every PostgreSQL data type)\nCREATE TABLE all_types (\n    id SERIAL PRIMARY KEY,\n    col_smallint SMALLINT,\n    col_integer INTEGER,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_numeric NUMERIC(12,4),\n    col_real REAL,\n    col_double DOUBLE PRECISION,\n    col_smallserial SMALLSERIAL,\n    col_serial SERIAL,\n    col_bigserial BIGSERIAL,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_text TEXT,\n    col_bytea BYTEA,\n    col_date DATE,\n    col_time TIME,\n    col_time_tz TIME WITH TIME ZONE,\n    col_timestamp TIMESTAMP,\n    col_timestamp_tz TIMESTAMP WITH TIME ZONE,\n    col_interval INTERVAL,\n    col_uuid UUID,\n    col_json JSON,\n    col_jsonb JSONB,\n    col_xml XML,\n    col_inet INET,\n    col_cidr CIDR,\n    col_macaddr MACADDR,\n    col_bit BIT(8),\n    col_bit_varying BIT VARYING(8),\n    col_point POINT,\n    col_line LINE,\n    col_lseg LSEG,\n    col_box BOX,\n    col_path PATH,\n    col_polygon POLYGON,\n    col_circle CIRCLE,\n    col_money MONEY,\n    col_int_array INTEGER[],\n    col_text_array TEXT[],\n    col_tsquery TSQUERY,\n    col_tsvector TSVECTOR\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:12",
+      "input": {
+        "sql": "INSERT INTO all_types (\n    col_smallint, col_integer, col_bigint,\n    col_decimal, col_numeric, col_real, col_double,\n    col_boolean,\n    col_char, col_varchar, col_text,\n    col_bytea,\n    col_date, col_time, col_time_tz, col_timestamp, col_timestamp_tz, col_interval,\n    col_uuid, col_json, col_jsonb, col_xml,\n    col_inet, col_cidr, col_macaddr,\n    col_bit, col_bit_varying,\n    col_point, col_line, col_lseg, col_box, col_path, col_polygon, col_circle,\n    col_money,\n    col_int_array, col_text_array,\n    col_tsquery, col_tsvector\n) VALUES (\n    32000, 2147483647, 9223372036854775807,\n    99999.99, 12345678.1234, 3.14, 2.718281828,\n    TRUE,\n    'fixed     ', 'variable length string', 'regular text content',\n    E'\\\\xDEADBEEF',\n    '2026-03-08', '12:30:00', '12:30:00+00', '2026-03-08 12:30:00', '2026-03-08 12:30:00+00', '1 year 2 months 3 days',\n    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{\"key\": \"value\", \"number\": 42}', '{\"key\": \"value\", \"number\": 42}', '<root><element>text</element></root>',\n    '192.168.1.1', '192.168.1.0/24', '08:00:2b:01:02:03',\n    B'10101010', B'1010',\n    '(1,2)', '{1,-1,0}', '[(0,0),(1,1)]', '(1,1),(0,0)', '[(0,0),(1,1),(2,0)]', '((0,0),(1,1),(1,0))', '<(0,0),5>',\n    '$99,999.99',\n    '{1,2,3}', '{\"hello\",\"world\"}',\n    'fat & cat', 'a fat cat sat on a mat'\n)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:13",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:14",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:15",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:16",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:postgresql:17",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "postgres",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - MySQL\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:1",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS order_items",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:2",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS orders",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:3",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS products",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:4",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS users",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:5",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS categories",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:6",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:7",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:8",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:9",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:10",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:11",
+      "input": {
+        "sql": "-- All types table (regression coverage for every MySQL data type)\nCREATE TABLE all_types (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_bit BIT(8),\n    col_tinyint_unsigned TINYINT UNSIGNED,\n    col_int_unsigned INT UNSIGNED,\n    col_bigint_unsigned BIGINT UNSIGNED,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_tinytext TINYTEXT,\n    col_text TEXT,\n    col_mediumtext MEDIUMTEXT,\n    col_longtext LONGTEXT,\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_tinyblob TINYBLOB,\n    col_blob BLOB,\n    col_mediumblob MEDIUMBLOB,\n    col_longblob LONGBLOB,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP NULL,\n    col_time TIME,\n    col_year YEAR,\n    col_json JSON,\n    col_enum ENUM('a','b','c'),\n    col_set SET('x','y','z'),\n    col_geometry GEOMETRY NULL,\n    col_point POINT NULL,\n    col_linestring LINESTRING NULL,\n    col_polygon POLYGON NULL\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:12",
+      "input": {
+        "sql": "INSERT INTO all_types (\n    col_tinyint, col_smallint, col_mediumint, col_int, col_bigint,\n    col_decimal, col_float, col_double, col_bit,\n    col_tinyint_unsigned, col_int_unsigned, col_bigint_unsigned,\n    col_boolean,\n    col_char, col_varchar, col_tinytext, col_text, col_mediumtext, col_longtext,\n    col_binary, col_varbinary, col_tinyblob, col_blob, col_mediumblob, col_longblob,\n    col_date, col_datetime, col_timestamp, col_time, col_year,\n    col_json, col_enum, col_set,\n    col_geometry, col_point, col_linestring, col_polygon\n) VALUES (\n    127, 32000, 8388607, 2147483647, 9223372036854775807,\n    99999.99, 3.14, 2.718281828, b'10101010',\n    255, 4294967295, 18446744073709551615,\n    TRUE,\n    'fixed     ', 'variable length string', 'tiny text', 'regular text', 'medium text content', 'long text content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xFF, 0xCAFEBABE, 0xFACEFEED, 0xBAADF00D,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', '12:30:00', 2026,\n    '{\"key\": \"value\", \"number\": 42}', 'b', 'x,y',\n    NULL, NULL, NULL, NULL\n)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:13",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:14",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:15",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:16",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mysql:17",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "mysql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - MariaDB\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:1",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS order_items",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:2",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS orders",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:3",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS products",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:4",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS users",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:5",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS categories",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:6",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:7",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:8",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    name VARCHAR(255) NOT NULL,\n    email VARCHAR(255) UNIQUE NOT NULL,\n    role VARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:9",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR(50) DEFAULT 'pending',\n    shipping_address VARCHAR(500),\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:10",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:11",
+      "input": {
+        "sql": "-- All types table (regression coverage for every MariaDB data type)\nCREATE TABLE all_types (\n    id INT PRIMARY KEY AUTO_INCREMENT,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_bit BIT(8),\n    col_tinyint_unsigned TINYINT UNSIGNED,\n    col_int_unsigned INT UNSIGNED,\n    col_bigint_unsigned BIGINT UNSIGNED,\n    col_boolean BOOLEAN,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_tinytext TINYTEXT,\n    col_text TEXT,\n    col_mediumtext MEDIUMTEXT,\n    col_longtext LONGTEXT,\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_tinyblob TINYBLOB,\n    col_blob BLOB,\n    col_mediumblob MEDIUMBLOB,\n    col_longblob LONGBLOB,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP NULL,\n    col_time TIME,\n    col_year YEAR,\n    col_json JSON,\n    col_enum ENUM('a','b','c'),\n    col_set SET('x','y','z'),\n    col_inet6 INET6 NULL,\n    col_uuid UUID NULL\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:12",
+      "input": {
+        "sql": "INSERT INTO all_types (\n    col_tinyint, col_smallint, col_mediumint, col_int, col_bigint,\n    col_decimal, col_float, col_double, col_bit,\n    col_tinyint_unsigned, col_int_unsigned, col_bigint_unsigned,\n    col_boolean,\n    col_char, col_varchar, col_tinytext, col_text, col_mediumtext, col_longtext,\n    col_binary, col_varbinary, col_tinyblob, col_blob, col_mediumblob, col_longblob,\n    col_date, col_datetime, col_timestamp, col_time, col_year,\n    col_json, col_enum, col_set,\n    col_inet6, col_uuid\n) VALUES (\n    127, 32000, 8388607, 2147483647, 9223372036854775807,\n    99999.99, 3.14, 2.718281828, b'10101010',\n    255, 4294967295, 18446744073709551615,\n    TRUE,\n    'fixed     ', 'variable length string', 'tiny text', 'regular text', 'medium text content', 'long text content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xFF, 0xCAFEBABE, 0xFACEFEED, 0xBAADF00D,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', '12:30:00', 2026,\n    '{\"key\": \"value\", \"number\": 42}', 'b', 'x,y',\n    '2001:db8::1', UUID()\n)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:13",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:14",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:15",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:16",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:mariadb:17",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "mariadb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - SQLite\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:1",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS order_items",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:2",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS orders",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:3",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS products",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:4",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS users",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:5",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS categories",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:6",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:7",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INTEGER REFERENCES categories(id),\n    stock_quantity INTEGER DEFAULT 0,\n    description TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:8",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    name TEXT NOT NULL,\n    email TEXT UNIQUE NOT NULL,\n    role TEXT DEFAULT 'customer',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:9",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    user_id INTEGER REFERENCES users(id),\n    total DECIMAL(10, 2) NOT NULL,\n    status TEXT DEFAULT 'pending',\n    shipping_address TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:10",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    order_id INTEGER REFERENCES orders(id),\n    product_id INTEGER REFERENCES products(id),\n    quantity INTEGER NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:11",
+      "input": {
+        "sql": "-- All types table (regression coverage for every SQLite type affinity and common declared types)\nCREATE TABLE all_types (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    col_integer INTEGER,\n    col_real REAL,\n    col_text TEXT,\n    col_blob BLOB,\n    col_numeric NUMERIC,\n    col_boolean BOOLEAN,\n    col_date DATE,\n    col_datetime DATETIME,\n    col_timestamp TIMESTAMP,\n    col_decimal DECIMAL(10,2),\n    col_varchar VARCHAR(255),\n    col_char CHAR(10),\n    col_clob CLOB,\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_smallint SMALLINT,\n    col_mediumint MEDIUMINT,\n    col_bigint BIGINT,\n    col_tinyint TINYINT,\n    col_int2 INT2,\n    col_int8 INT8,\n    col_unsigned_big_int UNSIGNED BIG INT,\n    col_native_character NATIVE CHARACTER(70),\n    col_nchar NCHAR(55),\n    col_nvarchar NVARCHAR(100)\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": false
+      }
+    },
+    {
+      "name": "schema:sqlite:12",
+      "input": {
+        "sql": "INSERT INTO all_types (\n    col_integer, col_real, col_text, col_blob, col_numeric, col_boolean,\n    col_date, col_datetime, col_timestamp, col_decimal,\n    col_varchar, col_char, col_clob,\n    col_float, col_double,\n    col_smallint, col_mediumint, col_bigint, col_tinyint, col_int2, col_int8,\n    col_unsigned_big_int, col_native_character, col_nchar, col_nvarchar\n) VALUES (\n    42, 3.14, 'hello world', X'DEADBEEF', 123.456, 1,\n    '2026-03-08', '2026-03-08 12:30:00', '2026-03-08 12:30:00', 99999.99,\n    'variable length string', 'fixed     ', 'large text content',\n    2.718, 1.41421356,\n    32000, 8388607, 922337203685477, 127, 255, 1024,\n    1844674407370955, 'native character data', 'nchar data', 'nvarchar data'\n)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:13",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:14",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:15",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:16",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlite:17",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "sqlite",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - SQL Server\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nIF OBJECT_ID('all_types', 'U') IS NOT NULL DROP TABLE all_types",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:1",
+      "input": {
+        "sql": "IF OBJECT_ID('order_items', 'U') IS NOT NULL DROP TABLE order_items",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:2",
+      "input": {
+        "sql": "IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:3",
+      "input": {
+        "sql": "IF OBJECT_ID('products', 'U') IS NOT NULL DROP TABLE products",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:4",
+      "input": {
+        "sql": "IF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:5",
+      "input": {
+        "sql": "IF OBJECT_ID('categories', 'U') IS NOT NULL DROP TABLE categories",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:6",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    description NVARCHAR(MAX),\n    created_at DATETIME2 DEFAULT GETDATE()\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:7",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INT,\n    stock_quantity INT DEFAULT 0,\n    description NVARCHAR(MAX),\n    created_at DATETIME2 DEFAULT GETDATE(),\n    CONSTRAINT FK_products_category FOREIGN KEY (category_id) REFERENCES categories(id)\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:8",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    name NVARCHAR(255) NOT NULL,\n    email NVARCHAR(255) UNIQUE NOT NULL,\n    role NVARCHAR(50) DEFAULT 'customer',\n    created_at DATETIME2 DEFAULT GETDATE()\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:9",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    user_id INT,\n    total DECIMAL(10, 2) NOT NULL,\n    status NVARCHAR(50) DEFAULT 'pending',\n    shipping_address NVARCHAR(500),\n    created_at DATETIME2 DEFAULT GETDATE(),\n    CONSTRAINT FK_orders_user FOREIGN KEY (user_id) REFERENCES users(id)\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:10",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    order_id INT,\n    product_id INT,\n    quantity INT NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    CONSTRAINT FK_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id),\n    CONSTRAINT FK_order_items_product FOREIGN KEY (product_id) REFERENCES products(id)\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:11",
+      "input": {
+        "sql": "-- All types table (regression coverage for every SQL Server data type)\nCREATE TABLE all_types (\n    id INT IDENTITY(1,1) PRIMARY KEY,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_int INT,\n    col_bigint BIGINT,\n    col_decimal DECIMAL(10,2),\n    col_numeric NUMERIC(12,4),\n    col_float FLOAT,\n    col_real REAL,\n    col_money MONEY,\n    col_smallmoney SMALLMONEY,\n    col_bit BIT,\n    col_char CHAR(10),\n    col_varchar VARCHAR(255),\n    col_nchar NCHAR(10),\n    col_nvarchar NVARCHAR(255),\n    col_text TEXT,\n    col_ntext NTEXT,\n    col_varchar_max VARCHAR(MAX),\n    col_nvarchar_max NVARCHAR(MAX),\n    col_binary BINARY(16),\n    col_varbinary VARBINARY(255),\n    col_varbinary_max VARBINARY(MAX),\n    col_date DATE,\n    col_time TIME,\n    col_datetime DATETIME,\n    col_datetime2 DATETIME2,\n    col_datetimeoffset DATETIMEOFFSET,\n    col_smalldatetime SMALLDATETIME,\n    col_uniqueidentifier UNIQUEIDENTIFIER,\n    col_xml XML,\n    col_sql_variant SQL_VARIANT\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:12",
+      "input": {
+        "sql": "INSERT INTO all_types (\n    col_tinyint, col_smallint, col_int, col_bigint,\n    col_decimal, col_numeric, col_float, col_real,\n    col_money, col_smallmoney, col_bit,\n    col_char, col_varchar, col_nchar, col_nvarchar,\n    col_text, col_ntext, col_varchar_max, col_nvarchar_max,\n    col_binary, col_varbinary, col_varbinary_max,\n    col_date, col_time, col_datetime, col_datetime2, col_datetimeoffset, col_smalldatetime,\n    col_uniqueidentifier, col_xml, col_sql_variant\n) VALUES (\n    255, 32000, 2147483647, 9223372036854775807,\n    99999.99, 12345678.1234, 2.718281828, 3.14,\n    99999.99, 214748.3647, 1,\n    'fixed     ', 'variable length string', N'fixed     ', N'variable length string',\n    'regular text', N'regular ntext', 'varchar max content', N'nvarchar max content',\n    0x00112233445566778899AABBCCDDEEFF, 0xDEADBEEF, 0xCAFEBABE,\n    '2026-03-08', '12:30:00', '2026-03-08 12:30:00', '2026-03-08 12:30:00.1234567', '2026-03-08 12:30:00.1234567 +00:00', '2026-03-08 12:30:00',\n    'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11', '<root><element>text</element></root>', 'variant value'\n)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:13",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:14",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:15",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:16",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:sqlserver:17",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "mssql",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:0",
+      "input": {
+        "sql": "-- Seaquel E2E Test Database - DuckDB\n-- Schema + all_types coverage. Shared core data is loaded by seed.mjs from\n-- ../shared/*.json.\n\n-- Drop tables if they exist\nDROP TABLE IF EXISTS all_types",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:1",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS order_items",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:2",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS orders",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:3",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS products",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:4",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS users",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:5",
+      "input": {
+        "sql": "DROP TABLE IF EXISTS categories",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:6",
+      "input": {
+        "sql": "-- Drop sequences if they exist\nDROP SEQUENCE IF EXISTS categories_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:7",
+      "input": {
+        "sql": "DROP SEQUENCE IF EXISTS products_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:8",
+      "input": {
+        "sql": "DROP SEQUENCE IF EXISTS users_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:9",
+      "input": {
+        "sql": "DROP SEQUENCE IF EXISTS orders_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:10",
+      "input": {
+        "sql": "DROP SEQUENCE IF EXISTS order_items_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:11",
+      "input": {
+        "sql": "-- Create sequences\nCREATE SEQUENCE categories_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:12",
+      "input": {
+        "sql": "CREATE SEQUENCE products_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:13",
+      "input": {
+        "sql": "CREATE SEQUENCE users_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:14",
+      "input": {
+        "sql": "CREATE SEQUENCE orders_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:15",
+      "input": {
+        "sql": "CREATE SEQUENCE order_items_id_seq",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:16",
+      "input": {
+        "sql": "-- Categories table\nCREATE TABLE categories (\n    id INTEGER DEFAULT nextval('categories_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    description VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:17",
+      "input": {
+        "sql": "-- Products table\nCREATE TABLE products (\n    id INTEGER DEFAULT nextval('products_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    price DECIMAL(10, 2) NOT NULL,\n    category_id INTEGER,\n    stock_quantity INTEGER DEFAULT 0,\n    description VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (category_id) REFERENCES categories(id)\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:18",
+      "input": {
+        "sql": "-- Users table\nCREATE TABLE users (\n    id INTEGER DEFAULT nextval('users_id_seq') PRIMARY KEY,\n    name VARCHAR NOT NULL,\n    email VARCHAR UNIQUE NOT NULL,\n    role VARCHAR DEFAULT 'customer',\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:19",
+      "input": {
+        "sql": "-- Orders table\nCREATE TABLE orders (\n    id INTEGER DEFAULT nextval('orders_id_seq') PRIMARY KEY,\n    user_id INTEGER,\n    total DECIMAL(10, 2) NOT NULL,\n    status VARCHAR DEFAULT 'pending',\n    shipping_address VARCHAR,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (user_id) REFERENCES users(id)\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:20",
+      "input": {
+        "sql": "-- Order items table\nCREATE TABLE order_items (\n    id INTEGER DEFAULT nextval('order_items_id_seq') PRIMARY KEY,\n    order_id INTEGER,\n    product_id INTEGER,\n    quantity INTEGER NOT NULL,\n    unit_price DECIMAL(10, 2) NOT NULL,\n    FOREIGN KEY (order_id) REFERENCES orders(id),\n    FOREIGN KEY (product_id) REFERENCES products(id)\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:21",
+      "input": {
+        "sql": "-- All types table (regression coverage for every DuckDB data type)\nCREATE TABLE all_types (\n    id INTEGER PRIMARY KEY,\n    col_tinyint TINYINT,\n    col_smallint SMALLINT,\n    col_integer INTEGER,\n    col_bigint BIGINT,\n    col_hugeint HUGEINT,\n    col_utinyint UTINYINT,\n    col_usmallint USMALLINT,\n    col_uinteger UINTEGER,\n    col_ubigint UBIGINT,\n    col_float FLOAT,\n    col_double DOUBLE,\n    col_decimal DECIMAL(10,2),\n    col_boolean BOOLEAN,\n    col_varchar VARCHAR,\n    col_blob BLOB,\n    col_date DATE,\n    col_time TIME,\n    col_timestamp TIMESTAMP,\n    col_timestamp_tz TIMESTAMPTZ,\n    col_interval INTERVAL,\n    col_uuid UUID,\n    col_json JSON,\n    col_int_array INTEGER[],\n    col_varchar_array VARCHAR[],\n    col_map MAP(VARCHAR, INTEGER),\n    col_struct STRUCT(name VARCHAR, age INTEGER)\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:22",
+      "input": {
+        "sql": "INSERT INTO all_types VALUES (\n    1,\n    127, 32000, 2147483647, 9223372036854775807, 170141183460469231731687303715884105727,\n    255, 65535, 4294967295, 18446744073709551615,\n    3.14, 2.718281828, 99999.99,\n    TRUE,\n    'variable length string',\n    '\\xDEADBEEF'::BLOB,\n    '2026-03-08', '12:30:00', '2026-03-08 12:30:00', '2026-03-08 12:30:00+00', INTERVAL '1 year 2 months 3 days',\n    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',\n    '{\"key\": \"value\", \"number\": 42}',\n    [1, 2, 3], ['hello', 'world'],\n    MAP {'key1': 1, 'key2': 2},\n    {'name': 'test', 'age': 42}\n)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:23",
+      "input": {
+        "sql": "-- Create indexes\nCREATE INDEX idx_products_category ON products(category_id)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:24",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_user ON orders(user_id)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:25",
+      "input": {
+        "sql": "CREATE INDEX idx_orders_status ON orders(status)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:26",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_order ON order_items(order_id)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "schema:duckdb:27",
+      "input": {
+        "sql": "CREATE INDEX idx_order_items_product ON order_items(product_id)",
+        "engine": "duckdb",
+        "source": "e2e schema"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "demo:0",
+      "input": {
+        "sql": "SELECT SUM(total_amount) as total_revenue, SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END) as completed_revenue FROM demo.orders",
+        "engine": "duckdb",
+        "source": "demo dashboard"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "demo:1",
+      "input": {
+        "sql": "SELECT COUNT(*) as total_orders FROM demo.orders",
+        "engine": "duckdb",
+        "source": "demo dashboard"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "demo:2",
+      "input": {
+        "sql": "SELECT COUNT(*) as total_customers FROM demo.customers",
+        "engine": "duckdb",
+        "source": "demo dashboard"
+      },
+      "output": {
+        "parses": true
+      }
+    },
+    {
+      "name": "demo:3",
+      "input": {
+        "sql": "SELECT ROUND(AVG(total_amount), 2) as avg_order_value FROM demo.orders",
+        "engine": "duckdb",
+        "source": "demo dashboard"
+      },
+      "output": {
+        "parses": true
+      }
+    }
+  ]
+}
