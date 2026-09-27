@@ -6,8 +6,8 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 use seaquel_engine::{
     BatchStatement, CappedResult, ConnectConfig, DbError, Driver, ExecuteResult, ExpectRows,
-    ExplainResult, QueryResult, ReadOnlyOptions, RowCap, SchemaColumn, SchemaIndex, SchemaTable,
-    Value,
+    ExplainResult, OpenOptions, QueryResult, ReadOnlyOptions, RowCap, SchemaColumn, SchemaIndex,
+    SchemaTable, Value,
 };
 
 use crate::introspect;
@@ -189,6 +189,17 @@ const BEGIN: &str =
 /// connection: a dashboard refreshing a dozen widgets opens at most this
 /// many connections, and the rest wait their turn.
 const READ_ONLY_CONNECTIONS: usize = 4;
+
+/// [`READ_ONLY_CONNECTIONS`], or fewer under `open.max_pool_size`, which
+/// also counts the driver's one session.
+fn read_only_slots(open: OpenOptions) -> usize {
+    match open.max_pool_size {
+        Some(n) => (n as usize)
+            .saturating_sub(1)
+            .clamp(1, READ_ONLY_CONNECTIONS),
+        None => READ_ONLY_CONNECTIONS,
+    }
+}
 
 /// How long one `query_read_only` call may take in all, waiting for a slot
 /// included. Past it the call is dropped (its connection with it), so a
@@ -476,7 +487,13 @@ pub(crate) async fn reset_session(client: &mut MssqlClient) -> Result<(), DbErro
 }
 
 async fn open_client(config: &ConnectConfig) -> Result<MssqlClient, DbError> {
+    // An IPv6 host may come bracketed (`[::1]`); the socket and TLS want
+    // the bare address.
     let host = config.host.as_deref().unwrap_or("localhost");
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     let port = config.port.unwrap_or(1433);
     let database = config.database.as_deref().unwrap_or("master");
     let username = config.username.as_deref().unwrap_or("");
@@ -485,8 +502,18 @@ async fn open_client(config: &ConnectConfig) -> Result<MssqlClient, DbError> {
 
     info!(activity = "db.connect", driver = "mssql", encrypt = encrypt; "Connecting");
 
+    // The name the server's certificate is checked against: `host`, or
+    // `tls_server_name` when the socket goes elsewhere (an SSH tunnel's
+    // 127.0.0.1). tiberius takes the TLS name from `Config::host`, and the
+    // socket is dialled here, to `host` and `port`.
+    let tls_name = config
+        .tls_server_name
+        .as_deref()
+        .filter(|n| !n.is_empty())
+        .unwrap_or(host);
+
     let mut tiberius_config = Config::new();
-    tiberius_config.host(host);
+    tiberius_config.host(tls_name);
     tiberius_config.port(port);
     tiberius_config.database(database);
     tiberius_config.authentication(AuthMethod::sql_server(username, password));
@@ -499,7 +526,7 @@ async fn open_client(config: &ConnectConfig) -> Result<MssqlClient, DbError> {
     // Connect with timeout
     let tcp = tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        TcpStream::connect(tiberius_config.get_addr()),
+        TcpStream::connect((host, port)),
     )
     .await
     .map_err(|_| DbError {
@@ -565,6 +592,13 @@ async fn open_client(config: &ConnectConfig) -> Result<MssqlClient, DbError> {
 
 impl MssqlDriver {
     pub async fn connect(config: &ConnectConfig) -> Result<Self, DbError> {
+        Self::connect_with(config, OpenOptions::default()).await
+    }
+
+    /// [`MssqlDriver::connect`] under `open`: `max_pool_size` counts the one
+    /// session, so at most `max_pool_size - 1` read-only calls (at least 1,
+    /// at most [`READ_ONLY_CONNECTIONS`]) run at once.
+    pub async fn connect_with(config: &ConnectConfig, open: OpenOptions) -> Result<Self, DbError> {
         let client = open_client(config).await?;
         Ok(Self {
             config: config.clone(),
@@ -572,7 +606,7 @@ impl MssqlDriver {
                 client: Some(client),
                 dirty: false,
             }),
-            read_only_slots: Semaphore::new(READ_ONLY_CONNECTIONS),
+            read_only_slots: Semaphore::new(read_only_slots(open)),
         })
     }
 
@@ -1081,6 +1115,25 @@ impl MssqlDriver {
 #[cfg(test)]
 mod tests {
     use super::must_start_batch;
+
+    #[test]
+    fn read_only_slots_follow_the_pool_size() {
+        use super::{read_only_slots, READ_ONLY_CONNECTIONS};
+        use seaquel_engine::OpenOptions;
+        let size = |n| OpenOptions {
+            max_pool_size: Some(n),
+        };
+        assert_eq!(
+            read_only_slots(OpenOptions::default()),
+            READ_ONLY_CONNECTIONS
+        );
+        // The session plus 3: 4 in all.
+        assert_eq!(read_only_slots(size(4)), 3);
+        assert_eq!(read_only_slots(size(100)), READ_ONLY_CONNECTIONS);
+        // Never none: a read-only call would wait forever.
+        assert_eq!(read_only_slots(size(1)), 1);
+        assert_eq!(read_only_slots(size(0)), 1);
+    }
 
     mod read_only_outcome {
         use super::super::{read_only_outcome, QueryFailure, ESCAPED, ESCAPE_SIGNAL, TRIED};

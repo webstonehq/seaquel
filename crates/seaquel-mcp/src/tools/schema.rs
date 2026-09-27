@@ -17,7 +17,11 @@ pub(crate) async fn list_schemas(inner: &Inner, args: ConnectionArgs) -> Result<
     let schemas = inner
         .timed(async {
             let id = inner.connection(c).await?;
-            Ok(inner.core.list_schemas(&id).await?)
+            Ok(inner
+                .workspace
+                .engine(&inner.core, &id)?
+                .list_schemas()
+                .await?)
         })
         .await?;
     Ok(json!({ "schemas": schemas }))
@@ -33,7 +37,11 @@ pub(crate) async fn list_tables(inner: &Inner, args: ListTablesArgs) -> Result<J
     let tables = inner
         .timed(async {
             let id = inner.connection(c).await?;
-            Ok(inner.core.schema_tables(&id).await?)
+            Ok(inner
+                .workspace
+                .engine(&inner.core, &id)?
+                .schema_tables()
+                .await?)
         })
         .await?;
     let tables: Vec<Json> = tables
@@ -61,7 +69,11 @@ pub(crate) async fn describe_table(
             let id = inner.connection(c).await?;
             // The listed table gives the schema when none was passed, the
             // kind, and whether it exists at all.
-            let tables = inner.core.schema_tables(&id).await?;
+            let tables = inner
+                .workspace
+                .engine(&inner.core, &id)?
+                .schema_tables()
+                .await?;
             let matches: Vec<&SchemaTable> = tables
                 .iter()
                 .filter(|t| {

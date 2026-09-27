@@ -1,33 +1,18 @@
 /**
- * Database provider abstraction layer.
- * Enables the same codebase to work with Tauri (desktop) and DuckDB-WASM (web).
+ * Database provider abstraction layer: the interface the managers use.
+ * `CoreProvider` implements it over Seaquel Core (desktop and web);
+ * `DuckDBProvider` over DuckDB-WASM (the demo and the browser tutorial).
  */
 
-import type { DatabaseType } from "$lib/types";
+import type { ConnectParams } from "$lib/types/generated/ConnectParams";
 
 /**
- * Configuration for establishing a database connection.
+ * What `connect` and `test` take: Core's `db.connect` params, a target
+ * (`{type:"saved",id}` or `{type:"form",form}`) plus the secrets the caller
+ * holds, a trusted SSH host key after the prompt, and SQLite's
+ * `createIfMissing`.
  */
-export interface ConnectionConfig {
-  /** Database engine type */
-  type: DatabaseType;
-  /** Database server hostname */
-  host?: string;
-  /** Database server port */
-  port?: number;
-  /** Database name */
-  databaseName: string;
-  /** Username for authentication */
-  username?: string;
-  /** Password for authentication */
-  password?: string;
-  /** Full connection string (used by Tauri for PostgreSQL/SQLite) */
-  connectionString?: string;
-  /** SSL mode */
-  sslMode?: string;
-  /** SQLite only: create the database file if it doesn't exist */
-  createIfMissing?: boolean;
-}
+export type ConnectRequest = ConnectParams;
 
 /**
  * Result of an execute operation (INSERT, UPDATE, DELETE).
@@ -52,7 +37,7 @@ export interface ReadOnlyRows {
 
 /**
  * Unified interface for database operations.
- * Implementations handle the specifics of each backend (Tauri, DuckDB-WASM).
+ * Implementations handle the specifics of each backend (Core, DuckDB-WASM).
  */
 export interface DatabaseProvider {
   /** Provider identifier */
@@ -65,10 +50,10 @@ export interface DatabaseProvider {
 
   /**
    * Establish a database connection.
-   * @param config Connection configuration
+   * @param request What to connect, and the secrets for it
    * @returns Connection ID for subsequent operations
    */
-  connect(config: ConnectionConfig): Promise<string>;
+  connect(request: ConnectRequest): Promise<string>;
 
   /**
    * Close a database connection.
@@ -137,8 +122,8 @@ export interface DatabaseProvider {
    *
    * @param connectionId Provider connection ID from connect()
    * @param sql One read-only statement. No bind parameters.
-   * @param signal Aborting it cancels the query (the stream is cancelled by
-   *   query id, or its WebSocket closed) and rejects the promise.
+   * @param signal Aborting it cancels the query (`db.cancel` with its stream
+   *   id) and rejects the promise.
    * @param maxRows Return at most this many rows, with `truncated` set when
    *   the query had more (Core's `max_rows`). Without it, a result past the
    *   engine's row cap fails with `RESULT_TOO_LARGE`.
@@ -163,9 +148,9 @@ export interface DatabaseProvider {
   execute(connectionId: string, sql: string, params?: unknown[]): Promise<ExecuteResult>;
 
   /**
-   * Test a connection without persisting it.
-   * @param config Connection configuration
+   * Test a connection without keeping it open.
+   * @param request What to connect, and the secrets for it
    * @throws Error if connection fails
    */
-  test(config: ConnectionConfig): Promise<void>;
+  test(request: ConnectRequest): Promise<void>;
 }

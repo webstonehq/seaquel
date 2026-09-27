@@ -2,7 +2,12 @@ import type { Handle } from "@sveltejs/kit";
 import { sequence } from "@sveltejs/kit/hooks";
 import { building } from "$app/environment";
 import { paraglideMiddleware } from "$lib/paraglide/server";
-import { apiGateResponse, licenseServiceUnavailable, needsLicenseGate } from "$lib/server/api-gate";
+import {
+  apiGateResponse,
+  licenseServiceUnavailable,
+  needsLicenseGate,
+  originGateResponse,
+} from "$lib/server/api-gate";
 import { auth } from "$lib/server/auth";
 import { gate as licenseGate, LicenseClientError } from "$lib/server/license-client";
 
@@ -29,6 +34,21 @@ const handleParaglide: Handle = ({ event, resolve }) =>
         html.replace("%paraglide.lang%", locale).replace("%paraglide.dir%", dir),
     });
   });
+
+// CSRF: a state-changing `/api/*` call must come from a trusted Origin (the
+// install's own, or a configured one; `originGateResponse` in `api-gate.ts`).
+// Runs first, so a cross-site request costs no session or license lookup.
+const handleOriginGate: Handle = ({ event, resolve }) => {
+  if (import.meta.env.VITE_BUILD_TARGET !== "web" || building) return resolve(event);
+  const { request } = event;
+  const refused = originGateResponse(
+    request.method,
+    event.url.pathname,
+    request.headers.get("origin"),
+    request.headers.get("host"),
+  );
+  return refused ?? resolve(event);
+};
 
 const handleAuth: Handle = async ({ event, resolve }) => {
   // Only the `web` build has an auth layer. Desktop (Tauri) and demo ship
@@ -127,4 +147,9 @@ const handleApiGate: Handle = async ({ event, resolve }) => {
   return blocked ?? resolve(event);
 };
 
-export const handle: Handle = sequence(handleAuth, handleApiGate, handleParaglide);
+export const handle: Handle = sequence(
+  handleOriginGate,
+  handleAuth,
+  handleApiGate,
+  handleParaglide,
+);

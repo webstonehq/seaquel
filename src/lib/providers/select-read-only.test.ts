@@ -1,44 +1,54 @@
 /**
- * `selectReadOnly` on the two Rust transports: the Tauri channel
- * (`db_query_stream` with `readOnly`) and the WebSocket (`"read_only"` in the
- * first frame). Both run the same stream code as `selectStream`, with the
- * flag set, and collect it into row objects.
+ * `CoreProvider` over a fake `CoreClient`: the `db` request shapes, stream
+ * iteration (`selectStream`, and `selectReadOnly` collecting it into row
+ * objects), cancelling through the signal or `onBatch`, and the `CANCELLED`
+ * ending.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DbStreamEvent } from "./wire";
+import { describe, expect, it, vi } from "vitest";
+import {
+  cancelledEvent,
+  StreamQueue,
+  type CoreClient,
+  type QueryStreamRequest,
+  type StreamEvent,
+} from "$lib/core";
+import type { CoreRequest } from "$lib/types/generated/CoreRequest";
+import type { CoreResponse } from "$lib/types/generated/CoreResponse";
+import { CoreProvider } from "./core-provider";
 
-// -------- Tauri --------
-
-type Args = Record<string, unknown> & {
-  onEvent?: { onmessage: ((event: DbStreamEvent) => void) | null };
-};
-
-const tauri = vi.hoisted(() => ({
-  /** Answers each `db_query_stream` invoke with these events, if set. */
-  events: null as DbStreamEvent[] | null,
-  calls: [] as { cmd: string; args: Record<string, unknown> }[],
-  Channel: class {
-    onmessage: ((event: unknown) => void) | null = null;
-  },
-}));
-
-vi.mock("@tauri-apps/api/core", () => ({
-  Channel: tauri.Channel,
-  invoke: vi.fn(async (cmd: string, args: Args) => {
-    tauri.calls.push({ cmd, args });
-    if (cmd === "db_query_stream" && tauri.events) {
-      for (const event of tauri.events) args.onEvent?.onmessage?.(event);
-    }
-  }),
-}));
-
-import { UnifiedTauriProvider } from "./unified-tauri-provider";
-import { HttpProvider } from "./http-provider";
-
-function streamCall() {
-  const call = tauri.calls.find((c) => c.cmd === "db_query_stream");
-  if (!call) throw new Error("no db_query_stream invoke");
-  return call.args;
+/** A client whose streams answer with `events` (then end), recording what it got. */
+function fakeClient(events: StreamEvent[] | null = null) {
+  const calls: CoreRequest[] = [];
+  const streams: { request: QueryStreamRequest; signal?: AbortSignal; queue: StreamQueue }[] = [];
+  const cancels: string[] = [];
+  let answer: (request: CoreRequest) => unknown = () => null;
+  const client: CoreClient = {
+    call: vi.fn(async (request: CoreRequest) => {
+      calls.push(request);
+      return answer(request) as CoreResponse;
+    }),
+    stream(request, options = {}) {
+      const id = request.params.params.streamId;
+      const queue = new StreamQueue(() => cancels.push(id));
+      options.signal?.addEventListener("abort", () => {
+        cancels.push(id);
+        queue.push(cancelledEvent());
+      });
+      streams.push({ request, signal: options.signal, queue });
+      if (events) for (const event of events) queue.push(event);
+      return queue;
+    },
+    events: () => () => {},
+  };
+  return {
+    client,
+    calls,
+    streams,
+    cancels,
+    answer: (fn: (request: CoreRequest) => unknown) => {
+      answer = fn;
+    },
+  };
 }
 
 const batch = (
@@ -46,246 +56,214 @@ const batch = (
   rows: unknown[][],
   isFinal: boolean,
   truncated?: boolean,
-): DbStreamEvent =>
+): StreamEvent =>
   ({
     type: "batch",
     columns,
     rows,
     is_final: isFinal,
     ...(truncated === undefined ? {} : { truncated }),
-  }) as DbStreamEvent;
+  }) as StreamEvent;
 
-beforeEach(() => {
-  tauri.events = null;
-  tauri.calls = [];
+const provider = (client: CoreClient) => new CoreProvider(() => client);
+
+describe("CoreProvider request/response calls", () => {
+  it("connect sends db.connect and returns the connection id", async () => {
+    const fake = fakeClient();
+    fake.answer(() => ({
+      method: "db",
+      result: { method: "connect", result: { connectionId: "c-1" } },
+    }));
+    const request = { target: { type: "saved" as const, id: "row-1" }, secrets: { db: "pw" } };
+    expect(await provider(fake.client).connect(request)).toBe("c-1");
+    expect(fake.calls).toEqual([{ method: "db", params: { method: "connect", params: request } }]);
+  });
+
+  it("select decodes rows and dedupes column names", async () => {
+    const fake = fakeClient();
+    fake.answer(() => ({
+      method: "db",
+      result: {
+        method: "query",
+        result: { columns: ["id", "id"], rows: [[{ $sq: "bigint", v: "9007199254740993" }, 2]] },
+      },
+    }));
+    expect(await provider(fake.client).select("c-1", "SELECT", [5n])).toEqual([
+      { id: 9007199254740993n, id_2: 2 },
+    ]);
+    expect(fake.calls[0]).toEqual({
+      method: "db",
+      params: {
+        method: "query",
+        params: { connectionId: "c-1", sql: "SELECT", params: [{ $sq: "bigint", v: "5" }] },
+      },
+    });
+  });
+
+  it("execute maps the snake_case result", async () => {
+    const fake = fakeClient();
+    fake.answer(() => ({
+      method: "db",
+      result: { method: "execute", result: { rows_affected: 3, last_insert_id: null } },
+    }));
+    expect(await provider(fake.client).execute("c-1", "DELETE")).toEqual({
+      rowsAffected: 3,
+      lastInsertId: undefined,
+    });
+  });
+
+  it("refuses a response for another method", async () => {
+    const fake = fakeClient();
+    fake.answer(() => ({ method: "db", result: { method: "test", result: null } }));
+    await expect(provider(fake.client).disconnect("c-1")).rejects.toThrow("PROTOCOL_ERROR");
+  });
 });
 
-describe("UnifiedTauriProvider.selectReadOnly", () => {
-  it("streams with readOnly: true and returns row objects", async () => {
-    tauri.events = [batch(["n", "s"], [[1, "a"]], true), { type: "done" }];
-    const result = await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT 1");
-    expect(result).toEqual({ rows: [{ n: 1, s: "a" }], truncated: false });
-    const args = streamCall();
-    expect(args).toMatchObject({
-      connectionId: "pc-1",
-      sql: "SELECT 1",
-      values: [],
-      readOnly: true,
-    });
-    expect(args.maxRows).toBeUndefined();
-    expect(typeof args.queryId).toBe("string");
+describe("CoreProvider.selectStream", () => {
+  it("sends db.queryStream with a fresh stream id, read-write", async () => {
+    const fake = fakeClient([batch(["n"], [[1]], true), { type: "done" }]);
+    const p = provider(fake.client);
+    await p.selectStream("c-1", "SELECT 1", undefined, () => true);
+    await p.selectStream("c-1", "SELECT 1", undefined, () => true);
+    const [a, b] = fake.streams.map((s) => s.request.params.params);
+    expect(a).toEqual({ connectionId: "c-1", streamId: a.streamId, sql: "SELECT 1", params: [] });
+    expect(a.streamId).not.toBe(b.streamId);
   });
 
-  it("sends maxRows and reports the final batch's truncated", async () => {
-    tauri.events = [batch(["n"], [[1], [2]], true, true), { type: "done" }];
-    const result = await new UnifiedTauriProvider().selectReadOnly(
-      "pc-1",
-      "SELECT n FROM t",
-      undefined,
-      2,
-    );
-    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: true });
-    expect(streamCall()).toMatchObject({ readOnly: true, maxRows: 2 });
-  });
-
-  it("isn't truncated when the final batch doesn't say so", async () => {
-    tauri.events = [batch(["n"], [[1]], false, true), batch(null, [[2]], true), { type: "done" }];
-    const result = await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT", undefined, 5);
-    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: false });
-  });
-
-  it("keeps selectStream read-write", async () => {
-    tauri.events = [batch(["n"], [[1]], true), { type: "done" }];
-    await new UnifiedTauriProvider().selectStream("pc-1", "SELECT 1", undefined, () => true);
-    expect(streamCall().readOnly).toBe(false);
-  });
-
-  it("dedupes duplicate column names as select does", async () => {
-    tauri.events = [batch(["id", "id", "id_2"], [[1, 2, 3]], true), { type: "done" }];
-    expect((await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([
-      { id: 1, id_3: 2, id_2: 3 },
-    ]);
-  });
-
-  it("collects every batch and decodes tagged cells", async () => {
-    tauri.events = [
+  it("hands each batch over, decoded, and resolves on done", async () => {
+    const fake = fakeClient([
       batch(["n"], [[{ $sq: "bigint", v: "9007199254740993" }]], false),
       batch(null, [[2]], true),
       { type: "done" },
-    ];
-    expect((await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([
-      { n: 9007199254740993n },
-      { n: 2 },
+    ]);
+    const seen: unknown[] = [];
+    const outcome = await provider(fake.client).selectStream("c-1", "SELECT", [], (b) => {
+      seen.push(b);
+      return true;
+    });
+    expect(outcome).toEqual({ aborted: false });
+    expect(seen).toEqual([
+      { columns: ["n"], rows: [[9007199254740993n]], isFinal: false, truncated: undefined },
+      { columns: null, rows: [[2]], isFinal: true, truncated: undefined },
     ]);
   });
 
+  it("cancels when onBatch returns false", async () => {
+    const fake = fakeClient([batch(["n"], [[1]], false)]);
+    const outcome = await provider(fake.client).selectStream("c-1", "SELECT", [], () => false);
+    expect(outcome).toEqual({ aborted: true });
+    expect(fake.cancels).toEqual([fake.streams[0].request.params.params.streamId]);
+  });
+
+  it("cancels when the signal aborts mid-stream", async () => {
+    const fake = fakeClient(null);
+    const controller = new AbortController();
+    const pending = provider(fake.client).selectStream(
+      "c-1",
+      "SELECT pg_sleep(5)",
+      [],
+      () => true,
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(fake.streams).toHaveLength(1));
+    controller.abort();
+    expect(await pending).toEqual({ aborted: true });
+    expect(fake.cancels).toHaveLength(1);
+  });
+
+  it("reports a CANCELLED ending it didn't ask for as an error", async () => {
+    // Core ended the stream with no done/error (someone else cancelled it).
+    const fake = fakeClient([cancelledEvent()]);
+    expect(await provider(fake.client).selectStream("c-1", "SELECT", [], () => true)).toEqual({
+      aborted: false,
+      error: "CANCELLED: The query was cancelled",
+    });
+  });
+
+  it("reports an error event as CODE: message", async () => {
+    const fake = fakeClient([{ type: "error", code: "QUERY_ERROR", message: "syntax" }]);
+    expect(await provider(fake.client).selectStream("c-1", "SELEC", [], () => true)).toEqual({
+      aborted: false,
+      error: "QUERY_ERROR: syntax",
+    });
+  });
+
+  it("doesn't start a stream for an already-aborted signal", async () => {
+    const fake = fakeClient([]);
+    const controller = new AbortController();
+    controller.abort();
+    expect(
+      await provider(fake.client).selectStream("c-1", "S", [], () => true, controller.signal),
+    ).toEqual({ aborted: true });
+    expect(fake.streams).toEqual([]);
+  });
+});
+
+describe("CoreProvider.selectReadOnly", () => {
+  it("streams with readOnly: true and returns row objects", async () => {
+    const fake = fakeClient([batch(["n", "s"], [[1, "a"]], true), { type: "done" }]);
+    const result = await provider(fake.client).selectReadOnly("c-1", "SELECT 1");
+    expect(result).toEqual({ rows: [{ n: 1, s: "a" }], truncated: false });
+    expect(fake.streams[0].request.params.params).toMatchObject({
+      connectionId: "c-1",
+      sql: "SELECT 1",
+      params: [],
+      readOnly: true,
+    });
+    expect("maxRows" in fake.streams[0].request.params.params).toBe(false);
+  });
+
+  it("sends maxRows and reports the final batch's truncated", async () => {
+    const fake = fakeClient([batch(["n"], [[1], [2]], true, true), { type: "done" }]);
+    const result = await provider(fake.client).selectReadOnly("c-1", "SELECT", undefined, 2);
+    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: true });
+    expect(fake.streams[0].request.params.params).toMatchObject({ readOnly: true, maxRows: 2 });
+  });
+
+  it("isn't truncated when the final batch doesn't say so", async () => {
+    const fake = fakeClient([
+      batch(["n"], [[1]], false, true),
+      batch(null, [[2]], true),
+      { type: "done" },
+    ]);
+    const result = await provider(fake.client).selectReadOnly("c-1", "SELECT", undefined, 5);
+    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: false });
+  });
+
   it("returns [] for a result with no rows", async () => {
-    tauri.events = [batch([], [], true), { type: "done" }];
-    expect(await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).toEqual({
+    const fake = fakeClient([batch([], [], true), { type: "done" }]);
+    expect(await provider(fake.client).selectReadOnly("c-1", "SELECT")).toEqual({
       rows: [],
       truncated: false,
     });
   });
 
-  it("rejects with the error frame's message", async () => {
-    tauri.events = [
-      {
-        type: "error",
-        code: "READ_ONLY",
-        message: "cannot execute INSERT in a read-only transaction",
-      } as DbStreamEvent,
-    ];
-    await expect(new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT f()")).rejects.toThrow(
-      "READ_ONLY: cannot execute INSERT in a read-only transaction",
+  it("rejects with the error event's message", async () => {
+    const fake = fakeClient([
+      { type: "error", code: "READ_ONLY", message: "cannot execute INSERT in a read-only txn" },
+    ]);
+    await expect(provider(fake.client).selectReadOnly("c-1", "SELECT f()")).rejects.toThrow(
+      "READ_ONLY: cannot execute INSERT in a read-only txn",
     );
   });
 
-  it("cancels by query id when the signal aborts, and rejects with an AbortError", async () => {
-    // No events: the query is still running when the signal aborts.
+  it("cancels when the signal aborts, and rejects with an AbortError", async () => {
+    const fake = fakeClient(null);
     const controller = new AbortController();
-    const pending = new UnifiedTauriProvider().selectReadOnly(
-      "pc-1",
-      "SELECT pg_sleep(5)",
-      controller.signal,
-    );
-    await vi.waitFor(() => streamCall());
+    const pending = provider(fake.client).selectReadOnly("c-1", "SELECT 1", controller.signal);
+    await vi.waitFor(() => expect(fake.streams).toHaveLength(1));
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    const cancel = tauri.calls.find((c) => c.cmd === "db_cancel_stream");
-    expect(cancel?.args).toEqual({ queryId: streamCall().queryId });
+    expect(fake.cancels).toEqual([fake.streams[0].request.params.params.streamId]);
   });
 
   it("doesn't start a query for an already-aborted signal", async () => {
+    const fake = fakeClient([]);
     const controller = new AbortController();
     controller.abort();
     await expect(
-      new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT 1", controller.signal),
+      provider(fake.client).selectReadOnly("c-1", "SELECT 1", controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
-    expect(tauri.calls).toEqual([]);
-  });
-});
-
-// -------- WebSocket --------
-
-class FakeWebSocket {
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSING = 2;
-  static readonly CLOSED = 3;
-  static instances: FakeWebSocket[] = [];
-  /** Sent as soon as the first frame arrives, if set. */
-  static reply: DbStreamEvent[] | null = null;
-
-  readyState = FakeWebSocket.CONNECTING;
-  sent: string[] = [];
-  closed = false;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onerror: (() => void) | null = null;
-  onclose: ((event: { reason: string }) => void) | null = null;
-
-  constructor(readonly url: string) {
-    FakeWebSocket.instances.push(this);
-    queueMicrotask(() => {
-      this.readyState = FakeWebSocket.OPEN;
-      this.onopen?.();
-    });
-  }
-  send(data: string) {
-    this.sent.push(data);
-    for (const event of FakeWebSocket.reply ?? []) {
-      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(event) }));
-    }
-  }
-  close() {
-    this.closed = true;
-    this.readyState = FakeWebSocket.CLOSED;
-  }
-  firstFrame(): Record<string, unknown> {
-    return JSON.parse(this.sent[0]) as Record<string, unknown>;
-  }
-}
-
-describe("HttpProvider.selectReadOnly", () => {
-  beforeEach(() => {
-    FakeWebSocket.instances = [];
-    FakeWebSocket.reply = null;
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  const provider = () => new HttpProvider({ baseUrl: "http://seaquel.test" });
-
-  it("sends read_only: true in the first frame and returns row objects", async () => {
-    FakeWebSocket.reply = [batch(["n"], [[1]], true), { type: "done" }];
-    expect(await provider().selectReadOnly("pc-1", "SELECT 1")).toEqual({
-      rows: [{ n: 1 }],
-      truncated: false,
-    });
-    const ws = FakeWebSocket.instances[0];
-    expect(ws.url).toBe("ws://seaquel.test/api/db/stream");
-    expect(ws.firstFrame()).toMatchObject({
-      connection_id: "pc-1",
-      sql: "SELECT 1",
-      values: [],
-      read_only: true,
-    });
-    expect("max_rows" in ws.firstFrame()).toBe(false);
-  });
-
-  it("sends max_rows and reports the final batch's truncated", async () => {
-    FakeWebSocket.reply = [batch(["n"], [[1]], true, true), { type: "done" }];
-    expect(await provider().selectReadOnly("pc-1", "SELECT n FROM t", undefined, 1)).toEqual({
-      rows: [{ n: 1 }],
-      truncated: true,
-    });
-    expect(FakeWebSocket.instances[0].firstFrame()).toMatchObject({
-      read_only: true,
-      max_rows: 1,
-    });
-  });
-
-  it("keeps selectStream read-write", async () => {
-    FakeWebSocket.reply = [batch(["n"], [[1]], true), { type: "done" }];
-    await provider().selectStream("pc-1", "SELECT 1", undefined, () => true);
-    expect(FakeWebSocket.instances[0].firstFrame().read_only).toBe(false);
-  });
-
-  it("dedupes duplicate column names as select does", async () => {
-    FakeWebSocket.reply = [batch(["a", "a"], [[1, 2]], true), { type: "done" }];
-    expect((await provider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([{ a: 1, a_2: 2 }]);
-  });
-
-  it("rejects with the error frame's message", async () => {
-    FakeWebSocket.reply = [
-      {
-        type: "error",
-        code: "READ_ONLY",
-        message: "Only read-only SELECT queries are permitted",
-      } as DbStreamEvent,
-    ];
-    await expect(provider().selectReadOnly("pc-1", "DELETE FROM t")).rejects.toThrow(
-      "READ_ONLY: Only read-only SELECT queries are permitted",
-    );
-  });
-
-  it("closes the socket when the signal aborts, and rejects with an AbortError", async () => {
-    const controller = new AbortController();
-    const pending = provider().selectReadOnly("pc-1", "SELECT SLEEP(5)", controller.signal);
-    await vi.waitFor(() => expect(FakeWebSocket.instances[0]?.sent).toHaveLength(1));
-    controller.abort();
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    expect(FakeWebSocket.instances[0].closed).toBe(true);
-  });
-
-  it("doesn't open a socket for an already-aborted signal", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    await expect(
-      provider().selectReadOnly("pc-1", "SELECT 1", controller.signal),
-    ).rejects.toMatchObject({ name: "AbortError" });
-    expect(FakeWebSocket.instances).toEqual([]);
+    expect(fake.streams).toEqual([]);
   });
 });

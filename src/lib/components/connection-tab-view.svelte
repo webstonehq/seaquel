@@ -9,7 +9,7 @@
 	import { isFileNotFoundError } from "$lib/providers/wire";
 	import {
 		getConnectionData,
-		parseConnectionString,
+		applyPastedConnectionString,
 		hasAllCredentials,
 	} from "$lib/utils/connection-string.js";
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
@@ -42,7 +42,7 @@
 		databaseName: "",
 		username: "",
 		password: "",
-		sslMode: "disable",
+		sslMode: "",
 		connectionString: "",
 		sshEnabled: false,
 		sshHost: "",
@@ -244,9 +244,8 @@
 	};
 
 	const handleParse = (connStr: string): boolean => {
-		const result = parseConnectionString(connStr);
+		const result = applyPastedConnectionString(formData as ConnectionFormData, connStr);
 		if (result.success) {
-			Object.assign(formData, result.formData);
 			connectionError = null;
 			return true;
 		} else {
@@ -257,6 +256,8 @@
 
 	const selectDatabaseType = (type: DatabaseType) => {
 		formData.type = type;
+		// A string for another type would override the one just picked.
+		formData.connectionString = "";
 		const dbType = databaseTypes.find((t) => t.value === type);
 		if (dbType) {
 			formData.port = dbType.defaultPort;

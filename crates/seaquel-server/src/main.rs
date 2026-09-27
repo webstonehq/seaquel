@@ -9,8 +9,10 @@
 //!   that user's `DATA_DIR/users/<id>/meta.db`. Anyone who can send a request
 //!   here can name any user and read or write their saved connections,
 //!   queries and history.
-//! - `/api/db/*` keeps every user's database connections in one map; tenant
-//!   isolation is the `userId:` prefix that Node checks and strips.
+//! - `POST /rpc` and the `GET /rpc/stream` WebSocket also run that user's
+//!   database calls and query streams. Core ties each connection and stream
+//!   to the workspace that opened it, so the header decides whose
+//!   connections a caller reaches.
 //! - `/internal/license/*` reads and writes the install's licensing in
 //!   `DATA_DIR/auth.db` for whatever user id it's given. Node never forwards
 //!   `/internal/*`, and these routes also refuse any non-loopback peer.
@@ -35,6 +37,9 @@
 //! - `SEAQUEL_INTERNAL_SECRET`: the per-boot secret `/internal/*` requires
 //!   in `X-Seaquel-Internal`. `server.js` generates it; it's removed from
 //!   this process's environment at startup.
+//! - `SEAQUEL_WORKSPACE_CAP`: lowers the workspace LRU's cap (1,024) for
+//!   tests and manual checks; clamped to 1..=1024. Evicting a workspace
+//!   closes that user's database connections.
 //! - `SEAQUEL_CONTROL_URL`, `SEAQUEL_LICENSE_SOFT_TTL`,
 //!   `SEAQUEL_LICENSE_GRACE_TTL`, `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`: licensing,
 //!   read once at startup, as the Node server read them.
@@ -112,8 +117,9 @@ async fn main() {
 
     let state = AppState::default().with_internal_secret(internal_secret);
     log::info!(
-        "seaquel-server data dir: {}",
-        state.workspaces.root().display()
+        "seaquel-server data dir: {}, workspace cap {}",
+        state.workspaces.root().display(),
+        state.workspaces.capacity()
     );
     let app = build_router(state);
 

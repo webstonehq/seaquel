@@ -3,8 +3,8 @@
  * Replaces duplicated getOrCreate/getProviderFor patterns across managers.
  *
  * Three modes:
- *   - Tauri desktop          → UnifiedTauriProvider  (IPC)
- *   - Web (hosted/self-host) → HttpProvider          (HTTP + WS to seaquel-server)
+ *   - Tauri desktop          → CoreProvider          (Core over IPC)
+ *   - Web (hosted/self-host) → CoreProvider          (Core over HTTP + WS)
  *   - Demo (browser)         → DuckDBProvider        (DuckDB-WASM only — the demo
  *                                                     UI disables newConnections,
  *                                                     so no other driver is ever
@@ -24,8 +24,8 @@ export class ProviderRegistry {
    * Lazily initializes and caches provider instances.
    */
   async getForType(_dbType: string): Promise<DatabaseProvider> {
-    // Tauri and Web each have one provider for every driver they offer: the
-    // embedded Rust core, or seaquel-server (which has no SQLite or DuckDB;
+    // Tauri and Web have one provider for every driver they offer: Core,
+    // embedded or in seaquel-server (which has no SQLite or DuckDB;
     // ConnectionManager refuses those types on web before reaching here).
     if (isTauri() || isWeb()) {
       return this.getOrCreateDefault();

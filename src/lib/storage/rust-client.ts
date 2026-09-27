@@ -11,7 +11,7 @@
  *   Rust refuses `"params": {}`.
  * - **Write order.** Writes go through one queue, so they land in the order
  *   they were issued (`PersistenceManager`'s debounced saves rely on it).
- *   Reads skip the queue, as they did over `db_query`.
+ *   Reads skip the queue.
  * - **Mapping.** The generated `Persisted*` wire types stay in this file:
  *   callers see the app's types. `lastConnected` crosses as text and becomes
  *   a `Date`; saved workflows cross in their `toStorable` form.

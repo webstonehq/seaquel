@@ -67,7 +67,7 @@ export const POST: RequestHandler = async (event) => {
   // (revocation walk + mode flip), so a cross-site POST must not be able
   // to push an attacker-prepared envelope through here. Mirrors the gate
   // applied in `/api/signup`.
-  if (!isOriginTrusted(request.headers.get("origin"))) {
+  if (!isOriginTrusted(request.headers.get("origin"), request.headers.get("host"))) {
     throw error(403, "request origin not allowed");
   }
 
@@ -113,7 +113,7 @@ export const POST: RequestHandler = async (event) => {
 export const DELETE: RequestHandler = async (event) => {
   const { request, getClientAddress, locals } = event;
 
-  if (!isOriginTrusted(request.headers.get("origin"))) {
+  if (!isOriginTrusted(request.headers.get("origin"), request.headers.get("host"))) {
     throw error(403, "request origin not allowed");
   }
 

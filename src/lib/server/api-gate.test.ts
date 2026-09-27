@@ -10,6 +10,7 @@ import {
   isApiGateExempt,
   licenseServiceUnavailable,
   needsLicenseGate,
+  originGateResponse,
 } from "./api-gate";
 import type { GateAnswer } from "./license-client";
 
@@ -91,5 +92,55 @@ describe("license service unavailable", () => {
     const text = await res.text();
     expect(text).toContain("license service isn't responding");
     expect(text).toContain("container logs");
+  });
+});
+
+describe("Origin gate on state-changing /api calls", () => {
+  const HOST = "localhost:8787";
+  const OWN = "http://localhost:8787";
+
+  it.each(["POST", "PUT", "PATCH", "DELETE"])(
+    "%s from the install's own origin passes",
+    (method) => {
+      expect(originGateResponse(method, "/api/rpc", OWN, HOST)).toBeNull();
+    },
+  );
+
+  it.each([
+    ["POST", "/api/rpc", null],
+    ["POST", "/api/rpc", ""],
+    ["POST", "/api/rpc", "null"],
+    ["POST", "/api/rpc", "https://evil.example"],
+    ["POST", "/api/rpc", "http://localhost:8787.evil.example"],
+    ["DELETE", "/api/team/u_2", "https://evil.example"],
+    ["post", "/api/rpc", "https://evil.example"],
+  ])("%s %s with Origin %s is 403 ORIGIN_NOT_ALLOWED", async (method, path, origin) => {
+    const res = originGateResponse(method, path, origin, HOST);
+    expect(res?.status).toBe(403);
+    expect(res?.headers.get("content-type")).toBe("application/json");
+    expect(await res?.json()).toEqual({
+      code: "ORIGIN_NOT_ALLOWED",
+      message: "request origin not allowed",
+    });
+  });
+
+  it("refuses a domain Host's own origin (DNS rebinding) with nothing configured", async () => {
+    const res = originGateResponse(
+      "POST",
+      "/api/rpc",
+      "http://evil.example:8787",
+      "evil.example:8787",
+    );
+    expect(res?.status).toBe(403);
+  });
+
+  it.each(["GET", "HEAD", "OPTIONS"])("%s isn't checked", (method) => {
+    expect(originGateResponse(method, "/api/rpc", null, HOST)).toBeNull();
+    expect(originGateResponse(method, "/api/rpc", "https://evil.example", HOST)).toBeNull();
+  });
+
+  it("leaves Better Auth's routes and pages to their own checks", () => {
+    expect(originGateResponse("POST", "/api/auth/sign-in/email", null, HOST)).toBeNull();
+    expect(originGateResponse("POST", "/settings", null, HOST)).toBeNull();
   });
 });

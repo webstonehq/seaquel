@@ -27,6 +27,8 @@ export const RUST_ENV_NAMES = new Set([
   "SEAQUEL_LICENSE_SOFT_TTL",
   "SEAQUEL_LICENSE_GRACE_TTL",
   "SEAQUEL_BUNDLE_TRUSTED_PUBKEY",
+  // Lowers the workspace LRU's cap, for tests and manual checks.
+  "SEAQUEL_WORKSPACE_CAP",
   // TLS roots: the control-plane client adds NODE_EXTRA_CA_CERTS; rustls'
   // native store honours SSL_CERT_FILE / SSL_CERT_DIR.
   "NODE_EXTRA_CA_CERTS",

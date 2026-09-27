@@ -1,23 +1,25 @@
 //! The RPCs the GUIs call Core through.
 //!
 //! - The workspace RPC ([`Request`], [`Response`], [`dispatch_workspace`]):
-//!   metadata storage and secrets, served as the `core_call` Tauri command
-//!   and `POST /rpc`. See the `workspace` module.
+//!   metadata storage, secrets and the `db` group (connect, queries, engine
+//!   calls on the workspace's own connections), served as the `core_call`
+//!   Tauri command and `POST /rpc`. See the `workspace` and `db` modules.
+//! - Query streams ([`dispatch_stream`]) and workspace events
+//!   ([`workspace_events`]) as [`CoreEvent`]s, for the desktop's
+//!   `core_stream`/`core_events` and the web's `/rpc/stream`.
 //! - The engine RPC, below.
 //!
 //! The engine RPC: one request/response pair for every dialect-dependent call
 //! the frontend makes (introspection, EXPLAIN, and SQL generation), and a
-//! dispatcher onto [`Core`].
+//! dispatcher onto Core.
 //!
-//! The Tauri app exposes [`dispatch`] as the `db_engine` command and
-//! `seaquel-server` as `POST /api/db/engine`. Both take an [`EngineCall`],
-//! whose top-level `connection_id` lets the web app's Node proxy scope and
-//! strip it like every other `/api/db/*` body.
+//! The GUIs reach it as `db.engine`: an [`EngineRequest`] on one of the
+//! workspace's connections, run through [`dispatch_on`].
 //!
-//! Wire shape:
+//! Wire shape (the request, then the response):
 //!
 //! ```json
-//! {"connection_id":"…","request":{"method":"tableMetadata","params":{"schema":"public","table":"t"}}}
+//! {"method":"tableMetadata","params":{"schema":"public","table":"t"}}
 //! {"kind":"tableMetadata","data":{"columns":[…],"indexes":[…]}}
 //! ```
 //!
@@ -25,10 +27,15 @@
 //! ([`RowValues`]) is an array of `[column, value]` pairs, so its column order
 //! survives JSON (serde_json objects don't keep key order).
 
+mod db;
 mod git;
 mod license;
 mod ssh;
 mod workspace;
+pub use db::{
+    dispatch_stream, workspace_events, ConnectParams, ConnectTargetParams, Connected, CoreEvent,
+    DbRequest, DbResponse, QueryStreamParams, CONNECTION_CLOSED, TUNNEL_CLOSED, WORKSPACE_EVICTED,
+};
 #[cfg(feature = "git")]
 pub use git::dispatch_git;
 pub use git::{GitRequest, GitResponse};
@@ -43,7 +50,7 @@ pub use workspace::{
     StorageRequest, StorageResponse, INVALID_ARGUMENT, NOT_SUPPORTED,
 };
 
-use seaquel_core::Core;
+use seaquel_core::ConnectionHandle;
 use seaquel_engine::{CastMap, RowValues};
 use seaquel_types::{
     ColumnTypeInfo, CreateTableDefinition, DatabaseStatistics, DbError, ExplainResult,
@@ -51,17 +58,9 @@ use seaquel_types::{
 };
 use serde::{Deserialize, Serialize};
 
-/// One engine call on one connection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-pub struct EngineCall {
-    pub connection_id: String,
-    pub request: EngineRequest,
-}
-
 /// What to run. `{"method": <camelCase variant>, "params": {…}}`; variants
 /// without fields have no `params`. Field names are the Rust ones
-/// (`primary_keys`), like `connection_id`.
+/// (`primary_keys`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -167,33 +166,35 @@ pub enum EngineResponse {
     SqlWithBindings(SqlWithBindings),
 }
 
-/// Run one call. Errors are Core's: `CONNECTION_NOT_FOUND` for an unknown
-/// connection, `NOT_SUPPORTED` when the connection's engine has no Rust
-/// dialect or introspection yet, and the driver's own errors otherwise.
-pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, DbError> {
+/// Run one call on the connection `handle` names. From `Workspace::engine`,
+/// a connection the workspace doesn't own is `CONNECTION_NOT_FOUND`.
+pub async fn dispatch_on(
+    handle: &ConnectionHandle<'_>,
+    request: EngineRequest,
+) -> Result<EngineResponse, DbError> {
     use EngineRequest as Req;
     use EngineResponse as Res;
 
-    let id = call.connection_id.as_str();
-    match call.request {
-        Req::ListSchemas => core.list_schemas(id).await.map(Res::Schemas),
-        Req::SchemaTables => core.schema_tables(id).await.map(Res::Tables),
+    let core = handle;
+    match request {
+        Req::ListSchemas => core.list_schemas().await.map(Res::Schemas),
+        Req::SchemaTables => core.schema_tables().await.map(Res::Tables),
         Req::TableMetadata { schema, table } => core
-            .table_metadata(id, &schema, &table)
+            .table_metadata(&schema, &table)
             .await
             .map(|(columns, indexes)| Res::TableMetadata { columns, indexes }),
-        Req::Statistics => core.statistics(id).await.map(Res::Statistics),
+        Req::Statistics => core.statistics().await.map(Res::Statistics),
         Req::Explain {
             sql,
             params,
             analyze,
         } => core
-            .explain(id, &sql, params, analyze)
+            .explain(&sql, params, analyze)
             .await
             .map(|plan| Res::Explain(Box::new(plan))),
-        Req::ColumnTypes => core.with_dialect(id, |d| Res::ColumnTypes(d.column_types())),
+        Req::ColumnTypes => core.with_dialect(|d| Res::ColumnTypes(d.column_types())),
         Req::Paginate { sql, limit, offset } => {
-            core.with_dialect(id, |d| Res::Sql(d.paginate(&sql, limit, offset)))
+            core.with_dialect(|d| Res::Sql(d.paginate(&sql, limit, offset)))
         }
         Req::BuildUpdate {
             schema,
@@ -203,7 +204,7 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             primary_keys,
             row,
             casts,
-        } => core.with_dialect(id, |d| {
+        } => core.with_dialect(|d| {
             Res::SqlWithBindings(d.build_update(
                 &schema,
                 &table,
@@ -222,7 +223,7 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             primary_keys,
             row,
             casts,
-        } => core.with_dialect(id, |d| {
+        } => core.with_dialect(|d| {
             Res::SqlWithBindings(d.build_set_default_expr(
                 &schema,
                 &table,
@@ -238,7 +239,7 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             table,
             values,
             casts,
-        } => core.with_dialect(id, |d| {
+        } => core.with_dialect(|d| {
             Res::SqlWithBindings(d.build_insert(&schema, &table, &values, casts.as_ref()))
         }),
         Req::BuildDelete {
@@ -247,7 +248,7 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             primary_keys,
             row,
             casts,
-        } => core.with_dialect(id, |d| {
+        } => core.with_dialect(|d| {
             Res::SqlWithBindings(d.build_delete(
                 &schema,
                 &table,
@@ -257,10 +258,8 @@ pub async fn dispatch(core: &Core, call: EngineCall) -> Result<EngineResponse, D
             ))
         }),
         Req::CreateTable { definition } => {
-            core.with_dialect(id, |d| Res::Sql(d.create_table(&definition)))
+            core.with_dialect(|d| Res::Sql(d.create_table(&definition)))
         }
-        Req::AlterTable { from, to } => {
-            core.with_dialect(id, |d| Res::Sql(d.alter_table(&from, &to)))
-        }
+        Req::AlterTable { from, to } => core.with_dialect(|d| Res::Sql(d.alter_table(&from, &to))),
     }
 }

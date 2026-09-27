@@ -92,6 +92,7 @@ async fn query_fails(core: &Core, connection_id: &str) -> bool {
 fn core(known_hosts: &Path) -> Core {
     seaquel_core::with_default_plugins()
         .ssh_known_hosts(known_hosts)
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build()
 }
 
@@ -148,7 +149,9 @@ async fn dropping_core_closes_its_tunnels() {
     assert_ne!(a.tunnel_id, b.tunnel_id);
 
     // The database connections live on another Core, so only the tunnels go.
-    let db_core = seaquel_core::with_default_plugins().build();
+    let db_core = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
     let db = db_core.connect(&postgres(a.local_port)).await.unwrap();
     db_core
         .query(&db.connection_id, "SELECT 1", vec![])

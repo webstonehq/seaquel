@@ -110,7 +110,8 @@ pub struct DuckdbDriver {
 }
 
 /// The instance settings for [`ConnectConfig::restricted`], in the open
-/// config so they hold before the first statement:
+/// config so they hold before the first statement. They go in after
+/// [`ConnectConfig::duckdb_config`]'s options, so they win over them:
 ///
 /// - `enable_external_access = false`: no file but the database's own (and
 ///   its WAL and temp directory), no URLs, no `ATTACH`, no `COPY`, no
@@ -130,8 +131,8 @@ pub struct DuckdbDriver {
 /// DuckDB still opens and writes the database file, its WAL and its temp
 /// directory. `duckdb_extensions()` fails, since it lists the extension
 /// directory.
-fn restricted_config() -> Result<Config, DbError> {
-    Config::default()
+fn restricted_config(config: &ConnectConfig) -> Result<Config, DbError> {
+    user_config(config)?
         .enable_external_access(false)
         .and_then(|c| c.enable_autoload_extension(false))
         .and_then(|c| c.with("arrow_lossless_conversion", "true"))
@@ -139,18 +140,62 @@ fn restricted_config() -> Result<Config, DbError> {
         .map_err(DbError::connection_error)
 }
 
+/// The [`ConnectConfig::duckdb_config`] options a restricted instance takes.
+/// None of them reaches a file, a URL or an extension: opening read-only,
+/// and the thread and memory limits.
+const RESTRICTED_OPTIONS: &[&str] = &[
+    "access_mode",
+    "threads",
+    "worker_threads",
+    "memory_limit",
+    "max_memory",
+];
+
+/// The open config with [`ConnectConfig::duckdb_config`]'s options, in
+/// order. An option DuckDB doesn't know (or a bad value) fails the connect
+/// with DuckDB's own message.
+///
+/// A `restricted` instance takes only [`RESTRICTED_OPTIONS`]; any other key
+/// is `INVALID_CONNECTION`, since options like `allowed_directories`,
+/// `allowed_paths`, `temp_directory`, `secret_directory` or the extension
+/// settings reopen what the lock-down closes.
+fn user_config(config: &ConnectConfig) -> Result<Config, DbError> {
+    let restricted = config.restricted.unwrap_or(false);
+    let mut out = Config::default();
+    for (key, value) in config.duckdb_config.iter().flatten() {
+        if restricted
+            && !RESTRICTED_OPTIONS
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(key))
+        {
+            return Err(DbError {
+                message: format!(
+                    "The DuckDB option \"{key}\" isn't allowed on a restricted connection"
+                ),
+                code: "INVALID_CONNECTION".to_string(),
+            });
+        }
+        out = out
+            .with(key, value)
+            .map_err(|e| DbError::connection_error(format!("DuckDB option \"{key}\": {e}")))?;
+    }
+    Ok(out)
+}
+
 /// Opens the database. Blocking: DuckDB may read or create a file.
 fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
     let path = config.path.as_deref().unwrap_or(":memory:");
     let restricted = config.restricted.unwrap_or(false);
+    let flags = || {
+        if restricted {
+            restricted_config(config)
+        } else {
+            user_config(config)
+        }
+    };
 
     if path == ":memory:" || path.is_empty() {
-        return if restricted {
-            Connection::open_in_memory_with_flags(restricted_config()?)
-        } else {
-            Connection::open_in_memory()
-        }
-        .map_err(DbError::connection_error);
+        return Connection::open_in_memory_with_flags(flags()?).map_err(DbError::connection_error);
     }
     // DuckDB creates missing files on open; only allow that when asked
     // so a mistyped path fails instead of opening a new, empty database.
@@ -168,12 +213,7 @@ fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
             })?;
         }
     }
-    if restricted {
-        Connection::open_with_flags(path, restricted_config()?)
-    } else {
-        Connection::open(path)
-    }
-    .map_err(DbError::connection_error)
+    Connection::open_with_flags(path, flags()?).map_err(DbError::connection_error)
 }
 
 /// Opens the database and sets up the session. `arrow_lossless_conversion`

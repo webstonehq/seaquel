@@ -7,7 +7,7 @@
 //! `docs/plans/2026-09-24-rust-core-plugin-architecture-design.md` over the
 //! following phases.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
@@ -17,7 +17,8 @@ use log::{debug, info};
 use seaquel_engine::{
     not_supported, BatchStatement, BoxStream, CancellationToken, ConnectConfig, ConnectResult,
     DatabaseStatistics, DbError, Dialect, Driver, Engine, EngineRegistry, ExecuteResult,
-    ExplainResult, QueryResult, ReadOnlyOptions, SchemaColumn, SchemaIndex, SchemaTable,
+    ExplainResult, OpenOptions, QueryResult, ReadOnlyOptions, SchemaColumn, SchemaIndex,
+    SchemaTable,
 };
 use seaquel_sql::read_only::read_only_error;
 use seaquel_sql::SqlEngine;
@@ -48,14 +49,17 @@ compile_error!(
 );
 
 mod workspace;
-#[cfg(all(
-    feature = "storage",
-    feature = "secrets",
-    feature = "ssh",
-    feature = "workspace"
-))]
-pub use workspace::{ConnectSavedOptions, HostKeyPolicy, SAVED_CONNECTION_NOT_FOUND};
-pub use workspace::{CoreError, Workspace, WorkspaceSpec, DESKTOP_STORAGE_FILE};
+/// What a GUI sends to connect: the form and the secrets it supplies.
+pub use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
+#[cfg(feature = "workspace")]
+pub use workspace::{
+    ConnectRequest, ConnectTarget, HostKeyPolicy, NO_SECRET_STORE, SAVED_CONNECTION_NOT_FOUND,
+    SECRET_UNREADABLE, WORKSPACE_CLOSED,
+};
+pub use workspace::{
+    CoreError, Workspace, WorkspaceEvent, WorkspaceId, WorkspaceSpec, CONNECTION_CLOSED,
+    DESKTOP_STORAGE_FILE, TUNNEL_CLOSED, WORKSPACE_EVICTED,
+};
 
 /// The metadata storage (`seaquel-storage`), for interfaces and
 /// `seaquel-rpc`, which may not depend on it directly.
@@ -92,7 +96,52 @@ pub mod license;
 #[cfg(feature = "ssh")]
 pub mod ssh;
 
-type StreamTokens = Mutex<HashMap<String, StreamEntry>>;
+/// A running stream's key: the workspace that started it (`None` for
+/// Core's own [`Core::query_stream`]) and its query id. Stream ids are
+/// scoped per workspace, so one workspace can't cancel another's query.
+type StreamKey = (Option<WorkspaceId>, String);
+
+type StreamTokens = Mutex<HashMap<StreamKey, StreamEntry>>;
+
+/// How many early cancels ([`Core::cancel_stream_as`] on a workspace stream
+/// that isn't registered yet) Core remembers per workspace, and how many of
+/// a workspace's finished stream ids; the oldest is forgotten first. Per
+/// workspace, so one workspace's cancels can't push out another's.
+const EARLY_CANCELS: usize = 256;
+
+/// One workspace's stream ids that aren't running: cancelled before they
+/// started, and recently finished (a cancel for one of those came too late
+/// and is dropped instead of remembered). Stream ids are the client's and
+/// must be unique per stream.
+#[derive(Default)]
+struct EarlyCancels {
+    cancelled: VecDeque<String>,
+    finished: VecDeque<String>,
+}
+
+/// Push `id` onto a queue capped at [`EARLY_CANCELS`], unless it's there.
+fn push_capped(queue: &mut VecDeque<String>, id: &str) {
+    if queue.iter().any(|q| q == id) {
+        return;
+    }
+    if queue.len() == EARLY_CANCELS {
+        queue.pop_front();
+    }
+    queue.push_back(id.to_string());
+}
+
+/// Remove `id` from `queue`; whether it was there.
+fn take(queue: &mut VecDeque<String>, id: &str) -> bool {
+    match queue.iter().position(|q| q == id) {
+        Some(i) => {
+            queue.remove(i);
+            true
+        }
+        None => false,
+    }
+}
+
+type EarlyCancelMap = Mutex<HashMap<WorkspaceId, EarlyCancels>>;
 
 /// A running stream's entry in [`Core::streams`].
 struct StreamEntry {
@@ -106,12 +155,15 @@ struct StreamEntry {
     closed: Arc<AtomicBool>,
 }
 
-/// An open connection: its driver, and the engine that opened it (for the
-/// engine's dialect).
+/// An open connection: its driver, the engine that opened it (for the
+/// engine's dialect), and the workspace that owns it.
 #[derive(Clone)]
 struct Connection {
     engine: Arc<dyn Engine>,
     driver: Arc<dyn Driver>,
+    /// The workspace that opened it ([`Workspace::connect`]), or `None` for
+    /// [`Core::connect`]. A workspace reaches only its own connections.
+    owner: Option<WorkspaceId>,
 }
 
 pub struct Core {
@@ -121,19 +173,99 @@ pub struct Core {
     /// hold this lock, or it would block every other caller — disconnect,
     /// new queries, other connections — until it finished.
     connections: RwLock<HashMap<String, Connection>>,
-    /// Cancellation tokens of running streams, keyed by the client's query id.
+    /// Cancellation tokens of running streams, keyed by their workspace and
+    /// the client's query id.
     streams: StreamTokens,
+    /// Workspace stream keys cancelled before they were registered (the
+    /// desktop's cancel and start are separate IPC calls that can arrive in
+    /// either order). Locked only while `streams` is held.
+    cancelled_early: EarlyCancelMap,
     next_stream: AtomicU64,
     /// Open SSH tunnels; dropping Core closes them.
     #[cfg(feature = "ssh")]
     tunnels: ssh::TunnelManager,
+    /// `None` until a builder sets one: every connect and test is refused.
+    connect_policy: Option<ConnectPolicy>,
+    limits: ConnectionLimits,
 }
+
+/// How much one workspace may open ([`CoreBuilder::connection_limits`]).
+/// The default is no limit: the desktop app, the CLI and MCP server keep
+/// the engines' own pool sizes. The web server sets both, so one user can't
+/// hold an unbounded number of database connections.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConnectionLimits {
+    /// The most connections one workspace may have open at once, counting
+    /// connects and tests still in flight. Past it, [`Workspace::connect`]
+    /// and [`Workspace::test`] fail with [`TOO_MANY_CONNECTIONS`] before
+    /// anything is read or opened.
+    pub per_workspace: Option<usize>,
+    /// The most database connections one open connection's pool holds
+    /// (passed to the engine as [`OpenOptions::max_pool_size`]). Never
+    /// from the wire.
+    pub max_pool_size: Option<u32>,
+}
+
+/// [`Workspace::connect`] or `test` when the workspace is at
+/// [`ConnectionLimits::per_workspace`].
+pub const TOO_MANY_CONNECTIONS: &str = "TOO_MANY_CONNECTIONS";
+
+/// A check on a finished connect config (see [`ConnectPolicy::Checked`]).
+pub type ConfigCheck = Arc<dyn Fn(&ConnectConfig) -> Result<(), DbError> + Send + Sync>;
+
+/// What a Core may connect to. There is no default: until a builder calls
+/// [`CoreBuilder::connect_policy`], [`Core::connect`], [`Core::test`],
+/// [`Workspace::connect`] and [`Workspace::test`] all answer
+/// `NOT_SUPPORTED`, whatever Cargo features the build unified. So an
+/// interface that forgets to choose can't connect anywhere.
+#[derive(Clone)]
+pub enum ConnectPolicy {
+    /// Any engine this Core has, any config, SSH tunnels included. The
+    /// desktop app, the CLI and MCP server, and tests.
+    Unrestricted,
+    /// The web server's (Task 5). `allow_ssh: false` refuses a connection
+    /// that needs an SSH tunnel before anything is opened (no SSH session,
+    /// no key file read). `check` then runs on the finished config, right
+    /// before the driver opens it; an `Err` is returned as it is.
+    Checked { check: ConfigCheck, allow_ssh: bool },
+}
+
+impl ConnectPolicy {
+    /// [`ConnectPolicy::Checked`] from a plain function or closure.
+    pub fn checked(
+        check: impl Fn(&ConnectConfig) -> Result<(), DbError> + Send + Sync + 'static,
+        allow_ssh: bool,
+    ) -> Self {
+        Self::Checked {
+            check: Arc::new(check),
+            allow_ssh,
+        }
+    }
+}
+
+impl std::fmt::Debug for ConnectPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unrestricted => f.write_str("Unrestricted"),
+            Self::Checked { allow_ssh, .. } => f
+                .debug_struct("Checked")
+                .field("allow_ssh", allow_ssh)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+/// The code for a connect or test on a Core without a [`ConnectPolicy`],
+/// and for an SSH tunnel under `Checked { allow_ssh: false }`.
+const CONNECT_REFUSED: &str = "NOT_SUPPORTED";
 
 #[derive(Default)]
 pub struct CoreBuilder {
     engines: EngineRegistry,
     #[cfg(feature = "ssh")]
     ssh: ssh::TunnelOptions,
+    connect_policy: Option<ConnectPolicy>,
+    limits: ConnectionLimits,
 }
 
 impl CoreBuilder {
@@ -142,11 +274,29 @@ impl CoreBuilder {
         self
     }
 
+    /// What this Core may connect to. Required for any connect or test:
+    /// without it they're refused (see [`ConnectPolicy`]).
+    #[must_use]
+    pub fn connect_policy(mut self, policy: ConnectPolicy) -> Self {
+        self.connect_policy = Some(policy);
+        self
+    }
+
+    /// Limits on what each workspace opens. Without it, none.
+    #[must_use]
+    pub fn connection_limits(mut self, limits: ConnectionLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
     pub fn build(self) -> Core {
         Core {
+            connect_policy: self.connect_policy,
+            limits: self.limits,
             engines: self.engines,
             connections: RwLock::default(),
             streams: Mutex::default(),
+            cancelled_early: Mutex::default(),
             next_stream: AtomicU64::new(0),
             #[cfg(feature = "ssh")]
             tunnels: ssh::TunnelManager::new(self.ssh),
@@ -355,25 +505,88 @@ impl Core {
         Ok(Arc::new(workspace))
     }
 
+    /// The [`ConnectPolicy`], or `NOT_SUPPORTED` without one.
+    fn connect_policy(&self) -> Result<&ConnectPolicy, DbError> {
+        self.connect_policy.as_ref().ok_or_else(|| DbError {
+            code: CONNECT_REFUSED.to_string(),
+            message: "Connecting isn't enabled here (no connect policy is set)".to_string(),
+        })
+    }
+
+    /// `Ok` if the policy lets a connection through an SSH tunnel be
+    /// opened. [`Workspace::connect`] and `test` ask before opening one.
+    #[cfg(any(feature = "workspace", feature = "ssh"))]
+    pub(crate) fn check_ssh_allowed(&self) -> Result<(), DbError> {
+        match self.connect_policy()? {
+            ConnectPolicy::Checked {
+                allow_ssh: false, ..
+            } => Err(DbError {
+                code: CONNECT_REFUSED.to_string(),
+                message: "SSH tunnels aren't available here".to_string(),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// The policy's verdict on a finished `config`.
+    fn check_config(&self, config: &ConnectConfig) -> Result<(), DbError> {
+        match self.connect_policy()? {
+            ConnectPolicy::Unrestricted => Ok(()),
+            ConnectPolicy::Checked { check, .. } => check(config),
+        }
+    }
+
+    /// What every engine open gets: the pool size from the limits.
+    fn open_options(&self) -> OpenOptions {
+        OpenOptions {
+            max_pool_size: self.limits.max_pool_size,
+        }
+    }
+
+    /// The limits [`CoreBuilder::connection_limits`] set.
+    pub fn connection_limits(&self) -> ConnectionLimits {
+        self.limits
+    }
+
     /// Ids of the engines in this build, sorted.
     pub fn engine_ids(&self) -> Vec<&'static str> {
         self.engines.ids()
     }
 
+    /// Open a connection that no workspace owns. Interfaces connect through
+    /// [`Workspace::connect`]; this stays for the engine tests.
     pub async fn connect(&self, config: &ConnectConfig) -> Result<ConnectResult, DbError> {
+        self.connect_as(config, None).await
+    }
+
+    /// Open a connection owned by `owner`.
+    pub(crate) async fn connect_as(
+        &self,
+        config: &ConnectConfig,
+        owner: Option<WorkspaceId>,
+    ) -> Result<ConnectResult, DbError> {
         let driver_name = config.driver.as_str();
         info!(activity = "db.connect", driver = driver_name; "Connecting");
-
+        // An engine this Core lacks is refused as such first; nothing is
+        // opened either way.
         let engine = self
             .engines
             .get(driver_name)
             .ok_or_else(|| DbError::engine_not_available(driver_name))?;
-        let driver = engine.open(config).await?;
+        self.check_config(config)?;
+        let driver = engine.open_with(config, self.open_options()).await?;
         let connection_id = format!("{}-{}", driver_name, uuid::Uuid::new_v4());
         self.connections
             .write()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(connection_id.clone(), Connection { engine, driver });
+            .insert(
+                connection_id.clone(),
+                Connection {
+                    engine,
+                    driver,
+                    owner,
+                },
+            );
 
         info!(activity = "db.connect", driver = driver_name, connection_id = connection_id.as_str(); "Connected");
         Ok(ConnectResult { connection_id })
@@ -382,13 +595,20 @@ impl Core {
     /// Open and close a connection without registering it ("Test connection").
     pub async fn test(&self, config: &ConnectConfig) -> Result<(), DbError> {
         debug!(activity = "db.test", driver = config.driver.as_str(); "Testing connection");
-        let driver = self.engines.open(config).await?;
+        let driver_name = config.driver.as_str();
+        let engine = self
+            .engines
+            .get(driver_name)
+            .ok_or_else(|| DbError::engine_not_available(driver_name))?;
+        self.check_config(config)?;
+        let driver = engine.open_with(config, self.open_options()).await?;
         driver.close().await
     }
 
-    /// Close a connection. Idempotent: an unknown id succeeds. A connection
-    /// `Workspace::connect_saved` opened through an SSH tunnel has that
-    /// tunnel closed too.
+    /// Close any connection, whoever owns it. Idempotent: an unknown id
+    /// succeeds. A connection [`Workspace::connect`] opened through an SSH
+    /// tunnel has that tunnel closed too. Interfaces use
+    /// [`Workspace::disconnect`]; this stays for the engine tests.
     ///
     /// Cancels the connection's running streams first, since the driver's
     /// `close()` waits for them to hand back their pooled connections. Each
@@ -401,12 +621,30 @@ impl Core {
     /// reused a query id, an older stream with it is not cancelled here (it
     /// still stops when dropped).
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), DbError> {
+        self.disconnect_as(connection_id, None).await
+    }
+
+    /// [`Core::disconnect`] for `owner`: with `Some`, a connection it doesn't
+    /// own (or none at all) is `CONNECTION_NOT_FOUND` and stays open.
+    pub(crate) async fn disconnect_as(
+        &self,
+        connection_id: &str,
+        owner: Option<WorkspaceId>,
+    ) -> Result<(), DbError> {
         info!(activity = "db.disconnect", connection_id = connection_id; "Disconnecting");
-        let connection = self
-            .connections
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(connection_id);
+        let connection = {
+            let mut connections = self
+                .connections
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            match (connections.get(connection_id), owner) {
+                (Some(c), Some(owner)) if c.owner != Some(owner) => {
+                    return Err(DbError::connection_not_found(connection_id))
+                }
+                (None, Some(_)) => return Err(DbError::connection_not_found(connection_id)),
+                _ => connections.remove(connection_id),
+            }
+        };
         // Out of the ownership map before anything is awaited: if this future
         // is dropped, the guard still closes the tunnel.
         #[cfg(feature = "ssh")]
@@ -421,7 +659,7 @@ impl Core {
             }
             None => Ok(()),
         };
-        // The SSH tunnel `Workspace::connect_saved` opened for it, after the
+        // The SSH tunnel `Workspace::connect` opened for it, after the
         // driver (closing it cuts whatever still runs through it), and even
         // when closing the driver failed.
         #[cfg(feature = "ssh")]
@@ -441,16 +679,60 @@ impl Core {
     /// A clone of the connection's handles, so the lock is released before
     /// anything is awaited.
     fn connection(&self, connection_id: &str) -> Result<Connection, DbError> {
+        self.connection_as(connection_id, None)
+    }
+
+    /// The connection, if `owner` may use it: any with `None` (Core's own
+    /// methods), else only one it owns. Not owned and not open are the same
+    /// `CONNECTION_NOT_FOUND`, so the answer doesn't tell whether the id
+    /// exists.
+    fn connection_as(
+        &self,
+        connection_id: &str,
+        owner: Option<WorkspaceId>,
+    ) -> Result<Connection, DbError> {
         self.connections
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .get(connection_id)
+            .filter(|c| owner.is_none() || c.owner == owner)
             .cloned()
             .ok_or_else(|| DbError::connection_not_found(connection_id))
     }
 
-    fn driver(&self, connection_id: &str) -> Result<Arc<dyn Driver>, DbError> {
-        Ok(self.connection(connection_id)?.driver)
+    /// The ids of the connections `owner` owns.
+    pub(crate) fn connections_of(&self, owner: WorkspaceId) -> Vec<String> {
+        self.connections
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, c)| c.owner == Some(owner))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// A handle for any connection's calls, whoever owns it. Interfaces use
+    /// [`Workspace::engine`]; `seaquel-rpc`'s engine dispatch and the engine
+    /// tests use this.
+    pub fn connection_handle(&self, connection_id: &str) -> ConnectionHandle<'_> {
+        ConnectionHandle {
+            core: self,
+            connection_id: connection_id.to_string(),
+            owner: None,
+        }
+    }
+
+    /// A handle checked against `owner` on every call.
+    pub(crate) fn connection_handle_as(
+        &self,
+        connection_id: &str,
+        owner: Option<WorkspaceId>,
+    ) -> ConnectionHandle<'_> {
+        ConnectionHandle {
+            core: self,
+            connection_id: connection_id.to_string(),
+            owner,
+        }
     }
 
     /// The engine that opened a connection.
@@ -469,11 +751,7 @@ impl Core {
         connection_id: &str,
         f: impl FnOnce(&dyn Dialect) -> R,
     ) -> Result<R, DbError> {
-        let engine = self.engine(connection_id)?;
-        let dialect = engine
-            .dialect()
-            .ok_or_else(|| not_supported("The Rust SQL dialect"))?;
-        Ok(f(dialect))
+        self.connection_handle(connection_id).with_dialect(f)
     }
 
     pub async fn query(
@@ -482,9 +760,9 @@ impl Core {
         sql: &str,
         params: Vec<Value>,
     ) -> Result<QueryResult, DbError> {
-        let keyword = sql_keyword(sql);
-        debug!(activity = "db.query", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Query");
-        self.driver(connection_id)?.query(sql, params).await
+        self.connection_handle(connection_id)
+            .query(sql, params)
+            .await
     }
 
     pub async fn execute(
@@ -493,9 +771,9 @@ impl Core {
         sql: &str,
         params: Vec<Value>,
     ) -> Result<ExecuteResult, DbError> {
-        let keyword = sql_keyword(sql);
-        debug!(activity = "db.execute", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Execute");
-        self.driver(connection_id)?.execute(sql, params).await
+        self.connection_handle(connection_id)
+            .execute(sql, params)
+            .await
     }
 
     pub async fn transaction(
@@ -503,20 +781,19 @@ impl Core {
         connection_id: &str,
         statements: Vec<BatchStatement>,
     ) -> Result<(), DbError> {
-        debug!(activity = "db.transaction", connection_id = connection_id, statements = statements.len(); "Executing transaction");
-        self.driver(connection_id)?.transaction(statements).await
+        self.connection_handle(connection_id)
+            .transaction(statements)
+            .await
     }
 
     // ── Introspection ──
 
     pub async fn list_schemas(&self, connection_id: &str) -> Result<Vec<String>, DbError> {
-        debug!(activity = "db.list_schemas", connection_id = connection_id; "List schemas");
-        self.driver(connection_id)?.list_schemas().await
+        self.connection_handle(connection_id).list_schemas().await
     }
 
     pub async fn schema_tables(&self, connection_id: &str) -> Result<Vec<SchemaTable>, DbError> {
-        debug!(activity = "db.schema_tables", connection_id = connection_id; "Schema tables");
-        self.driver(connection_id)?.schema_tables().await
+        self.connection_handle(connection_id).schema_tables().await
     }
 
     pub async fn table_metadata(
@@ -525,15 +802,13 @@ impl Core {
         schema: &str,
         table: &str,
     ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
-        debug!(activity = "db.table_metadata", connection_id = connection_id, schema = schema, table = table; "Table metadata");
-        self.driver(connection_id)?
+        self.connection_handle(connection_id)
             .table_metadata(schema, table)
             .await
     }
 
     pub async fn statistics(&self, connection_id: &str) -> Result<DatabaseStatistics, DbError> {
-        debug!(activity = "db.statistics", connection_id = connection_id; "Statistics");
-        self.driver(connection_id)?.statistics().await
+        self.connection_handle(connection_id).statistics().await
     }
 
     pub async fn explain(
@@ -543,26 +818,12 @@ impl Core {
         params: Vec<Value>,
         analyze: bool,
     ) -> Result<ExplainResult, DbError> {
-        let keyword = sql_keyword(sql);
-        debug!(activity = "db.explain", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), analyze = analyze; "Explain");
-        self.driver(connection_id)?
+        self.connection_handle(connection_id)
             .explain(sql, params, analyze)
             .await
     }
 
-    /// A plain EXPLAIN (no ANALYZE) of one statement that must not change
-    /// anything: the MCP server's `explain_query`. The SQL first goes
-    /// through the same token check as a read-only query
-    /// ([`QueryOptions::read_only`]), then must be a single statement (split
-    /// on `;` under the engine's quoting; SQL Server, which needs no `;`
-    /// between statements, is checked again from its plan), and then runs
-    /// through [`Driver::explain_read_only`]: in the read-only transaction
-    /// or session of the engine's read-only queries where planning can run
-    /// user code (Postgres, MySQL/MariaDB), and as a plain EXPLAIN where it
-    /// only compiles. Refusals are `READ_ONLY`.
-    ///
-    /// `timeout` is as [`QueryOptions::timeout`]; past it the call fails
-    /// with `TIMEOUT`. Dropping the returned future cancels the EXPLAIN.
+    /// See [`ConnectionHandle::explain_read_only`].
     pub async fn explain_read_only(
         &self,
         connection_id: &str,
@@ -570,13 +831,7 @@ impl Core {
         params: Vec<Value>,
         timeout: Option<Duration>,
     ) -> Result<ExplainResult, DbError> {
-        let keyword = sql_keyword(sql);
-        debug!(activity = "db.explain_read_only", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), timeout_ms = timeout.map(|t| t.as_millis() as u64); "Read-only explain");
-        let connection = self.connection(connection_id)?;
-        check_read_only(sql, connection.engine.id())?;
-        check_one_statement(sql, connection.engine.id())?;
-        connection
-            .driver
+        self.connection_handle(connection_id)
             .explain_read_only(sql, params, timeout)
             .await
     }
@@ -599,8 +854,26 @@ impl Core {
     /// [`QueryOptions::max_rows`] that batch holds at most that many rows
     /// and is `truncated` when the query had more; without `read_only`,
     /// `max_rows` ends the stream with `INVALID_OPTIONS`.
+    ///
+    /// The stream isn't owned by a workspace: interfaces use
+    /// [`Workspace::query_stream`], and this stays for the engine tests.
     pub fn query_stream(
         &self,
+        query_id: String,
+        connection_id: String,
+        sql: String,
+        params: Vec<Value>,
+        options: QueryOptions,
+    ) -> BoxStream<'_, StreamEvent> {
+        self.query_stream_as(None, query_id, connection_id, sql, params, options)
+    }
+
+    /// [`Core::query_stream`] for `owner`: with `Some`, a connection it
+    /// doesn't own ends the stream with `CONNECTION_NOT_FOUND` before
+    /// anything is registered, and the stream is registered under `owner`.
+    pub(crate) fn query_stream_as(
+        &self,
+        owner: Option<WorkspaceId>,
         query_id: String,
         connection_id: String,
         sql: String,
@@ -610,9 +883,16 @@ impl Core {
         let keyword = sql_keyword(&sql);
         debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), read_only = options.read_only, max_rows = options.max_rows, max_bytes = options.max_bytes, timeout_ms = options.timeout.map(|t| t.as_millis() as u64); "Query stream");
 
+        if owner.is_some() {
+            if let Err(e) = self.connection_as(&connection_id, owner) {
+                return Box::pin(futures::stream::once(std::future::ready(
+                    StreamEvent::from(e),
+                )));
+            }
+        }
         // Registered now, not on first poll, so a cancel that arrives before
         // the stream starts still counts.
-        let (token, closed, guard) = self.register_stream(query_id, connection_id.clone());
+        let (token, closed, guard) = self.register_stream((owner, query_id), connection_id.clone());
         Box::pin(async_stream::stream! {
             let _guard = guard;
             // Cancelled before the first poll, e.g. by `disconnect`.
@@ -626,7 +906,7 @@ impl Core {
                 yield StreamEvent::from(e);
                 return;
             }
-            let connection = match self.connection(&connection_id) {
+            let connection = match self.connection_as(&connection_id, owner) {
                 Ok(connection) => connection,
                 Err(e) => {
                     yield StreamEvent::from(e);
@@ -642,13 +922,18 @@ impl Core {
                 // Dropping the driver's future is how a read-only query is
                 // cancelled: `take_until` drops it on cancel or disconnect,
                 // and dropping this stream drops it too.
-                let mut result = std::pin::pin!(futures::stream::once(
-                    connection
-                        .driver
-                        .query_read_only_with(&sql, params, options.read_only_options())
-                )
-                .take_until(token.cancelled()));
-                match result.next().await {
+                // Dropped at the end of this block, before any closing
+                // event: that's what stops the statement.
+                let outcome = {
+                    let mut result = std::pin::pin!(futures::stream::once(
+                        connection
+                            .driver
+                            .query_read_only_with(&sql, params, options.read_only_options())
+                    )
+                    .take_until(token.cancelled()));
+                    result.next().await
+                };
+                match outcome {
                     _ if token.is_cancelled() => {
                         if closed.load(Ordering::SeqCst) {
                             yield connection_closed();
@@ -670,23 +955,27 @@ impl Core {
                 return;
             }
             let driver = connection.driver;
-            // `take_until` ends the stream on cancel even while the driver is
-            // awaiting a query it can't interrupt (the default, non-streaming
-            // `query_stream`, e.g. MSSQL); the driver's stream is dropped when
-            // this ends. Drivers that run blocking work elsewhere (DuckDB, on
-            // `spawn_blocking`) interrupt the query when their stream drops.
-            let mut batches = std::pin::pin!(driver
-                .query_stream(sql, params, token.clone())
-                .take_until(token.cancelled()));
-            while let Some(item) = batches.next().await {
-                if token.is_cancelled() {
-                    break;
-                }
-                match item {
-                    Ok(batch) => yield StreamEvent::Batch(batch),
-                    Err(e) => {
-                        yield StreamEvent::from(e);
-                        return;
+            {
+                // `take_until` ends the stream on cancel even while the driver
+                // is awaiting a query it can't interrupt (the default,
+                // non-streaming `query_stream`, e.g. MSSQL). The driver's
+                // stream is dropped at the end of this block, before any
+                // closing event, which is what stops the statement on the
+                // server: the sqlx engines cancel it from a connection of
+                // their own, and DuckDB (on `spawn_blocking`) interrupts it.
+                let mut batches = std::pin::pin!(driver
+                    .query_stream(sql, params, token.clone())
+                    .take_until(token.cancelled()));
+                while let Some(item) = batches.next().await {
+                    if token.is_cancelled() {
+                        break;
+                    }
+                    match item {
+                        Ok(batch) => yield StreamEvent::Batch(batch),
+                        Err(e) => {
+                            yield StreamEvent::from(e);
+                            return;
+                        }
                     }
                 }
             }
@@ -703,14 +992,47 @@ impl Core {
     /// If a query id is reused while an earlier stream with it still runs,
     /// only the newest one can be cancelled by id; the older ones still stop
     /// when dropped.
+    ///
+    /// It reaches only streams started with [`Core::query_stream`], not a
+    /// workspace's ([`Workspace::cancel`]).
     pub fn cancel_stream(&self, query_id: &str) {
+        self.cancel_stream_as(None, query_id, None);
+    }
+
+    /// Cancel `owner`'s stream with this id. For a workspace (`Some`), an id
+    /// that isn't registered yet is remembered, and a stream registered
+    /// under it later starts cancelled (see [`EARLY_CANCELS`]), unless
+    /// `closed` (the workspace's `close_all` flag) is set. It's read under
+    /// the streams lock, which `cancel_streams_owned_by` also holds while it
+    /// drops the workspace's early cancels, and `close_all` sets it before
+    /// that: so a cancel racing `close_all` either lands before the purge
+    /// (and is dropped by it) or sees the flag, and none comes back.
+    pub(crate) fn cancel_stream_as(
+        &self,
+        owner: Option<WorkspaceId>,
+        query_id: &str,
+        closed: Option<&AtomicBool>,
+    ) {
         debug!(activity = "db.cancel_stream", query_id = query_id; "Cancel stream");
-        let token = self
-            .streams
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(query_id)
-            .map(|entry| entry.token.clone());
+        let key = (owner, query_id.to_string());
+        let token = {
+            let streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+            let token = streams.get(&key).map(|entry| entry.token.clone());
+            let remember = !closed.is_some_and(|c| c.load(Ordering::SeqCst));
+            if let (None, Some(owner), true) = (&token, owner, remember) {
+                let mut early = self
+                    .cancelled_early
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                let early = early.entry(owner).or_default();
+                // A stream that already ran under this id: the cancel came
+                // too late, and there's nothing to remember.
+                if !early.finished.iter().any(|id| id == query_id) {
+                    push_capped(&mut early.cancelled, query_id);
+                }
+            }
+            token
+        };
         // Cancelled outside the lock: `cancel()` runs wakers.
         if let Some(token) = token {
             token.cancel();
@@ -736,6 +1058,47 @@ impl Core {
         }
     }
 
+    /// Cancel every stream `owner` started. They end silently, like a
+    /// client cancel.
+    pub(crate) fn cancel_streams_owned_by(&self, owner: WorkspaceId) {
+        let tokens: Vec<CancellationToken> = {
+            let streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+            // The workspace is going away: forget its early cancels too,
+            // under the streams lock, like `cancel_stream_as` adds them.
+            self.cancelled_early
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&owner);
+            streams
+                .iter()
+                .filter(|(key, _)| key.0 == Some(owner))
+                .map(|(_, entry)| entry.token.clone())
+                .collect()
+        };
+        for token in tokens {
+            token.cancel();
+        }
+    }
+
+    /// How many early cancels `owner` has remembered (tests).
+    pub(crate) fn early_cancel_count_of(&self, owner: WorkspaceId) -> usize {
+        self.cancelled_early
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&owner)
+            .map_or(0, |early| early.cancelled.len())
+    }
+
+    /// The number of streams `owner` has running.
+    pub(crate) fn stream_count_of(&self, owner: WorkspaceId) -> usize {
+        self.streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keys()
+            .filter(|key| key.0 == Some(owner))
+            .count()
+    }
+
     pub fn running_stream_count(&self) -> usize {
         self.streams
             .lock()
@@ -745,7 +1108,7 @@ impl Core {
 
     fn register_stream(
         &self,
-        query_id: String,
+        key: StreamKey,
         connection_id: String,
     ) -> (CancellationToken, Arc<AtomicBool>, StreamGuard<'_>) {
         let token = CancellationToken::new();
@@ -757,13 +1120,26 @@ impl Core {
             token: token.clone(),
             closed: closed.clone(),
         };
-        self.streams
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(query_id.clone(), entry);
+        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(owner) = key.0 {
+            let mut early = self
+                .cancelled_early
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let early = early.entry(owner).or_default();
+            // A reused id runs again; it's no longer "finished".
+            take(&mut early.finished, &key.1);
+            if take(&mut early.cancelled, &key.1) {
+                // Nothing waits on the new token yet, so no waker runs here.
+                token.cancel();
+            }
+        }
+        streams.insert(key.clone(), entry);
+        drop(streams);
         let guard = StreamGuard {
             streams: &self.streams,
-            query_id,
+            early: &self.cancelled_early,
+            key,
             id,
         };
         (token, closed, guard)
@@ -775,7 +1151,8 @@ impl Core {
 /// id, that one stays cancellable.
 struct StreamGuard<'a> {
     streams: &'a StreamTokens,
-    query_id: String,
+    early: &'a EarlyCancelMap,
+    key: StreamKey,
     id: u64,
 }
 
@@ -783,11 +1160,142 @@ impl Drop for StreamGuard<'_> {
     fn drop(&mut self) {
         let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
         if streams
-            .get(&self.query_id)
+            .get(&self.key)
             .is_some_and(|entry| entry.id == self.id)
         {
-            streams.remove(&self.query_id);
+            streams.remove(&self.key);
+            // Under the streams lock, like `cancel_stream_as`, so a cancel
+            // sees either the running stream or the finished id.
+            if let Some(owner) = self.key.0 {
+                // Not after `close_all` forgot the workspace.
+                let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some(early) = early.get_mut(&owner) {
+                    push_capped(&mut early.finished, &self.key.1);
+                }
+            }
         }
+    }
+}
+
+/// One connection's calls: the dialect, queries and introspection. From
+/// [`Workspace::engine`] it is checked against the workspace on every call,
+/// so a call on a connection the workspace doesn't own (or that has since
+/// closed) is `CONNECTION_NOT_FOUND`. From [`Core::connection_handle`] it
+/// reaches any connection.
+#[derive(Clone)]
+pub struct ConnectionHandle<'a> {
+    core: &'a Core,
+    connection_id: String,
+    owner: Option<WorkspaceId>,
+}
+
+impl ConnectionHandle<'_> {
+    pub fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
+
+    fn connection(&self) -> Result<Connection, DbError> {
+        self.core.connection_as(&self.connection_id, self.owner)
+    }
+
+    fn driver(&self) -> Result<Arc<dyn Driver>, DbError> {
+        Ok(self.connection()?.driver)
+    }
+
+    /// The engine that opened the connection.
+    pub fn engine(&self) -> Result<Arc<dyn Engine>, DbError> {
+        Ok(self.connection()?.engine)
+    }
+
+    /// See [`Core::with_dialect`].
+    pub fn with_dialect<R>(&self, f: impl FnOnce(&dyn Dialect) -> R) -> Result<R, DbError> {
+        let engine = self.engine()?;
+        let dialect = engine
+            .dialect()
+            .ok_or_else(|| not_supported("The Rust SQL dialect"))?;
+        Ok(f(dialect))
+    }
+
+    pub async fn query(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.query", connection_id = self.connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Query");
+        self.driver()?.query(sql, params).await
+    }
+
+    pub async fn execute(&self, sql: &str, params: Vec<Value>) -> Result<ExecuteResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.execute", connection_id = self.connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(); "Execute");
+        self.driver()?.execute(sql, params).await
+    }
+
+    pub async fn transaction(&self, statements: Vec<BatchStatement>) -> Result<(), DbError> {
+        debug!(activity = "db.transaction", connection_id = self.connection_id.as_str(), statements = statements.len(); "Executing transaction");
+        self.driver()?.transaction(statements).await
+    }
+
+    pub async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
+        debug!(activity = "db.list_schemas", connection_id = self.connection_id.as_str(); "List schemas");
+        self.driver()?.list_schemas().await
+    }
+
+    pub async fn schema_tables(&self) -> Result<Vec<SchemaTable>, DbError> {
+        debug!(activity = "db.schema_tables", connection_id = self.connection_id.as_str(); "Schema tables");
+        self.driver()?.schema_tables().await
+    }
+
+    pub async fn table_metadata(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
+        debug!(activity = "db.table_metadata", connection_id = self.connection_id.as_str(), schema = schema, table = table; "Table metadata");
+        self.driver()?.table_metadata(schema, table).await
+    }
+
+    pub async fn statistics(&self) -> Result<DatabaseStatistics, DbError> {
+        debug!(activity = "db.statistics", connection_id = self.connection_id.as_str(); "Statistics");
+        self.driver()?.statistics().await
+    }
+
+    pub async fn explain(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        analyze: bool,
+    ) -> Result<ExplainResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.explain", connection_id = self.connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), analyze = analyze; "Explain");
+        self.driver()?.explain(sql, params, analyze).await
+    }
+
+    /// A plain EXPLAIN (no ANALYZE) of one statement that must not change
+    /// anything: the MCP server's `explain_query`. The SQL first goes
+    /// through the same token check as a read-only query
+    /// ([`QueryOptions::read_only`]), then must be a single statement (split
+    /// on `;` under the engine's quoting; SQL Server, which needs no `;`
+    /// between statements, is checked again from its plan), and then runs
+    /// through [`Driver::explain_read_only`]: in the read-only transaction
+    /// or session of the engine's read-only queries where planning can run
+    /// user code (Postgres, MySQL/MariaDB), and as a plain EXPLAIN where it
+    /// only compiles. Refusals are `READ_ONLY`.
+    ///
+    /// `timeout` is as [`QueryOptions::timeout`]; past it the call fails
+    /// with `TIMEOUT`. Dropping the returned future cancels the EXPLAIN.
+    pub async fn explain_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        timeout: Option<Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.explain_read_only", connection_id = self.connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), timeout_ms = timeout.map(|t| t.as_millis() as u64); "Read-only explain");
+        let connection = self.connection()?;
+        check_read_only(sql, connection.engine.id())?;
+        check_one_statement(sql, connection.engine.id())?;
+        connection
+            .driver
+            .explain_read_only(sql, params, timeout)
+            .await
     }
 }
 

@@ -1,42 +1,42 @@
-//! HTTP error mapping for `seaquel_types::DbError`.
+//! The HTTP status for an error code on `/rpc`.
 //!
-//! The database layer is platform-agnostic (no axum dependency), so this
-//! wrapper lives in the server crate. Handlers return `Result<T, ApiError>`
-//! and `ApiError` turns itself into a JSON error response.
+//! The body always carries the code (`RpcError` JSON), which is what the
+//! client reads; the status only keeps logs and proxies honest.
 
-use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
-};
-use seaquel_types::DbError;
+use axum::http::StatusCode;
+use seaquel_rpc::{INVALID_ARGUMENT, NOT_SUPPORTED};
 
-pub struct ApiError(pub DbError);
-
-impl From<DbError> for ApiError {
-    fn from(err: DbError) -> Self {
-        Self(err)
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let status = match self.0.code.as_str() {
-            "CONNECTION_NOT_FOUND" => StatusCode::NOT_FOUND,
-            "CONNECTION_ERROR" => StatusCode::BAD_GATEWAY,
-            "QUERY_ERROR" | "EXECUTE_ERROR" | "FILE_NOT_FOUND" => StatusCode::BAD_REQUEST,
-            // The engine has no Rust dialect or introspection yet; the client
-            // falls back to its TypeScript adapter.
-            "NOT_SUPPORTED" => StatusCode::NOT_IMPLEMENTED,
-            // A transaction statement matched fewer rows than it expected
-            // (a stale key); the transaction was rolled back.
-            "NO_ROWS_AFFECTED" => StatusCode::CONFLICT,
-            // A driver this server doesn't offer: SQLite and DuckDB on web
-            // (Decision 11b), or an engine left out of the build.
-            "ENGINE_NOT_AVAILABLE" | "CONNECTION_OPTION_NOT_ALLOWED" => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-        (status, Json(self.0)).into_response()
+pub fn status_for(code: &str) -> StatusCode {
+    match code {
+        // A missing or unsafe header, a bad body, a refused option or
+        // engine (SQLite and DuckDB on web, Decision 11b), a query the
+        // database refused.
+        INVALID_ARGUMENT
+        | "ENGINE_NOT_AVAILABLE"
+        | "CONNECTION_OPTION_NOT_ALLOWED"
+        | "CREDENTIALS_REQUIRED"
+        | "INVALID_CONNECTION"
+        | "QUERY_ERROR"
+        | "EXECUTE_ERROR" => StatusCode::BAD_REQUEST,
+        // Secrets (the web workspace has no store), SSH tunnels, and calls
+        // an engine has no Rust implementation for.
+        NOT_SUPPORTED => StatusCode::NOT_IMPLEMENTED,
+        // Not this user's, or not open: the same answer either way.
+        "CONNECTION_NOT_FOUND" => StatusCode::NOT_FOUND,
+        // The database refused the login (not the app's session: that's
+        // Node's 401).
+        "AUTH_ERROR" => StatusCode::BAD_REQUEST,
+        "CONNECTION_ERROR" | "TLS_ERROR" => StatusCode::BAD_GATEWAY,
+        "TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
+        "RESULT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
+        // A transaction statement matched fewer rows than it expected (a
+        // stale key); the transaction was rolled back. Or the workspace was
+        // evicted while this call ran.
+        "NO_ROWS_AFFECTED" | "WORKSPACE_CLOSED" => StatusCode::CONFLICT,
+        // The user holds as many connections as the web server allows
+        // (`WEB_CONNECTION_LIMITS`).
+        seaquel_core::TOO_MANY_CONNECTIONS => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -44,30 +44,33 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
 
-    fn status_of(code: &str) -> StatusCode {
-        ApiError(DbError {
-            message: "m".into(),
-            code: code.into(),
-        })
-        .into_response()
-        .status()
-    }
-
     #[test]
     fn maps_error_codes_to_statuses() {
-        assert_eq!(status_of("CONNECTION_NOT_FOUND"), StatusCode::NOT_FOUND);
-        assert_eq!(status_of("CONNECTION_ERROR"), StatusCode::BAD_GATEWAY);
-        assert_eq!(status_of("QUERY_ERROR"), StatusCode::BAD_REQUEST);
-        assert_eq!(status_of("NOT_SUPPORTED"), StatusCode::NOT_IMPLEMENTED);
-        assert_eq!(status_of("NO_ROWS_AFFECTED"), StatusCode::CONFLICT);
-        assert_eq!(status_of("ENGINE_NOT_AVAILABLE"), StatusCode::BAD_REQUEST);
+        assert_eq!(status_for("INVALID_ARGUMENT"), StatusCode::BAD_REQUEST);
+        assert_eq!(status_for("CONNECTION_NOT_FOUND"), StatusCode::NOT_FOUND);
+        assert_eq!(status_for("CONNECTION_ERROR"), StatusCode::BAD_GATEWAY);
+        assert_eq!(status_for("QUERY_ERROR"), StatusCode::BAD_REQUEST);
+        assert_eq!(status_for("NOT_SUPPORTED"), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(status_for("NO_ROWS_AFFECTED"), StatusCode::CONFLICT);
+        assert_eq!(status_for("WORKSPACE_CLOSED"), StatusCode::CONFLICT);
         assert_eq!(
-            status_of("CONNECTION_OPTION_NOT_ALLOWED"),
+            status_for("TOO_MANY_CONNECTIONS"),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(status_for("AUTH_ERROR"), StatusCode::BAD_REQUEST);
+        assert_eq!(status_for("TLS_ERROR"), StatusCode::BAD_GATEWAY);
+        assert_eq!(status_for("TIMEOUT"), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(
+            status_for("RESULT_TOO_LARGE"),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        assert_eq!(status_for("ENGINE_NOT_AVAILABLE"), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            status_for("CONNECTION_OPTION_NOT_ALLOWED"),
             StatusCode::BAD_REQUEST
         );
-        assert_eq!(
-            status_of("SOMETHING_ELSE"),
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
+        for code in ["STORAGE_ERROR", "STORAGE_CORRUPT", "SOMETHING_ELSE"] {
+            assert_eq!(status_for(code), StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 }

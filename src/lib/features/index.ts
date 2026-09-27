@@ -14,9 +14,8 @@ export interface FeatureFlags {
   newConnections: boolean;
   /**
    * Show SSH tunnel configuration options.
-   * Desktop only — the runtime path (`$lib/services/ssh-tunnel`) calls the
-   * Rust core over `core_call`; the web server is built without SSH and
-   * answers `NOT_SUPPORTED`.
+   * Desktop only: Core opens the tunnel as part of `db.connect`/`db.test`.
+   * The web server's connect policy refuses any connection with a tunnel.
    */
   sshTunnels: boolean;
   /** Show MSSQL connection option */

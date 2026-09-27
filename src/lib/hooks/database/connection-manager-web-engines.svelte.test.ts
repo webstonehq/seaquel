@@ -15,10 +15,6 @@ vi.mock("$lib/utils/environment", () => ({
   isWeb: () => true,
   isDemo: () => false,
 }));
-vi.mock("$lib/services/ssh-tunnel", () => ({
-  createSshTunnelWithHostKeyCheck: vi.fn(),
-  closeSshTunnel: vi.fn(),
-}));
 vi.mock("$lib/engine", () => ({
   getEngineClient: () => ({ schemaTables: async () => [] }),
   TsEngineClient: class {},

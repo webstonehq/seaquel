@@ -140,6 +140,7 @@ impl Engine for MockEngine {
 async fn connect(mode: Mode) -> (Core, String) {
     let core = Core::builder()
         .engine(Arc::new(MockEngine(MockDriver::new(mode))))
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let config: ConnectConfig = serde_json::from_value(json!({ "driver": "sqlite" })).unwrap();
     let id = core.connect(&config).await.unwrap().connection_id;
@@ -458,6 +459,7 @@ fn two_engine_core() -> (Core, Arc<IntrospectingDriver>) {
     let core = Core::builder()
         .engine(Arc::new(DialectEngine(driver.clone())))
         .engine(Arc::new(MockEngine(MockDriver::new(Mode::FailsMidStream))))
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     (core, driver)
 }
@@ -747,6 +749,7 @@ async fn connect_read_only(
     let driver = ReadOnlyDriver::new(hangs);
     let core = Core::builder()
         .engine(Arc::new(ReadOnlyEngine(engine, driver.clone())))
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let id = connect_to(&core, engine).await;
     (core, id, driver)

@@ -121,7 +121,7 @@ impl Storage {
             probe(&path).await?;
         }
 
-        let connect = SqliteConnectOptions::new()
+        let connect = sqlite_options()
             .filename(&path)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -240,11 +240,18 @@ fn check_header(path: &Path) -> Result<Existing, StorageError> {
     }
 }
 
+/// Options every connection to the metadata file starts from. sqlx logs
+/// each statement at DEBUG (and, at WARN, one slower than a second) with its
+/// whole SQL; storage's SQL is its own, but nothing here should log SQL.
+fn sqlite_options() -> SqliteConnectOptions {
+    SqliteConnectOptions::new().disable_statement_logging()
+}
+
 /// Read the schema through a read-only connection that sets no journal mode,
 /// so a file with SQLite's header over something else is refused before the
 /// pool switches it to WAL (which rewrites the header).
 async fn probe(path: &Path) -> Result<(), StorageError> {
-    let mut conn = SqliteConnectOptions::new()
+    let mut conn = sqlite_options()
         .filename(path)
         .read_only(true)
         .busy_timeout(BUSY_TIMEOUT)
@@ -370,7 +377,7 @@ async fn open_read_only(
     }
     check_current(&path, migrator).await?;
 
-    let connect = SqliteConnectOptions::new()
+    let connect = sqlite_options()
         .filename(&path)
         .read_only(true)
         .busy_timeout(BUSY_TIMEOUT)
@@ -421,7 +428,7 @@ async fn check_current(path: &Path, migrator: &Migrator) -> Result<(), StorageEr
         PathBuf::from(name).exists()
     };
     let in_use = sidecar("-wal") || sidecar("-shm");
-    let mut conn = SqliteConnectOptions::new()
+    let mut conn = sqlite_options()
         .filename(path)
         .read_only(true)
         .immutable(!in_use)

@@ -100,7 +100,10 @@ describe("getEngineClient and the TypeScript adapters", () => {
     ["duckdb", "web", { tauri: false, web: true }],
   ] as const)("never asks getAdapter for %s on %s", async (type, _mode, flags) => {
     Object.assign(env, flags);
-    const reply = { kind: "schemas", data: ["public"] };
+    const reply = {
+      method: "db",
+      result: { method: "engine", result: { kind: "schemas", data: ["public"] } },
+    };
     vi.mocked(invoke).mockResolvedValue(reply);
     vi.stubGlobal(
       "fetch",
@@ -126,7 +129,10 @@ describe("getEngineClient connection id", () => {
 
   it("follows the connection in state across a reconnect (the object is replaced)", async () => {
     env.tauri = true;
-    vi.mocked(invoke).mockResolvedValue({ kind: "schemas", data: [] });
+    vi.mocked(invoke).mockResolvedValue({
+      method: "db",
+      result: { method: "engine", result: { kind: "schemas", data: [] } },
+    });
     const state = {
       connections: [{ ...conn("postgres"), providerConnectionId: "old" }] as ReturnType<
         typeof conn
@@ -137,8 +143,13 @@ describe("getEngineClient connection id", () => {
     // What reconnect() does: a new object with the new id replaces the old one.
     state.connections = state.connections.map((c) => ({ ...c, providerConnectionId: "new" }));
     await client.listSchemas();
-    expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({
-      call: { connection_id: "new", request: { method: "listSchemas" } },
+    const body = vi.mocked(invoke).mock.calls[0][1] as Uint8Array;
+    expect(JSON.parse(new TextDecoder().decode(body))).toEqual({
+      method: "db",
+      params: {
+        method: "engine",
+        params: { connectionId: "new", request: { method: "listSchemas" } },
+      },
     });
 
     // disconnect() leaves the id undefined.

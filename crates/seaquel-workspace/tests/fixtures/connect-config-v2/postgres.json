@@ -1,0 +1,2138 @@
+[
+  {
+    "name": "pg/stored-string-default-port",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-stored-string-default-port",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgresql://alice@db.example.com:5432/app?sslmode=require"
+      },
+      "secrets": {
+        "db:conn-pg-stored-string-default-port": "s3cret"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-stored-string-default-port"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:s3cret@db.example.com:5432/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/stored-string-no-port",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "v1Notes": "The string buildConnectionString writes for the default port has no port, so it has one ':' too few for getConnectionData and the reconnect tab rebuilds it.",
+    "input": {
+      "row": {
+        "id": "conn-pg-stored-string-no-port",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "postgresql://alice@db.example.com/app?sslmode=disable"
+      },
+      "secrets": {
+        "db:conn-pg-stored-string-no-port": "s3cret"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-stored-string-no-port"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:s3cret@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/custom-port",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-custom-port",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 6543,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer",
+        "connectionString": "postgresql://alice@db.example.com:6543/app?sslmode=prefer"
+      },
+      "secrets": {
+        "db:conn-pg-custom-port": "s3cret"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-custom-port"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:s3cret@db.example.com:6543/app?sslmode=prefer"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/sslmode-disable",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "v1Notes": "No stored string: autoReconnect sends none; the tab rebuilds one.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-disable",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-disable": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-disable"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/sslmode-allow",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-allow",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "allow"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-allow": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-allow"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=allow"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/sslmode-prefer",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-prefer",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-prefer": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-prefer"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=prefer"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/sslmode-require",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-require",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-require": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-require"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/sslmode-verify-ca",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-verify-ca",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "verify-ca"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-verify-ca": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-verify-ca"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=verify-ca"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/sslmode-verify-full",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-sslmode-verify-full",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "verify-full"
+      },
+      "secrets": {
+        "db:conn-pg-sslmode-verify-full": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-sslmode-verify-full"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=verify-full"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/no-sslmode",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "5"
+    ],
+    "notes": "Row 1 builds the string from the fields (v1 needed the tab for this). Row 5: no SSL mode means the driver's default, so no sslmode parameter.",
+    "v1Notes": "sslMode absent: the tab defaults it to 'disable'.",
+    "input": {
+      "row": {
+        "id": "conn-pg-no-sslmode",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5433,
+        "databaseName": "app",
+        "username": "alice"
+      },
+      "secrets": {
+        "db:conn-pg-no-sslmode": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-no-sslmode"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com:5433/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/string-postgres-scheme",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-pg-string-postgres-scheme",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgres://alice@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-string-postgres-scheme": "s3cret"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-string-postgres-scheme"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:s3cret@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/string-with-password-not-saved",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged: Decision 6 doesn't touch the give-up rules. With savePassword off and nothing supplied, Saved still gives up although the string holds a password.",
+    "v1Notes": "A legacy row whose string still holds a password, with savePassword off: autoReconnect gives up although the string would work.",
+    "input": {
+      "row": {
+        "id": "conn-pg-string-with-password-not-saved",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice:inline-pw@db.example.com:5432/app"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "pg/string-with-password-saved-differs",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "notes": "Settled A: the saved password replaces the one in the string, as v1 did; only the scheme changes (row 2).",
+    "input": {
+      "row": {
+        "id": "conn-pg-string-with-password-saved-differs",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice:old-pw@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-string-with-password-saved-differs": "new-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-string-with-password-saved-differs"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:new-pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/string-params-kept",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-string-params-kept",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgresql://alice@db.example.com:5432/app?sslmode=require&application_name=seaquel&options=-c%20search_path%3Dapp"
+      },
+      "secrets": {
+        "db:conn-pg-string-params-kept": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-string-params-kept"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?sslmode=require&application_name=seaquel&options=-c%20search_path%3Dapp"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/string-port-differs-from-row",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-string-port-differs-from-row",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:6000/app"
+      },
+      "secrets": {
+        "db:conn-pg-string-port-differs-from-row": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-string-port-differs-from-row"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:6000/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/empty-username",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "notes": "Row 3, checked live (Task 2): sqlx accepts the empty user name and sends the password; the user is its default, PGUSER or the client's OS user. The e2e Postgres answered `role \"m\" does not exist` for the OS user `m`, after the URL parsed.",
+    "input": {
+      "row": {
+        "id": "conn-pg-empty-username",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "connectionString": "postgresql://db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-empty-username": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-empty-username"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://:pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/empty-username-no-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab. Row 3, checked live (Task 2): sqlx accepts the empty user name and sends the password; the user is its default, PGUSER or the client's OS user. The e2e Postgres answered `role \"m\" does not exist` for the OS user `m`, after the URL parsed.",
+    "input": {
+      "row": {
+        "id": "conn-pg-empty-username-no-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "sslMode": "disable"
+      },
+      "secrets": {
+        "db:conn-pg-empty-username-no-string": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-empty-username-no-string"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://:pw@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/username-from-url",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "v1Notes": "row.username empty: initializePersistedConnections takes it from the URL.",
+    "input": {
+      "row": {
+        "id": "conn-pg-username-from-url",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "connectionString": "postgresql://bob@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-username-from-url": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-username-from-url"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://bob:pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/url-special-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-url-special-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-url-special-password": "p@ss:w/rd#?"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-url-special-password"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:p%40ss%3Aw%2Frd%23%3F@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/url-special-password-rebuilt",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-url-special-password-rebuilt",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable"
+      },
+      "secrets": {
+        "db:conn-pg-url-special-password-rebuilt": "p@ss:w/rd#?"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-url-special-password-rebuilt"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:p%40ss%3Aw%2Frd%23%3F@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/percent-in-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "v1Notes": "URL's password setter doesn't encode '%', so the injected string holds '%of', which isn't a valid escape.",
+    "input": {
+      "row": {
+        "id": "conn-pg-percent-in-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-percent-in-password": "50%off"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-percent-in-password"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:50%25off@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/plus-amp-equals-space-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-plus-amp-equals-space-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-plus-amp-equals-space-password": "a+b&c=d e"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-plus-amp-equals-space-password"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:a%2Bb%26c%3Dd%20e@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/plus-amp-equals-space-password-rebuilt",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-plus-amp-equals-space-password-rebuilt",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer"
+      },
+      "secrets": {
+        "db:conn-pg-plus-amp-equals-space-password-rebuilt": "a+b&c=d e"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-plus-amp-equals-space-password-rebuilt"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:a%2Bb%26c%3Dd%20e@db.example.com/app?sslmode=prefer"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/unicode-user-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-unicode-user-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "jürgen",
+        "connectionString": "postgresql://j%C3%BCrgen@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-unicode-user-password": "pässwörd✓"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-unicode-user-password"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://j%C3%BCrgen:p%C3%A4ssw%C3%B6rd%E2%9C%93@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/unicode-user-from-url",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-unicode-user-from-url",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "connectionString": "postgresql://j%C3%BCrgen@db.example.com:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-unicode-user-from-url": "pässwörd✓"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-unicode-user-from-url"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://j%C3%BCrgen:p%C3%A4ssw%C3%B6rd%E2%9C%93@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/unicode-user-password-rebuilt",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-pg-unicode-user-password-rebuilt",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "jürgen",
+        "sslMode": "disable"
+      },
+      "secrets": {
+        "db:conn-pg-unicode-user-password-rebuilt": "pässwörd✓"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-unicode-user-password-rebuilt"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://j%C3%BCrgen:p%C3%A4ssw%C3%B6rd%E2%9C%93@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "pg/at-in-username",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-at-in-username",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice@myserver",
+        "connectionString": "postgresql://alice%40myserver@db.example.com:5432/app?sslmode=require",
+        "sslMode": "require"
+      },
+      "secrets": {
+        "db:conn-pg-at-in-username": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-at-in-username"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice%40myserver:pw@db.example.com:5432/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/ipv6-host",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "notes": "Row 4: brackets kept, as autoReconnect already did; only the scheme changes.",
+    "input": {
+      "row": {
+        "id": "conn-pg-ipv6-host",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "::1",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@[::1]:5432/app"
+      },
+      "secrets": {
+        "db:conn-pg-ipv6-host": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-ipv6-host"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@[::1]:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/tableplus-url",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4: the string goes out as stored, TablePlus parameters included (sqlx-postgres logs and ignores parameters it doesn't know), except that settled B turns tLSMode=0 into sslmode=prefer in its place, since the string has no sslmode. Row 2: the scheme stays.",
+    "v1Notes": "A TablePlus URL reaching storage as-is (the wizard would have rebuilt it; an import might not).",
+    "input": {
+      "row": {
+        "id": "conn-pg-tableplus-url",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer",
+        "connectionString": "postgresql://alice@db.example.com:5432/app?statusColor=007F3D&env=production&name=Prod&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false"
+      },
+      "secrets": {
+        "db:conn-pg-tableplus-url": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-tableplus-url"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&env=production&name=Prod&sslmode=prefer&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/tableplus-ssh-url",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "7b"
+    ],
+    "notes": "Row 7b: the +ssh URL is parsed into its database part (postgres://alice@127.0.0.1:5432/app) and its SSH part. The row's own enabled tunnel is used (see the README); the database part is what goes through it, with the password put in and TablePlus-only parameters (name, usePrivateKey) dropped. Row 7c: the tunnel forwards to the database part's 127.0.0.1:5432, which is also the row's.",
+    "input": {
+      "row": {
+        "id": "conn-pg-tableplus-ssh-url",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "127.0.0.1",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer",
+        "connectionString": "postgres+ssh://deploy@bastion.example.com:22/alice@127.0.0.1:5432/app?name=Prod&usePrivateKey=true",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key",
+          "keyPath": "/Users/me/.ssh/id_ed25519"
+        }
+      },
+      "secrets": {
+        "db:conn-pg-tableplus-ssh-url": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-tableplus-ssh-url"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "remoteHost": "127.0.0.1",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50022/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "pg/localhost",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-pg-localhost",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "localhost",
+        "port": 5432,
+        "databaseName": "postgres",
+        "username": "postgres",
+        "connectionString": "postgresql://postgres@localhost:5432/postgres"
+      },
+      "secrets": {
+        "db:conn-pg-localhost": "postgres"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-pg-localhost"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://postgres:postgres@localhost:5432/postgres"
+      }
+    },
+    "v1": {
+      "file": "connect-config/postgres.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "add/pg-fields-default-port",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-fields-custom-port",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "v1Notes": "buildConnectionString's own output has four ':' parts here, so getConnectionData rebuilds it (to the same string).",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 6543,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com:6543/app?sslmode=prefer"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-fields-no-password",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice@db.example.com/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-fields-special-password",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "verify-full",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "p@ss:w/rd#?%"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:p%40ss%3Aw%2Frd%23%3F%25@db.example.com/app?sslmode=verify-full"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-empty-username-with-password",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "3"
+    ],
+    "notes": "Row 3: the password is kept with an empty user name. v1's form path dropped it. Row 3, checked live (Task 2): sqlx accepts the empty user name and sends the password; the user is its default, PGUSER or the client's OS user. The e2e Postgres answered `role \"m\" does not exist` for the OS user `m`, after the URL parsed.",
+    "v1Notes": "buildConnectionString writes no user info without a username, so the password is dropped and nothing puts it back on the form path.",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "sslMode": "disable",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://:pw@db.example.com/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-port-zero",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5",
+      "5-wizard"
+    ],
+    "notes": "Row 5: port 0 is the engine's default port, which the built string leaves out. 5-wizard: the SSL mode is unset, so no sslmode parameter.",
+    "v1Notes": "A cleared port input; sslMode is the wizard default, 'disable'.",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 0,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-default-port",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4: the typed string goes out as it is (v1 rebuilt it and added the form's sslmode=disable). Row 2: its postgresql:// scheme stays. The form's SSL mode doesn't apply to a typed string.",
+    "v1Notes": "No sslmode in the paste, so the form keeps the wizard default 'disable'.",
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-params",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4: application_name is kept. Row 2: the scheme stays.",
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app?sslmode=require&application_name=seaquel",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?sslmode=require&application_name=seaquel"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-no-password-then-typed",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "4"
+    ],
+    "notes": "Row 4: the string has no password, so the typed one goes in. v1 sent the string without it.",
+    "v1Notes": "The paste has exactly three ':' parts, so it goes out as pasted; add does no reinjection, so the typed password never reaches the driver.",
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 6543,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgres://alice@db.example.com:6543/app?sslmode=require",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com:6543/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-ipv6",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "4"
+    ],
+    "notes": "Row 4: as typed. v1 rebuilt it (brackets kept because the parsed host field holds them, port and query changed).",
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "[::1]",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgres://alice:pw@[::1]:5432/app",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@[::1]:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-tableplus",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4: as typed, TablePlus parameters included (sqlx-postgres ignores unknown ones), with tLSMode=0 translated to sslmode=prefer in its place (settled B).",
+    "input": {
+      "form": {
+        "name": "Prod",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "prefer",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&env=production&name=Prod&tLSMode=0",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&env=production&name=Prod&sslmode=prefer"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-tableplus-tls1",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4 and settled B: as typed, with tLSMode=1 translated to sslmode=disable. v1 rebuilt it.",
+    "v1Notes": "TablePlus tLSMode=1 is disable.",
+    "input": {
+      "form": {
+        "name": "Prod",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&name=Prod&tLSMode=1",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&name=Prod&sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-tableplus-tls2",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "notes": "Row 4 and settled B: as typed, with tLSMode=2 translated to sslmode=require. v1 rebuilt it.",
+    "v1Notes": "TablePlus tLSMode=2 is require.",
+    "input": {
+      "form": {
+        "name": "Prod",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&name=Prod&tLSMode=2",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?statusColor=007F3D&name=Prod&sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-unicode-user",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "4"
+    ],
+    "notes": "Row 4: as typed; v1 rebuilt it with the same encoding plus sslmode=disable.",
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5433,
+        "databaseName": "app",
+        "username": "jürgen",
+        "connectionString": "postgres://j%C3%BCrgen:p%C3%A4ss@db.example.com:5433/app",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "päss"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://j%C3%BCrgen:p%C3%A4ss@db.example.com:5433/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/pg-fields",
+    "target": "form",
+    "op": "test",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@db.example.com/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/pg-paste-params",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "2",
+      "4"
+    ],
+    "input": {
+      "form": {
+        "name": "app",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "postgresql://alice:pw@db.example.com:5432/app?sslmode=require&application_name=seaquel",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app?sslmode=require&application_name=seaquel"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/pg-empty-host",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "5"
+    ],
+    "notes": "Row 5: an empty host is an error. CREDENTIALS_REQUIRED, the code phase 4 uses for a missing field.",
+    "v1Notes": "The component's validate() would stop this form before the manager sees it; recorded at the manager.",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  }
+]

@@ -4,7 +4,8 @@
  * Rust takes the user from `X-Seaquel-User` and trusts it, so this route
  * sets it from the session (`locals.user.id`) and never forwards one the
  * browser sent. `handleApiGate` in `hooks.server.ts` has already checked the
- * session, license and membership before this runs.
+ * session, license and membership before this runs, and the request's
+ * `Origin` must be one this install trusts (the page's own, or configured).
  *
  * The body goes through as the bytes that arrived. It is never parsed and
  * re-stringified: `method` must stay before `params`, and stored JSON
@@ -13,6 +14,8 @@
  */
 
 import { error } from "@sveltejs/kit";
+import { originNotAllowed } from "$lib/server/api-gate";
+import { isOriginTrusted } from "$lib/server/origin";
 import type { RequestHandler } from "./$types";
 
 const RUST_BASE_URL = process.env.SEAQUEL_RUST_URL ?? "http://127.0.0.1:8788";
@@ -21,6 +24,12 @@ const USER_HEADER = "x-seaquel-user";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
   if (!locals.user) throw error(401, "unauthorized");
+  // CSRF: only the app's own pages (or a configured origin) may call. The
+  // hook's Origin gate checks this for every /api mutation too; this keeps
+  // the route safe on its own.
+  if (!isOriginTrusted(request.headers.get("origin"), request.headers.get("host"))) {
+    return originNotAllowed();
+  }
 
   // Only these two headers reach Rust: no cookies, no auth headers and no
   // client-sent X-Seaquel-User.

@@ -3,15 +3,15 @@
  * Returns the appropriate provider based on the runtime environment.
  *
  * Three modes:
- *   - Tauri desktop         → UnifiedTauriProvider (IPC to embedded Rust)
- *   - Web (hosted/self-host) → HttpProvider        (HTTP + WS to seaquel-server)
- *   - Demo (browser)         → DuckDBProvider / WebSqliteDatabaseProvider (WASM)
+ *   - Tauri desktop          → CoreProvider   (Core over `core_call`/`core_stream`)
+ *   - Web (hosted/self-host) → CoreProvider   (Core over `/api/rpc` and its WebSocket)
+ *   - Demo (browser)         → DuckDBProvider (DuckDB-WASM)
  */
 
 import type { DatabaseProvider } from "./types";
 import { isTauri, isWeb } from "$lib/utils/environment";
 
-export type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
+export type { DatabaseProvider, ConnectRequest, ExecuteResult, ReadOnlyRows } from "./types";
 
 let provider: DatabaseProvider | null = null;
 let duckdbProvider: DatabaseProvider | null = null;
@@ -22,12 +22,9 @@ let duckdbProvider: DatabaseProvider | null = null;
 export async function getProvider(): Promise<DatabaseProvider> {
   if (provider) return provider;
 
-  if (isTauri()) {
-    const { UnifiedTauriProvider } = await import("./unified-tauri-provider");
-    provider = new UnifiedTauriProvider();
-  } else if (isWeb()) {
-    const { HttpProvider } = await import("./http-provider");
-    provider = new HttpProvider();
+  if (isTauri() || isWeb()) {
+    const { CoreProvider } = await import("./core-provider");
+    provider = new CoreProvider();
   } else {
     const { DuckDBProvider } = await import("./duckdb-provider");
     provider = new DuckDBProvider();
@@ -37,9 +34,8 @@ export async function getProvider(): Promise<DatabaseProvider> {
 }
 
 /**
- * Get the DuckDB provider for the current environment: the Rust engine over
- * IPC on desktop, and DuckDB-WASM in the browser, both in the demo and on
- * web. The web server has no DuckDB engine (Decision 11b: it would read and
+ * Get the DuckDB provider for the current environment: Core on desktop, and
+ * DuckDB-WASM in the browser, both in the demo and on web. The web server has no DuckDB engine (Decision 11b: it would read and
  * write the server's files), so web's in-browser DuckDB (the tutorial) runs
  * in the page.
  */
@@ -47,8 +43,8 @@ export async function getDuckDBProvider(): Promise<DatabaseProvider> {
   if (duckdbProvider) return duckdbProvider;
 
   if (isTauri()) {
-    const { UnifiedTauriProvider } = await import("./unified-tauri-provider");
-    duckdbProvider = new UnifiedTauriProvider();
+    const { CoreProvider } = await import("./core-provider");
+    duckdbProvider = new CoreProvider();
   } else {
     const { DuckDBProvider } = await import("./duckdb-provider");
     duckdbProvider = new DuckDBProvider();

@@ -1,0 +1,555 @@
+[
+  {
+    "name": "duckdb/absolute-path",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-duckdb-absolute-path",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/analytics.duckdb",
+        "username": "",
+        "connectionString": "duckdb:///Users/me/analytics.duckdb"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/memory",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-duckdb-memory",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": ":memory:",
+        "username": "",
+        "connectionString": "duckdb://:memory:"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/empty-string-path",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged. Row 10: duckdb:// stays :memory:.",
+    "input": {
+      "row": {
+        "id": "conn-duckdb-empty-string-path",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "",
+        "username": "",
+        "connectionString": "duckdb://"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/no-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-duckdb-no-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/analytics.duckdb",
+        "username": ""
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/no-string-no-name",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged. Row 10: an empty DuckDB name is :memory:.",
+    "input": {
+      "row": {
+        "id": "conn-duckdb-no-string-no-name",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "",
+        "username": ""
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/no-slashes",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-duckdb-no-slashes",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "relative.duckdb",
+        "username": "",
+        "connectionString": "duckdb:relative.duckdb"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": "relative.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/windows-path",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-duckdb-windows-path",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "C:\\data\\x.duckdb",
+        "username": "",
+        "connectionString": "duckdb://C:\\data\\x.duckdb"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": "C:\\data\\x.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "duckdb/query-params",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "10"
+    ],
+    "notes": "Row 10: parameters are parsed out of the path and passed as DuckDB config options (duckdb_config, a new ConnectConfig field; see the README).",
+    "input": {
+      "row": {
+        "id": "conn-duckdb-query-params",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/analytics.duckdb",
+        "username": "",
+        "connectionString": "duckdb:///Users/me/analytics.duckdb?access_mode=read_only"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb",
+        "duckdb_config": {
+          "access_mode": "read_only"
+        }
+      }
+    },
+    "v1": {
+      "file": "connect-config/duckdb.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "add/duckdb-path",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/analytics.duckdb",
+        "username": "",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/duckdb-memory",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": ":memory:",
+        "username": "",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/duckdb-create-if-missing",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "v1Notes": "toRustConfig sends no create_if_missing for DuckDB, which creates a missing file anyway.",
+    "input": {
+      "form": {
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/new.duckdb",
+        "username": "",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": true,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/new.duckdb"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/duckdb-paste-params",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "4",
+      "10"
+    ],
+    "notes": "Row 10: parameters parsed out of the path into duckdb_config (v1's rebuild dropped them, row 4).",
+    "input": {
+      "form": {
+        "name": "DuckDB - analytics.duckdb",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 5432,
+        "databaseName": "/Users/me/analytics.duckdb",
+        "username": "",
+        "connectionString": "duckdb:///Users/me/analytics.duckdb?access_mode=read_only",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb",
+        "duckdb_config": {
+          "access_mode": "read_only"
+        }
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/duckdb-empty-name",
+    "target": "form",
+    "op": "test",
+    "changedBy": [],
+    "v1Notes": "The component's validate() would stop this form before the manager sees it; recorded at the manager.",
+    "input": {
+      "form": {
+        "name": "DuckDB",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "",
+        "username": "",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/duckdb-paste-memory",
+    "target": "form",
+    "op": "test",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "DuckDB - In-Memory",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 5432,
+        "databaseName": ":memory:",
+        "username": "",
+        "connectionString": "duckdb://:memory:",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  }
+]

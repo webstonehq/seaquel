@@ -16,6 +16,16 @@
 /// - `read_only` (optional, after `introspection`): the engine's
 ///   `query_read_only`, pasted into the impl the same way. Without it the
 ///   trait's `NOT_SUPPORTED` default applies, so the engine fails closed.
+/// - `stream_start` (optional, after `last_insert_id`):
+///   `async fn(&sqlx::Pool<$db>, sqlx::pool::PoolConnection<$db>, &str) -> R`
+///   (the pool, the connection and the statement's SQL)
+///   where `R: DerefMut<Target = PoolConnection<$db>> + RunningStatement`.
+///   `query_stream` takes one connection from the pool, hands it to this,
+///   and runs the statement on what it returns; `R` stops the statement on
+///   the server when it's dropped unfinished. Without it the connection is
+///   used as it is.
+///
+/// [`RunningStatement`]: crate::RunningStatement
 ///
 /// The expansion also defines, next to the impl:
 ///
@@ -46,6 +56,7 @@ macro_rules! impl_sqlx_driver {
         decode_fn = $decode_fn:path,
         bind_fn = $bind_fn:path,
         last_insert_id = $last_insert_id:expr
+        $(, stream_start = $stream_start:path)?
         $(, introspection = { $($introspection:tt)* })?
         $(, read_only = { $($read_only:tt)* })?
         $(,)?
@@ -150,25 +161,44 @@ macro_rules! impl_sqlx_driver {
                 Box::pin($crate::__private::async_stream::try_stream! {
                     use sqlx::{Column, Row};
                     use $crate::__private::futures::StreamExt;
+                    use $crate::RunningStatement as _;
 
                     const BATCH_SIZE: usize = 5000;
 
                     let sqlx_query = sqlx::query(&sql);
                     let sqlx_query = bind_params(sqlx_query, &params)?;
 
+                    // One connection for the whole statement, so the
+                    // engine's `stream_start` knows which server session
+                    // runs it: dropped unfinished (a cancel, a disconnect,
+                    // the consumer gone), it stops the statement there.
+                    let conn = self
+                        .pool
+                        .acquire()
+                        .await
+                        .map_err($crate::DbError::query_error)?;
+                    let mut running =
+                        ($crate::__sqlx_stream_start!($($stream_start)?))(&self.pool, conn, &sql).await;
+
                     // `take_until` ends the row stream as soon as `cancel`
-                    // fires, even in the middle of a batch. Dropping the fetch
-                    // releases the pooled connection.
-                    let mut stream = std::pin::pin!(sqlx_query
-                        .fetch(&self.pool)
+                    // fires, even in the middle of a batch.
+                    let mut stream = Box::pin(sqlx_query
+                        .fetch(&mut **running)
                         .take_until(cancel.cancelled()));
 
                     let mut buffer: Vec<Vec<$crate::Value>> = Vec::with_capacity(BATCH_SIZE);
                     let mut captured_columns: Option<Vec<String>> = None;
                     let mut first_batch = true;
+                    let mut failed: Option<sqlx::Error> = None;
 
                     while let Some(row_result) = stream.next().await {
-                        let row = row_result.map_err($crate::DbError::query_error)?;
+                        let row = match row_result {
+                            Ok(row) => row,
+                            Err(e) => {
+                                failed = Some(e);
+                                break;
+                            }
+                        };
 
                         if captured_columns.is_none() {
                             captured_columns = Some(
@@ -195,6 +225,22 @@ macro_rules! impl_sqlx_driver {
                                 truncated: false,
                             };
                         }
+                    }
+
+                    drop(stream);
+                    // The statement is over when every row was read (unless
+                    // `cancel` ended the rows early) or the server ended it
+                    // with an error. Otherwise `running` stops it when it
+                    // drops.
+                    let over = match &failed {
+                        Some(e) => matches!(e, sqlx::Error::Database(_)),
+                        None => !cancel.is_cancelled(),
+                    };
+                    if over {
+                        running.finish();
+                    }
+                    if let Some(e) = failed {
+                        Err::<(), _>($crate::DbError::query_error(e))?;
                     }
 
                     // Terminal batch — empty buffer is fine, but still needs to carry
@@ -285,5 +331,17 @@ macro_rules! impl_sqlx_driver {
 
             $($($read_only)*)?
         }
+    };
+}
+
+/// `impl_sqlx_driver!`'s `stream_start`, or the plain default.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __sqlx_stream_start {
+    () => {
+        $crate::__private::plain_stream_start
+    };
+    ($path:path) => {
+        $path
     };
 }

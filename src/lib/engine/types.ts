@@ -3,8 +3,8 @@
  * uses (introspection, EXPLAIN, statistics, pagination, CRUD and DDL SQL).
  *
  * Two implementations:
- * - `RustEngineClient` sends an `EngineCall` to the Rust core
- *   (`invoke("db_engine")` on desktop, `POST /api/db/engine` on web).
+ * - `RustEngineClient` sends an `EngineRequest` to the Rust core as a
+ *   `db.engine` call (`core_call` on desktop, `POST /api/rpc` on web).
  * - `TsEngineClient` runs the demo's TypeScript DuckDB adapter against its
  *   DuckDB-WASM provider (the browser demo has no Rust core).
  *

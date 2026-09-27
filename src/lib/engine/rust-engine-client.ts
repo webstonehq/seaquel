@@ -1,7 +1,8 @@
 /**
- * `EngineClient` backed by the Rust core. Each method sends one `EngineCall`
- * (`invoke("db_engine", { call })` on desktop, `POST /api/db/engine` on web)
- * and unwraps the `{kind, data}` response.
+ * `EngineClient` backed by the Rust core. Each method sends one
+ * `EngineRequest` as a `db.engine` call on the connection (through the
+ * page's `CoreClient`: `core_call` on desktop, `POST /api/rpc` on web) and
+ * unwraps the `{kind, data}` response.
  *
  * Values follow the cell wire format (`$lib/values`): every value-bearing
  * field (`value`, `params`, row and insert values) goes out through
@@ -9,45 +10,27 @@
  * primary keys, bytes and decimals round-trip exactly.
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { envApiBaseUrl, postJson } from "$lib/providers/http-provider";
-import { formatError } from "$lib/providers/wire";
+import { callDb, getCoreClient, type CoreClient } from "$lib/core";
 import type { ColumnTypeInfo, CreateTableDefinition, DatabaseStatistics } from "$lib/types";
-import type { EngineCall } from "$lib/types/generated/EngineCall";
 import type { EngineRequest } from "$lib/types/generated/EngineRequest";
 import type { EngineResponse } from "$lib/types/generated/EngineResponse";
 import type { ExplainResult } from "$lib/types/generated/ExplainResult";
 import type { SchemaTable } from "$lib/types/generated/SchemaTable";
 import type { SqlWithBindings } from "$lib/types/generated/SqlWithBindings";
-import { isTauri } from "$lib/utils/environment";
 import { decodeCell, encodeParam, encodeParams } from "$lib/values";
 import { duckdbQualifiedTable, plainQualifiedTable, quoteIdent } from "./qualified-table";
 import type { CastMap, EngineClient, RowRecord, TableMetadata } from "./types";
 
 /** Sends one call and returns the raw response; rejects with a `"CODE: message"` Error. */
-export type EngineTransport = (call: EngineCall) => Promise<EngineResponse>;
+export type EngineTransport = (
+  connectionId: string,
+  request: EngineRequest,
+) => Promise<EngineResponse>;
 
-/** Desktop: the `db_engine` Tauri command. */
-export const tauriTransport: EngineTransport = async (call) => {
-  try {
-    return await invoke<EngineResponse>("db_engine", { call });
-  } catch (error) {
-    // A DbError object, or a plain string when Tauri can't deserialize the args.
-    throw formatError(error);
-  }
-};
-
-/**
- * Web: `POST {baseUrl}/api/db/engine`. `baseUrl` defaults to
- * `VITE_SEAQUEL_API_URL`, else same-origin, like `HttpProvider`.
- */
-export function httpTransport(baseUrl: string = envApiBaseUrl() ?? ""): EngineTransport {
-  return (call) => postJson<EngineResponse>(`${baseUrl}/api/db/engine`, call);
+/** `db.engine` through `client`: the connection must be this workspace's. */
+export function coreEngineTransport(client: () => CoreClient = getCoreClient): EngineTransport {
+  return (connectionId, request) => callDb(client(), "engine", { connectionId, request });
 }
-
-/** Picked per call so tests (and late environment detection) see the current mode. */
-const defaultTransport: EngineTransport = (call) =>
-  isTauri() ? tauriTransport(call) : httpTransport()(call);
 
 type Kind = EngineResponse["kind"];
 type DataOf<K extends Kind> = Extract<EngineResponse, { kind: K }>["data"];
@@ -72,8 +55,7 @@ function decodeBindings(data: SqlWithBindings): SqlWithBindings {
 /**
  * Connection types whose dialect runs in Rust. Each needs a local `paginate`
  * in `PAGINATE` and a `qualifiedTable` in `QUALIFIED_TABLE`. MariaDB connects
- * through the MySQL engine (driver `"mysql"`, see `toRustConfig`) and shares
- * its dialect.
+ * through the MySQL engine (driver `"mysql"`) and shares its dialect.
  */
 export type RustEngine = "postgres" | "mysql" | "mariadb" | "sqlite" | "mssql" | "duckdb";
 
@@ -216,13 +198,13 @@ export class RustEngineClient implements EngineClient {
      * reconnect uses the new id.
      */
     private readonly getConnectionId: () => string | undefined,
-    private readonly transport: EngineTransport = defaultTransport,
+    private readonly transport: EngineTransport = coreEngineTransport(),
   ) {}
 
   private async call<K extends Kind>(expected: K, request: EngineRequest): Promise<DataOf<K>> {
     const id = this.getConnectionId();
     if (!id) throw new Error("No connection established");
-    const response = await this.transport({ connection_id: id, request });
+    const response = await this.transport(id, request);
     if (response?.kind !== expected) {
       throw new Error(
         `ENGINE_PROTOCOL: expected "${expected}" response, got "${String(response?.kind)}"`,

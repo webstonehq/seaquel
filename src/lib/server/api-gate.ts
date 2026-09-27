@@ -4,6 +4,40 @@
  */
 
 import type { GateAnswer } from "./license-client";
+import { isOriginTrusted } from "./origin";
+
+/** Methods that don't change state on these routes; the Origin gate skips them. */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * The response that refuses a state-changing `/api/*` call (anything but
+ * GET, HEAD and OPTIONS) whose `Origin` this install doesn't trust
+ * (`isOriginTrusted`: configured, or the install's own origin, an `Origin`
+ * naming `host`), or `null` to let it through. Browsers send `Origin` on
+ * every such request, so a missing one is refused too. This is CSRF
+ * protection on top of the session cookie's SameSite=Lax.
+ *
+ * `/api/auth/*` is left to Better Auth, which checks the same list itself.
+ */
+export function originGateResponse(
+  method: string,
+  path: string,
+  origin: string | null,
+  host: string | null,
+): Response | null {
+  if (!path.startsWith("/api/") || path.startsWith("/api/auth/")) return null;
+  if (SAFE_METHODS.has(method.toUpperCase())) return null;
+  if (isOriginTrusted(origin, host)) return null;
+  return originNotAllowed();
+}
+
+/** 403 `{code: "ORIGIN_NOT_ALLOWED"}`. */
+export function originNotAllowed(): Response {
+  return new Response(
+    JSON.stringify({ code: "ORIGIN_NOT_ALLOWED", message: "request origin not allowed" }),
+    { status: 403, headers: { "content-type": "application/json" } },
+  );
+}
 
 /** Paths the gate passes through without a session, license or membership. */
 export function isApiGateExempt(path: string): boolean {

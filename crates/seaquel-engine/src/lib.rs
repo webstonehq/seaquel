@@ -40,6 +40,76 @@ pub mod __private {
         e.message = format!("{} (column \"{column}\")", e.message);
         e
     }
+
+    /// `impl_sqlx_driver!`'s `stream_start` when the engine gives none:
+    /// the connection as it is, with nothing to stop on the server.
+    pub async fn plain_stream_start<P: ?Sized, C>(_pool: &P, conn: C, _sql: &str) -> Plain<C> {
+        Plain(conn)
+    }
+
+    /// A pooled connection with no [`crate::RunningStatement`] behaviour.
+    pub struct Plain<C>(pub C);
+
+    impl<C> std::ops::Deref for Plain<C> {
+        type Target = C;
+        fn deref(&self) -> &C {
+            &self.0
+        }
+    }
+
+    impl<C> std::ops::DerefMut for Plain<C> {
+        fn deref_mut(&mut self) -> &mut C {
+            &mut self.0
+        }
+    }
+
+    impl<C> crate::RunningStatement for Plain<C> {
+        fn finish(&mut self) {}
+    }
+}
+
+/// The start of `sql` that a cancel guard compares with what the server
+/// reports the session running, or `None` when too little of it would be
+/// reliable (fewer than [`STATEMENT_PREFIX_MIN_CHARS`] characters): then
+/// the guard falls back to the session alone.
+///
+/// Servers report a statement's text differently from what was sent:
+/// leading whitespace, and a trailing `;` and whitespace, are stripped
+/// (MySQL, MariaDB), bound parameters may
+/// be shown expanded (MySQL with the binary log on), and characters
+/// outside the Basic Multilingual Plane are shown as `?` (MariaDB) or
+/// can't be compared at all (MySQL's utf8mb3 `PROCESSLIST`). So the prefix
+/// is taken from `sql` without its trailing `;`s and whitespace; it starts
+/// after ASCII whitespace and ends before the first
+/// `stop_at` character, the first character above U+FFFF, or after
+/// `max_chars` characters.
+pub fn statement_prefix(sql: &str, stop_at: Option<char>, max_chars: usize) -> Option<String> {
+    let prefix: String = sql
+        .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+        .trim_start_matches(STATEMENT_LEADING_WHITESPACE)
+        .chars()
+        .take_while(|&c| Some(c) != stop_at && u32::from(c) <= 0xFFFF)
+        .take(max_chars)
+        .collect();
+    (prefix.chars().count() >= STATEMENT_PREFIX_MIN_CHARS).then_some(prefix)
+}
+
+/// The whitespace [`statement_prefix`] skips at the start of a statement.
+pub const STATEMENT_LEADING_WHITESPACE: &[char] = &[' ', '\t', '\n', '\r', '\x0B', '\x0C'];
+
+/// The shortest [`statement_prefix`] worth comparing.
+pub const STATEMENT_PREFIX_MIN_CHARS: usize = 8;
+
+/// The connection a sqlx engine's `query_stream` runs its statement on
+/// (`impl_sqlx_driver!`'s `stream_start`), dereferencing to the pooled
+/// connection. Dropped before [`RunningStatement::finish`] (a cancel, a
+/// disconnect, the consumer going away, a decode error), it stops the
+/// statement on the server if the engine can: the server keeps running a
+/// statement whose client just stops reading.
+pub trait RunningStatement {
+    /// The statement is over on the server (it read every row, or the
+    /// server ended it with an error): nothing to stop.
+    fn finish(&mut self);
 }
 
 /// Cap for non-streaming `query()` results. Streaming `query_stream` is
@@ -494,6 +564,20 @@ pub trait Driver: MaybeSend + MaybeSync {
     }
 }
 
+/// Limits the interface puts on what an engine opens, next to the
+/// [`ConnectConfig`] the user's target produced. Core sets them from its
+/// builder (the web server's are tighter than the desktop's); they never
+/// come from the wire.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OpenOptions {
+    /// The most database connections one open [`Driver`] holds at once.
+    /// `None` keeps the engine's default: a sqlx pool of 10 (Postgres,
+    /// MySQL, SQLite); for SQL Server, its one session plus 4 read-only
+    /// connections. Postgres, MySQL and SQL Server honour it; SQLite and
+    /// DuckDB (local files, desktop only) ignore it. At least 1.
+    pub max_pool_size: Option<u32>,
+}
+
 /// A database engine plugin: knows how to open [`Driver`]s for one `driver`
 /// value on the wire.
 #[seaquel_runtime::async_trait]
@@ -502,6 +586,18 @@ pub trait Engine: MaybeSend + MaybeSync {
     fn id(&self) -> &'static str;
 
     async fn open(&self, config: &ConnectConfig) -> Result<Arc<dyn Driver>, DbError>;
+
+    /// [`Engine::open`] under `options`, which is what Core calls. The
+    /// default ignores them; an engine with a connection pool overrides
+    /// this (and `open` calls it with the defaults).
+    async fn open_with(
+        &self,
+        config: &ConnectConfig,
+        options: OpenOptions,
+    ) -> Result<Arc<dyn Driver>, DbError> {
+        let _ = options;
+        self.open(config).await
+    }
 
     /// The engine's SQL dialect, when it has moved to Rust.
     fn dialect(&self) -> Option<&dyn Dialect> {
@@ -915,5 +1011,54 @@ mod tests {
         assert_eq!(batch.columns, Some(vec!["a".to_string()]));
         assert_eq!(batch.rows, vec![vec![Value::Int(1)]]);
         assert!(batch.is_final);
+    }
+}
+
+#[cfg(test)]
+mod statement_prefix_tests {
+    use super::statement_prefix;
+
+    #[test]
+    fn prefixes_follow_what_servers_report() {
+        let p = |sql| statement_prefix(sql, Some('?'), 4096);
+        assert_eq!(
+            p("SELECT SLEEP(30) AS m").as_deref(),
+            Some("SELECT SLEEP(30) AS m")
+        );
+        // Leading whitespace is skipped.
+        assert_eq!(
+            p("\n\n  \t SELECT 1 AS abc").as_deref(),
+            Some("SELECT 1 AS abc")
+        );
+        // Up to the first parameter.
+        assert_eq!(p("SELECT SLEEP(?) AS m").as_deref(), Some("SELECT SLEEP("));
+        // Up to the first character above U+FFFF; BMP characters stay.
+        assert_eq!(p("SELECT 'é\u{1F600}' AS e").as_deref(), Some("SELECT 'é"));
+        // MySQL and MariaDB drop a trailing `;` and whitespace.
+        assert_eq!(
+            p("SELECT SLEEP(30) AS m;").as_deref(),
+            Some("SELECT SLEEP(30) AS m")
+        );
+        assert_eq!(
+            p("SELECT SLEEP(30) AS m ;  \n").as_deref(),
+            Some("SELECT SLEEP(30) AS m")
+        );
+        assert_eq!(
+            p("SELECT 1 AS abc;;\t;"),
+            Some("SELECT 1 AS abc".to_string())
+        );
+        // Too short to trust.
+        assert_eq!(p("SELECT ?"), None);
+        assert_eq!(p("  \u{1F600} SELECT 1"), None);
+        assert_eq!(p(""), None);
+        // Without a stop character, `?` is text.
+        assert_eq!(
+            statement_prefix("SELECT '?' AS q", None, 4096).as_deref(),
+            Some("SELECT '?' AS q")
+        );
+        assert_eq!(
+            statement_prefix("SELECT 1234567890", None, 10).as_deref(),
+            Some("SELECT 123")
+        );
     }
 }

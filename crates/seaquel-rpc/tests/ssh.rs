@@ -13,6 +13,8 @@ const OPEN: &str = r#"{"method":"ssh","params":{"method":"open","params":{"confi
 fn core(dir: &tempfile::TempDir) -> Core {
     Core::builder()
         .ssh_known_hosts(dir.path().join("known_hosts"))
+        // `ssh_open` follows the connect policy, as on the desktop.
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build()
 }
 

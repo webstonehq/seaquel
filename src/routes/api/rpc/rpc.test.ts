@@ -18,7 +18,13 @@ function rpcEvent(
     locals: { user: userId ? { id: userId } : null },
     request: new Request("http://localhost/api/rpc", {
       method: "POST",
-      headers: { "content-type": "application/json", ...headers },
+      // The page's own origin, as a browser sends it.
+      headers: {
+        "content-type": "application/json",
+        origin: "http://localhost",
+        host: "localhost",
+        ...headers,
+      },
       body,
     }),
     url: new URL("http://localhost/api/rpc"),
@@ -58,6 +64,22 @@ describe("/api/rpc proxy", () => {
   it("returns 401 without a session and calls nothing", async () => {
     const fetchMock = stubFetch(() => new Response("{}"));
     expect(await statusOf(POST(rpcEvent(null, BODY)))).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["another site", { origin: "https://evil.example" }],
+    ["no Origin", { origin: "" }],
+  ])("refuses a call from %s with 403 ORIGIN_NOT_ALLOWED and calls nothing", async (_, headers) => {
+    const fetchMock = stubFetch(() => new Response("{}"));
+    const event = rpcEvent("user-1", BODY, headers);
+    if (!headers.origin) event.request.headers.delete("origin");
+    const res = (await POST(event)) as Response;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: "ORIGIN_NOT_ALLOWED",
+      message: "request origin not allowed",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

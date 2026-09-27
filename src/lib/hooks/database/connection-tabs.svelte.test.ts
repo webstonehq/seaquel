@@ -61,3 +61,45 @@ describe("open in edit mode", () => {
     expect(form?.aiShareData).toBeUndefined();
   });
 });
+
+describe("the wizard's SSL mode", () => {
+  it('starts on "Default" (no mode) for a new connection', async () => {
+    const { state, manager } = setup();
+    await manager.open();
+    expect(formOf(state)?.sslMode).toBe("");
+  });
+
+  it("keeps a saved row's mode", async () => {
+    const { state, manager } = setup();
+    await manager.open({ ...saved, sslMode: "disable" }, "edit");
+    expect(formOf(state)?.sslMode).toBe("disable");
+  });
+
+  it('leaves a saved row without a mode on "Default"', async () => {
+    const { state, manager } = setup();
+    await manager.open(saved, "edit");
+    expect(formOf(state)?.sslMode).toBe("");
+  });
+});
+
+describe("the connection string on prefill", () => {
+  it("drops the string the old builder made from the row's fields", async () => {
+    const { state, manager } = setup();
+    await manager.open(
+      {
+        ...saved,
+        sslMode: "disable",
+        connectionString: "postgresql://me@localhost/app?sslmode=disable",
+      },
+      "edit",
+    );
+    expect(formOf(state)?.connectionString).toBe("");
+  });
+
+  it("keeps, and so shows, a hand-typed string with parameters", async () => {
+    const { state, manager } = setup();
+    const typed = "postgresql://me@localhost/app?application_name=seaquel";
+    await manager.open({ ...saved, connectionString: typed }, "edit");
+    expect(formOf(state)?.connectionString).toBe(typed);
+  });
+});

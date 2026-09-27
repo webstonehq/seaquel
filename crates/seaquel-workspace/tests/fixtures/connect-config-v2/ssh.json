@@ -1,0 +1,1163 @@
+[
+  {
+    "name": "ssh/pg-password-auth",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-password-auth",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "postgresql://alice@db.internal:5432/app?sslmode=disable",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-password-auth": "pw",
+        "ssh:conn-ssh-pg-password-auth": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50001
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-password-auth",
+        "ssh:conn-ssh-pg-password-auth"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@127.0.0.1:50001/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-key-with-passphrase",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-key-with-passphrase",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": true,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key",
+          "keyPath": "/Users/me/.ssh/id_ed25519"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-key-with-passphrase": "pw",
+        "ssh-key:conn-ssh-pg-key-with-passphrase": "key-pass"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50002
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-key-with-passphrase",
+        "ssh-key:conn-ssh-pg-key-with-passphrase"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "keyPassphrase": "key-pass",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@127.0.0.1:50002/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-key-no-passphrase",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-key-no-passphrase",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key",
+          "keyPath": "/Users/me/.ssh/id_ed25519"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-key-no-passphrase": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50003
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-key-no-passphrase"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@127.0.0.1:50003/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-key-passphrase-flag-but-missing",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-key-passphrase-flag-but-missing",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": true,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key",
+          "keyPath": "/Users/me/.ssh/id_ed25519"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-key-passphrase-flag-but-missing": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50004
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-key-passphrase-flag-but-missing",
+        "ssh-key:conn-ssh-pg-key-passphrase-flag-but-missing"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@127.0.0.1:50004/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-key-no-keypath",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-key-no-keypath",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-key-no-keypath": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-key-no-keypath"
+      ],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "ssh/pg-password-not-saved",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-password-not-saved",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-password-not-saved": "pw",
+        "ssh:conn-ssh-pg-password-not-saved": "stale-ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-password-not-saved"
+      ],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "ssh/pg-password-saved-but-missing",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-password-saved-but-missing",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-password-saved-but-missing": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-password-saved-but-missing",
+        "ssh:conn-ssh-pg-password-saved-but-missing"
+      ],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "ssh/pg-db-password-not-saved",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-db-password-not-saved",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "ssh:conn-ssh-pg-db-password-not-saved": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "ssh/pg-no-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "5"
+    ],
+    "notes": "Row 1 builds the string from the fields. Row 5 drops the tab's empty tunnel fields.",
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-no-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-no-string": "pw",
+        "ssh:conn-ssh-pg-no-string": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50005
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-no-string",
+        "ssh:conn-ssh-pg-no-string"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50005/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "ssh/pg-disabled-tunnel",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-disabled-tunnel",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:5432/app",
+        "sshTunnel": {
+          "enabled": false,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-disabled-tunnel": "pw",
+        "ssh:conn-ssh-pg-disabled-tunnel": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-disabled-tunnel"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-null-tunnel",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-null-tunnel",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.example.com:5432/app",
+        "sshTunnel": null
+      },
+      "secrets": {
+        "db:conn-ssh-pg-null-tunnel": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-null-tunnel"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@db.example.com:5432/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/mysql-password-auth",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-mysql-password-auth",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "MySQL",
+        "type": "mysql",
+        "host": "mysql.internal",
+        "port": 3307,
+        "databaseName": "shop",
+        "username": "root",
+        "connectionString": "mysql://root@mysql.internal:3307/shop",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-mysql-password-auth": "pw",
+        "ssh:conn-ssh-mysql-password-auth": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50006
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-mysql-password-auth",
+        "ssh:conn-ssh-mysql-password-auth"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "mysql.internal",
+        "remotePort": 3307
+      },
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@127.0.0.1:50006/shop"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/mysql-default-port-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-ssh-mysql-default-port-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "MySQL",
+        "type": "mysql",
+        "host": "mysql.internal",
+        "port": 3306,
+        "databaseName": "shop",
+        "username": "root",
+        "sslMode": "disable",
+        "connectionString": "mysql://root@mysql.internal/shop?ssl-mode=DISABLED",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-mysql-default-port-string": "pw",
+        "ssh:conn-ssh-mysql-default-port-string": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50007
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-mysql-default-port-string",
+        "ssh:conn-ssh-mysql-default-port-string"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "mysql.internal",
+        "remotePort": 3306
+      },
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@127.0.0.1:50007/shop?ssl-mode=DISABLED"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-string-port-differs",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2",
+      "7c"
+    ],
+    "notes": "Row 7c: the tunnel forwards to the string's db.internal:6000, not the row's port 5432.",
+    "v1Notes": "The tunnel forwards to row.port; the string's own port is replaced by the tunnel's.",
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-string-port-differs",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:6000/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-string-port-differs": "pw",
+        "ssh:conn-ssh-pg-string-port-differs": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50009
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-string-port-differs",
+        "ssh:conn-ssh-pg-string-port-differs"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "db.internal",
+        "remotePort": 6000
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:pw@127.0.0.1:50009/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "ssh/pg-special-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "2"
+    ],
+    "input": {
+      "row": {
+        "id": "conn-ssh-pg-special-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgresql://alice@db.internal:5432/app",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-ssh-pg-special-password": "p@ss:w/rd",
+        "ssh:conn-ssh-pg-special-password": "s@sh:pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50008
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-ssh-pg-special-password",
+        "ssh:conn-ssh-pg-special-password"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "s@sh:pw",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgresql://alice:p%40ss%3Aw%2Frd@127.0.0.1:50008/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/ssh.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "add/pg-ssh-password",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5"
+    ],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "disable",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "ssh": "ssh-pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50101
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50101/app?sslmode=disable"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-ssh-key",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5",
+      "5-wizard"
+    ],
+    "notes": "5-wizard: the SSL mode is unset, so no sslmode parameter. Row 5 drops the empty tunnel password.",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "key",
+        "sshKeyPath": "/Users/me/.ssh/id_ed25519",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "sshKey": "key-pass"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50102
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "keyPassphrase": "key-pass",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50102/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/pg-paste-tableplus-ssh",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "4",
+      "5",
+      "7b"
+    ],
+    "notes": "Row 7b: the +ssh URL is parsed into its database part (postgres://alice:pw@db.internal:5432/app) and SSH part; the form's tunnel fields came from the same parse. The database part goes through the tunnel as it is: no sslmode=disable from the form (v1 rebuilt it, row 4). Row 5 drops the empty tunnel fields.",
+    "v1Notes": "usePrivateKey=true makes the form use key auth; the user picks the key file after pasting.",
+    "input": {
+      "form": {
+        "name": "Prod",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "connectionString": "postgres+ssh://deploy@bastion.example.com:22/alice:pw@db.internal:5432/app?name=Prod&usePrivateKey=true",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "key",
+        "sshKeyPath": "/Users/me/.ssh/id_ed25519",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50103
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50103/app"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/mysql-ssh-key",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5",
+      "5-wizard"
+    ],
+    "notes": "5-wizard: the SSL mode is unset, so no ssl-mode parameter. Row 5 drops the empty tunnel password.",
+    "input": {
+      "form": {
+        "name": "MySQL",
+        "type": "mysql",
+        "host": "mysql.internal",
+        "port": 3306,
+        "databaseName": "shop",
+        "username": "root",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "key",
+        "sshKeyPath": "/Users/me/.ssh/id_ed25519",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "sshKey": "key-pass"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50104
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "keyPassphrase": "key-pass",
+        "remoteHost": "mysql.internal",
+        "remotePort": 3306
+      },
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@127.0.0.1:50104/shop"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/pg-ssh-password",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "5"
+    ],
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "ssh": "ssh-pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50201
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "db.internal",
+        "remotePort": 5432
+      },
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://alice:pw@127.0.0.1:50201/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/pg-ssh-password-empty",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "5"
+    ],
+    "notes": "Row 5: the empty SSH password means none, and one builder applies Saved's rule: password auth with no SSH password is CREDENTIALS_REQUIRED, before any tunnel opens. v1 asked for a tunnel with password ''.",
+    "v1Notes": "Password auth with the SSH password left empty: the tunnel is asked for with password ''.",
+    "input": {
+      "form": {
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "alice",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50202
+    },
+    "expected": {
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  }
+]

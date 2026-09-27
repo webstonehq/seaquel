@@ -15,7 +15,6 @@ export type { LicenseResponse };
 
 // Re-export existing well-typed service modules
 export * as git from "$lib/services/git";
-export * as sshTunnel from "$lib/services/ssh-tunnel";
 
 // === App Commands ===
 

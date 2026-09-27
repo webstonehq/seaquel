@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { betterAuth } from "better-auth";
 import type Database from "better-sqlite3";
 import { CLIENT_IP_HEADER } from "$shared/client-ip.js";
+import { betterAuthTrustedOrigins } from "./origin";
 
 const require = createRequire(import.meta.url);
 
@@ -107,43 +108,12 @@ function applyAuthSchemaIfNeeded(sqlite: Database.Database): void {
 
 // -- Trusted origin allowlist ---------------------------------------------
 //
-// Single source of truth for the origins this install will accept browser
-// requests from. Better Auth consumes the list for its own endpoints via
-// `trustedOrigins`; custom handlers like `/api/signup` consume it through
-// `isOriginTrusted()` to apply matching CSRF protection.
-//
-// Hosted: `.seaquel.app` so the apex dashboard and tenant subdomains
-// share session cookies. Self-hosted: set via env var to whatever domain
-// the operator points at this container.
-//
-// Localhost variants are always trusted so `npm run dev:web:full`,
-// `npm run start:web`, and ssh-into-container debugging all work without
-// a manual env var. This is safe — the browser won't let a non-localhost
-// site claim `Origin: http://localhost:*`, so an entry in this list
-// can't be exploited from a remote attacker's site.
-export function getTrustedOrigins(): string[] {
-  return [
-    ...(process.env.SEAQUEL_TRUSTED_ORIGINS?.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean) ?? []),
-    "http://localhost:5173",
-    "http://localhost:8787",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8787",
-  ];
-}
-
-/**
- * Check a request's `Origin` header against {@link getTrustedOrigins}.
- * Returns `false` for missing/empty Origin — every browser populates
- * `Origin` on cross-site and non-GET requests, so a missing header on a
- * mutation route means it's a non-browser caller (curl, server-to-server)
- * which should not be permitted to hit user-facing auth endpoints.
- */
-export function isOriginTrusted(origin: string | null | undefined): boolean {
-  if (!origin) return false;
-  return getTrustedOrigins().includes(origin);
-}
+// The rules live in `origin.ts`: `SEAQUEL_TRUSTED_ORIGINS`, the origins of
+// `BETTER_AUTH_URL` and `ORIGIN`, the install's own origin (the request's
+// `Origin` names its `Host`), and the dev servers' origins in dev builds
+// only. Better Auth takes `betterAuthTrustedOrigins`; the routes import the
+// checks from here.
+export { getTrustedOrigins, isOriginTrusted } from "./origin";
 
 // -- Better Auth instance (lazy Proxy) ------------------------------------
 
@@ -196,7 +166,7 @@ function build() {
     // README.md's "Test Docker image locally" section).
     baseURL: process.env.BETTER_AUTH_URL,
 
-    trustedOrigins: getTrustedOrigins(),
+    trustedOrigins: betterAuthTrustedOrigins,
 
     // Cap brute-force attempts on the auth surface. Better Auth ships with
     // rate limiting enabled by default in production but the defaults are

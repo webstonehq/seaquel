@@ -20,9 +20,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Decision 11: the desktop's workspace (storage, the keychain), SSH tunnels,
 # git for shared projects and the license client, besides every engine.
-seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh"] }
+# `workspace`/`connect` (phase 5a): `db.connect` and `db.test` through the
+# workspace, saved rows and forms alike.
+seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
 seaquel-types = { path = "../crates/seaquel-types" }
-seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh"] }
+seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,12 +42,12 @@ dirs = { workspace = true }
 opener = "0.7"
 whoami = "1"
 plist = "1"
+# The scratch dir of the stand-in workspace `db` calls use when storage
+# can't open (DesktopWorkspace::db).
+tempfile = "3"
 tauri-plugin-deep-link = "2"
 tauri-plugin-log = "2"
 log = { version = "0.4", features = ["kv"] }
-
-[dev-dependencies]
-tempfile = "3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

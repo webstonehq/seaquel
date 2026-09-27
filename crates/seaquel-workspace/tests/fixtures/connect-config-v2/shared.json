@@ -1,0 +1,202 @@
+[
+  {
+    "name": "shared/pg-imported",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "v1Notes": "Shape importSharedConnections writes: no string, empty username, flags off.",
+    "input": {
+      "row": {
+        "id": "conn-shared-pg-imported",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "sslMode": "require",
+        "sharedConnectionId": "shared-pg-1"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/shared.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "shared/pg-imported-ssh",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-shared-pg-imported-ssh",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.internal",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "sslMode": "require",
+        "sharedConnectionId": "shared-pg-2",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "",
+          "authMethod": "key"
+        }
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 50022
+    },
+    "expected": {
+      "secretsRead": [],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/shared.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "shared/mssql-imported",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-shared-mssql-imported",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "",
+        "sharedConnectionId": "shared-ms-1"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/shared.json",
+      "output": "form"
+    }
+  },
+  {
+    "name": "shared/sqlite-imported",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab.",
+    "input": {
+      "row": {
+        "id": "conn-shared-sqlite-imported",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": false,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "SQLite",
+        "type": "sqlite",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/app.db",
+        "username": "",
+        "sharedConnectionId": "shared-lite-1"
+      },
+      "secrets": {},
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [],
+      "config": {
+        "driver": "sqlite",
+        "connection_string": "sqlite:///Users/me/app.db",
+        "create_if_missing": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/shared.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "shared/pg-imported-then-saved",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged output. Row 1: Saved now builds the string from the fields itself; v1 got the same string only through the reconnect tab. Row 3, checked live (Task 2): sqlx accepts the empty user name and sends the password; the user is its default, PGUSER or the client's OS user. The e2e Postgres answered `role \"m\" does not exist` for the OS user `m`, after the URL parsed.",
+    "v1Notes": "A shared row whose flag was turned on later without a connect rewriting its string.",
+    "input": {
+      "row": {
+        "id": "conn-shared-pg-imported-then-saved",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "",
+        "sslMode": "require",
+        "sharedConnectionId": "shared-pg-3"
+      },
+      "secrets": {
+        "db:conn-shared-pg-imported-then-saved": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-shared-pg-imported-then-saved"
+      ],
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://:pw@db.example.com/app?sslmode=require"
+      }
+    },
+    "v1": {
+      "file": "connect-config/shared.json",
+      "output": "reconnectTab"
+    }
+  }
+]

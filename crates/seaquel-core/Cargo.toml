@@ -57,7 +57,7 @@ uuid = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 # Turns on the workspace features for this crate's own tests
-# (tests/workspace.rs, tests/connect_saved.rs), so `cargo test -p seaquel-core`
+# (tests/workspace.rs, tests/connect.rs), so `cargo test -p seaquel-core`
 # runs them.
 seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace"] }
 tempfile = "3"

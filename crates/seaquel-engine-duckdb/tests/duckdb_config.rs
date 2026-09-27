@@ -1,0 +1,148 @@
+//! `ConnectConfig::duckdb_config` (phase 5a, Decision 6 row 10): options
+//! parsed out of a `duckdb://path?key=value` string open the database with
+//! them. An unknown option fails the connect with DuckDB's message, and a
+//! `restricted` instance takes only an allowlist.
+
+use std::sync::Arc;
+
+use seaquel_engine::{ConnectConfig, Driver};
+use seaquel_engine_testkit::scratch_name;
+use serde_json::json;
+
+fn config(v: serde_json::Value) -> ConnectConfig {
+    serde_json::from_value(v).unwrap()
+}
+
+async fn open(config: &ConnectConfig) -> Result<Arc<dyn Driver>, seaquel_engine::DbError> {
+    seaquel_engine_duckdb::engine().open(config).await
+}
+
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        let dir = std::env::temp_dir().join(scratch_name("seaquel-duckdb-config-"));
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn access_mode_read_only_opens_the_file_read_only() {
+    let dir = TempDir::new();
+    let path = dir.0.join("app.duckdb");
+    let path = path.to_str().unwrap();
+    let setup = open(&config(
+        json!({ "driver": "duckdb", "path": path, "create_if_missing": true }),
+    ))
+    .await
+    .unwrap();
+    setup
+        .execute("CREATE TABLE t AS SELECT 42 AS a", vec![])
+        .await
+        .unwrap();
+    setup.close().await.unwrap();
+
+    let d = open(&config(json!({
+        "driver": "duckdb", "path": path,
+        "duckdb_config": { "access_mode": "read_only" },
+    })))
+    .await
+    .unwrap();
+    let rows = d.query("SELECT a FROM t", vec![]).await.unwrap();
+    assert_eq!(rows.rows.len(), 1);
+    let err = d
+        .execute("INSERT INTO t VALUES (1)", vec![])
+        .await
+        .unwrap_err();
+    assert!(err.message.to_lowercase().contains("read-only"), "{err:?}");
+    d.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_unknown_option_fails_the_connect() {
+    let err = open(&config(json!({
+        "driver": "duckdb", "path": ":memory:",
+        "duckdb_config": { "no_such_option_xyz": "1" },
+    })))
+    .await
+    .err()
+    .unwrap();
+    assert!(err.message.contains("no_such_option_xyz"), "{err:?}");
+}
+
+#[tokio::test]
+async fn threads_applies_in_memory() {
+    let d = open(&config(json!({
+        "driver": "duckdb", "path": ":memory:",
+        "duckdb_config": { "threads": "3" },
+    })))
+    .await
+    .unwrap();
+    let rows = d
+        .query("SELECT current_setting('threads')::INTEGER AS n", vec![])
+        .await
+        .unwrap();
+    assert_eq!(rows.rows[0][0], seaquel_engine::Value::Int(3));
+}
+
+/// A restricted instance takes only an allowlist of options: anything that
+/// could reopen file or extension access is refused, naming the key.
+#[tokio::test]
+async fn restricted_refuses_options_outside_its_allowlist() {
+    let dir = TempDir::new();
+    for key in [
+        "allowed_directories",
+        "allowed_paths",
+        "ALLOWED_DIRECTORIES",
+        "enable_external_access",
+        "lock_configuration",
+        "extension_directory",
+        "allow_unsigned_extensions",
+        "allow_community_extensions",
+        "temp_directory",
+        "secret_directory",
+    ] {
+        let err = open(&config(json!({
+            "driver": "duckdb", "path": ":memory:", "restricted": true,
+            "duckdb_config": { key: dir.0.to_str().unwrap() },
+        })))
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("{key} was accepted"));
+        assert_eq!(err.code, "INVALID_CONNECTION", "{key}: {err:?}");
+        assert!(err.message.contains(key), "{err:?}");
+    }
+}
+
+/// An allowed option still applies when restricted, and the lock-down holds.
+#[tokio::test]
+async fn restricted_takes_allowed_options() {
+    let dir = TempDir::new();
+    let secret = dir.0.join("secret.txt");
+    std::fs::write(&secret, "top secret").unwrap();
+    let d = open(&config(json!({
+        "driver": "duckdb", "path": ":memory:", "restricted": true,
+        "duckdb_config": { "threads": "2", "memory_limit": "512MB" },
+    })))
+    .await
+    .unwrap();
+    let rows = d
+        .query("SELECT current_setting('threads')::INTEGER AS n", vec![])
+        .await
+        .unwrap();
+    assert_eq!(rows.rows[0][0], seaquel_engine::Value::Int(2));
+    let sql = format!("SELECT content FROM read_text('{}')", secret.display());
+    let err = d.query(&sql, vec![]).await.unwrap_err();
+    assert!(err.message.contains("disabled by configuration"), "{err:?}");
+    assert!(d
+        .execute("SET autoload_known_extensions = true", vec![])
+        .await
+        .is_err());
+}

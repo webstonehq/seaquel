@@ -283,3 +283,26 @@ describe("POST /api/signup — later signups", () => {
     errors.mockRestore();
   });
 });
+
+describe("POST /api/signup — Origin check", () => {
+  it("checks the Origin against the request's own Host", async () => {
+    vi.mocked(auth.isOriginTrusted).mockReturnValue(false);
+    const request = new Request("http://seaquel.test/api/signup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        origin: "https://evil.example",
+        host: "seaquel.test",
+      },
+      body: JSON.stringify(VALID_BODY),
+    });
+    const event = {
+      request,
+      getClientAddress: () => "127.0.0.1",
+    } as unknown as Parameters<typeof POST>[0];
+
+    await expect(POST(event)).rejects.toMatchObject({ status: 403 });
+    expect(auth.isOriginTrusted).toHaveBeenCalledWith("https://evil.example", "seaquel.test");
+    expect(licensing.registerInstall).not.toHaveBeenCalled();
+  });
+});

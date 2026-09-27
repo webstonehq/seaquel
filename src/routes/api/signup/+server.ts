@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
   // rogue users via a tab on a malicious site. Better Auth's `/api/auth/*`
   // handler already enforces trustedOrigins on its routes; mirror that here
   // for the custom signup path.
-  if (!isOriginTrusted(request.headers.get("origin"))) {
+  if (!isOriginTrusted(request.headers.get("origin"), request.headers.get("host"))) {
     throw error(403, "request origin not allowed");
   }
 

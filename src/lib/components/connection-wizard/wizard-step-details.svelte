@@ -31,6 +31,8 @@
 	import { getUsername } from "$lib/api/tauri";
 	import { isTauri } from "$lib/utils/environment";
 	import { isFeatureEnabled } from "$lib/features";
+	import { forgetConnectionString } from "$lib/utils/connection-string-rules";
+	import XIcon from "@lucide/svelte/icons/x";
 
 	const keyring = getKeyringService();
 	const keychainAvailable = keyring.isAvailable();
@@ -69,12 +71,28 @@
 	];
 
 	const sslModes = ["disable", "allow", "prefer", "require"];
+	// The select's value for "Default": no mode (`""` in the form), so Core
+	// uses the engine's own default. bits-ui treats `""` as "nothing picked".
+	const DEFAULT_SSL_MODE = "default";
 
 	const supportsSSL = $derived(
 		formData.type === "postgres" || formData.type === "mysql" || formData.type === "mariadb" || formData.type === "mssql",
 	);
 
-	let advancedExpanded = $state(formData.sslMode !== "disable" || formData.sshEnabled);
+	// The string field stays up while the user edits it, even empty, until
+	// it loses focus or is cleared.
+	let stringShown = $state(!!formData.connectionString);
+	const showStringField = $derived(stringShown || !!formData.connectionString);
+
+	/** Clear the connection string (Clear, or a field it encodes was edited). */
+	const clearString = () => {
+		forgetConnectionString(formData);
+		stringShown = false;
+	};
+
+	let advancedExpanded = $state(
+		(!!formData.sslMode && formData.sslMode !== "disable") || formData.sshEnabled,
+	);
 	let sshExpanded = $state(formData.sshEnabled);
 	let aiPrivacyExpanded = $state(formData.aiShareSchema !== undefined || formData.aiShareData !== undefined);
 
@@ -92,6 +110,7 @@
 			});
 			if (selected && typeof selected === "string") {
 				formData.databaseName = selected;
+				clearString();
 				if (!nameManuallyEdited) {
 					const fileName = selected.split("/").pop() || "database";
 					formData.name = isDuckDB ? `DuckDB - ${fileName}` : `SQLite - ${fileName}`;
@@ -104,6 +123,7 @@
 
 	const useInMemoryDatabase = () => {
 		formData.databaseName = ":memory:";
+		clearString();
 		if (!nameManuallyEdited) {
 			formData.name = "DuckDB - In-Memory";
 		}
@@ -159,6 +179,35 @@
 			<p class="text-xs text-muted-foreground">{m.wizard_credentials_name_hint()}</p>
 		</div>
 
+		<!-- The connection string, while there is one: Core connects with it
+			 and ignores the fields it encodes, so it's never hidden. Editing
+			 one of those fields clears it. -->
+		{#if showStringField}
+			<div class="grid gap-2">
+				<Label for="details-connection-string">{m.connection_dialog_label_connection_string()}</Label>
+				<div class="flex gap-2">
+					<Input
+						id="details-connection-string"
+						bind:value={formData.connectionString}
+						oninput={() => (stringShown = true)}
+						onblur={() => {
+							if (!formData.connectionString) stringShown = false;
+						}}
+						class="flex-1 font-mono text-sm"
+					/>
+					<Button
+						variant="outline"
+						type="button"
+						onclick={() => clearString()}
+					>
+						<XIcon class="size-4" />
+						{m.connection_dialog_clear_connection_string()}
+					</Button>
+				</div>
+				<p class="text-xs text-muted-foreground">{m.connection_dialog_connection_string_overrides()}</p>
+			</div>
+		{/if}
+
 		{#if isFileBasedDb}
 			<!-- File-based DB: file path -->
 			<div class="grid gap-2">
@@ -171,6 +220,7 @@
 						<Input
 							id="database"
 							bind:value={formData.databaseName}
+							oninput={() => clearString()}
 							placeholder={formData.type === "duckdb" ? "/path/to/database.duckdb or :memory:" : m.connection_dialog_placeholder_database_path()}
 							class="pl-9"
 						/>
@@ -199,7 +249,10 @@
 						class="px-2 py-1 text-xs rounded border hover:bg-accent transition-colors {formData.host === preset.host
 							? 'border-primary bg-primary/10'
 							: 'border-border'}"
-						onclick={() => (formData.host = preset.host)}
+						onclick={() => {
+							formData.host = preset.host;
+							clearString();
+						}}
 					>
 						{preset.label}
 					</button>
@@ -214,6 +267,7 @@
 						<Input
 							id="host"
 							bind:value={formData.host}
+							oninput={() => clearString()}
 							placeholder={m.connection_dialog_placeholder_host()}
 							class="pl-9"
 						/>
@@ -225,6 +279,7 @@
 						id="port"
 						type="number"
 						bind:value={formData.port}
+						oninput={() => clearString()}
 						placeholder={String(selectedDbType?.defaultPort || 5432)}
 					/>
 				</div>
@@ -240,6 +295,7 @@
 					<Input
 						id="database"
 						bind:value={formData.databaseName}
+						oninput={() => clearString()}
 						placeholder={m.connection_dialog_placeholder_database_name()}
 						class="pl-9"
 					/>
@@ -251,7 +307,13 @@
 				<Label for="username">{m.connection_dialog_label_username()}</Label>
 				<div class="relative">
 					<UserIcon class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-					<Input id="username" bind:value={formData.username} placeholder={osUsername} class="pl-9" />
+					<Input
+						id="username"
+						bind:value={formData.username}
+						oninput={() => clearString()}
+						placeholder={osUsername}
+						class="pl-9"
+					/>
 				</div>
 			</div>
 
@@ -317,14 +379,20 @@
 								</Label>
 								<Select
 									type="single"
-									value={formData.sslMode}
-									onValueChange={(value) => (formData.sslMode = value)}
+									value={formData.sslMode || DEFAULT_SSL_MODE}
+									onValueChange={(value) => {
+										formData.sslMode = value === DEFAULT_SSL_MODE ? "" : value;
+										clearString();
+									}}
 								>
 									<SelectTrigger id="sslmode" class="w-full">
-										{formData.sslMode}
+										{formData.sslMode || m.connection_dialog_ssl_mode_default()}
 									</SelectTrigger>
 									<SelectContent>
-										{#each sslModes as mode}
+										<SelectItem value={DEFAULT_SSL_MODE}>
+											{m.connection_dialog_ssl_mode_default()}
+										</SelectItem>
+										{#each sslModes as mode (mode)}
 											<SelectItem value={mode}>{mode}</SelectItem>
 										{/each}
 									</SelectContent>
@@ -332,10 +400,9 @@
 							</div>
 						{/if}
 
-						<!-- SSH Tunnel — Tauri-only runtime; hidden in web/demo (see
-							 $lib/features/index.ts → sshTunnels). The whole subtree
-							 calls `createSshTunnel`, which goes through the Tauri
-							 `core_call` command; the web server has no SSH. -->
+						<!-- SSH Tunnel — desktop only; hidden in web/demo (see
+							 $lib/features/index.ts → sshTunnels). Core opens the
+							 tunnel on connect; the web server allows no SSH. -->
 						{#if formData.type !== "sqlite" && isFeatureEnabled("sshTunnels")}
 							<div class="space-y-4">
 								<div class="flex items-center justify-between">

@@ -37,4 +37,18 @@ create_if_missing?: boolean,
  * Off by default; the MCP server turns it on for the instances it opens.
  * Other engines ignore it.
  */
-restricted?: boolean, };
+restricted?: boolean, 
+/**
+ * MSSQL only: the name the server's TLS certificate is checked against,
+ * when it isn't `host`. Set for a connection through an SSH tunnel,
+ * where `host` is `127.0.0.1` and this is the server's own name. The
+ * socket still goes to `host` and `port`.
+ */
+tls_server_name?: string, 
+/**
+ * DuckDB only: options the database opens with (`access_mode` =
+ * `read_only`, …), parsed out of a `duckdb://path?key=value` string. An
+ * option DuckDB doesn't know fails the connect. With `restricted`, the
+ * lock-down settings are applied after these and win.
+ */
+duckdb_config?: Record<string, string>, };

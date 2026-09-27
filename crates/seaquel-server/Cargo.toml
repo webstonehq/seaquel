@@ -2,7 +2,7 @@
 name = "seaquel-server"
 version = "0.1.0"
 edition = "2021"
-description = "HTTP tenant-plane server for Seaquel. Serves the SvelteKit frontend and exposes DB operations over HTTP + WebSocket."
+description = "HTTP tenant-plane server for Seaquel. Serves the SvelteKit frontend and each user's workspace over /rpc and the /rpc/stream WebSocket."
 
 [lib]
 name = "seaquel_server"
@@ -30,7 +30,7 @@ seaquel-core = { path = "../seaquel-core", default-features = false, features = 
     "license-server",
 ] }
 seaquel-types = { path = "../seaquel-types" }
-seaquel-rpc = { path = "../seaquel-rpc", features = ["storage"] }
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace"] }
 
 axum = { workspace = true }
 tower = { workspace = true }
@@ -38,7 +38,9 @@ tower-http = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 serde = { workspace = true }
-serde_json = { workspace = true }
+# raw_value: /rpc/stream hands a frame's `request` to parse_request as its
+# exact text.
+serde_json = { workspace = true, features = ["raw_value"] }
 log = { workspace = true }
 futures = { workspace = true }
 # web_config: reads connection URLs the way sqlx does (same crate).
@@ -56,18 +58,13 @@ mime_guess = "2"
 libc = "0.2"
 
 [dev-dependencies]
-# For the /api/db/engine tests: a "postgres" engine with the real dialect and
-# no database behind it.
+# The /rpc and /rpc/stream tests' fake "postgres" engine (`tests/common`):
+# the real Postgres dialect, no database behind it.
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
-# The /api/db/* route tests run on SQLite files, through a Core the tests
-# build themselves (`common::sqlite_state`); the server's own Core never
-# registers it.
-seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
 seaquel-runtime = { path = "../seaquel-runtime" }
 http-body-util = { workspace = true }
 tokio-tungstenite = "0.24"
-uuid = { workspace = true }
 tempfile = "3"
 # The license route tests build auth.db from Node's migrations and sign
 # bundles.

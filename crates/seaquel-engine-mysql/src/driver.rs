@@ -1,10 +1,13 @@
+use std::str::FromStr;
 use std::time::Duration;
 
-use sqlx::{MySql, Pool};
+use sqlx::mysql::MySqlConnectOptions;
+use sqlx::pool::{PoolConnection, PoolOptions};
+use sqlx::{ConnectOptions, MySql, Pool};
 
 use seaquel_engine::{
-    CappedResult, ConnectConfig, DatabaseStatistics, DbError, ExplainResult, ReadOnlyOptions,
-    RowCap, SchemaColumn, SchemaIndex, SchemaTable, Value,
+    CappedResult, ConnectConfig, DatabaseStatistics, DbError, ExplainResult, OpenOptions,
+    ReadOnlyOptions, RowCap, RunningStatement, SchemaColumn, SchemaIndex, SchemaTable, Value,
 };
 
 use crate::introspect::{self, Flavor};
@@ -16,13 +19,20 @@ pub struct MysqlDriver {
 }
 
 impl MysqlDriver {
-    pub async fn connect(config: &ConnectConfig) -> Result<Self, DbError> {
+    pub async fn connect(config: &ConnectConfig, open: OpenOptions) -> Result<Self, DbError> {
         let conn_str = config
             .connection_string
             .as_deref()
             .ok_or_else(|| DbError::connection_error("connection_string is required for MySQL"))?;
 
-        let pool = Pool::<MySql>::connect(conn_str)
+        // sqlx logs every statement (and, at WARN, each one slower than a
+        // second) with its whole SQL: never user SQL. The KILL connections
+        // clone these options, so it's off there too.
+        let options = MySqlConnectOptions::from_str(conn_str)
+            .map_err(DbError::connection_error)?
+            .disable_statement_logging();
+        let pool = pool_options(open)
+            .connect_with(options)
             .await
             .map_err(DbError::connection_error)?;
 
@@ -35,6 +45,16 @@ impl MysqlDriver {
             pool,
             flavor: Flavor::from_version(&version.0),
         })
+    }
+}
+
+/// The pool: sqlx's defaults, at most `open.max_pool_size` connections
+/// when that is set.
+fn pool_options(open: OpenOptions) -> PoolOptions<MySql> {
+    let options = PoolOptions::<MySql>::new();
+    match open.max_pool_size {
+        Some(n) => options.max_connections(n.max(1)),
+        None => options,
     }
 }
 
@@ -71,6 +91,7 @@ seaquel_engine::impl_sqlx_driver!(
     decode_fn = crate::decode::to_value,
     bind_fn = crate::bind::bind_value,
     last_insert_id = |r: &sqlx::mysql::MySqlQueryResult| Some(r.last_insert_id() as i64),
+    stream_start = stream_start,
     introspection = {
         async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
             let r = self.query(introspect::SCHEMAS_SQL, vec![]).await?;
@@ -220,7 +241,7 @@ async fn read_only_call(
         .fetch_optional(&mut *conn)
         .await
         .map_err(DbError::query_error)?;
-    let mut kill = id.map(|(id,)| KillOnDrop::new(pool, id));
+    let mut kill = id.map(|(id,)| KillOnDrop::new(pool, id, "db.query_read_only", KillCheck::None));
     let result = fetch_capped(&mut *conn, sql, params, cap).await;
     // The statement is over when it read all its rows or the server ended
     // it with an error; otherwise (the row cap, a truncation, a decode
@@ -284,31 +305,160 @@ fn setup_sql(flavor: Flavor, timeout: Option<Duration>) -> Vec<String> {
     sql
 }
 
-/// Sends `KILL QUERY` for the read-only call's connection when dropped
-/// while armed, from a new connection (not the pool's: a full pool would
-/// make it wait) on a task of its own. Connection ids aren't reused while
-/// the server runs, and the call's connection is closed, never reused, so
-/// the kill can't reach another statement.
+/// The most of a streamed statement's text [`KillOnDrop`] compares with
+/// what the connection runs (`PROCESSLIST.INFO`).
+const STATEMENT_PREFIX_CHARS: usize = 4096;
+
+/// What [`KillOnDrop`] checks before it kills.
+enum KillCheck {
+    /// Nothing: the read-only path's connection is its own and is closed,
+    /// never reused.
+    None,
+    /// The connection still runs a statement (`COMMAND` `Query` or
+    /// `Execute`): a streamed statement with too little plain text to
+    /// compare (see [`seaquel_engine::statement_prefix`]).
+    Running,
+    /// The connection still runs a statement whose text (`INFO`) starts
+    /// with this.
+    Prefix(String),
+}
+
+/// `query_stream`'s connection (`impl_sqlx_driver!`'s `stream_start`).
+/// Dropped before [`RunningStatement::finish`], it sends `KILL QUERY` for
+/// the statement ([`KillOnDrop`]) and closes the connection instead of
+/// handing it back: returned, the pool would first wait for the statement
+/// to end.
+pub(crate) struct RunningStream {
+    conn: PoolConnection<MySql>,
+    kill: Option<KillOnDrop>,
+    finished: bool,
+}
+
+/// Looks up the connection's id before the statement runs: one round
+/// trip. When the lookup fails, the stream runs as before, with nothing to
+/// stop.
+async fn stream_start(
+    pool: &Pool<MySql>,
+    mut conn: PoolConnection<MySql>,
+    sql: &str,
+) -> RunningStream {
+    let id: Result<Option<(u64,)>, _> = sqlx::query_as("SELECT CONNECTION_ID()")
+        .persistent(false)
+        .fetch_optional(&mut *conn)
+        .await;
+    // Up to the first `?`: with the binary log on, MySQL shows a prepared
+    // statement's parameters expanded in `INFO`.
+    let check = match seaquel_engine::statement_prefix(sql, Some('?'), STATEMENT_PREFIX_CHARS) {
+        Some(prefix) => KillCheck::Prefix(prefix),
+        None => KillCheck::Running,
+    };
+    let kill = match id {
+        Ok(Some((id,))) => Some(KillOnDrop::new(pool, id, "db.query_stream", check)),
+        _ => None,
+    };
+    RunningStream {
+        conn,
+        kill,
+        finished: false,
+    }
+}
+
+impl std::ops::Deref for RunningStream {
+    type Target = PoolConnection<MySql>;
+    fn deref(&self) -> &Self::Target {
+        &self.conn
+    }
+}
+
+impl std::ops::DerefMut for RunningStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.conn
+    }
+}
+
+impl RunningStatement for RunningStream {
+    fn finish(&mut self) {
+        self.finished = true;
+        if let Some(kill) = self.kill.as_mut() {
+            kill.disarm();
+        }
+    }
+}
+
+impl Drop for RunningStream {
+    fn drop(&mut self) {
+        // Then the fields drop: the connection closes, and the armed kill
+        // is sent.
+        if !self.finished {
+            self.conn.close_on_drop();
+        }
+    }
+}
+
+/// How long a kill may take (connecting included) before it's given up.
+const KILL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Sends `KILL QUERY` for a statement's connection when dropped while
+/// armed, from a new connection (not the pool's: a full pool would make it
+/// wait) on a task of its own, given up after [`KILL_TIMEOUT`]. Dropping
+/// never waits for it. Connection ids aren't reused while the server runs,
+/// and the statement's connection is closed, never reused, so the kill
+/// can't reach another statement of ours. For a streamed statement the
+/// connection must also still be running it ([`KillCheck`]), so a proxy
+/// that maps connections differently gets no kill.
 ///
 /// Engine crates are native only, so the task runs on the ambient tokio
-/// runtime (sqlx needs one anyway). Without one nothing is sent.
+/// runtime (sqlx needs one anyway). Without one nothing is sent. Nothing
+/// it logs holds SQL or a server message: only an error's kind and number
+/// ([`error_kind`]).
 struct KillOnDrop {
     options: sqlx::mysql::MySqlConnectOptions,
     id: u64,
+    check: KillCheck,
+    activity: &'static str,
     armed: bool,
 }
 
 impl KillOnDrop {
-    fn new(pool: &Pool<MySql>, id: u64) -> Self {
+    fn new(pool: &Pool<MySql>, id: u64, activity: &'static str, check: KillCheck) -> Self {
         Self {
             options: (*pool.connect_options()).clone(),
             id,
+            check,
+            activity,
             armed: true,
         }
     }
 
     fn disarm(&mut self) {
         self.armed = false;
+    }
+}
+
+/// Whether connection `?` runs a statement.
+const RUNNING_SQL: &str = "SELECT COUNT(*) FROM information_schema.PROCESSLIST \
+     WHERE ID = ? AND COMMAND IN ('Query', 'Execute')";
+
+/// Whether connection `?` runs a statement whose text starts with the
+/// second (and third) `?`.
+const RUNS_STATEMENT_SQL: &str = "SELECT COUNT(*) FROM information_schema.PROCESSLIST \
+     WHERE ID = ? AND COMMAND IN ('Query', 'Execute') \
+     AND LEFT(INFO, CHAR_LENGTH(?)) = ?";
+
+/// An error's kind, and its server error number, for a log line: never
+/// its message, which can quote the statement.
+fn error_kind(e: &sqlx::Error) -> String {
+    match e {
+        sqlx::Error::Database(d) => match d.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>() {
+            Some(m) => format!("server error {}", m.number()),
+            None => "server error".to_string(),
+        },
+        sqlx::Error::Io(io) => format!("I/O error ({:?})", io.kind()),
+        sqlx::Error::Tls(_) => "TLS error".to_string(),
+        sqlx::Error::PoolTimedOut => "pool timed out".to_string(),
+        sqlx::Error::Protocol(_) => "protocol error".to_string(),
+        sqlx::Error::Configuration(_) => "configuration error".to_string(),
+        _ => "error".to_string(),
     }
 }
 
@@ -320,28 +470,55 @@ impl Drop for KillOnDrop {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let (options, id) = (self.options.clone(), self.id);
+        let (options, id, activity) = (self.options.clone(), self.id, self.activity);
+        let check = std::mem::replace(&mut self.check, KillCheck::None);
         runtime.spawn(async move {
             use sqlx::Connection;
             let sent = async {
                 let mut conn = sqlx::MySqlConnection::connect_with(&options).await?;
+                let count = match &check {
+                    KillCheck::None => None,
+                    KillCheck::Running => Some(sqlx::query_as(RUNNING_SQL).bind(id)),
+                    KillCheck::Prefix(prefix) => Some(
+                        sqlx::query_as(RUNS_STATEMENT_SQL)
+                            .bind(id)
+                            .bind(prefix.as_str())
+                            .bind(prefix.as_str()),
+                    ),
+                };
+                let runs = match count {
+                    None => true,
+                    Some(count) => {
+                        let (n,): (i64,) = count.persistent(false).fetch_one(&mut conn).await?;
+                        n > 0
+                    }
+                };
                 // A number, formatted here. Over the text protocol: KILL
                 // isn't preparable on every server.
-                let r =
-                    sqlx::Executor::execute(&mut conn, format!("KILL QUERY {id}").as_str()).await;
+                let r = if runs {
+                    sqlx::Executor::execute(&mut conn, format!("KILL QUERY {id}").as_str())
+                        .await
+                        .map(drop)
+                } else {
+                    Ok(())
+                };
                 let _ = conn.close().await;
                 r
             };
-            match sent.await {
-                Ok(_) => seaquel_engine::__private::log::debug!(
-                    activity = "db.query_read_only";
-                    "Sent KILL QUERY for an unfinished read-only query"
+            match tokio::time::timeout(KILL_TIMEOUT, sent).await {
+                Ok(Ok(())) => seaquel_engine::__private::log::debug!(
+                    activity = activity;
+                    "Sent KILL QUERY for an unfinished statement"
                 ),
                 // The connection already ended, which is the goal.
-                Err(e) if is_no_such_thread(&e) => {}
-                Err(e) => seaquel_engine::__private::log::warn!(
-                    activity = "db.query_read_only";
-                    "KILL QUERY for an unfinished read-only query failed: {e}"
+                Ok(Err(e)) if is_no_such_thread(&e) => {}
+                Ok(Err(e)) => seaquel_engine::__private::log::warn!(
+                    activity = activity;
+                    "KILL QUERY for an unfinished statement failed: {}", error_kind(&e)
+                ),
+                Err(_) => seaquel_engine::__private::log::warn!(
+                    activity = activity;
+                    "KILL QUERY for an unfinished statement timed out"
                 ),
             }
         });
@@ -351,6 +528,18 @@ impl Drop for KillOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pool_size_follows_the_open_options() {
+        assert_eq!(
+            pool_options(OpenOptions::default()).get_max_connections(),
+            10
+        );
+        let web = OpenOptions {
+            max_pool_size: Some(4),
+        };
+        assert_eq!(pool_options(web).get_max_connections(), 4);
+    }
 
     #[test]
     fn permission_errors() {

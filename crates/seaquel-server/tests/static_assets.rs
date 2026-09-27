@@ -88,13 +88,22 @@ async fn api_routes_take_precedence_over_static_fallback() {
 #[tokio::test]
 async fn api_post_still_works_with_static_routes_mounted() {
     // Regression: adding static asset routing must not break the API surface.
-    let app = build_router(AppState::default());
-    let (status, body) = post_json(
-        app,
-        "/api/db/query",
-        json!({ "connection_id": "does-not-exist", "sql": "SELECT 1", "values": [] }),
-    )
-    .await;
+    let env = common::Env::new(4);
+    let (status, body) = env
+        .db(
+            "u1",
+            "query",
+            json!({ "connectionId": "does-not-exist", "sql": "SELECT 1" }),
+        )
+        .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["code"], "CONNECTION_NOT_FOUND");
+    // The old /api/db routes are gone: a POST there isn't served.
+    let (status, _) = post_json(
+        env.app.clone(),
+        "/api/db/query",
+        json!({ "connection_id": "x", "sql": "SELECT 1" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
 }

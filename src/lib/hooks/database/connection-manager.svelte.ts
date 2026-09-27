@@ -1,5 +1,5 @@
-import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+import { m } from "$lib/paraglide/messages.js";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
@@ -7,9 +7,17 @@ import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine";
-import { createSshTunnelWithHostKeyCheck, closeSshTunnel } from "$lib/services/ssh-tunnel";
-import type { ProviderRegistry } from "$lib/providers";
-import { isTauri, isDemo } from "$lib/utils/environment";
+import {
+  getCoreClient,
+  withHostKeyPrompt,
+  type ConnectionClosedEvent,
+  type SshServer,
+} from "$lib/core";
+import type { ConnectRequest, ProviderRegistry } from "$lib/providers";
+import type { ConnectionForm } from "$lib/types/generated/ConnectionForm";
+import type { SuppliedSecrets } from "$lib/types/generated/SuppliedSecrets";
+import { isDemo, isWeb } from "$lib/utils/environment";
+import { storedConnectionString } from "$lib/utils/connection-string-rules";
 import {
   assertDatabaseTypeAvailable,
   databaseTypeUnavailableMessage,
@@ -22,7 +30,7 @@ import { SvelteSet } from "svelte/reactivity";
 import type { SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import { log } from "$lib/utils/logger";
 
-type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
+export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
   projectId?: string;
   labelIds?: string[];
   sshPassword?: string;
@@ -35,13 +43,82 @@ type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds">
 };
 
 /**
- * Manages database connections: add, reconnect, remove, test.
- * Handles SSH tunnel lifecycle and schema loading.
+ * The connection form Core connects (`{type:"form",form}`): the wizard's or
+ * reconnect tab's fields as typed, the string included (`""` means "build it
+ * from the fields"), without its three secrets. An empty SSL mode is the
+ * wizard's "Default" and is left out.
+ */
+export function toConnectionForm(connection: ConnectionInput): ConnectionForm {
+  const tunnel = connection.sshTunnel;
+  return {
+    name: connection.name,
+    type: connection.type,
+    host: connection.host ?? "",
+    port: connection.port ?? 0,
+    databaseName: connection.databaseName ?? "",
+    username: connection.username ?? "",
+    ...(connection.sslMode ? { sslMode: connection.sslMode } : {}),
+    connectionString: connection.connectionString ?? "",
+    sshEnabled: tunnel?.enabled ?? false,
+    sshHost: tunnel?.host ?? "",
+    sshPort: tunnel?.port ?? 22,
+    sshUsername: tunnel?.username ?? "",
+    sshAuthMethod: tunnel?.authMethod ?? "password",
+    sshKeyPath: connection.sshKeyPath || tunnel?.keyPath || "",
+    savePassword: connection.savePassword ?? false,
+    saveSshPassword: connection.saveSshPassword ?? false,
+    saveSshKeyPassphrase: connection.saveSshKeyPassphrase ?? false,
+  };
+}
+
+/** Only the secrets that are there: an empty one isn't supplied. */
+function secretsOf(secrets: SuppliedSecrets): SuppliedSecrets | undefined {
+  const present: SuppliedSecrets = {};
+  if (secrets.db) present.db = secrets.db;
+  if (secrets.ssh) present.ssh = secrets.ssh;
+  if (secrets.sshKey) present.sshKey = secrets.sshKey;
+  return Object.keys(present).length > 0 ? present : undefined;
+}
+
+/** `connect`/`test` for a form: its fields, the secrets typed into it, `createIfMissing`. */
+export function formConnectRequest(connection: ConnectionInput): ConnectRequest {
+  const secrets = secretsOf({
+    db: connection.password,
+    ssh: connection.sshPassword,
+    sshKey: connection.sshKeyPassphrase,
+  });
+  return {
+    target: { type: "form", form: toConnectionForm(connection) },
+    ...(secrets ? { secrets } : {}),
+    ...(connection.createIfMissing ? { createIfMissing: true } : {}),
+  };
+}
+
+/** The SSH server the host-key prompt names. */
+function sshServerOf(connection: Pick<DatabaseConnection, "sshTunnel">): SshServer {
+  return { host: connection.sshTunnel?.host ?? "", port: connection.sshTunnel?.port ?? 22 };
+}
+
+/** What a `connectionClosed` event's toast says. */
+function connectionClosedMessage(name: string, event: ConnectionClosedEvent): string {
+  switch (event.code) {
+    case "WORKSPACE_EVICTED":
+      return m.connection_closed_evicted({ name });
+    case "CONNECTION_CLOSED":
+      return m.connection_closed_lost({ name });
+    case "TUNNEL_CLOSED":
+      return m.connection_closed_tunnel({ name });
+    default:
+      return m.connection_closed_other({ name, message: event.message });
+  }
+}
+
+/**
+ * Manages database connections: add, reconnect, remove, test. Core opens and
+ * closes them (SSH tunnels included); this keeps the view of them and loads
+ * their schemas.
  */
 export class ConnectionManager {
-  // Map connection IDs to their SSH tunnel IDs for cleanup
-  private tunnelIds = new Map<string, string>();
-
   // Track which connections are currently being connected (for UI loading indicators)
   readonly connectingIds = new SvelteSet<string>();
 
@@ -131,11 +208,32 @@ export class ConnectionManager {
             labelIds: persisted.labelIds || [],
             isLocalOnly: persisted.isLocalOnly,
             sharedConnectionId: persisted.sharedConnectionId,
+            // Every field a save writes back must be carried over here, or
+            // the first save of this object (the migration below, a label
+            // change) would clear it.
+            aiShareSchema: persisted.aiShareSchema,
+            aiShareData: persisted.aiShareData,
             activeAIProviderId: persisted.activeAIProviderId,
             activeAIModel: persisted.activeAIModel,
           };
           return connection;
         }),
+      );
+
+      // Rows written before phase 5a hold the string the old builder rebuilt
+      // from their fields. Core would connect with it and ignore the fields,
+      // so drop it, and save the row once so a saved connect (which Core
+      // reads from storage) sees the same.
+      const legacy = connectionEntries.filter(
+        (c) => c.connectionString && !storedConnectionString(c),
+      );
+      for (const c of legacy) c.connectionString = undefined;
+      await Promise.all(
+        legacy.map((c) =>
+          this.persistence
+            .persistConnection(c)
+            .catch((e) => void log.warn(`Couldn't drop the old string of ${c.id}:`, e)),
+        ),
       );
 
       // Phase 2: Register all connections in state (must complete before loading data)
@@ -160,85 +258,47 @@ export class ConnectionManager {
   }
 
   /**
-   * Establish SSH tunnel if configured.
+   * Refuse an SSH connection where this build has no SSH (web, demo). The
+   * wizard hides the SSH form there, but a connection imported from a
+   * desktop install can still have a tunnel; Core refuses it too.
    */
-  private async setupSshTunnel(
-    connection: {
-      sshTunnel?: DatabaseConnection["sshTunnel"];
-      host: string;
-      port: number;
-      connectionString?: string;
-    },
-    credentials: {
-      sshPassword?: string;
-      sshKeyPath?: string;
-      sshKeyPassphrase?: string;
-    },
-    connectionId: string,
-  ): Promise<{ effectiveConnectionString: string | undefined; tunnelLocalPort?: number }> {
-    if (!connection.sshTunnel?.enabled) {
-      return { effectiveConnectionString: connection.connectionString };
-    }
-
-    // Belt-and-braces guard for environments that don't support tunnels
-    // (web tenant container, demo). The wizard hides the form there so
-    // new connections won't have `sshTunnel.enabled = true`, but a
-    // connection imported from a desktop install could; surface a clean
-    // error instead of letting the Tauri `invoke()` blow up.
-    if (!isFeatureEnabled("sshTunnels")) {
-      const msg = "SSH tunnels are not available in this build";
-      void log.warn(`${msg} (connection ${connectionId})`);
-      throw new Error(msg);
-    }
-
-    try {
-      void log.info(`Establishing SSH tunnel for ${connectionId}`);
-      const tunnelResult = await createSshTunnelWithHostKeyCheck({
-        sshHost: connection.sshTunnel.host,
-        sshPort: connection.sshTunnel.port,
-        sshUsername: connection.sshTunnel.username,
-        authMethod: connection.sshTunnel.authMethod,
-        password: credentials.sshPassword,
-        keyPath: credentials.sshKeyPath,
-        keyPassphrase: credentials.sshKeyPassphrase,
-        remoteHost: connection.host,
-        remotePort: connection.port,
-      });
-
-      let effectiveConnectionString = connection.connectionString;
-      if (effectiveConnectionString) {
-        const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-        url.hostname = "127.0.0.1";
-        url.port = String(tunnelResult.localPort);
-        effectiveConnectionString = url.toString();
-      }
-
-      void log.info(`SSH tunnel established for ${connectionId}`);
-      toast.success(`SSH tunnel established on port ${tunnelResult.localPort}`);
-      this.tunnelIds.set(connectionId, tunnelResult.tunnelId);
-
-      return {
-        effectiveConnectionString,
-        tunnelLocalPort: tunnelResult.localPort,
-      };
-    } catch (error) {
-      void log.error(`SSH tunnel failed for ${connectionId}`);
-      errorToast(
-        `SSH tunnel failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
-      );
-      throw error;
+  private assertSshAvailable(connection: Pick<DatabaseConnection, "sshTunnel">): void {
+    if (connection.sshTunnel?.enabled && !isFeatureEnabled("sshTunnels")) {
+      throw new Error("SSH tunnels are not available in this build");
     }
   }
 
+  /** `provider.connect`, with the SSH host-key prompt and its retry. */
+  private async connectCore(
+    type: DatabaseConnection["type"],
+    request: ConnectRequest,
+    ssh: SshServer,
+  ): Promise<string> {
+    const provider = await this.providers.getForType(type);
+    return withHostKeyPrompt(
+      (trustHostKey) => provider.connect(trustHostKey ? { ...request, trustHostKey } : request),
+      ssh,
+    );
+  }
+
   /**
-   * Close a connection's SSH tunnel, if it has one, and forget it. Used when a
-   * connect fails after the tunnel opened, so the tunnel doesn't leak.
+   * Listen for connections Core closed without being asked (an evicted web
+   * session, a lost connection): each is shown as disconnected. Call once
+   * per page; returns the unsubscribe.
    */
-  private async dropTunnel(connectionId: string): Promise<void> {
-    const tunnelId = this.tunnelIds.get(connectionId);
-    if (!tunnelId) return;
-    this.tunnelIds.delete(connectionId);
-    await closeSshTunnel(tunnelId).catch((e) => void log.error(e));
+  listenForCoreEvents(): () => void {
+    return getCoreClient().events((event) => this.handleConnectionClosed(event));
+  }
+
+  /** Mark the connection `event` names as disconnected, and say why. */
+  handleConnectionClosed(event: ConnectionClosedEvent): void {
+    const connection = this.state.connections.find(
+      (c) => c.providerConnectionId === event.connectionId,
+    );
+    if (!connection) return;
+    void log.warn(`Connection closed by Core (${event.code}): ${connection.id}`);
+    this.markDisconnected(connection);
+    errorToast(connectionClosedMessage(connection.name, event));
   }
 
   /**
@@ -248,39 +308,16 @@ export class ConnectionManager {
     void log.info(`Adding connection: type=${connection.type}`);
     // SQLite and DuckDB on web (Decision 11b): refuse before anything runs.
     assertDatabaseTypeAvailable(connection.type);
+    this.assertSshAvailable(connection);
     const connectionId = `conn-${crypto.randomUUID()}`;
     this.connectingIds.add(connectionId);
 
     try {
-      const { effectiveConnectionString, tunnelLocalPort } = await this.setupSshTunnel(
-        connection,
-        {
-          sshPassword: connection.sshPassword,
-          sshKeyPath: connection.sshKeyPath,
-          sshKeyPassphrase: connection.sshKeyPassphrase,
-        },
-        connectionId,
+      const providerConnectionId = await this.connectCore(
+        connection.type,
+        formConnectRequest(connection),
+        sshServerOf(connection),
       );
-
-      // Connect to database via unified provider
-      let providerConnectionId: string;
-      try {
-        const provider = await this.providers.getForType(connection.type);
-        providerConnectionId = await provider.connect({
-          type: connection.type,
-          host: tunnelLocalPort ? "127.0.0.1" : connection.host,
-          port: tunnelLocalPort || connection.port,
-          databaseName: connection.databaseName,
-          username: connection.username,
-          password: connection.password,
-          sslMode: connection.sslMode,
-          connectionString: effectiveConnectionString,
-          createIfMissing: connection.createIfMissing,
-        });
-      } catch (error) {
-        await this.dropTunnel(connectionId);
-        throw error;
-      }
 
       const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
       // createIfMissing applies to this connect only — don't persist it, or a
@@ -293,7 +330,6 @@ export class ConnectionManager {
         isLocalOnly: connection.isLocalOnly ?? true,
         labelIds: connection.labelIds || [],
         lastConnected: new Date(),
-        tunnelLocalPort,
         providerConnectionId,
       };
 
@@ -316,7 +352,6 @@ export class ConnectionManager {
         this.stateRestoration.cleanupConnectionMaps(newConnection.id);
         const cleanupProvider = await this.providers.getForType(newConnection.type);
         await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
-        await this.dropTunnel(connectionId);
         throw new Error(`Failed to load database schema: ${String(error)}`);
       }
 
@@ -358,7 +393,6 @@ export class ConnectionManager {
           this.stateRestoration.cleanupConnectionMaps(newConnection.id);
           const cleanupProvider = await this.providers.getForType(newConnection.type);
           await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
-          await this.dropTunnel(connectionId);
           errorToast(
             "Vault unlock cancelled — connection not saved. Unlock the vault and try again.",
           );
@@ -375,7 +409,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Reconnect to an existing connection.
+   * Reconnect to an existing connection from the reconnect tab's form.
    */
   async reconnect(connectionId: string, connection: ConnectionInput): Promise<string> {
     void log.info(`Reconnecting: ${connectionId}`);
@@ -386,154 +420,121 @@ export class ConnectionManager {
     // A SQLite or DuckDB connection saved on desktop can reach a web
     // workspace; it fails here with the reason instead of at the server.
     assertDatabaseTypeAvailable(connection.type);
+    this.assertSshAvailable(connection);
 
     this.connectingIds.add(connectionId);
     try {
-      // Disconnect the existing connection first and mark it disconnected,
-      // then close its tunnel (closing cuts whatever still runs through it).
-      // If the new connect fails, the connection then reads as disconnected
-      // instead of pointing at a dead provider connection.
-      if (existingConnection.providerConnectionId) {
-        const oldProvider = await this.providers.getForType(existingConnection.type);
-        await oldProvider.disconnect(existingConnection.providerConnectionId).catch(() => {});
-        this.state.connections = this.state.connections.map((c) =>
-          c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
-        );
-      }
-      await this.dropTunnel(connectionId);
-
-      const { effectiveConnectionString: rawConnectionString, tunnelLocalPort } =
-        await this.setupSshTunnel(
-          connection,
-          {
-            sshPassword: connection.sshPassword,
-            sshKeyPath: connection.sshKeyPath,
-            sshKeyPassphrase: connection.sshKeyPassphrase,
-          },
-          connectionId,
-        );
-
-      // Inject password into connection string if provided separately.
-      // Encoded first: the URL setter leaves `%`, `+`, `&`, `$` and `,` as
-      // they are, so `50%off` would reach the driver as an invalid escape.
-      // `seaquel-workspace`'s `reinject_password` does the same.
-      let effectiveConnectionString = rawConnectionString;
-      if (effectiveConnectionString && connection.password) {
-        let url: URL | undefined;
-        try {
-          url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-        } catch {
-          // Not a URL-based connection string (e.g., file path), skip
-        }
-        if (url) {
-          // Fail closed: a password `encodeURIComponent` refuses (an unpaired
-          // UTF-16 surrogate) must not turn into a password-less connect.
-          let encoded: string;
-          try {
-            encoded = encodeURIComponent(connection.password);
-          } catch {
-            await this.dropTunnel(connectionId);
-            throw new Error(
-              "The password can't be encoded into the connection string: it contains an unpaired UTF-16 surrogate.",
-            );
-          }
-          url.password = encoded;
-          effectiveConnectionString = url.toString();
-        }
-      }
-
-      // Connect to database via unified provider
-      let providerConnectionId: string;
-      try {
-        const provider = await this.providers.getForType(connection.type);
-        providerConnectionId = await provider.connect({
-          type: connection.type,
-          host: tunnelLocalPort ? "127.0.0.1" : connection.host,
-          port: tunnelLocalPort || connection.port,
+      await this.connectExisting(
+        existingConnection,
+        formConnectRequest(connection),
+        sshServerOf(connection),
+        {
+          // What was connected is what the row shows and stores.
+          host: connection.host,
+          port: connection.port,
           databaseName: connection.databaseName,
           username: connection.username,
           password: connection.password,
           sslMode: connection.sslMode,
-          connectionString: effectiveConnectionString,
-          createIfMissing: connection.createIfMissing,
-        });
-      } catch (error) {
-        await this.dropTunnel(connectionId);
-        throw error;
-      }
-
-      // Create updated connection object to ensure Svelte reactivity sees the change
-      const updatedConnection: DatabaseConnection = {
-        ...existingConnection,
-        providerConnectionId,
-        lastConnected: new Date(),
-        username: connection.username,
-        password: connection.password,
-        sslMode: connection.sslMode,
-        connectionString: connection.connectionString,
-        tunnelLocalPort,
-        sshTunnel: connection.sshTunnel,
-        savePassword: connection.savePassword,
-        saveSshPassword: connection.saveSshPassword,
-        saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-      };
-
-      // Replace the old connection with the updated one in the connections array
-      this.state.connections = this.state.connections.map((c) =>
-        c.id === connectionId ? updatedConnection : c,
+          connectionString: connection.connectionString,
+          sshTunnel: connection.sshTunnel,
+          savePassword: connection.savePassword,
+          saveSshPassword: connection.saveSshPassword,
+          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+        },
+        {
+          savePassword: connection.savePassword,
+          saveSshPassword: connection.saveSshPassword,
+          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+          sshPassword: connection.sshPassword,
+          sshKeyPassphrase: connection.sshKeyPassphrase,
+        },
       );
-
-      this.stateRestoration.ensureConnectionMapsExist(connectionId);
-
-      // Fetch schemas - wrap in try-catch to handle failures gracefully
-      let client: EngineClient;
-      let schemasWithTables: SchemaTable[];
-      try {
-        client = getEngineClient(updatedConnection, this.state);
-        schemasWithTables = await client.schemaTables();
-      } catch (error) {
-        // Revert: set providerConnectionId back to undefined on the connection
-        this.state.connections = this.state.connections.map((c) =>
-          c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
-        );
-        const cleanupProvider = await this.providers.getForType(existingConnection.type);
-        await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
-        await this.dropTunnel(connectionId);
-        throw new Error(`Failed to load database schema: ${String(error)}`);
-      }
-
-      // Store tables immediately (without column metadata) so UI is responsive
-      this.state.schemas = {
-        ...this.state.schemas,
-        [connectionId]: schemasWithTables,
-      };
-
-      // Load column metadata asynchronously in the background
-      void this.onSchemaLoaded(connectionId, schemasWithTables, client);
-
-      // Set this as the active connection (only after schema loading succeeds)
-      this.setActiveForProject(connectionId, existingConnection.projectId);
-
-      // Create initial query tab if no tabs exist for the project
-      const projectId = existingConnection.projectId;
-      const tabs = this.state.queryTabsByProject[projectId] ?? [];
-      if (tabs.length === 0) {
-        this.onCreateInitialTab();
-      }
-
-      // Persist the connection to store (password saved to keyring if enabled)
-      await this.persistence.persistConnection(updatedConnection, {
-        savePassword: connection.savePassword,
-        saveSshPassword: connection.saveSshPassword,
-        saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-        sshPassword: connection.sshPassword,
-        sshKeyPassphrase: connection.sshKeyPassphrase,
-      });
-
       return connectionId;
     } finally {
       this.connectingIds.delete(connectionId);
     }
+  }
+
+  /**
+   * Connect a listed connection again: drop its old Core connection, connect
+   * `request`, load its schema, then save the row with `changes` (and
+   * `secrets`, when the form had them).
+   */
+  private async connectExisting(
+    existingConnection: DatabaseConnection,
+    request: ConnectRequest,
+    ssh: SshServer,
+    changes: Partial<DatabaseConnection>,
+    secrets?: Parameters<PersistenceManager["persistConnection"]>[1],
+  ): Promise<void> {
+    const connectionId = existingConnection.id;
+    // Disconnect the existing connection first and mark it disconnected (Core
+    // closes its tunnel with it). If the new connect fails, the connection
+    // then reads as disconnected instead of pointing at a dead connection.
+    if (existingConnection.providerConnectionId) {
+      const oldProvider = await this.providers.getForType(existingConnection.type);
+      await oldProvider.disconnect(existingConnection.providerConnectionId).catch(() => {});
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
+      );
+    }
+
+    const providerConnectionId = await this.connectCore(existingConnection.type, request, ssh);
+
+    // Create updated connection object to ensure Svelte reactivity sees the change
+    const current = this.state.connections.find((c) => c.id === connectionId) ?? existingConnection;
+    const updatedConnection: DatabaseConnection = {
+      ...current,
+      ...changes,
+      providerConnectionId,
+      lastConnected: new Date(),
+    };
+
+    // Replace the old connection with the updated one in the connections array
+    this.state.connections = this.state.connections.map((c) =>
+      c.id === connectionId ? updatedConnection : c,
+    );
+
+    this.stateRestoration.ensureConnectionMapsExist(connectionId);
+
+    // Fetch schemas - wrap in try-catch to handle failures gracefully
+    let client: EngineClient;
+    let schemasWithTables: SchemaTable[];
+    try {
+      client = getEngineClient(updatedConnection, this.state);
+      schemasWithTables = await client.schemaTables();
+    } catch (error) {
+      // Revert: set providerConnectionId back to undefined on the connection
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
+      );
+      const cleanupProvider = await this.providers.getForType(existingConnection.type);
+      await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+      throw new Error(`Failed to load database schema: ${String(error)}`);
+    }
+
+    // Store tables immediately (without column metadata) so UI is responsive
+    this.state.schemas = {
+      ...this.state.schemas,
+      [connectionId]: schemasWithTables,
+    };
+
+    // Load column metadata asynchronously in the background
+    void this.onSchemaLoaded(connectionId, schemasWithTables, client);
+
+    // Set this as the active connection (only after schema loading succeeds)
+    this.setActiveForProject(connectionId, existingConnection.projectId);
+
+    // Create initial query tab if no tabs exist for the project
+    const projectId = existingConnection.projectId;
+    const tabs = this.state.queryTabsByProject[projectId] ?? [];
+    if (tabs.length === 0) {
+      this.onCreateInitialTab();
+    }
+
+    // Persist the connection (and, from a form, its secrets under its flags)
+    await this.persistence.persistConnection(updatedConnection, secrets);
   }
 
   /**
@@ -590,67 +591,19 @@ export class ConnectionManager {
   }
 
   /**
-   * Test a connection without persisting it.
-   * Throws on failure so callers can display the error inline.
+   * Test a connection without persisting it: Core connects the form and
+   * closes it again (with its tunnel). Throws on failure so callers can
+   * display the error inline.
    */
   async test(connection: ConnectionInput): Promise<void> {
     assertDatabaseTypeAvailable(connection.type);
-    let effectiveConnectionString = connection.connectionString;
-    let tunnelId: string | undefined;
-    let tunnelLocalPort: number | undefined;
-
-    // Establish SSH tunnel if enabled (only in Tauri)
-    if (connection.sshTunnel?.enabled) {
-      if (!isTauri()) {
-        throw new Error("SSH tunnels are only available in the desktop app");
-      }
-      const tunnelResult = await createSshTunnelWithHostKeyCheck({
-        sshHost: connection.sshTunnel.host,
-        sshPort: connection.sshTunnel.port,
-        sshUsername: connection.sshTunnel.username,
-        authMethod: connection.sshTunnel.authMethod,
-        password: connection.sshPassword,
-        keyPath: connection.sshKeyPath,
-        keyPassphrase: connection.sshKeyPassphrase,
-        remoteHost: connection.host,
-        remotePort: connection.port,
-      });
-
-      tunnelId = tunnelResult.tunnelId;
-      tunnelLocalPort = tunnelResult.localPort;
-
-      // Build new connection string using tunnel (for non-MSSQL databases)
-      if (effectiveConnectionString) {
-        const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-        url.hostname = "127.0.0.1";
-        url.port = String(tunnelResult.localPort);
-        effectiveConnectionString = url.toString();
-      }
-    }
-
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      await provider.test({
-        type: connection.type,
-        host: tunnelLocalPort ? "127.0.0.1" : connection.host,
-        port: tunnelLocalPort || connection.port,
-        databaseName: connection.databaseName,
-        username: connection.username,
-        password: connection.password,
-        sslMode: connection.sslMode,
-        connectionString: effectiveConnectionString,
-        createIfMissing: connection.createIfMissing,
-      });
-    } finally {
-      // Clean up SSH tunnel if we created one
-      if (tunnelId) {
-        try {
-          await closeSshTunnel(tunnelId);
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
+    this.assertSshAvailable(connection);
+    const provider = await this.providers.getForType(connection.type);
+    const request = formConnectRequest(connection);
+    await withHostKeyPrompt(
+      (trustHostKey) => provider.test(trustHostKey ? { ...request, trustHostKey } : request),
+      sshServerOf(connection),
+    );
   }
 
   /**
@@ -665,18 +618,11 @@ export class ConnectionManager {
 
     const connection = this.state.connections.find((c) => c.id === id);
 
-    // Close provider connection if exists
+    // Close the Core connection (and its SSH tunnel) if there is one
     if (connection?.providerConnectionId) {
       await this.providers.getForType(connection.type).then((provider) => {
         provider.disconnect(connection.providerConnectionId!).catch((e) => void log.error(e));
       });
-    }
-
-    // Close SSH tunnel if exists
-    const tunnelId = this.tunnelIds.get(id);
-    if (tunnelId) {
-      closeSshTunnel(tunnelId).catch((e) => void log.error(e));
-      this.tunnelIds.delete(id);
     }
 
     // Remove the YAML file from the git directory if the connection is shared
@@ -803,9 +749,12 @@ export class ConnectionManager {
   }
 
   /**
-   * Attempt to auto-reconnect using saved keychain credentials.
-   * Returns true if successful, false if credentials are missing or connection fails.
-   * Use this to reconnect without showing a dialog when password is saved.
+   * Connect a saved connection again without showing a form: Core reads the
+   * saved row (`{type:"saved",id}`) with the secrets this page holds, and
+   * the secret store on desktop. Returns false, having said nothing, when
+   * that isn't enough (Core answers `CREDENTIALS_REQUIRED` where the old
+   * give-up rules did) or the connect fails; callers then open the
+   * connection's tab.
    */
   async autoReconnect(connectionId: string): Promise<boolean> {
     const connection = this.state.connections.find((c) => c.id === connectionId);
@@ -813,126 +762,58 @@ export class ConnectionManager {
       return false;
     }
 
-    void log.info(`Auto-reconnect attempt: ${connectionId}`);
-    this.connectingIds.add(connectionId);
-    try {
-      return await this._autoReconnect(connectionId, connection);
-    } finally {
-      this.connectingIds.delete(connectionId);
-    }
-  }
-
-  private async _autoReconnect(
-    connectionId: string,
-    connection: DatabaseConnection,
-  ): Promise<boolean> {
     // Nothing to retry: say why, and let the caller open the connection's
     // tab (where Connect gives the same message).
     if (!isDatabaseTypeAvailable(connection.type)) {
       errorToast(databaseTypeUnavailableMessage(connection.type));
       return false;
     }
-    // SQLite and DuckDB don't require passwords, always auto-reconnect
-    if (connection.type === "sqlite" || connection.type === "duckdb") {
-      try {
-        await this.reconnect(connectionId, {
-          name: connection.name,
-          type: connection.type,
-          host: connection.host,
-          port: connection.port,
-          databaseName: connection.databaseName,
-          username: connection.username,
-          password: "",
-          sslMode: connection.sslMode,
-          connectionString: connection.connectionString,
-        });
-        return true;
-      } catch {
-        void log.warn(`Auto-reconnect failed: ${connectionId}`);
-        return false;
-      }
+
+    void log.info(`Auto-reconnect attempt: ${connectionId}`);
+    this.connectingIds.add(connectionId);
+    try {
+      this.assertSshAvailable(connection);
+      const secrets = await this.heldSecrets(connection);
+      await this.connectExisting(
+        connection,
+        { target: { type: "saved", id: connectionId }, ...(secrets ? { secrets } : {}) },
+        sshServerOf(connection),
+        {},
+      );
+      void log.info(`Auto-reconnect successful: ${connectionId}`);
+      return true;
+    } catch (error) {
+      void log.warn(`Auto-reconnect failed: ${connectionId}`, error);
+      return false;
+    } finally {
+      this.connectingIds.delete(connectionId);
     }
+  }
 
-    // Resolve the password: try keyring first, then fall back to in-memory password
-    let password: string | undefined;
-
-    if (connection.savePassword) {
+  /**
+   * The secrets this page holds for a saved connection, for `autoReconnect`.
+   * A password it already has (typed this session, or read from the
+   * keychain or vault at startup) is always sent: a supplied secret wins
+   * over the store. Otherwise:
+   * - Web has no secret store in Core, so the vault's password when the row
+   *   saves it (unlocking the vault if needed). Web has no SSH.
+   * - Desktop sends nothing more: Core reads the keychain under the row's
+   *   flags.
+   */
+  private async heldSecrets(connection: DatabaseConnection): Promise<SuppliedSecrets | undefined> {
+    let db = connection.password || undefined;
+    if (!db && isWeb() && connection.savePassword) {
       const keyring = getKeyringService();
       if (keyring.isAvailable()) {
         try {
-          password = (await keyring.getDbPassword(connectionId)) || undefined;
-        } catch {
-          // Keyring access failed, continue with fallback
+          db = (await keyring.getDbPassword(connection.id)) || undefined;
+        } catch (error) {
+          // A cancelled unlock, say: Core then tries without it.
+          void log.warn("Reading the saved password from the vault failed:", error);
         }
       }
     }
-
-    // Fall back to in-memory password (e.g., user connected earlier this session)
-    if (!password && connection.password) {
-      password = connection.password;
-    }
-
-    // If `savePassword` is off, the user opted to re-enter credentials each time —
-    // fall back to the reconnect tab. Otherwise an empty password is treated as
-    // an intentionally passwordless connection; the reconnect attempt below will
-    // surface a failure if the server actually requires one.
-    if (!password && !connection.savePassword) {
-      void log.debug(`Auto-reconnect skipped (no password available): ${connectionId}`);
-      return false;
-    }
-
-    // Load SSH credentials if needed
-    let sshPassword: string | undefined;
-    let sshKeyPassphrase: string | undefined;
-
-    if (connection.sshTunnel?.enabled) {
-      const keyring = getKeyringService();
-
-      if (connection.saveSshPassword && keyring.isAvailable()) {
-        sshPassword = (await keyring.getSshPassword(connectionId)) || undefined;
-      }
-      if (connection.saveSshKeyPassphrase && keyring.isAvailable()) {
-        sshKeyPassphrase = (await keyring.getSshKeyPassphrase(connectionId)) || undefined;
-      }
-
-      // If SSH is enabled but credentials not available, we can't auto-reconnect
-      if (connection.sshTunnel.authMethod === "password" && !sshPassword) {
-        void log.debug(`Auto-reconnect skipped (no SSH password): ${connectionId}`);
-        return false;
-      }
-      if (connection.sshTunnel.authMethod === "key" && !connection.sshTunnel.keyPath) {
-        void log.debug(`Auto-reconnect skipped (no SSH key path): ${connectionId}`);
-        return false;
-      }
-    }
-
-    try {
-      // Attempt reconnection
-      await this.reconnect(connectionId, {
-        name: connection.name,
-        type: connection.type,
-        host: connection.host,
-        port: connection.port,
-        databaseName: connection.databaseName,
-        username: connection.username,
-        password: password ?? "",
-        sslMode: connection.sslMode,
-        connectionString: connection.connectionString,
-        sshTunnel: connection.sshTunnel,
-        sshPassword,
-        sshKeyPath: connection.sshTunnel?.keyPath,
-        sshKeyPassphrase,
-        savePassword: connection.savePassword,
-        saveSshPassword: connection.saveSshPassword,
-        saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-      });
-
-      void log.info(`Auto-reconnect successful: ${connectionId}`);
-      return true;
-    } catch {
-      void log.warn(`Auto-reconnect failed: ${connectionId}`);
-      return false;
-    }
+    return secretsOf({ db });
   }
 
   /**
@@ -1012,64 +893,58 @@ export class ConnectionManager {
    */
   async toggle(id: string): Promise<void> {
     const connection = this.state.connections.find((c) => c.id === id);
-    if (connection) {
-      const wasConnected = !!connection.providerConnectionId;
+    if (!connection?.providerConnectionId) return;
 
-      // Disconnect provider connection if connected, then close its SSH
-      // tunnel (closing cuts whatever still runs through it).
-      if (connection.providerConnectionId) {
-        const tunnelId = this.tunnelIds.get(id);
-        this.tunnelIds.delete(id);
-        await this.providers.getForType(connection.type).then((provider) => {
-          provider
-            .disconnect(connection.providerConnectionId!)
-            .catch((e) => void log.error(e))
-            .finally(() => {
-              if (tunnelId) closeSshTunnel(tunnelId).catch((e) => void log.error(e));
-            });
-        });
-        this.state.connections = this.state.connections.map((c) =>
-          c.id === id ? { ...c, providerConnectionId: undefined } : c,
-        );
-      }
+    // Disconnect the Core connection (Core closes its SSH tunnel with it).
+    await this.providers.getForType(connection.type).then((provider) => {
+      provider.disconnect(connection.providerConnectionId!).catch((e) => void log.error(e));
+    });
+    this.markDisconnected(connection);
+  }
 
-      if (wasConnected) {
-        void log.info(`Connection disconnected: ${id}`);
-        // Remove schema tabs belonging to the disconnected connection
-        const projectId = connection.projectId;
-        const schemaTabs = this.state.schemaTabsByProject[projectId] ?? [];
-        const removedTabIds = new Set(
-          schemaTabs.filter((t) => t.connectionId === id).map((t) => t.id),
-        );
-        const remainingTabs = schemaTabs.filter((t) => t.connectionId !== id);
-        // Remove from tab order
-        const tabOrder = this.state.tabOrderByProject[projectId] ?? [];
-        this.state.tabOrderByProject = {
-          ...this.state.tabOrderByProject,
-          [projectId]: tabOrder.filter((tabId) => !removedTabIds.has(tabId)),
-        };
-        this.state.schemaTabsByProject = {
-          ...this.state.schemaTabsByProject,
-          [projectId]: remainingTabs,
-        };
-        // Reset active schema tab if it was removed
-        const activeSchemaTabId = this.state.activeSchemaTabIdByProject[projectId];
-        if (activeSchemaTabId && removedTabIds.has(activeSchemaTabId)) {
-          this.state.activeSchemaTabIdByProject = {
-            ...this.state.activeSchemaTabIdByProject,
-            [projectId]: remainingTabs[0]?.id ?? null,
-          };
-        }
-        this.persistence.scheduleProject(projectId);
+  /**
+   * Show a connection as disconnected: clear its Core id, close its schema
+   * tabs, and make another connected one active for its project if it was
+   * the active one. For a toggle and for a connection Core closed itself.
+   */
+  private markDisconnected(connection: DatabaseConnection): void {
+    const id = connection.id;
+    this.state.connections = this.state.connections.map((c) =>
+      c.id === id ? { ...c, providerConnectionId: undefined } : c,
+    );
+    void log.info(`Connection disconnected: ${id}`);
 
-        // If disconnecting the active connection for its project, switch to another connected one
-        if (this.state.activeConnectionIdByProject[connection.projectId] === id) {
-          const nextConnection = this.state.connections.find(
-            (c) => c.projectId === connection.projectId && !!c.providerConnectionId && c.id !== id,
-          );
-          this.setActiveForProject(nextConnection?.id ?? null, connection.projectId);
-        }
-      }
+    // Remove schema tabs belonging to the disconnected connection
+    const projectId = connection.projectId;
+    const schemaTabs = this.state.schemaTabsByProject[projectId] ?? [];
+    const removedTabIds = new Set(schemaTabs.filter((t) => t.connectionId === id).map((t) => t.id));
+    const remainingTabs = schemaTabs.filter((t) => t.connectionId !== id);
+    // Remove from tab order
+    const tabOrder = this.state.tabOrderByProject[projectId] ?? [];
+    this.state.tabOrderByProject = {
+      ...this.state.tabOrderByProject,
+      [projectId]: tabOrder.filter((tabId) => !removedTabIds.has(tabId)),
+    };
+    this.state.schemaTabsByProject = {
+      ...this.state.schemaTabsByProject,
+      [projectId]: remainingTabs,
+    };
+    // Reset active schema tab if it was removed
+    const activeSchemaTabId = this.state.activeSchemaTabIdByProject[projectId];
+    if (activeSchemaTabId && removedTabIds.has(activeSchemaTabId)) {
+      this.state.activeSchemaTabIdByProject = {
+        ...this.state.activeSchemaTabIdByProject,
+        [projectId]: remainingTabs[0]?.id ?? null,
+      };
+    }
+    this.persistence.scheduleProject(projectId);
+
+    // If it was the project's active connection, switch to another connected one
+    if (this.state.activeConnectionIdByProject[projectId] === id) {
+      const nextConnection = this.state.connections.find(
+        (c) => c.projectId === projectId && !!c.providerConnectionId && c.id !== id,
+      );
+      this.setActiveForProject(nextConnection?.id ?? null, projectId);
     }
   }
 

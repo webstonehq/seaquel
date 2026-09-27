@@ -6174,6 +6174,7 @@ name = "seaquel-engine-testkit"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "log",
  "seaquel-engine",
  "seaquel-engine-sqlite",
  "seaquel-runtime",
@@ -6248,6 +6249,7 @@ dependencies = [
 name = "seaquel-rpc"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "git2",
  "log",
  "seaquel-core",
@@ -6302,7 +6304,6 @@ dependencies = [
  "seaquel-core",
  "seaquel-engine",
  "seaquel-engine-postgres",
- "seaquel-engine-sqlite",
  "seaquel-rpc",
  "seaquel-runtime",
  "seaquel-types",
@@ -6316,7 +6317,6 @@ dependencies = [
  "tower",
  "tower-http",
  "url",
- "uuid",
 ]
 
 [[package]]

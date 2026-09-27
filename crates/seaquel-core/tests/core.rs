@@ -31,7 +31,9 @@ impl Drop for TempDb {
 }
 
 fn core() -> Core {
-    seaquel_core::with_default_plugins().build()
+    seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build()
 }
 
 /// Connect and create `nums(n)` holding 1..=rows.
@@ -94,7 +96,9 @@ async fn test_does_not_register_a_connection() {
 
 #[tokio::test]
 async fn connect_without_the_engine_fails() {
-    let core = Core::builder().build();
+    let core = Core::builder()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
     let db = TempDb::new();
     let err = core.connect(&db.config()).await.unwrap_err();
     assert_eq!(err.code, "ENGINE_NOT_AVAILABLE");

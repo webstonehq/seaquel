@@ -2,95 +2,15 @@ import type { ConnectionFormData } from "$lib/types";
 import { databaseTypes } from "$lib/stores/connection-wizard.svelte.js";
 import { databaseTypeUnavailableMessage, isDatabaseTypeAvailable } from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
+import { connectionStringHasExtras } from "./connection-string-rules";
 
 /**
- * Build a connection string from form data.
- */
-export function buildConnectionString(formData: ConnectionFormData): string {
-  const data = formData;
-
-  if (data.type === "sqlite") {
-    return `sqlite://${data.databaseName}`;
-  }
-
-  if (data.type === "duckdb") {
-    return `duckdb://${data.databaseName || ":memory:"}`;
-  }
-
-  const credentials = data.username
-    ? `${encodeURIComponent(data.username)}${data.password ? `:${encodeURIComponent(data.password)}` : ""}@`
-    : "";
-
-  const selectedDbType = databaseTypes.find((t) => t.value === data.type);
-  const protocol = selectedDbType?.protocol[0] || data.type;
-  const port = data.port !== selectedDbType?.defaultPort ? `:${data.port}` : "";
-
-  let connectionString = `${protocol}://${credentials}${data.host}${port}/${data.databaseName}`;
-
-  // Add sslmode parameter for PostgreSQL and MySQL
-  // Always include sslmode to be explicit (driver may default to TLS otherwise)
-  if (
-    (data.type === "postgres" || data.type === "mysql" || data.type === "mariadb") &&
-    data.sslMode
-  ) {
-    const separator = connectionString.includes("?") ? "&" : "?";
-    const isMysql = data.type === "mysql" || data.type === "mariadb";
-    const sslParam = isMysql ? "ssl-mode" : "sslmode";
-    // MySQL uses uppercase values: DISABLED, PREFERRED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY
-    const mysqlSslMap: Record<string, string> = {
-      disable: "DISABLED",
-      allow: "PREFERRED",
-      prefer: "PREFERRED",
-      require: "REQUIRED",
-    };
-    const sslValue = isMysql ? mysqlSslMap[data.sslMode] || data.sslMode : data.sslMode;
-    connectionString += `${separator}${sslParam}=${sslValue}`;
-  }
-
-  return connectionString;
-}
-
-/** Query params TablePlus adds that database drivers don't understand. */
-const TABLEPLUS_PARAMS = new Set([
-  "statuscolor",
-  "env",
-  "name",
-  "tlsmode",
-  "useprivatekey",
-  "safemodelevel",
-  "advancedsafemodelevel",
-  "driverversion",
-  "lazyload",
-]);
-
-/**
- * Whether a connection string uses TablePlus-only syntax, in which case it
- * must be rebuilt from the parsed form fields before reaching the driver.
- */
-function isTablePlusUrl(connStr: string): boolean {
-  const scheme = connStr.slice(0, connStr.indexOf(":"));
-  if (scheme.endsWith("+ssh")) return true;
-  const queryIndex = connStr.indexOf("?");
-  if (queryIndex === -1) return false;
-  const params = new URLSearchParams(connStr.slice(queryIndex + 1));
-  return [...params.keys()].some((key) => TABLEPLUS_PARAMS.has(key.toLowerCase()));
-}
-
-/**
- * Get connection data object from form data, suitable for passing to db.connections.add/reconnect/update.
+ * Get connection data object from form data, suitable for passing to
+ * db.connections.add/reconnect/update. The connection string goes as typed or
+ * pasted (`""` when the fields describe the connection): Core uses it as it
+ * is, and builds one from the fields only when it's empty.
  */
 export function getConnectionData(formData: ConnectionFormData) {
-  let connString = formData.connectionString;
-  if (connString) {
-    connString = connString.replace("postgresql://", "postgres://");
-  } else {
-    connString = buildConnectionString(formData);
-  }
-
-  if (!connString || connString.split(":").length !== 3 || isTablePlusUrl(connString)) {
-    connString = buildConnectionString(formData);
-  }
-
   const keyring = getKeyringService();
   const keychainAvailable = keyring.isAvailable();
 
@@ -103,7 +23,7 @@ export function getConnectionData(formData: ConnectionFormData) {
     username: formData.username,
     password: formData.password,
     sslMode: formData.sslMode,
-    connectionString: connString,
+    connectionString: formData.connectionString,
     sshTunnel: formData.sshEnabled
       ? {
           enabled: true,
@@ -186,6 +106,24 @@ export function parseConnectionString(connStr: string): ParseResult {
   const type = result.success ? result.formData.type : undefined;
   if (type && !isDatabaseTypeAvailable(type)) {
     return { success: false, error: databaseTypeUnavailableMessage(type) };
+  }
+  return result;
+}
+
+/**
+ * Parse a pasted string into `formData`'s fields. The string is then
+ * dropped, since the fields say everything it did, unless it holds more
+ * (query parameters, a TablePlus `+ssh` URL): then it stays, and the
+ * details step shows it.
+ */
+export function applyPastedConnectionString(
+  formData: ConnectionFormData,
+  connStr: string,
+): ParseResult {
+  const result = parseConnectionString(connStr);
+  if (result.success) {
+    Object.assign(formData, result.formData);
+    formData.connectionString = connectionStringHasExtras(connStr) ? connStr : "";
   }
   return result;
 }

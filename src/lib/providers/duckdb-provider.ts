@@ -3,7 +3,7 @@
  * Runs an in-browser DuckDB instance for the web demo.
  */
 
-import type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
+import type { DatabaseProvider, ExecuteResult, ReadOnlyRows } from "./types";
 import { dedupeColumnNames } from "$lib/utils/row-access";
 import { queryCancelled } from "./wire";
 import { absoluteUrl, duckdbBundles, startWithin } from "./duckdb-bundles";
@@ -214,7 +214,7 @@ export class DuckDBProvider implements DatabaseProvider {
     this.initialized = true;
   }
 
-  async connect(_config: ConnectionConfig): Promise<string> {
+  async connect(_params?: unknown): Promise<string> {
     await this.initialize();
 
     if (!this.db) {
@@ -319,7 +319,7 @@ export class DuckDBProvider implements DatabaseProvider {
     return { rowsAffected: rowsAffected(result) };
   }
 
-  async test(_config: ConnectionConfig): Promise<void> {
+  async test(_params?: unknown): Promise<void> {
     await this.initialize();
 
     if (!this.db) {

@@ -11,6 +11,8 @@ seaquel-types = { path = "../seaquel-types" }
 futures = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+# `capture_logs`.
+log = { workspace = true }
 # `run_read_only` times the cancel check. Tests only (publish = false).
 tokio = { version = "1", features = ["time"] }
 

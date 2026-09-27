@@ -1,0 +1,1097 @@
+[
+  {
+    "name": "mssql/url-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-url-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "mssql://sa@sql.example.com/sales"
+      },
+      "secrets": {
+        "db:conn-mssql-url-string": "Str0ng!Pass"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-url-string"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "Str0ng!Pass",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/sslmode-disable",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-sslmode-disable",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "disable"
+      },
+      "secrets": {
+        "db:conn-mssql-sslmode-disable": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-sslmode-disable"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": false,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/sslmode-allow",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-sslmode-allow",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "allow"
+      },
+      "secrets": {
+        "db:conn-mssql-sslmode-allow": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-sslmode-allow"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/sslmode-prefer",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-sslmode-prefer",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "prefer"
+      },
+      "secrets": {
+        "db:conn-mssql-sslmode-prefer": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-sslmode-prefer"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/sslmode-require",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-sslmode-require",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require"
+      },
+      "secrets": {
+        "db:conn-mssql-sslmode-require": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-sslmode-require"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/sslmode-verify-full",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-sslmode-verify-full",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "verify-full"
+      },
+      "secrets": {
+        "db:conn-mssql-sslmode-verify-full": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-sslmode-verify-full"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/no-sslmode",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "notes": "Unchanged. Row 5: SQL Server with no SSL mode encrypts and trusts any certificate, as autoReconnect already did. v1's tab turned encryption off.",
+    "v1Notes": "sslMode absent: encrypt and trust_cert both true on autoReconnect; the tab defaults sslMode to 'disable'.",
+    "input": {
+      "row": {
+        "id": "conn-mssql-no-sslmode",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa"
+      },
+      "secrets": {
+        "db:conn-mssql-no-sslmode": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-no-sslmode"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/custom-port",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-custom-port",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 14330,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "mssql://sa@sql.example.com:14330/sales"
+      },
+      "secrets": {
+        "db:conn-mssql-custom-port": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-custom-port"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 14330,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/key-value-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-key-value-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "Server=tcp:sql.example.com,1433;Database=sales;User Id=sa;Encrypt=true;"
+      },
+      "secrets": {
+        "db:conn-mssql-key-value-string": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-key-value-string"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/key-value-string-ssh",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "5",
+      "6"
+    ],
+    "notes": "Row 7a: MSSQL builds from the fields and ignores the key=value string, so nothing parses it and Saved connects directly (v1 needed the tab). Row 5 drops the tab's empty tunnel fields; row 6 adds the TLS server name. Row 6, checked live (Task 2): the TLS name is tls_server_name while the socket goes to 127.0.0.1:<tunnel port> (the MSSQL crate's `tests/tls_server_name.rs` reads it from the ClientHello's SNI). Through the SSH container to `sqlserver`, `prefer` connects; `require`, `verify-ca` and `verify-full` fail on the certificate itself (`invalid peer certificate: UnsupportedCertVersion`: the container's `CN=SSL_Self_Signed_Fallback` is an X.509 v1 certificate with no subject alternative name), exactly as they do without the tunnel, never on the name.",
+    "input": {
+      "row": {
+        "id": "conn-mssql-key-value-string-ssh",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.internal",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "Server=tcp:sql.internal,1433;Database=sales;User Id=sa;",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "deploy",
+          "authMethod": "password"
+        }
+      },
+      "secrets": {
+        "db:conn-mssql-key-value-string-ssh": "pw",
+        "ssh:conn-mssql-key-value-string-ssh": "ssh-pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 51433
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-key-value-string-ssh",
+        "ssh:conn-mssql-key-value-string-ssh"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "sql.internal",
+        "remotePort": 1433
+      },
+      "config": {
+        "driver": "mssql",
+        "host": "127.0.0.1",
+        "port": 51433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false,
+        "tls_server_name": "sql.internal"
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "reconnectTab"
+    }
+  },
+  {
+    "name": "mssql/username-from-url",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-username-from-url",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "",
+        "sslMode": "require",
+        "connectionString": "mssql://sa@sql.example.com/sales"
+      },
+      "secrets": {
+        "db:conn-mssql-username-from-url": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-username-from-url"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/empty-username-no-string",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "3"
+    ],
+    "notes": "Row 3, checked live (Task 2): SQL Server has no default login and refuses an empty one (18456, `Login failed for user ''`), so Core refuses first with CREDENTIALS_REQUIRED, naming the username.",
+    "input": {
+      "row": {
+        "id": "conn-mssql-empty-username-no-string",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "",
+        "sslMode": "require"
+      },
+      "secrets": {
+        "db:conn-mssql-empty-username-no-string": "pw"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-empty-username-no-string"
+      ],
+      "error": "CREDENTIALS_REQUIRED"
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/unicode-password",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "row": {
+        "id": "conn-mssql-unicode-password",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": false,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "mssql://sa@sql.example.com/sales"
+      },
+      "secrets": {
+        "db:conn-mssql-unicode-password": "pässwörd✓;{x}"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-unicode-password"
+      ],
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pässwörd✓;{x}",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "mssql/ssh",
+    "target": "saved",
+    "op": "connect",
+    "changedBy": [
+      "6"
+    ],
+    "notes": "Row 6, checked live (Task 2): the TLS name is tls_server_name while the socket goes to 127.0.0.1:<tunnel port> (the MSSQL crate's `tests/tls_server_name.rs` reads it from the ClientHello's SNI). Through the SSH container to `sqlserver`, `prefer` connects; `require`, `verify-ca` and `verify-full` fail on the certificate itself (`invalid peer certificate: UnsupportedCertVersion`: the container's `CN=SSL_Self_Signed_Fallback` is an X.509 v1 certificate with no subject alternative name), exactly as they do without the tunnel, never on the name.",
+    "input": {
+      "row": {
+        "id": "conn-mssql-ssh",
+        "projectId": "default-seaquel",
+        "labelIds": [],
+        "savePassword": true,
+        "saveSshPassword": false,
+        "saveSshKeyPassphrase": true,
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.internal",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "mssql://sa@sql.internal/sales",
+        "sshTunnel": {
+          "enabled": true,
+          "host": "bastion.example.com",
+          "port": 2222,
+          "username": "deploy",
+          "authMethod": "key",
+          "keyPath": "/Users/me/.ssh/id_ed25519"
+        }
+      },
+      "secrets": {
+        "db:conn-mssql-ssh": "pw",
+        "ssh-key:conn-mssql-ssh": "key-pass"
+      },
+      "supplied": {},
+      "createIfMissing": false,
+      "tunnelPort": 51434
+    },
+    "expected": {
+      "secretsRead": [
+        "db:conn-mssql-ssh",
+        "ssh-key:conn-mssql-ssh"
+      ],
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "keyPassphrase": "key-pass",
+        "remoteHost": "sql.internal",
+        "remotePort": 1433
+      },
+      "config": {
+        "driver": "mssql",
+        "host": "127.0.0.1",
+        "port": 51434,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false,
+        "tls_server_name": "sql.internal"
+      }
+    },
+    "v1": {
+      "file": "connect-config/mssql.json",
+      "output": "autoReconnect"
+    }
+  },
+  {
+    "name": "add/mssql-fields-require",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/mssql-fields-disable",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "disable",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": false,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/mssql-ssh-require",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5",
+      "6"
+    ],
+    "notes": "Row 6, checked live (Task 2): the TLS name is tls_server_name while the socket goes to 127.0.0.1:<tunnel port> (the MSSQL crate's `tests/tls_server_name.rs` reads it from the ClientHello's SNI). Through the SSH container to `sqlserver`, `prefer` connects; `require`, `verify-ca` and `verify-full` fail on the certificate itself (`invalid peer certificate: UnsupportedCertVersion`: the container's `CN=SSL_Self_Signed_Fallback` is an X.509 v1 certificate with no subject alternative name), exactly as they do without the tunnel, never on the name.",
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.internal",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "ssh": "ssh-pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50105
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "sql.internal",
+        "remotePort": 1433
+      },
+      "config": {
+        "driver": "mssql",
+        "host": "127.0.0.1",
+        "port": 50105,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false,
+        "tls_server_name": "sql.internal"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "add/mssql-paste-url",
+    "target": "form",
+    "op": "connect",
+    "changedBy": [
+      "5-wizard"
+    ],
+    "notes": "5-wizard: the paste has no SSL mode and the wizard's default is now unset, so SQL Server's default applies: encrypt and trust (row 5). v1 had 'disable' and connected unencrypted.",
+    "v1Notes": "No ssl mode in the paste: the form keeps 'disable', so encryption is off.",
+    "input": {
+      "form": {
+        "name": "sales",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 14330,
+        "databaseName": "sales",
+        "username": "sa",
+        "connectionString": "mssql://sa:pw@sql.example.com:14330/sales",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 14330,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": true
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-add.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/mssql-verify-full",
+    "target": "form",
+    "op": "test",
+    "changedBy": [],
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "verify-full",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/mssql-port-zero",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "5"
+    ],
+    "notes": "Row 5: port 0 is SQL Server's default, 1433.",
+    "v1Notes": "A cleared port input.",
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.example.com",
+        "port": 0,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "require",
+        "connectionString": "",
+        "sshEnabled": false,
+        "sshHost": "",
+        "sshPort": 22,
+        "sshUsername": "",
+        "sshAuthMethod": "password",
+        "sshKeyPath": "",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw"
+      },
+      "createIfMissing": false,
+      "tunnelPort": null
+    },
+    "expected": {
+      "config": {
+        "driver": "mssql",
+        "host": "sql.example.com",
+        "port": 1433,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  },
+  {
+    "name": "test/mssql-ssh-key-verify-full",
+    "target": "form",
+    "op": "test",
+    "changedBy": [
+      "5",
+      "6"
+    ],
+    "notes": "Row 6, checked live (Task 2): the TLS name is tls_server_name while the socket goes to 127.0.0.1:<tunnel port> (the MSSQL crate's `tests/tls_server_name.rs` reads it from the ClientHello's SNI). Through the SSH container to `sqlserver`, `prefer` connects; `require`, `verify-ca` and `verify-full` fail on the certificate itself (`invalid peer certificate: UnsupportedCertVersion`: the container's `CN=SSL_Self_Signed_Fallback` is an X.509 v1 certificate with no subject alternative name), exactly as they do without the tunnel, never on the name.",
+    "input": {
+      "form": {
+        "name": "MSSQL",
+        "type": "mssql",
+        "host": "sql.internal",
+        "port": 1433,
+        "databaseName": "sales",
+        "username": "sa",
+        "sslMode": "verify-full",
+        "connectionString": "",
+        "sshEnabled": true,
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "sshAuthMethod": "key",
+        "sshKeyPath": "/Users/me/.ssh/id_ed25519",
+        "savePassword": true,
+        "saveSshPassword": true,
+        "saveSshKeyPassphrase": true
+      },
+      "supplied": {
+        "db": "pw",
+        "sshKey": "key-pass"
+      },
+      "createIfMissing": false,
+      "tunnelPort": 50204
+    },
+    "expected": {
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 2222,
+        "sshUsername": "deploy",
+        "authMethod": "key",
+        "keyPath": "/Users/me/.ssh/id_ed25519",
+        "keyPassphrase": "key-pass",
+        "remoteHost": "sql.internal",
+        "remotePort": 1433
+      },
+      "config": {
+        "driver": "mssql",
+        "host": "127.0.0.1",
+        "port": 50204,
+        "database": "sales",
+        "username": "sa",
+        "password": "pw",
+        "encrypt": true,
+        "trust_cert": false,
+        "tls_server_name": "sql.internal"
+      }
+    },
+    "v1": {
+      "file": "connect-config/form-test.json",
+      "output": "recorded"
+    }
+  }
+]

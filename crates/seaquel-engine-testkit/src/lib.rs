@@ -1732,3 +1732,102 @@ pub async fn run_max_bytes(engine: &dyn Engine, config: &ConnectConfig, big_cell
         problems.join("\n  ")
     );
 }
+
+// ── Statement logging ──
+
+/// Every `log` record a test binary produces, as `LEVEL target: message`
+/// lines (see [`capture_logs`]).
+pub struct LogCapture {
+    lines: std::sync::Mutex<Vec<String>>,
+}
+
+impl LogCapture {
+    /// The records so far.
+    pub fn lines(&self) -> Vec<String> {
+        self.lines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl log::Log for LogCapture {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        let line = format!("{} {}: {}", record.level(), record.target(), record.args());
+        self.lines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(line);
+    }
+
+    fn flush(&self) {}
+}
+
+/// Install a logger that records every record at every level (`log`'s max
+/// level becomes `Trace`), once per test binary, and return it. sqlx's
+/// statement log (`tracing` events, which reach `log` when no subscriber is
+/// set) lands here too. Panics if another logger was installed first.
+pub fn capture_logs() -> &'static LogCapture {
+    static CAPTURE: std::sync::OnceLock<&'static LogCapture> = std::sync::OnceLock::new();
+    CAPTURE.get_or_init(|| {
+        let capture: &'static LogCapture = Box::leak(Box::new(LogCapture {
+            lines: std::sync::Mutex::new(Vec::new()),
+        }));
+        log::set_logger(capture).expect("another logger is installed");
+        log::set_max_level(log::LevelFilter::Trace);
+        capture
+    })
+}
+
+/// The SQL of each call must never reach a log, at any level: sqlx logs
+/// every statement at DEBUG and one slower than a second at WARN, with its
+/// whole text, unless the connect options turn that off.
+///
+/// Call [`capture_logs`] before opening `engine`, so the connect is covered
+/// too. `slow_sql` must take over a second and contain `marker`; `fast_sql`
+/// must contain it too. Runs `slow_sql` through `query`, and `fast_sql`
+/// through `query`, `execute`, `query_stream`, `query_read_only_with` and a
+/// `transaction`, then asserts no captured line holds `marker` and nothing
+/// was logged under sqlx's `sqlx::query` target.
+pub async fn run_no_statement_logging(
+    engine: &dyn Engine,
+    config: &ConnectConfig,
+    slow_sql: &str,
+    fast_sql: &str,
+    marker: &str,
+) {
+    let capture = capture_logs();
+    let driver = engine.open(config).await.expect("open");
+    driver.query(slow_sql, vec![]).await.expect("slow query");
+    driver.query(fast_sql, vec![]).await.expect("query");
+    driver.execute(fast_sql, vec![]).await.expect("execute");
+    let batches: Vec<_> = driver
+        .query_stream(fast_sql.to_string(), vec![], CancellationToken::new())
+        .collect()
+        .await;
+    assert!(batches.iter().all(Result::is_ok), "query_stream failed");
+    driver
+        .query_read_only_with(fast_sql, vec![], seaquel_engine::ReadOnlyOptions::default())
+        .await
+        .expect("query_read_only_with");
+    driver
+        .transaction(vec![BatchStatement {
+            sql: fast_sql.to_string(),
+            params: vec![],
+            expect_rows: None,
+        }])
+        .await
+        .expect("transaction");
+    driver.close().await.expect("close");
+
+    let lines = capture.lines();
+    let leaked: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains(marker) || l.contains(" sqlx::query:"))
+        .collect();
+    assert!(leaked.is_empty(), "SQL reached the log: {leaked:#?}");
+}

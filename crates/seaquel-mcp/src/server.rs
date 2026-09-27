@@ -12,7 +12,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use seaquel_core::storage::connections;
-use seaquel_core::{ConnectSavedOptions, Core, HostKeyPolicy, Workspace};
+use seaquel_core::{ConnectRequest, Core, HostKeyPolicy, Workspace};
 use seaquel_types::storage::PersistedConnection;
 use serde_json::Value as Json;
 use tokio::sync::OnceCell;
@@ -166,7 +166,7 @@ impl McpServer {
         };
         let count = ids.len();
         for id in ids {
-            if let Err(e) = self.inner.core.disconnect(&id).await {
+            if let Err(e) = self.inner.workspace.disconnect(&self.inner.core, &id).await {
                 log::warn!("Closing a connection failed: {e}");
             }
         }
@@ -263,12 +263,11 @@ impl Inner {
         let id = cell
             .get_or_try_init(|| async {
                 log::info!("Connecting {:?}", c.name);
+                let request = ConnectRequest::saved(&c.id)
+                    .with_host_key(HostKeyPolicy::KnownOnly)
+                    .with_restricted(true);
                 self.workspace
-                    .connect_saved(
-                        &self.core,
-                        &c.id,
-                        ConnectSavedOptions::new(HostKeyPolicy::KnownOnly).restricted(true),
-                    )
+                    .connect(&self.core, request)
                     .await
                     .map_err(ToolError::from)
             })
@@ -276,7 +275,7 @@ impl Inner {
         Ok(id.clone())
     }
 
-    /// A fresh query id for [`Core::query_stream`].
+    /// A fresh query id for [`Workspace::query_stream`].
     pub(crate) fn query_id(&self) -> String {
         format!("mcp-{}", self.next_query.fetch_add(1, Ordering::Relaxed))
     }
@@ -285,8 +284,8 @@ impl Inner {
     /// secret read was pending (see `secret_wait.rs`).
     ///
     /// On timeout `work` is dropped, and that is what cancels it: a query
-    /// stream from [`Core::query_stream`] owned by `work` stops its driver
-    /// when dropped, and a dropped `connect_saved` closes the tunnel it
+    /// stream from [`Workspace::query_stream`] owned by `work` stops its
+    /// driver when dropped, and a dropped `connect` closes the tunnel it
     /// opened. The call then fails with `TIMEOUT`.
     pub(crate) async fn timed<T>(
         &self,

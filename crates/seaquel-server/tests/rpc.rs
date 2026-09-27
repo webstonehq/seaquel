@@ -406,7 +406,7 @@ async fn simultaneous_first_requests_open_the_workspace_once() {
 #[tokio::test]
 async fn an_evicted_workspace_in_use_keeps_working_until_released() {
     let env = env_with_capacity(2);
-    let core = seaquel_core::Core::builder().build();
+    let core = Arc::new(seaquel_core::Core::builder().build());
     env.set("u1", "k", "before").await;
 
     // An in-flight request for u1.

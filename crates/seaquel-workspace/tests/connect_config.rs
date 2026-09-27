@@ -1,92 +1,128 @@
-//! Replays the frozen connect-config fixtures (`tests/fixtures/connect-config`,
-//! recorded from the TypeScript; see its README) against
-//! `seaquel_workspace::connections`.
+//! Replays the v2 connect-config fixtures (`tests/fixtures/connect-config-v2`,
+//! the spec; see its README) through the one builder,
+//! `seaquel_workspace::connections::plan`, for both targets.
 //!
-//! The expected result of a case is `case[case.gui]`: autoReconnect's config
-//! and tunnel, the reconnect tab's rebuild, or `CREDENTIALS_REQUIRED` for the
-//! `form` cases. The keys a case reads are always autoReconnect's.
+//! The frozen v1 fixtures (`tests/fixtures/connect-config`, recorded from
+//! the TypeScript) are the diff report: a case's output differs from v1's
+//! exactly when its `changedBy` names a Decision 6 row, the same check as
+//! `docs/plans/artifacts/2026-10-01-check-connect-config-v2.mjs.txt`.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use futures::executor::block_on;
+use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
 use seaquel_types::storage::PersistedConnection;
 use seaquel_types::ConnectConfig;
-use seaquel_workspace::connections::{
-    build_config, read_secrets, tunnel_config, ConfigError, Secrets, CREDENTIALS_REQUIRED,
-};
+use seaquel_workspace::connections::{plan, ConfigError, Plan, Target, CREDENTIALS_REQUIRED};
 use serde_json::{json, Map, Value};
 
-const FILES: [&str; 9] = [
+const GROUPS: [&str; 9] = [
     "postgres", "mysql", "mariadb", "mssql", "sqlite", "duckdb", "ssh", "secrets", "shared",
 ];
+const FORMS: [&str; 2] = ["form-add", "form-test"];
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+fn read(dir: &str, file: &str) -> Vec<Value> {
+    let path = fixtures().join(dir).join(format!("{file}.json"));
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+enum Input {
+    Saved {
+        row: PersistedConnection,
+        store: BTreeMap<String, String>,
+        failing: HashSet<String>,
+    },
+    Form(ConnectionForm),
+}
 
 struct Case {
     name: String,
-    raw: Value,
-    row: PersistedConnection,
-    keychain: BTreeMap<String, String>,
-    failing: HashSet<String>,
+    op: String,
+    changed_by: Vec<String>,
+    input: Input,
+    supplied: SuppliedSecrets,
+    create_if_missing: bool,
     tunnel_port: Option<u16>,
-    gui: String,
+    expected: Value,
 }
 
 fn cases() -> Vec<Case> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/connect-config");
     let mut out = Vec::new();
-    for file in FILES {
-        let text = std::fs::read_to_string(dir.join(format!("{file}.json"))).unwrap();
-        let list: Vec<Value> = serde_json::from_str(&text).unwrap();
-        for raw in list {
+    for group in GROUPS {
+        for raw in read("connect-config-v2", group) {
             let name = raw["name"].as_str().unwrap().to_string();
-            let row: PersistedConnection = serde_json::from_value(raw["row"].clone())
-                .unwrap_or_else(|e| panic!("{name}: row: {e}"));
-            let keychain = raw["secrets"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
-                .collect();
-            let failing = raw
-                .get("secretErrors")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().map(|k| k.as_str().unwrap().to_string()).collect())
-                .unwrap_or_default();
-            let tunnel_port = raw["tunnelPort"]
-                .as_u64()
-                .map(|p| u16::try_from(p).unwrap());
-            let gui = raw["gui"].as_str().unwrap().to_string();
+            let input = &raw["input"];
+            let parsed = match raw["target"].as_str().unwrap() {
+                "saved" => Input::Saved {
+                    row: serde_json::from_value(input["row"].clone())
+                        .unwrap_or_else(|e| panic!("{name}: row: {e}")),
+                    store: input["secrets"]
+                        .as_object()
+                        .unwrap()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+                        .collect(),
+                    failing: input
+                        .get("secretErrors")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().map(|k| k.as_str().unwrap().to_string()).collect())
+                        .unwrap_or_default(),
+                },
+                "form" => Input::Form(
+                    serde_json::from_value(input["form"].clone())
+                        .unwrap_or_else(|e| panic!("{name}: form: {e}")),
+                ),
+                other => panic!("{name}: target {other}"),
+            };
             out.push(Case {
+                op: raw["op"].as_str().unwrap().to_string(),
+                changed_by: serde_json::from_value(raw["changedBy"].clone()).unwrap(),
+                input: parsed,
+                supplied: serde_json::from_value(input["supplied"].clone())
+                    .unwrap_or_else(|e| panic!("{name}: supplied: {e}")),
+                create_if_missing: input["createIfMissing"].as_bool().unwrap(),
+                tunnel_port: input["tunnelPort"]
+                    .as_u64()
+                    .map(|p| u16::try_from(p).unwrap()),
+                expected: raw["expected"].clone(),
                 name,
-                raw,
-                row,
-                keychain,
-                failing,
-                tunnel_port,
-                gui,
             });
         }
     }
     out
 }
 
-/// `read_secrets` against the case's keychain. Returns the keys it read, in
-/// order, and its result.
-fn read(case: &Case) -> (Vec<String>, Result<Secrets, ConfigError>) {
+/// The builder on a case: the store keys it read, in order, and its plan.
+fn run(case: &Case) -> (Vec<String>, Result<Plan, ConfigError>) {
     let mut keys = Vec::new();
-    let result = block_on(read_secrets(&case.row, |key: String| {
-        keys.push(key.clone());
-        let answer = if case.failing.contains(&key) {
-            Err("SECRET_STORE_ERROR".to_string())
-        } else {
-            Ok(case.keychain.get(&key).cloned())
-        };
-        std::future::ready(answer)
-    }));
+    let result = match &case.input {
+        Input::Saved {
+            row,
+            store,
+            failing,
+        } => block_on(plan(Target::Saved(row), &case.supplied, |key: String| {
+            keys.push(key.clone());
+            let answer = if failing.contains(&key) {
+                Err("SECRET_STORE_ERROR".to_string())
+            } else {
+                Ok(store.get(&key).cloned())
+            };
+            std::future::ready(answer)
+        })),
+        Input::Form(form) => block_on(plan(Target::Form(form), &case.supplied, |key: String| {
+            keys.push(key);
+            std::future::ready(Ok(None))
+        })),
+    };
     (keys, result)
 }
 
-/// A `ConnectConfig` as it crosses IPC: absent fields left out, like the
+/// A `ConnectConfig` as JSON with absent fields left out, like the
 /// recorder's `JSON.stringify`.
 fn config_json(c: &ConnectConfig) -> Value {
     let mut m = Map::new();
@@ -109,202 +145,372 @@ fn config_json(c: &ConnectConfig) -> Value {
     put("trust_cert", c.trust_cert.map(|v| json!(v)));
     put("path", c.path.as_ref().map(|v| json!(v)));
     put("create_if_missing", c.create_if_missing.map(|v| json!(v)));
+    put("restricted", c.restricted.map(|v| json!(v)));
+    put(
+        "tls_server_name",
+        c.tls_server_name.as_ref().map(|v| json!(v)),
+    );
+    put("duckdb_config", c.duckdb_config.as_ref().map(|v| json!(v)));
     Value::Object(m)
 }
 
-/// The secret values of a case long enough to search for in text.
-fn secret_values(case: &Case) -> Vec<&str> {
-    case.keychain
-        .values()
-        .map(String::as_str)
-        .filter(|v| v.len() >= 4)
-        .collect()
-}
-
-#[test]
-fn there_are_107_cases_split_as_the_readme_says() {
-    let cases = cases();
-    assert_eq!(cases.len(), 107);
-    let count = |gui: &str| cases.iter().filter(|c| c.gui == gui).count();
-    assert_eq!(count("autoReconnect"), 71);
-    assert_eq!(count("reconnectTab"), 24);
-    assert_eq!(count("form"), 12);
-}
-
-/// The secret-selection rules on their own: which keychain entries are read,
-/// in which order, and when connecting gives up.
-#[test]
-fn reads_the_keys_autoreconnect_reads_and_gives_up_where_it_does() {
-    let mut failures = Vec::new();
-    for case in cases() {
-        let (keys, result) = read(&case);
-        let expected: Vec<String> =
-            serde_json::from_value(case.raw["autoReconnect"]["secretsRead"].clone()).unwrap();
-        if keys != expected {
-            failures.push(format!(
-                "{}: read {keys:?}, expected {expected:?}",
-                case.name
-            ));
+/// The case's output in the fixtures' `expected` shape.
+fn output(case: &Case) -> Value {
+    let (keys, result) = run(case);
+    let mut out = Map::new();
+    if let Input::Saved { .. } = case.input {
+        out.insert("secretsRead".into(), json!(keys));
+    } else {
+        assert!(keys.is_empty(), "{}: a form read {keys:?}", case.name);
+    }
+    match result {
+        Err(e) => {
+            out.insert("error".into(), json!(e.code));
         }
-        match (&result, case.gui.as_str()) {
-            (Err(e), "form") if e.code == CREDENTIALS_REQUIRED => {
-                if !e.message.contains(&case.row.name) {
-                    failures.push(format!(
-                        "{}: message doesn't name it: {}",
-                        case.name, e.message
-                    ));
+        Ok(plan) => {
+            if let Some(tunnel) = plan.tunnel(None) {
+                out.insert("tunnel".into(), serde_json::to_value(tunnel).unwrap());
+            }
+            match plan.config(case.tunnel_port, case.create_if_missing) {
+                Ok(config) => {
+                    out.insert("config".into(), config_json(&config));
+                }
+                Err(e) => {
+                    out.insert("error".into(), json!(e.code));
                 }
             }
-            (Ok(_), "autoReconnect" | "reconnectTab") => {}
-            (r, gui) => failures.push(format!("{}: gui {gui}, got {r:?}", case.name)),
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Value::Object(out)
+}
+
+/// v1's output by case id, as the artifact checker reads it: for a saved
+/// case `case[case.gui]`'s tunnel and config (or `CREDENTIALS_REQUIRED` for
+/// `gui: "form"`) plus autoReconnect's `secretsRead`; for a form case the
+/// recorded tunnel, config and error.
+fn v1_outputs() -> HashMap<String, Value> {
+    let mut v1 = HashMap::new();
+    for group in GROUPS {
+        for c in read("connect-config", group) {
+            let mut out = Map::new();
+            out.insert(
+                "secretsRead".into(),
+                c["autoReconnect"]["secretsRead"].clone(),
+            );
+            let gui = c["gui"].as_str().unwrap();
+            if gui == "form" {
+                out.insert("error".into(), json!(CREDENTIALS_REQUIRED));
+            } else {
+                if let Some(t) = c[gui].get("tunnel") {
+                    out.insert("tunnel".into(), t.clone());
+                }
+                out.insert("config".into(), c[gui]["config"].clone());
+            }
+            v1.insert(c["name"].as_str().unwrap().to_string(), Value::Object(out));
+        }
+    }
+    for file in FORMS {
+        for c in read("connect-config", file) {
+            let mut out = Map::new();
+            for k in ["tunnel", "config", "error"] {
+                if let Some(v) = c.get(k) {
+                    out.insert(k.into(), v.clone());
+                }
+            }
+            v1.insert(c["name"].as_str().unwrap().to_string(), Value::Object(out));
+        }
+    }
+    v1
 }
 
 #[test]
-fn a_failed_read_is_no_secret_but_is_remembered() {
-    let case = cases()
-        .into_iter()
-        .find(|c| c.name == "secrets/pg-read-error")
-        .unwrap();
-    let (_, result) = read(&case);
-    let secrets = result.unwrap();
-    assert_eq!(secrets.db, None);
-    assert_eq!(secrets.unreadable.len(), 1);
-    assert_eq!(secrets.unreadable[0].key, "db:conn-secrets-pg-read-error");
-    assert_eq!(secrets.unreadable[0].code, "SECRET_STORE_ERROR");
+fn there_are_160_cases_split_as_the_readme_says() {
+    let cases = cases();
+    assert_eq!(cases.len(), 160);
+    let forms = cases
+        .iter()
+        .filter(|c| matches!(c.input, Input::Form(_)))
+        .count();
+    assert_eq!(forms, 53);
+    assert_eq!(
+        cases.iter().filter(|c| !c.changed_by.is_empty()).count(),
+        68
+    );
+    let tests = cases.iter().filter(|c| c.op == "test").count();
+    assert!(tests > 0 && cases.iter().all(|c| c.op == "test" || c.op == "connect"));
 }
 
+/// Every case, through the one builder, gives exactly its `expected`.
 #[test]
-fn builds_the_config_and_tunnel_the_app_connects_with() {
+fn every_case_builds_what_v2_expects() {
     let mut failures = Vec::new();
     for case in cases() {
-        if case.gui == "form" {
-            continue;
+        let got = output(&case);
+        if got != case.expected {
+            failures.push(format!(
+                "{}:\n   got      {got}\n   expected {}",
+                case.name, case.expected
+            ));
         }
-        let expected = &case.raw[&case.gui];
-        let secrets = read(&case).1.unwrap();
+    }
+    assert!(
+        failures.is_empty(),
+        "{} case(s) differ:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
 
-        let tunnel = tunnel_config(&case.row, &secrets, None)
-            .map(|t| t.map(|t| serde_json::to_value(t).unwrap()));
-        let want_tunnel = expected.get("tunnel").cloned();
-        match tunnel {
-            Ok(t) if t == want_tunnel => {}
-            other => failures.push(format!(
-                "{}: tunnel {other:?}\n   expected {want_tunnel:?}",
+/// The diff report: a case's output differs from v1's exactly when its
+/// `changedBy` is non-empty, and every v1 case is in v2 once.
+#[test]
+fn exactly_the_changed_cases_differ_from_v1() {
+    let mut v1 = v1_outputs();
+    let mut failures = Vec::new();
+    for case in cases() {
+        let Some(old) = v1.remove(&case.name) else {
+            failures.push(format!("{}: not a v1 case", case.name));
+            continue;
+        };
+        let got = output(&case);
+        match (case.changed_by.is_empty(), got == old) {
+            (true, false) => failures.push(format!(
+                "{}: changedBy is empty but the output differs from v1\n   v1  {old}\n   now {got}",
                 case.name
             )),
-        }
-
-        let config = build_config(&case.row, &secrets, case.tunnel_port).map(|c| config_json(&c));
-        match config {
-            Ok(c) if c == expected["config"] => {}
-            other => failures.push(format!(
-                "{}: config {other:?}\n   expected {}",
-                case.name, expected["config"]
+            (false, true) => failures.push(format!(
+                "{}: changedBy {:?} but the output equals v1",
+                case.name, case.changed_by
             )),
+            _ => {}
         }
+    }
+    for name in v1.keys() {
+        failures.push(format!("{name}: missing from v2"));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// `build_config` applies the give-up rules itself, so a caller that skips
-/// `read_secrets` can't connect a `form` case either.
+/// A `CREDENTIALS_REQUIRED` for a saved row names it.
 #[test]
-fn build_config_refuses_the_form_cases_too() {
-    let mut failures = Vec::new();
-    for case in cases().into_iter().filter(|c| c.gui == "form") {
-        let keys: Vec<String> =
-            serde_json::from_value(case.raw["autoReconnect"]["secretsRead"].clone()).unwrap();
-        let get = |prefix: &str| {
-            keys.iter()
-                .find(|k| k.starts_with(prefix))
-                .filter(|k| !case.failing.contains(*k))
-                .and_then(|k| case.keychain.get(k).cloned())
+fn a_saved_give_up_names_the_connection() {
+    for case in cases() {
+        let Input::Saved { row, .. } = &case.input else {
+            continue;
         };
-        let secrets = Secrets {
-            db: get("db:"),
-            ssh: get("ssh:"),
-            ssh_key: get("ssh-key:"),
-            ..Secrets::default()
-        };
-        for result in [
-            build_config(&case.row, &secrets, case.tunnel_port).map(|_| ()),
-            tunnel_config(&case.row, &secrets, None).map(|_| ()),
-        ] {
-            match result {
-                Err(e) if e.code == CREDENTIALS_REQUIRED => {}
-                other => failures.push(format!("{}: {other:?}", case.name)),
-            }
+        if let Err(e) = run(&case).1 {
+            assert_eq!(e.code, CREDENTIALS_REQUIRED, "{}", case.name);
+            assert!(
+                e.message.contains(&row.name),
+                "{}: {}",
+                case.name,
+                e.message
+            );
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn case(name: &str) -> Case {
+    cases().into_iter().find(|c| c.name == name).unwrap()
+}
+
+/// A supplied password wins with `savePassword` off, and the store isn't
+/// read for it.
+#[test]
+fn a_supplied_password_wins_with_save_password_off() {
+    let mut c = case("pg/string-with-password-not-saved");
+    c.supplied = SuppliedSecrets::db("typed-pw");
+    let (keys, result) = run(&c);
+    assert!(keys.is_empty(), "{keys:?}");
+    let config = result.unwrap().config(None, false).unwrap();
+    assert_eq!(
+        config.connection_string.as_deref(),
+        Some("postgresql://alice:typed-pw@db.example.com:5432/app")
+    );
+
+    // With the flag on, the supplied one still wins and the store isn't read.
+    let mut c = case("pg/stored-string-default-port");
+    c.supplied = SuppliedSecrets::db("typed-pw");
+    let (keys, result) = run(&c);
+    assert!(keys.is_empty(), "{keys:?}");
+    let config = result.unwrap().config(None, false).unwrap();
+    assert!(config
+        .connection_string
+        .unwrap()
+        .contains("alice:typed-pw@"));
+}
+
+/// Supplied SSH secrets win too; only what's missing is read.
+#[test]
+fn supplied_ssh_secrets_are_not_read_from_the_store() {
+    let mut c = case("secrets/all-flags-all-secrets");
+    c.supplied = SuppliedSecrets {
+        ssh: Some("typed-ssh".into()),
+        ..SuppliedSecrets::none()
+    };
+    let (keys, result) = run(&c);
+    assert_eq!(
+        keys,
+        [
+            "db:conn-secrets-all-flags-all-secrets",
+            "ssh-key:conn-secrets-all-flags-all-secrets"
+        ]
+    );
+    let tunnel = result.unwrap().tunnel(None).unwrap();
+    assert_eq!(tunnel.password.as_deref(), Some("typed-ssh"));
+    assert_eq!(tunnel.key_passphrase.as_deref(), Some("key-pass"));
 }
 
 #[test]
 fn a_trusted_fingerprint_goes_on_the_tunnel() {
-    let case = cases()
-        .into_iter()
-        .find(|c| c.name == "ssh/pg-password-auth")
-        .unwrap();
-    let secrets = read(&case).1.unwrap();
-    let tunnel = tunnel_config(&case.row, &secrets, Some("SHA256:abc".into()))
-        .unwrap()
-        .unwrap();
+    let (_, result) = run(&case("ssh/pg-password-auth"));
+    let tunnel = result.unwrap().tunnel(Some("SHA256:abc".into())).unwrap();
     assert_eq!(tunnel.trust_host_key.as_deref(), Some("SHA256:abc"));
 }
 
 #[test]
-fn a_tunnelled_row_needs_its_port() {
-    let case = cases()
-        .into_iter()
-        .find(|c| c.name == "ssh/pg-password-auth")
-        .unwrap();
-    let secrets = read(&case).1.unwrap();
-    let err = build_config(&case.row, &secrets, None).unwrap_err();
+fn a_tunnelled_connection_needs_its_port() {
+    let (_, result) = run(&case("ssh/pg-password-auth"));
+    let err = result.unwrap().config(None, false).unwrap_err();
     assert_eq!(err.code, "INVALID_CONNECTION");
 }
 
 #[test]
 fn an_unknown_engine_is_refused() {
-    let mut row = cases().remove(0).row;
+    let mut c = case("pg/stored-string-default-port");
+    let Input::Saved { row, .. } = &mut c.input else {
+        unreachable!()
+    };
     row.ty = "oracle".into();
-    let err = build_config(&row, &Secrets::default(), None).unwrap_err();
+    let err = run(&c).1.unwrap_err();
     assert_eq!(err.code, "INVALID_CONNECTION");
     assert!(err.message.contains("oracle"), "{}", err.message);
 }
 
-/// No secret value in `Secrets`' `Debug`, or in any error or its `Debug`.
+/// A key=value string can't go through a tunnel: refused before any tunnel
+/// opens.
+#[test]
+fn a_key_value_string_over_ssh_is_invalid() {
+    let mut c = case("ssh/pg-password-auth");
+    let Input::Saved { row, .. } = &mut c.input else {
+        unreachable!()
+    };
+    row.connection_string = Some("host=db.internal user=alice dbname=app".into());
+    let err = run(&c).1.unwrap_err();
+    assert_eq!(err.code, "INVALID_CONNECTION");
+}
+
+/// A `+ssh` URL on a connection with no tunnel of its own uses the URL's
+/// SSH part (choice C's suggestion).
+#[test]
+fn a_plus_ssh_url_without_a_tunnel_uses_its_own_ssh_part() {
+    let form: ConnectionForm = serde_json::from_value(json!({
+        "name": "Prod", "type": "postgres",
+        "connectionString": "postgres+ssh://deploy@bastion.example.com:2200/alice@db.internal:5433/app?name=Prod&usePrivateKey=false",
+    }))
+    .unwrap();
+    let supplied = SuppliedSecrets {
+        db: Some("pw".into()),
+        ssh: Some("ssh-pw".into()),
+        ssh_key: None,
+    };
+    let p = block_on(plan(Target::Form(&form), &supplied, |_: String| {
+        std::future::ready(Ok(None))
+    }))
+    .unwrap();
+    let tunnel = p.tunnel(None).unwrap();
+    assert_eq!(
+        (
+            tunnel.ssh_host.as_str(),
+            tunnel.ssh_port,
+            tunnel.ssh_username.as_str()
+        ),
+        ("bastion.example.com", 2200, "deploy")
+    );
+    assert_eq!(tunnel.auth_method, "password");
+    assert_eq!(
+        (tunnel.remote_host.as_str(), tunnel.remote_port),
+        ("db.internal", 5433)
+    );
+    assert_eq!(
+        p.config(Some(50000), false)
+            .unwrap()
+            .connection_string
+            .as_deref(),
+        Some("postgres://alice:pw@127.0.0.1:50000/app")
+    );
+
+    // usePrivateKey=true without a key file gives up.
+    let mut form = form;
+    form.connection_string = form
+        .connection_string
+        .replace("usePrivateKey=false", "usePrivateKey=true");
+    let err = block_on(plan(Target::Form(&form), &supplied, |_: String| {
+        std::future::ready(Ok(None))
+    }))
+    .unwrap_err();
+    assert_eq!(err.code, CREDENTIALS_REQUIRED);
+}
+
+/// No secret value in any error, plan or config `Debug`.
 #[test]
 fn secrets_never_reach_debug_or_errors() {
     let mut failures = Vec::new();
     for case in cases() {
-        let values = secret_values(&case);
-        let (_, result) = read(&case);
-        let mut texts = vec![format!("{result:?}")];
-        if let Ok(secrets) = &result {
-            texts.push(format!("{secrets:?} {secrets:#?}"));
+        let mut values: Vec<String> = [
+            &case.supplied.db,
+            &case.supplied.ssh,
+            &case.supplied.ssh_key,
+        ]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+        if let Input::Saved { store, .. } = &case.input {
+            values.extend(store.values().cloned());
         }
-        let all = Secrets {
-            db: case.keychain.values().next().cloned(),
-            ssh: case.keychain.values().nth(1).cloned(),
-            ssh_key: case.keychain.values().nth(2).cloned(),
-            ..Secrets::default()
+        // A secret that is also a plain field (`postgres` as user and
+        // password) can't be told apart.
+        let fields = match &case.input {
+            Input::Saved { row, .. } => serde_json::to_string(row).unwrap(),
+            Input::Form(form) => serde_json::to_string(form).unwrap(),
         };
-        texts.push(format!("{all:?}"));
-        for port in [None, case.tunnel_port] {
-            if let Err(e) = build_config(&case.row, &all, port) {
-                texts.push(format!("{e} {e:?}"));
-            }
+        values.retain(|v| v.len() >= 4 && !fields.contains(v.as_str()));
+        let (_, result) = run(&case);
+        let mut texts = vec![format!("{result:?}")];
+        if let Ok(plan) = &result {
+            texts.push(format!("{:?}", plan.tunnel(None)));
+            texts.push(format!("{:?}", plan.config(case.tunnel_port, false)));
+            texts.push(format!("{:?}", plan.config(None, false)));
         }
         for text in texts {
             for v in &values {
-                if text.contains(v) {
+                if text.contains(v.as_str()) {
                     failures.push(format!("{}: {v:?} in {text}", case.name));
                 }
             }
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A password inside the connection string itself, with nothing supplied,
+/// is among the values errors are redacted of.
+#[test]
+fn a_strings_own_password_is_redacted_too() {
+    let form: ConnectionForm = serde_json::from_value(json!({
+        "name": "Paste", "type": "postgres",
+        "connectionString": "postgres://alice:In%40String@db.example.com/app",
+    }))
+    .unwrap();
+    let p = block_on(plan(
+        Target::Form(&form),
+        &SuppliedSecrets::none(),
+        |_: String| std::future::ready(Ok(None)),
+    ))
+    .unwrap();
+    let values = p.secret_values();
+    assert!(values.iter().any(|v| v == "In%40String"), "{values:?}");
+    assert!(values.iter().any(|v| v == "In@String"), "{values:?}");
+    assert!(!format!("{p:?} {form:?}").contains("String"));
 }

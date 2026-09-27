@@ -175,7 +175,7 @@ vi.mock("$lib/server/auth", async () => {
   return { ...actual, auth: { api: { signUpEmail } } };
 });
 
-vi.mock("$app/environment", () => ({ building: false }));
+vi.mock("$app/environment", () => ({ building: false, dev: false }));
 
 const { openAuthDb } = await import("$lib/server/auth");
 const auth = await import("$lib/server/auth");

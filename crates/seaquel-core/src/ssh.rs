@@ -26,7 +26,7 @@ pub(crate) struct TunnelManager {
     tunnels: Mutex<HashMap<String, Tunnel>>,
     next_id: AtomicU64,
     /// Tunnel ids by the id of the connection that owns them
-    /// (`Workspace::connect_saved`), so `disconnect` closes the tunnel too.
+    /// (`Workspace::connect`), so `disconnect` closes the tunnel too.
     owned: Mutex<HashMap<String, String>>,
 }
 
@@ -58,8 +58,12 @@ impl CoreBuilder {
 impl Core {
     /// Open a tunnel: connect, check the host key, authenticate and start
     /// forwarding a local port. Fails with the `seaquel-ssh` codes
-    /// (`UNKNOWN_HOST_KEY`, `AUTH_FAILED`, …).
+    /// (`UNKNOWN_HOST_KEY`, `AUTH_FAILED`, …), and with `NOT_SUPPORTED`
+    /// before anything is opened when this Core's `ConnectPolicy` is unset
+    /// or doesn't allow SSH.
     pub async fn ssh_open(&self, config: &TunnelConfig) -> Result<TunnelInfo, CoreError> {
+        self.check_ssh_allowed()
+            .map_err(|e| CoreError::new(e.code, e.message))?;
         let tunnels = &self.tunnels;
         let tunnel = seaquel_ssh::open(config, &tunnels.options).await?;
         let tunnel_id = format!(
@@ -103,10 +107,7 @@ impl Core {
 
     /// Tie a tunnel to a connection: [`Core::disconnect`] of the connection
     /// closes it. Dropping Core closes it anyway.
-    #[cfg_attr(
-        not(all(feature = "storage", feature = "secrets", feature = "workspace")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     pub(crate) fn own_tunnel(&self, connection_id: &str, tunnel_id: &str) {
         self.tunnels
             .owned
@@ -156,10 +157,7 @@ pub(crate) struct TunnelGuard<'a> {
 
 impl TunnelGuard<'_> {
     /// Don't close the tunnel on drop.
-    #[cfg_attr(
-        not(all(feature = "storage", feature = "secrets", feature = "workspace")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     pub(crate) fn keep(mut self) {
         self.tunnel_id = None;
     }

@@ -1,17 +1,19 @@
 use arboard::Clipboard;
+use futures::stream::{BoxStream, StreamExt};
 use image::ImageReader;
 use log::{debug, error, info};
 use seaquel_core::git::Git;
 use seaquel_core::license::desktop::DesktopClient;
 use seaquel_core::secrets::{KeychainStore, SecretStore};
 use seaquel_core::storage::{LEGACY_STORAGE, STORAGE_CORRUPT};
-use seaquel_core::{Core, CoreError, Workspace, WorkspaceSpec};
-use seaquel_rpc::{Request, Response, RpcError};
+use seaquel_core::{ConnectPolicy, Core, CoreError, Workspace, WorkspaceSpec};
+use seaquel_rpc::{ConnectTargetParams, CoreEvent, DbRequest, Request, Response, RpcError};
 use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use tauri::ipc::InvokeBody;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use tauri::ipc::{Channel, InvokeBody};
 use tauri::menu::{AboutMetadata, IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
@@ -20,7 +22,6 @@ use tokio::sync::OnceCell;
 
 mod cli_info;
 mod cli_install;
-mod db;
 mod logging;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -67,7 +68,13 @@ struct PendingUpdate {
 /// - any other failure is returned, and the next storage call tries again.
 ///
 /// Secret calls use the keychain alone, so they work whatever storage does.
-struct DesktopWorkspace {
+///
+/// `db` calls (connect, queries, streams) go to one workspace for the life
+/// of the app, so every connection has the same owner ([`DesktopWorkspace::db`]):
+/// the storage workspace when it opens, or a storage-less stand-in when
+/// storage failed for good, where form connects still work and saved ones
+/// answer with the storage error.
+pub(crate) struct DesktopWorkspace {
     /// `seaquel_storage::data_dir(identifier)`, or why there is none.
     data_dir: Result<PathBuf, RpcError>,
     secrets: Arc<dyn SecretStore>,
@@ -77,6 +84,71 @@ struct DesktopWorkspace {
     git: Git,
     /// Set once storage opens, or once it fails for good.
     workspace: OnceCell<Result<Arc<Workspace>, RpcError>>,
+    /// The workspace `db` calls use, fixed by the first one that needs it.
+    db: OnceCell<DbWorkspace>,
+    /// Each webview's `core_events` sink and running `core_stream`s.
+    webviews: Arc<Mutex<Webviews>>,
+}
+
+/// Takes one event; `false` means the receiver is gone.
+type EventSink = Box<dyn Fn(CoreEvent) -> bool + Send>;
+
+/// What each webview (by label: `main`, the theme editor, …) has open.
+#[derive(Default)]
+struct Webviews {
+    /// Where [`CoreEvent::ConnectionClosed`] events go: every live sink gets
+    /// every event.
+    sinks: HashMap<String, EventSink>,
+    /// The stream ids of each webview's running `core_stream`s.
+    streams: HashMap<String, HashSet<String>>,
+}
+
+impl Webviews {
+    fn lock(webviews: &Mutex<Webviews>) -> MutexGuard<'_, Webviews> {
+        webviews.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Send `event` to every sink, dropping those whose receiver is gone.
+    fn send(&mut self, event: &CoreEvent) {
+        self.sinks.retain(|_, send| send(event.clone()));
+    }
+
+    /// Take `label`'s running stream ids, to cancel them.
+    fn take_streams(&mut self, label: &str) -> HashSet<String> {
+        self.streams.remove(label).unwrap_or_default()
+    }
+}
+
+/// Removes a `core_stream`'s id from [`Webviews::streams`] when it ends,
+/// however it ends.
+struct StreamTracking {
+    webviews: Arc<Mutex<Webviews>>,
+    label: String,
+    stream_id: String,
+}
+
+impl Drop for StreamTracking {
+    fn drop(&mut self) {
+        let mut webviews = Webviews::lock(&self.webviews);
+        if let Some(ids) = webviews.streams.get_mut(&self.label) {
+            ids.remove(&self.stream_id);
+            if ids.is_empty() {
+                webviews.streams.remove(&self.label);
+            }
+        }
+    }
+}
+
+/// See [`DesktopWorkspace::db`].
+pub(crate) struct DbWorkspace {
+    pub(crate) ws: Arc<Workspace>,
+    /// Why storage can't open, when `ws` is the stand-in. Saved connects and
+    /// tests answer with it, since the stand-in has no saved rows.
+    storage_error: Option<RpcError>,
+    /// The stand-in's own (empty) storage, in the OS's temp dir. Tauri never
+    /// drops managed state, so it outlives the app and is left to the OS's
+    /// temp cleanup; it's only made when storage failed for good.
+    _scratch: Option<tempfile::TempDir>,
 }
 
 impl DesktopWorkspace {
@@ -87,6 +159,108 @@ impl DesktopWorkspace {
             license: DesktopClient::new(license_base_url()),
             git: Git::from_env(),
             workspace: OnceCell::new(),
+            db: OnceCell::new(),
+            webviews: Arc::default(),
+        }
+    }
+
+    /// Whether storage can never open in this run: no data dir, or a kept
+    /// `LEGACY_STORAGE`/`STORAGE_CORRUPT`.
+    fn storage_failed_for_good(&self) -> bool {
+        self.data_dir.is_err() || matches!(self.workspace.get(), Some(Err(_)))
+    }
+
+    /// The workspace `db` calls use. The first call picks it, and it stays:
+    ///
+    /// - storage opens: the storage workspace, so saved connects read their
+    ///   rows from it;
+    /// - storage failed for good: a stand-in workspace on an empty scratch
+    ///   storage and no secret store. Form connects work on it; saved
+    ///   connects and tests answer with the storage error (see
+    ///   [`DesktopWorkspace::call`]). Storage can't open later in this run,
+    ///   so no connection is ever split across two owners;
+    /// - a failure worth retrying: that error, and the next `db` call tries
+    ///   again, like a storage call.
+    ///
+    /// Picking it subscribes to its events once, for `core_events`.
+    pub(crate) async fn db(&self, core: &Core) -> Result<&DbWorkspace, RpcError> {
+        self.db
+            .get_or_try_init(|| async {
+                let db = match self.workspace(core).await {
+                    Ok(ws) => DbWorkspace {
+                        ws,
+                        storage_error: None,
+                        _scratch: None,
+                    },
+                    Err(e) if self.storage_failed_for_good() => Self::stand_in(core, e).await?,
+                    Err(e) => return Err(e),
+                };
+                tauri::async_runtime::spawn(pump_events(
+                    seaquel_rpc::workspace_events(&db.ws),
+                    self.webviews.clone(),
+                ));
+                Ok(db)
+            })
+            .await
+    }
+
+    async fn stand_in(core: &Core, storage_error: RpcError) -> Result<DbWorkspace, RpcError> {
+        let scratch = tempfile::Builder::new()
+            .prefix("seaquel-no-storage-")
+            .tempdir()
+            .map_err(|e| {
+                RpcError::new(
+                    "STORAGE_ERROR",
+                    format!("Couldn't create a scratch dir for connections: {e}"),
+                )
+            })?;
+        let ws = core
+            .open_workspace(WorkspaceSpec::new(scratch.path()))
+            .await?;
+        log::warn!(activity = "workspace.open", code = storage_error.code.as_str(); "Storage can't open; connections use a stand-in workspace, and saved connections fail");
+        Ok(DbWorkspace {
+            ws,
+            storage_error: Some(storage_error),
+            _scratch: Some(scratch),
+        })
+    }
+
+    /// Send [`CoreEvent::ConnectionClosed`] events to `sink` for webview
+    /// `label` from now on. Every webview's sink gets every event.
+    ///
+    /// A second call for the same label is a reload: its sink replaces the
+    /// old one (whose channel may never report that it's gone), and the
+    /// label's running streams, which the reloaded page can no longer read,
+    /// are cancelled.
+    fn set_event_sink(&self, core: &Core, label: &str, sink: EventSink) {
+        let stale = {
+            let mut webviews = Webviews::lock(&self.webviews);
+            match webviews.sinks.insert(label.to_string(), sink) {
+                Some(_) => webviews.take_streams(label),
+                None => HashSet::new(),
+            }
+        };
+        self.cancel_streams(core, label, stale);
+    }
+
+    /// Webview `label` is gone: drop its sink and cancel its streams.
+    fn forget_webview(&self, core: &Core, label: &str) {
+        let stale = {
+            let mut webviews = Webviews::lock(&self.webviews);
+            webviews.sinks.remove(label);
+            webviews.take_streams(label)
+        };
+        self.cancel_streams(core, label, stale);
+    }
+
+    fn cancel_streams(&self, core: &Core, label: &str, stream_ids: HashSet<String>) {
+        // No `db` workspace yet means no stream ever started.
+        let Some(db) = self.db.get() else { return };
+        if !stream_ids.is_empty() {
+            info!(activity = "db.cancel_stream", webview = label, streams = stream_ids.len(); "Cancelling a gone page's streams");
+        }
+        for id in stream_ids {
+            db.ws.cancel(core, &id);
         }
     }
 
@@ -130,11 +304,37 @@ impl DesktopWorkspace {
                 .map(Response::Git),
             // Core owns the tunnels; they need no storage.
             Request::Ssh(r) => seaquel_rpc::dispatch_ssh(core, r).await.map(Response::Ssh),
+            Request::Db(r) => {
+                let db = self.db(core).await?;
+                if let Some(e) = &db.storage_error {
+                    if reads_saved_row(&r) {
+                        return Err(e.clone());
+                    }
+                }
+                seaquel_rpc::dispatch_workspace(core, &db.ws, Request::Db(r)).await
+            }
             req => {
                 let ws = self.workspace(core).await?;
                 seaquel_rpc::dispatch_workspace(core, &ws, req).await
             }
         }
+    }
+}
+
+/// A saved connect or test, which reads its row from storage.
+fn reads_saved_row(req: &DbRequest) -> bool {
+    matches!(
+        req,
+        DbRequest::Connect(p) | DbRequest::Test(p)
+            if matches!(p.target, ConnectTargetParams::Saved { .. })
+    )
+}
+
+/// Hand each workspace event to every webview's sink. With none set, it's
+/// dropped (the desktop only closes connections when asked).
+async fn pump_events(mut events: BoxStream<'static, CoreEvent>, webviews: Arc<Mutex<Webviews>>) {
+    while let Some(event) = events.next().await {
+        Webviews::lock(&webviews).send(&event);
     }
 }
 
@@ -181,6 +381,97 @@ async fn handle_core_call(
 ) -> Result<Response, RpcError> {
     let req = seaquel_rpc::parse_request(&core_call_body(body)?)?;
     workspace.call(core, req).await
+}
+
+/// A `db.queryStream` request, its events pushed to `channel` as
+/// [`CoreEvent::Stream`]s: batches, then one `done` or `error`, or nothing
+/// more after a `db.cancel` (which may arrive before the stream starts).
+/// `request` is the request's JSON as a string: the invoke carries the
+/// channel too, so the body can't be raw bytes. Resolves when the stream
+/// ends or the webview drops the channel, with the number of events it sent:
+/// the reply can overtake channel messages, so the GUI waits until it has
+/// that many before it treats a stream with no `done`/`error` as cancelled.
+/// Rejects (`RpcError`) only for a request that isn't a stream or when the
+/// `db` workspace can't be had.
+///
+/// The stream belongs to the calling webview: reloading it (a new
+/// `core_events` from the same label) or closing it cancels the stream.
+#[tauri::command]
+async fn core_stream(
+    request: String,
+    channel: Channel<CoreEvent>,
+    webview: tauri::Webview,
+    core: State<'_, Core>,
+    workspace: State<'_, DesktopWorkspace>,
+) -> Result<u64, RpcError> {
+    run_core_stream(
+        &core,
+        &workspace,
+        webview.label(),
+        request.as_bytes(),
+        |event| channel.send(event).is_ok(),
+    )
+    .await
+}
+
+/// [`core_stream`]'s body: `send` gets each event and returns `false` when
+/// the receiver is gone, which stops the stream (dropping it stops the
+/// driver's fetch and releases its connection). Returns how many events
+/// were sent.
+async fn run_core_stream(
+    core: &Core,
+    workspace: &DesktopWorkspace,
+    label: &str,
+    body: &[u8],
+    mut send: impl FnMut(CoreEvent) -> bool,
+) -> Result<u64, RpcError> {
+    let req = seaquel_rpc::parse_request(body)?;
+    let stream_id = match &req {
+        Request::Db(DbRequest::QueryStream(params)) => Some(params.stream_id.clone()),
+        _ => None,
+    };
+    let db = workspace.db(core).await?;
+    let mut events = seaquel_rpc::dispatch_stream(core, &db.ws, req)?;
+    // Tracked once registered, so a reload's cancel always finds it.
+    let _tracking = stream_id.map(|stream_id| {
+        Webviews::lock(&workspace.webviews)
+            .streams
+            .entry(label.to_string())
+            .or_default()
+            .insert(stream_id.clone());
+        StreamTracking {
+            webviews: workspace.webviews.clone(),
+            label: label.to_string(),
+            stream_id,
+        }
+    });
+    let mut sent = 0;
+    while let Some(event) = events.next().await {
+        if !send(event) {
+            break;
+        }
+        sent += 1;
+    }
+    Ok(sent)
+}
+
+/// Push the workspace's [`CoreEvent::ConnectionClosed`] events to `channel`.
+/// Each webview calls it once when its page loads; every webview gets every
+/// event. A second call from the same webview is a reload: the new channel
+/// replaces the old one and the webview's running streams are cancelled
+/// ([`DesktopWorkspace::set_event_sink`]). Closing the window drops both.
+#[tauri::command]
+fn core_events(
+    channel: Channel<CoreEvent>,
+    webview: tauri::Webview,
+    core: State<'_, Core>,
+    workspace: State<'_, DesktopWorkspace>,
+) {
+    workspace.set_event_sink(
+        &core,
+        webview.label(),
+        Box::new(move |event| channel.send(event).is_ok()),
+    );
 }
 
 #[tauri::command]
@@ -587,6 +878,10 @@ pub fn run() {
         .level_for("seaquel_lib", log::LevelFilter::Trace)
         // DB activity (queries, streams, cancels) is logged by the core crate.
         .level_for("seaquel_core", log::LevelFilter::Trace)
+        // sqlx's statement log holds each statement's whole SQL (at WARN when
+        // it's slower than a second). The drivers turn it off; this drops it
+        // too.
+        .level_for("sqlx::query", log::LevelFilter::Off)
         .max_file_size(5_000_000)
         .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll);
     // Workspace calls log their method names at debug; dev builds show them.
@@ -595,7 +890,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(logger.build())
         .plugin(tauri_plugin_os::init())
-        .manage(seaquel_core::with_default_plugins().build())
+        // Every engine, file and tunnel: the desktop connects wherever its
+        // user asks, so no config check.
+        .manage(
+            seaquel_core::with_default_plugins()
+                .connect_policy(ConnectPolicy::Unrestricted)
+                .build(),
+        )
         .manage(PendingUpdate {
             bytes: Mutex::new(None),
         })
@@ -607,6 +908,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             core_call,
+            core_stream,
+            core_events,
             cli_info::cli_info,
             cli_info::install_cli,
             copy_image_to_clipboard,
@@ -619,18 +922,15 @@ pub fn run() {
             check_for_update_command,
             read_dbeaver_config,
             read_tableplus_config,
-            db::commands::db_connect,
-            db::commands::db_query,
-            db::commands::db_query_stream,
-            db::commands::db_cancel_stream,
-            db::commands::db_execute,
-            db::commands::db_transaction,
-            db::commands::db_disconnect,
-            db::commands::db_engine,
-            db::commands::db_test,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
+                let app = window.app_handle();
+                if let (Some(core), Some(ws)) =
+                    (app.try_state::<Core>(), app.try_state::<DesktopWorkspace>())
+                {
+                    ws.forget_webview(&core, window.label());
+                }
                 if window.label() == "main" {
                     for (label, w) in window.app_handle().webview_windows() {
                         if label != "main" {
@@ -907,6 +1207,459 @@ mod workspace_tests {
         assert_eq!(err.code, "NO_DATA_DIR");
         assert!(err.message.contains("SEAQUEL_DATA_DIR"), "{}", err.message);
         secrets_still_work(&core, &ws);
+    }
+
+    // ── The `db` group, `core_stream` and `core_events` ──
+
+    use serde_json::{json, Value as Json};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const WAIT: Duration = Duration::from_secs(30);
+
+    /// The desktop's Core, with SQLite only.
+    fn sqlite_core() -> Core {
+        seaquel_core::with_plugins(|id| id == "sqlite")
+            .connect_policy(ConnectPolicy::Unrestricted)
+            .build()
+    }
+
+    fn db_call(
+        core: &Core,
+        ws: &DesktopWorkspace,
+        method: &str,
+        params: Json,
+    ) -> Result<Json, RpcError> {
+        let req = json!({"method": "db", "params": {"method": method, "params": params}});
+        let res = call(core, ws, &req.to_string())?;
+        assert_eq!(res["result"]["method"], method, "{res}");
+        Ok(res["result"]["result"].clone())
+    }
+
+    fn form(file: &std::path::Path) -> Json {
+        json!({
+            "target": {"type": "form", "form": {
+                "name": "Lite", "type": "sqlite", "databaseName": file.display().to_string(),
+            }},
+            "createIfMissing": true,
+        })
+    }
+
+    /// A form connect to a new SQLite file with a table `t` of `rows` rows.
+    fn sqlite(core: &Core, ws: &DesktopWorkspace, file: &std::path::Path, rows: u32) -> String {
+        let res = db_call(core, ws, "connect", form(file)).unwrap();
+        let id = res["connectionId"].as_str().unwrap().to_string();
+        let sql = format!(
+            "CREATE TABLE t AS WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL \
+             SELECT x + 1 FROM c WHERE x < {rows}) SELECT x FROM c"
+        );
+        db_call(core, ws, "execute", json!({"connectionId": id, "sql": sql})).unwrap();
+        id
+    }
+
+    fn stream_body(connection_id: &str, stream_id: &str, sql: &str) -> String {
+        json!({"method": "db", "params": {"method": "queryStream", "params": {
+            "connectionId": connection_id, "streamId": stream_id, "sql": sql,
+        }}})
+        .to_string()
+    }
+
+    /// Run a stream to its end through `run_core_stream`; its events as JSON.
+    /// The count it returns is the number of events sent.
+    fn stream(core: &Core, ws: &DesktopWorkspace, body: &str) -> Vec<Json> {
+        let mut events = Vec::new();
+        let sent = tauri::async_runtime::block_on(run_core_stream(
+            core,
+            ws,
+            "main",
+            body.as_bytes(),
+            |event| {
+                events.push(serde_json::to_value(event).unwrap());
+                true
+            },
+        ))
+        .unwrap();
+        assert_eq!(sent, events.len() as u64);
+        events
+    }
+
+    fn event_types(events: &[Json]) -> Vec<&str> {
+        events
+            .iter()
+            .map(|e| e["event"]["type"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn db_group_connect_query_disconnect_through_core_call() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+
+        let id = sqlite(&core, &ws, &tmp.path().join("a.db"), 3);
+        let res = db_call(
+            &core,
+            &ws,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT sum(x) AS s FROM t WHERE x > ?", "params": [1]}),
+        )
+        .unwrap();
+        assert_eq!(res["rows"], json!([[5]]), "{res}");
+        let res = db_call(
+            &core,
+            &ws,
+            "engine",
+            json!({"connectionId": id, "request": {"method": "listSchemas"}}),
+        )
+        .unwrap();
+        assert!(res.is_object(), "{res}");
+
+        // The db workspace is the storage one: saved connects read its rows.
+        let err = db_call(
+            &core,
+            &ws,
+            "connect",
+            json!({"target": {"type": "saved", "id": "nope"}}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "CONNECTION_NOT_FOUND", "{err}");
+        assert!(err.message.contains("Saved connection"), "{err}");
+
+        db_call(&core, &ws, "disconnect", json!({"connectionId": id})).unwrap();
+        let err = db_call(
+            &core,
+            &ws,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT 1"}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "CONNECTION_NOT_FOUND");
+        // A connection another interface opened on Core isn't reachable.
+        let err = db_call(
+            &core,
+            &ws,
+            "disconnect",
+            json!({"connectionId": "sqlite-not-ours"}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "CONNECTION_NOT_FOUND");
+    }
+
+    #[test]
+    fn core_stream_sends_batches_then_done() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let id = sqlite(&core, &ws, &tmp.path().join("s.db"), 1000);
+
+        let events = stream(&core, &ws, &stream_body(&id, "s1", "SELECT x FROM t"));
+        let types = event_types(&events);
+        assert_eq!(types.last(), Some(&"done"), "{types:?}");
+        assert!(types[..types.len() - 1].iter().all(|t| *t == "batch"));
+        let rows: usize = events
+            .iter()
+            .filter_map(|e| e["event"]["rows"].as_array())
+            .map(Vec::len)
+            .sum();
+        assert_eq!(rows, 1000);
+        assert!(events
+            .iter()
+            .all(|e| e["type"] == "stream" && e["streamId"] == "s1"));
+
+        // Not a stream: the invoke rejects.
+        let cancel = r#"{"method":"db","params":{"method":"cancel","params":{"streamId":"s1"}}}"#;
+        let err = tauri::async_runtime::block_on(run_core_stream(
+            &core,
+            &ws,
+            "main",
+            cancel.as_bytes(),
+            |_| true,
+        ))
+        .unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT");
+        // A connection it doesn't own: one error event.
+        let events = stream(&core, &ws, &stream_body("sqlite-x", "s2", "SELECT 1"));
+        assert_eq!(event_types(&events), ["error"]);
+        assert_eq!(events[0]["event"]["code"], "CONNECTION_NOT_FOUND");
+    }
+
+    /// A send that fails (the webview dropped the channel) stops the stream.
+    #[test]
+    fn core_stream_stops_when_the_channel_is_gone() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let id = sqlite(&core, &ws, &tmp.path().join("g.db"), 1000);
+        let body = stream_body(&id, "s", "SELECT a.x, b.x FROM t a, t b");
+        let mut tried = 0;
+        let sent = tauri::async_runtime::block_on(run_core_stream(
+            &core,
+            &ws,
+            "main",
+            body.as_bytes(),
+            |_| {
+                tried += 1;
+                false
+            },
+        ))
+        .unwrap();
+        assert_eq!(tried, 1);
+        // The failed send isn't counted.
+        assert_eq!(sent, 0);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        assert_eq!(db.ws.stream_count(&core), 0);
+    }
+
+    #[test]
+    fn cancel_stops_a_running_stream() {
+        let core = Arc::new(sqlite_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(desktop(tmp.path().join("data")));
+        let id = sqlite(&core, &ws, &tmp.path().join("c.db"), 2000);
+
+        let (tx, rx) = mpsc::channel();
+        let task = {
+            let (core, ws) = (core.clone(), ws.clone());
+            let body = stream_body(&id, "big", "SELECT a.x, b.x FROM t a, t b");
+            tauri::async_runtime::spawn(async move {
+                run_core_stream(&core, &ws, "main", body.as_bytes(), |event| {
+                    tx.send(serde_json::to_value(event).unwrap()).is_ok()
+                })
+                .await
+            })
+        };
+        let first = rx.recv_timeout(WAIT).unwrap();
+        assert_eq!(first["event"]["type"], "batch", "{first}");
+
+        db_call(&core, &ws, "cancel", json!({"streamId": "big"})).unwrap();
+        // The rest are batches already on their way; no done after a cancel.
+        loop {
+            match rx.recv_timeout(WAIT) {
+                Ok(event) => assert_eq!(event["event"]["type"], "batch", "{event}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(e) => panic!("the cancelled stream didn't end: {e}"),
+            }
+        }
+        tauri::async_runtime::block_on(task).unwrap().unwrap();
+    }
+
+    /// A cancel that overtakes its stream's start (separate IPC calls)
+    /// still stops it: the stream ends at once with no events.
+    #[test]
+    fn a_cancel_before_the_stream_starts_still_stops_it() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let id = sqlite(&core, &ws, &tmp.path().join("e.db"), 10);
+
+        db_call(&core, &ws, "cancel", json!({"streamId": "early"})).unwrap();
+        let events = stream(&core, &ws, &stream_body(&id, "early", "SELECT x FROM t"));
+        assert!(events.is_empty(), "{events:?}");
+
+        // Other ids aren't touched, and the early cancel is used up.
+        let events = stream(&core, &ws, &stream_body(&id, "other", "SELECT x FROM t"));
+        assert_eq!(event_types(&events).last(), Some(&"done"));
+        let events = stream(&core, &ws, &stream_body(&id, "early", "SELECT x FROM t"));
+        assert_eq!(event_types(&events).last(), Some(&"done"));
+    }
+
+    fn sink(tx: mpsc::Sender<Json>) -> EventSink {
+        Box::new(move |event| tx.send(serde_json::to_value(event).unwrap()).is_ok())
+    }
+
+    /// Every webview's sink gets every event; a second `core_events` from
+    /// one webview (a reload) replaces only that webview's sink.
+    #[test]
+    fn core_events_reach_every_webview() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (old_tx, old_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(old_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        let (tx, rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(tx));
+
+        let id = sqlite(&core, &ws, &tmp.path().join("v.db"), 1);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        tauri::async_runtime::block_on(db.ws.close_all(&core));
+
+        for rx in [&rx, &editor_rx] {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(event["type"], "connectionClosed", "{event}");
+            assert_eq!(event["code"], "WORKSPACE_EVICTED", "{event}");
+            assert_eq!(event["connectionId"], id.as_str());
+        }
+        // The replaced sink was dropped: its channel is closed, and empty.
+        assert_eq!(old_rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
+    }
+
+    /// A stream on webview `label`, run in the background; its events as
+    /// JSON, and its task.
+    fn background_stream(
+        core: &Arc<Core>,
+        ws: &Arc<DesktopWorkspace>,
+        label: &'static str,
+        body: String,
+    ) -> (
+        mpsc::Receiver<Json>,
+        tauri::async_runtime::JoinHandle<Result<u64, RpcError>>,
+    ) {
+        let (tx, rx) = mpsc::channel();
+        let (core, ws) = (core.clone(), ws.clone());
+        let task = tauri::async_runtime::spawn(async move {
+            run_core_stream(&core, &ws, label, body.as_bytes(), |event| {
+                tx.send(serde_json::to_value(event).unwrap()).is_ok()
+            })
+            .await
+        });
+        (rx, task)
+    }
+
+    /// Only batches until the stream's task ends: it was cancelled.
+    fn ends_cancelled(rx: &mpsc::Receiver<Json>) {
+        loop {
+            match rx.recv_timeout(WAIT) {
+                Ok(event) => assert_eq!(event["event"]["type"], "batch", "{event}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(e) => panic!("the stream didn't end: {e}"),
+            }
+        }
+    }
+
+    /// A reload (`core_events` again from the same webview) cancels that
+    /// webview's streams, whose channels the old page can't read; another
+    /// webview's streams go on.
+    #[test]
+    fn a_reload_cancels_the_webviews_streams() {
+        let core = Arc::new(sqlite_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(desktop(tmp.path().join("data")));
+        let id = sqlite(&core, &ws, &tmp.path().join("r.db"), 2000);
+        let big = "SELECT a.x, b.x FROM t a, t b";
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+
+        let (main_rx, main_task) =
+            background_stream(&core, &ws, "main", stream_body(&id, "m", big));
+        let (editor_rx, editor_task) =
+            background_stream(&core, &ws, "theme-editor", stream_body(&id, "e", big));
+        main_rx.recv_timeout(WAIT).unwrap();
+        editor_rx.recv_timeout(WAIT).unwrap();
+
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        ends_cancelled(&main_rx);
+        tauri::async_runtime::block_on(main_task).unwrap().unwrap();
+
+        // The editor's stream still runs, until its window is destroyed.
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        assert_eq!(db.ws.stream_count(&core), 1);
+        assert!(Webviews::lock(&ws.webviews)
+            .streams
+            .contains_key("theme-editor"));
+        assert!(!Webviews::lock(&ws.webviews).streams.contains_key("main"));
+        ws.forget_webview(&core, "theme-editor");
+        ends_cancelled(&editor_rx);
+        tauri::async_runtime::block_on(editor_task)
+            .unwrap()
+            .unwrap();
+        assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+    }
+
+    /// A destroyed window's sink is dropped; the others still get events.
+    #[test]
+    fn a_destroyed_webview_gets_no_more_events() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (tx, rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+
+        ws.forget_webview(&core, "theme-editor");
+        assert_eq!(editor_rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
+        // Forgetting a label with nothing registered is fine.
+        ws.forget_webview(&core, "never-seen");
+
+        sqlite(&core, &ws, &tmp.path().join("d.db"), 1);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        tauri::async_runtime::block_on(db.ws.close_all(&core));
+        assert_eq!(rx.recv_timeout(WAIT).unwrap()["type"], "connectionClosed");
+        assert_eq!(
+            Webviews::lock(&ws.webviews)
+                .sinks
+                .keys()
+                .collect::<Vec<_>>(),
+            ["main"]
+        );
+    }
+
+    /// Storage failed for good: form connects work on the stand-in
+    /// workspace, saved ones answer with the storage error, and storage
+    /// calls still do.
+    #[test]
+    fn failed_storage_still_serves_a_form_connect() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("projects.json"), "{}").unwrap();
+        let ws = desktop(tmp.path().to_path_buf());
+
+        let id = sqlite(&core, &ws, &tmp.path().join("f.db"), 2);
+        let res = db_call(
+            &core,
+            &ws,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT count(*) AS n FROM t"}),
+        )
+        .unwrap();
+        assert_eq!(res["rows"], json!([[2]]));
+        let events = stream(&core, &ws, &stream_body(&id, "s", "SELECT x FROM t"));
+        assert_eq!(event_types(&events).last(), Some(&"done"));
+
+        for method in ["connect", "test"] {
+            let saved = json!({"target": {"type": "saved", "id": "c1"}});
+            let err = db_call(&core, &ws, method, saved).unwrap_err();
+            assert_eq!(err.code, "LEGACY_STORAGE", "{method}: {err}");
+        }
+        assert_eq!(call(&core, &ws, LOAD).unwrap_err().code, "LEGACY_STORAGE");
+        assert!(!tmp.path().join("seaquel.db").exists());
+    }
+
+    #[test]
+    fn no_data_dir_still_serves_a_form_connect() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = DesktopWorkspace::new(
+            Err(RpcError::from(CoreError::from(
+                seaquel_core::storage::StorageError::NoDataDir,
+            ))),
+            Arc::new(MemoryStore::new()),
+        );
+        let id = sqlite(&core, &ws, &tmp.path().join("n.db"), 1);
+        db_call(&core, &ws, "disconnect", json!({"connectionId": id})).unwrap();
+        let saved = json!({"target": {"type": "saved", "id": "c1"}});
+        let err = db_call(&core, &ws, "connect", saved).unwrap_err();
+        assert_eq!(err.code, "NO_DATA_DIR");
+    }
+
+    /// A failure worth retrying fails `db` calls too, without fixing the
+    /// stand-in: once storage opens, `db` calls use it.
+    #[test]
+    fn a_transient_failure_is_retried_for_db_calls() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let blocker = tmp.path().join("blocker");
+        std::fs::write(&blocker, "").unwrap();
+        let ws = desktop(blocker.join("data"));
+
+        let err = db_call(&core, &ws, "connect", form(&tmp.path().join("r.db"))).unwrap_err();
+        assert_eq!(err.code, "STORAGE_ERROR");
+        std::fs::remove_file(&blocker).unwrap();
+        sqlite(&core, &ws, &tmp.path().join("r.db"), 1);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        assert!(db.storage_error.is_none());
+        assert!(blocker.join("data/seaquel.db").is_file());
     }
 
     #[test]

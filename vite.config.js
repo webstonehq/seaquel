@@ -3,6 +3,7 @@ import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { attachRpcStreamProxy } from "./shared/rpc-stream-proxy.js";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -28,6 +29,25 @@ export default defineConfig(async ({ mode }) => {
         outdir: "./src/lib/paraglide",
         strategy: ["localStorage", "cookie", "globalVariable", "baseLocale"],
       }),
+      // Web-mode dev: the /api/rpc/stream WebSocket, as server.js serves it
+      // in production (session from /api/account/stream-access on this dev
+      // server, X-Seaquel-User set, frames piped to seaquel-server's
+      // /rpc/stream). /api/rpc itself is a SvelteKit route and needs nothing
+      // here. Override the Rust URL with SEAQUEL_RUST_URL.
+      ...(isWebMode
+        ? [
+            {
+              name: "seaquel-rpc-stream-proxy",
+              /** @param {import("vite").ViteDevServer} server */
+              configureServer(server) {
+                if (!server.httpServer) return;
+                attachRpcStreamProxy(server.httpServer, {
+                  rustUrl: process.env.SEAQUEL_RUST_URL ?? "http://127.0.0.1:8788",
+                });
+              },
+            },
+          ]
+        : []),
     ],
 
     // Define environment variables. VITE_BUILD_TARGET is read by
@@ -66,30 +86,6 @@ export default defineConfig(async ({ mode }) => {
             },
           },
         }),
-
-    // Web-mode dev proxy: forward /api/db/* (including the WebSocket
-    // upgrade for /api/db/stream) to the local seaquel-server. The rest of
-    // /api (e.g. /api/auth, /api/meta) stays inside SvelteKit so hooks +
-    // Better Auth + Kysely routes work during HMR.
-    //
-    // /health is NOT proxied — SvelteKit has its own /health route and in
-    // dev we want that path to reflect the Node app's liveness, consistent
-    // with the production shape.
-    //
-    // Override the target via SEAQUEL_SERVER_URL if the Rust server runs elsewhere.
-    ...(isWebMode
-      ? {
-          server: {
-            proxy: {
-              "/api/db": {
-                target: process.env.SEAQUEL_SERVER_URL || "http://127.0.0.1:8788",
-                changeOrigin: true,
-                ws: true,
-              },
-            },
-          },
-        }
-      : {}),
 
     // Monaco Editor and DuckDB optimization
     optimizeDeps: {

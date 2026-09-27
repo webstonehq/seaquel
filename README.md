@@ -135,15 +135,15 @@ The defaults work out of the box: port `8787`, data at `/data`, talks to
 secret at `/data/auth-secret` on first boot. Set the variables below only
 when the default doesn't fit your deployment.
 
-| Variable                  | Set this when…                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------- |
-| `SEAQUEL_TRUSTED_ORIGINS` | Deploying on a real domain. Localhost variants are always trusted. Comma-separated origins Better Auth's CSRF check allows. |
-| `BETTER_AUTH_URL`         | Sitting behind a reverse proxy that rewrites `Host`, or silencing the boot warning below. Sets Better Auth's canonical URL. |
-| `SEAQUEL_AUTH_SECRET`     | Running multiple replicas. All replicas must share a session key; single-container installs don't need to set this. |
-| `SEAQUEL_COOKIE_DOMAIN`   | Sharing sessions across subdomains, e.g. `.example.com`.                                |
-| `SEAQUEL_TRUSTED_PROXIES` | Running behind a reverse proxy or load balancer. Comma-separated proxy IPs/CIDRs (e.g. `10.0.0.0/8`). Without it, sign-in rate limits key on the socket address and `X-Forwarded-For` is ignored, so every client behind the proxy shares one limit. |
-| `SEAQUEL_CONTROL_URL`     | Pointing at a staging control plane, or `http://127.0.0.1:1` to test offline mode. Default `https://seaquel.app`. |
-| `PORT` / `DATA_DIR`       | Overriding `8787` / `/data`.                                                            |
+| Variable                  | Set this when…                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SEAQUEL_TRUSTED_ORIGINS` | The install is reached by a domain name and `BETTER_AUTH_URL` isn't set, or it has more than one public origin. Comma-separated origins the CSRF checks allow. `BETTER_AUTH_URL`'s origin (else `ORIGIN`'s) is always trusted. With neither set, an install reached at `localhost` or an IP address (`http://localhost:8787`, `http://192.168.1.20:8787`) trusts the address you opened; a domain name is never trusted that way, since a DNS-rebinding page could supply it. |
+| `BETTER_AUTH_URL`         | The install is reached by a domain name (set it to the public URL, e.g. `https://seaquel.example.com`), sits behind a reverse proxy, or you want to silence the boot warning below. Sets Better Auth's canonical URL and the origin the CSRF checks trust. Once it is set, only its origin and `SEAQUEL_TRUSTED_ORIGINS` are trusted.                                                                                                                                         |
+| `SEAQUEL_AUTH_SECRET`     | Running multiple replicas. All replicas must share a session key; single-container installs don't need to set this.                                                                                                                                                                                                                                                                                                                                                           |
+| `SEAQUEL_COOKIE_DOMAIN`   | Sharing sessions across subdomains, e.g. `.example.com`.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `SEAQUEL_TRUSTED_PROXIES` | Running behind a reverse proxy or load balancer. Comma-separated proxy IPs/CIDRs (e.g. `10.0.0.0/8`). Without it, sign-in rate limits key on the socket address and `X-Forwarded-For` is ignored, so every client behind the proxy shares one limit.                                                                                                                                                                                                                          |
+| `SEAQUEL_CONTROL_URL`     | Pointing at a staging control plane, or `http://127.0.0.1:1` to test offline mode. Default `https://seaquel.app`.                                                                                                                                                                                                                                                                                                                                                             |
+| `PORT` / `DATA_DIR`       | Overriding `8787` / `/data`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Internal tuning knobs (`SEAQUEL_LICENSE_SOFT_TTL`, `SEAQUEL_LICENSE_GRACE_TTL`,
 `SEAQUEL_BUNDLE_TRUSTED_PUBKEY`) have sensible defaults documented inline
@@ -174,11 +174,12 @@ BETTER_AUTH_URL environment variable. Without this, callbacks and
 redirects may not work correctly.
 ```
 
-This is expected and harmless for a single-host install reached at its
-own `Host` — signup, sessions and cookies all work, since the relevant
-requests are same-origin. Set `BETTER_AUTH_URL` to the instance's public
-URL to silence it, and do set it whenever anything rewrites `Host` or you
-rely on absolute links (e.g. emailed callbacks).
+This is expected and harmless for an install reached at `localhost` or an
+IP address: signup, sessions and cookies all work. An install reached by a
+domain name must set `BETTER_AUTH_URL` to its public URL (or list its origin
+in `SEAQUEL_TRUSTED_ORIGINS`), or signup, sign-in and every `/api` call are
+refused with 403. Set it also whenever anything rewrites `Host` or you rely
+on absolute links (e.g. emailed callbacks).
 
 #### Air-gapped / offline mode
 
@@ -209,7 +210,7 @@ contacted.
 - Revocations are cumulative — each new bundle carries the full
   revocation list for the subscription.
 - A subscription cancellation in seaquel.app automatically adds all of
-  that subscription's license keys to the revocation list (so the *next*
+  that subscription's license keys to the revocation list (so the _next_
   bundle the owner downloads carries the revocations).
 - If the bundle isn't refreshed before `not_after`, the install enters
   a read-only revalidate state until a fresh bundle is imported.
@@ -287,9 +288,10 @@ docker run \
   seaquel:test
 ```
 
-No env vars needed for a localhost smoke test — `127.0.0.1:8787` is
-auto-trusted by the CSRF gate and the session secret auto-generates on
-first boot. Wait for the health check to pass (~20 s), then probe it:
+No env vars needed for a localhost smoke test — the CSRF checks trust the
+address you open (`http://localhost:8787` or `http://127.0.0.1:8787`) as the
+install's own origin, and the session secret auto-generates on first
+boot. Wait for the health check to pass (~20 s), then probe it:
 
 ```bash
 docker ps --filter name=seaquel-test --format '{{.Status}}'

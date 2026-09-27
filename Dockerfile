@@ -163,10 +163,12 @@ USER node
 #   Sessions are signed with this; changing it invalidates all sessions.
 #   Generate one: openssl rand -hex 32
 # SEAQUEL_TRUSTED_ORIGINS: comma-separated origins allowed by Better Auth's
-#   CSRF check AND by the `/api/signup` Origin guard. REQUIRED for any
-#   non-localhost deployment — without it signup/signin will 403.
-# BETTER_AUTH_URL: canonical URL Better Auth uses for absolute links. Set
-#   when running behind a reverse proxy that rewrites `Host`.
+#   CSRF check and the `/api/*` Origin checks, besides BETTER_AUTH_URL's.
+#   With BETTER_AUTH_URL and ORIGIN unset, an install reached at localhost
+#   or an IP address trusts its own address; a domain name never is (DNS
+#   rebinding), so set this or BETTER_AUTH_URL, or signup/signin will 403.
+# BETTER_AUTH_URL: canonical URL Better Auth uses for absolute links, and
+#   the origin the CSRF checks trust. Set it for an install on a domain.
 # SEAQUEL_COOKIE_DOMAIN: set for cross-subdomain cookies, e.g. .seaquel.app
 #
 # See README.md ("Required environment variables" table) for the full set

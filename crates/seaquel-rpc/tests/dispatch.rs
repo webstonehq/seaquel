@@ -16,7 +16,7 @@ use seaquel_engine::{
     ExplainResult, QueryResult, RowValues, SchemaColumn, SchemaIndex, SchemaTable, SqlWithBindings,
     Value,
 };
-use seaquel_rpc::{dispatch, EngineCall, EngineRequest, EngineResponse};
+use seaquel_rpc::{dispatch_on, EngineRequest, EngineResponse};
 use seaquel_types::{ColumnTypeInfo, CreateTableDefinition};
 use serde_json::{json, Value as Json};
 
@@ -286,6 +286,7 @@ async fn fixture() -> Fixture {
     let core = Core::builder()
         .engine(Arc::new(NoDialectEngine))
         .engine(Arc::new(EchoEngine(driver.clone())))
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
         .build();
     let connect = |config: Json| {
         let core = &core;
@@ -304,12 +305,11 @@ async fn fixture() -> Fixture {
     }
 }
 
-/// Parse a wire call, dispatch it, and return the response as wire JSON.
+/// Parse a wire request, run it on `connection_id`, and return the response
+/// as wire JSON.
 async fn call(core: &Core, connection_id: &str, request: Json) -> Result<Json, DbError> {
-    let call: EngineCall =
-        serde_json::from_value(json!({ "connection_id": connection_id, "request": request }))
-            .expect("request must deserialize");
-    let response = dispatch(core, call).await?;
+    let request: EngineRequest = serde_json::from_value(request).expect("request must deserialize");
+    let response = dispatch_on(&core.connection_handle(connection_id), request).await?;
     Ok(serde_json::to_value(response).unwrap())
 }
 
@@ -626,26 +626,20 @@ async fn every_variant_on_an_unknown_connection_is_not_found() {
 
 #[test]
 fn malformed_requests_are_rejected() {
-    let parse = |j: Json| serde_json::from_value::<EngineCall>(j);
+    let parse = |j: Json| serde_json::from_value::<EngineRequest>(j);
     // Unknown method.
-    assert!(
-        parse(json!({ "connection_id": "c", "request": { "method": "dropEverything" } })).is_err()
-    );
+    assert!(parse(json!({ "method": "dropEverything" })).is_err());
     // Missing params.
-    assert!(parse(json!({ "connection_id": "c", "request": { "method": "paginate" } })).is_err());
+    assert!(parse(json!({ "method": "paginate" })).is_err());
     // A row must be pairs, not an object.
-    assert!(parse(
-        json!({ "connection_id": "c", "request": { "method": "buildDelete", "params": {
+    assert!(parse(json!({ "method": "buildDelete", "params": {
         "schema": "s", "table": "t", "primary_keys": [], "row": { "id": 1 }
-    } } })
-    )
+    } }))
     .is_err());
     // Bad value tag.
-    assert!(parse(
-        json!({ "connection_id": "c", "request": { "method": "explain", "params": {
+    assert!(parse(json!({ "method": "explain", "params": {
         "sql": "x", "params": [{ "$sq": "nope", "v": 1 }], "analyze": false
-    } } })
-    )
+    } }))
     .is_err());
 }
 

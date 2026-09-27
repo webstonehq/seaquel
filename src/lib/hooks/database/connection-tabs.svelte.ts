@@ -4,6 +4,7 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
 import { getKeyringService } from "$lib/services/keyring";
+import { storedConnectionString } from "$lib/utils/connection-string-rules";
 
 /**
  * Prefill data for opening a connection tab, matching the old ConnectionDialogPrefill shape.
@@ -43,7 +44,8 @@ export const defaultFormData: ConnectionFormData = {
   databaseName: "",
   username: "",
   password: "",
-  sslMode: "disable",
+  // The wizard's "Default": no mode, so Core uses the engine's own default.
+  sslMode: "",
   connectionString: "",
   sshEnabled: false,
   sshHost: "",
@@ -113,8 +115,14 @@ export class ConnectionTabManager extends BaseTabManager<ConnectionTab> {
         databaseName: prefill.databaseName || "",
         username: prefill.username || "",
         password: prefill.password || "",
-        sslMode: prefill.sslMode || "disable",
-        connectionString: prefill.connectionString || "",
+        // A saved row keeps its mode; one without a mode stays on "Default".
+        sslMode: prefill.sslMode || "",
+        // A string the old builder made from these same fields says nothing
+        // more, and would override them once they're edited: drop it.
+        connectionString: storedConnectionString({
+          ...prefill,
+          type: prefill.type || "postgres",
+        }),
         sshEnabled: prefill.sshTunnel?.enabled || false,
         sshHost: prefill.sshTunnel?.host || "",
         sshPort: prefill.sshTunnel?.port || 22,

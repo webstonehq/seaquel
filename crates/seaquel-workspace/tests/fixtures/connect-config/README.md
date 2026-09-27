@@ -1,8 +1,8 @@
 # connect-config fixtures
 
-These files record how the TypeScript turns a saved connection and its keychain secrets into the `ConnectConfig` it sends to Core (`db_connect`), before `seaquel-workspace::connections::build_config` ports it. The TypeScript is the spec. `tests/connect_config.rs` replays every case.
+These files record how the TypeScript turns a saved connection and its keychain secrets into the `ConnectConfig` it sends to Core (`db_connect`), before `seaquel-workspace::connections::build_config` ports it. The TypeScript was the spec in phase 4. Since phase 5a, Task 2, the builder follows `../connect-config-v2` instead, and `tests/connect_config.rs` uses these files as the v1 side of its diff: a v2 case differs from its v1 case here exactly when its `changedBy` says so.
 
-**The fixtures are frozen.** Phase 5 moves the GUI onto `connect_saved`, and after that the TS path they were recorded from is gone. Change a fixture only when the Rust behaviour is meant to differ from the TS. Say why in the change and add it to "Changes" at the end. Never regenerate one to make a failing test pass.
+**The fixtures are frozen.** Phase 5 moves the GUI onto `Workspace::connect`, and after that the TS path they were recorded from is gone. Change a fixture only when the Rust behaviour is meant to differ from the TS. Say why in the change and add it to "Changes" at the end. Never regenerate one to make a failing test pass.
 
 ## How they were made
 
@@ -165,7 +165,73 @@ These are recorded as the TS behaves. Task 3 kept them all except two, which it 
     - The tab can't auto-connect a DuckDB row with an empty `databaseName`, because `hasAllCredentials` requires one, but autoReconnect can.
 11. **The URL-username fallback** percent-decodes (`j%C3%BCrgen` becomes `jürgen`). It only matters for MSSQL, which uses the fields, and for the tab's rebuild. The sqlx engines use the string as it is.
 
+## The form path: `form-add.json` and `form-test.json` (phase 5a, Task 1)
+
+These two files record the other way the GUI connects: a form the user filled in, sent by the connection tab's Connect button (`ConnectionManager.add`) or its Test button (`ConnectionManager.test`). They are frozen under the same rules as the files above. `tests/connect_config.rs` doesn't read them; phase 5a's replay of `connect-config-v2` does, as the v1 side of its diff.
+
+**How they were made.** `docs/plans/artifacts/2026-10-01-freeze-connect-config.mjs.txt` is the phase 4 recorder with form cases added. It ran from the repo root at `5d12ac6` with `src/lib` unmodified. By default it writes only these two files. With `FREEZE_ALL=1` it also writes the nine phase 4 groups; run into a scratch directory, they came out byte-identical to the files here, so the bundle and stubs still model today's tree. Two runs gave byte-identical form files.
+
+Each case runs what `connection-tab-view.svelte` does:
+- **The form** starts as `defaultFormData` (`connection-tabs.svelte.ts`).
+- **A pasted string** is put in `formData.connectionString`, as the paste box's `bind:value` does, and `handleParse` merges `parseConnectionString`'s fields over the form. `typed` is what the user entered afterwards on the details step.
+- **Connect** calls `add({ ...getConnectionData(formData), createIfMissing })`, as `handleConnect` does.
+- **Test** calls `test(getConnectionData(formData))`, as `handleTestConnection` does. It never passes `createIfMissing`.
+- `add` and `test` run unmodified. Neither reinjects a password or reads the keychain; the recorder fails a case that reads it.
+- `db_test` is stubbed like `db_connect`, with the same offline refusal.
+- The component's `validate()` isn't run. `test/pg-empty-host` and `test/duckdb-empty-name` record forms it would stop, and their notes say so.
+
+| file             | cases | covers                                                                                                                                                                                                                                                        |
+| ---------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `form-add.json`  | 39    | every engine from fields; SSL modes, with an explicit `disable` for each server engine; a special password; an empty username with a password; port 0; pasted strings with query parameters, a default port, IPv6, a unicode user and TablePlus (plain with `tLSMode` 0, 1 and 2, MySQL with 2, and `+ssh`); SSH with password and key; SQLite and DuckDB `createIfMissing`, SQLite `?mode=ro`, a Windows path, SSH fields left on a SQLite form, DuckDB `?access_mode` |
+| `form-test.json` | 14    | Postgres from fields and pasted; SSH with a password and with an empty one; an empty host; MySQL `verify-full`; MariaDB and MSSQL over SSH; MSSQL `verify-full` and port 0; SQLite from fields and pasted `?mode=ro`; DuckDB with no name and pasted `:memory:` |
+
+53 cases in all.
+
+### A form case
+
+```jsonc
+{
+  "name": "add/pg-paste-params",   // add/… in form-add.json, test/… in form-test.json
+  "notes": "…",                    // optional
+  "op": "add" | "test",
+  "paste": "postgresql://…",       // optional: the string pasted on the method step
+  "typed": { "password": "pw" },   // optional: entered after the paste
+  "createIfMissing": false,        // add only
+  "tunnelPort": 50101,             // the local port the SSH tunnel reports; null without SSH
+  "formData": { … },               // ConnectionFormData as the manager got it, secrets included
+  "connectionString": "postgres://…", // what getConnectionData sent
+  "tunnel": { … },                 // optional: the Ssh::Open config
+  "config": { … },                 // the ConnectConfig db_connect/db_test got, as JSON
+  "error": "…",                    // optional: what add/test threw (no case has one)
+  "tunnelClosed": true             // optional: test closes its tunnel afterwards
+}
+```
+
+### What the form path does (as recorded)
+
+The rules are the reconnect tab's rebuild without the tab's prefill defaults and without reinjection:
+
+- **`getConnectionData` rebuilds a typed string** in two cases: it doesn't split into exactly three parts on `:`, or it is a TablePlus URL. The rebuild:
+  - turns `postgresql://` into `postgres://`;
+  - drops query parameters (`add/pg-paste-params`, `add/mysql-paste-params`, `add/sqlite-paste-mode-ro`, `add/duckdb-paste-params`);
+  - drops a default port;
+  - adds the form's SSL mode. A paste without one keeps the wizard default `disable`, so `add/pg-paste-default-port` gets `sslmode=disable`.
+- **No reinjection.** A pasted string with three parts goes out as pasted, so a password typed after it never reaches the driver (`add/pg-paste-no-password-then-typed`). `buildConnectionString` writes no user info without a username, so the password of `add/pg-empty-username-with-password` is dropped.
+- **IPv6.** A pasted IPv6 host keeps its brackets through the rebuild, because the parsed host field holds them (`[::1]`). A stored row's `::1` loses them (`pg/ipv6-host`).
+- **Tunnels.**
+  - The request sends `password`, `keyPath` and `keyPassphrase` as `""` when the form has none.
+  - `test` opens and closes a tunnel even when the SSH password is empty (`test/pg-ssh-password-empty`).
+  - A SQLite form with SSH fields left on it opens a tunnel to `localhost:0` and rewrites the path into `sqlite://127.0.0.1:<port>/…` (`add/sqlite-ssh-leftover`).
+- **Port 0 goes out as is:** `:0` in the Postgres string, `port: 0` for MSSQL.
+- **MySQL `verify-ca`/`verify-full` pass through unmapped.** sqlx-mysql 0.8.6 refuses both (`unknown value "verify-ca" for ssl_mode`).
+- **MSSQL uses the fields.** A pasted `mssql://` string without an SSL mode keeps the form's `disable`, so it connects unencrypted (`add/mssql-paste-url`).
+- **`createIfMissing`** reaches only SQLite. `toRustConfig` sends DuckDB none.
+
 ## Changes
+
+### 2026-10-01 (phase 5a, Task 1): the form-path baseline
+
+Added `form-add.json` (39 cases) and `form-test.json` (14), recorded as described above. Four of the `form-add.json` cases (`add/pg-paste-tableplus-tls1`, `-tls2`, `add/mysql-paste-tableplus-tls2`, `add/mariadb-fields-disable`) were added the same day for the owner's settled choices B and I (see `../connect-config-v2`); re-recording left the other 49 byte-identical. No existing file changed: the nine phase 4 groups were re-recorded into a scratch directory and came out byte-identical. The intended behaviour for every case in this directory is in `../connect-config-v2`.
 
 ### 2026-09-30 (phase 4, Task 3): two fixes, in the TS and the Rust
 

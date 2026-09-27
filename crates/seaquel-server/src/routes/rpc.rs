@@ -1,5 +1,9 @@
 //! `POST /rpc`: one workspace call (`seaquel_rpc::Request`) for the user in
-//! `X-Seaquel-User`.
+//! `X-Seaquel-User`: storage, and `db` (connect, test, disconnect, query,
+//! execute, transaction, engine, cancel) on the user's own connections.
+//! Core refuses a connection or stream the workspace doesn't own with
+//! `CONNECTION_NOT_FOUND`, and connects under [`crate::web_connect_policy`].
+//! `db.queryStream` is served by `/rpc/stream`.
 //!
 //! Only Node's `/api/rpc` route calls this. It sets the header from the
 //! session and drops any copy the browser sent, so the header is trusted
@@ -9,11 +13,12 @@
 //! a `serde_json::Value`: stored JSON columns keep their exact text, and
 //! `method` must come before `params`.
 //!
-//! Errors are `RpcError` JSON (`{code, message}`) with a status:
-//! `INVALID_ARGUMENT` 400 (a missing or unsafe header, a bad body),
-//! `NOT_SUPPORTED` 501 (secrets: the web workspace has no store), anything
-//! else 500 (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`,
-//! `NO_DATA_DIR`).
+//! Errors are `RpcError` JSON (`{code, message}`) with a status from the
+//! code (`crate::error::status_for`): `INVALID_ARGUMENT` 400 (a missing or
+//! unsafe header, a bad body), `NOT_SUPPORTED` 501 (secrets: the web
+//! workspace has no store; SSH tunnels), `CONNECTION_NOT_FOUND` 404, the
+//! refused engines and options 400, and the storage codes 500
+//! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
 //! The full error is logged here. The copy sent to the browser keeps its
 //! code, but the data root in its message becomes `DATA_DIR`, so it never
@@ -22,15 +27,16 @@
 use axum::{
     body::Bytes,
     extract::State,
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap},
     response::{IntoResponse, Response},
     Json,
 };
-use seaquel_rpc::{dispatch_workspace, parse_request, RpcError, INVALID_ARGUMENT, NOT_SUPPORTED};
+use seaquel_rpc::{dispatch_workspace, parse_request, RpcError};
 
 use std::path::Path;
+use std::sync::Arc;
 
-use crate::workspaces::GetError;
+use crate::workspaces::{GetError, OpenWorkspace};
 use crate::AppState;
 
 /// The header Node sets to the session's user id.
@@ -92,14 +98,7 @@ async fn call(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Vec<
     let user = user_id(headers)?;
     // Parse before opening anything, so a bad body never creates a file.
     let request = parse_request(body)?;
-    let open = state
-        .workspaces
-        .get(&state.core, user)
-        .await
-        .map_err(|e| match e {
-            GetError::InvalidUser(e) => RpcError::invalid_argument(e.message()),
-            GetError::Open(e) => RpcError::from(e),
-        })?;
+    let open = open_workspace(state, user).await?;
     let response = dispatch_workspace(&state.core, open.workspace(), request).await?;
     serde_json::to_vec(&response).map_err(|e| {
         RpcError::new(
@@ -109,7 +108,22 @@ async fn call(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Vec<
     })
 }
 
-fn user_id(headers: &HeaderMap) -> Result<&str, RpcError> {
+/// `user`'s workspace from the LRU, opening it if needed.
+pub(crate) async fn open_workspace(
+    state: &AppState,
+    user: &str,
+) -> Result<Arc<OpenWorkspace>, RpcError> {
+    state
+        .workspaces
+        .get(&state.core, user)
+        .await
+        .map_err(|e| match e {
+            GetError::InvalidUser(e) => RpcError::invalid_argument(e.message()),
+            GetError::Open(e) => RpcError::from(e),
+        })
+}
+
+pub(crate) fn user_id(headers: &HeaderMap) -> Result<&str, RpcError> {
     let mut values = headers.get_all(USER_HEADER).iter();
     let value = values
         .next()
@@ -126,13 +140,8 @@ fn user_id(headers: &HeaderMap) -> Result<&str, RpcError> {
     Ok(id)
 }
 
-fn error_response(e: RpcError) -> Response {
-    let status = match e.code.as_str() {
-        INVALID_ARGUMENT => StatusCode::BAD_REQUEST,
-        NOT_SUPPORTED => StatusCode::NOT_IMPLEMENTED,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    (status, Json(e)).into_response()
+pub(crate) fn error_response(e: RpcError) -> Response {
+    (crate::error::status_for(&e.code), Json(e)).into_response()
 }
 
 #[cfg(test)]

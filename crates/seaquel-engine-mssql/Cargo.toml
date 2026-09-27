@@ -19,4 +19,4 @@ tokio-util = { workspace = true }
 [dev-dependencies]
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }
 serde = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "sync"] }

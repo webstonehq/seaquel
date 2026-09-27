@@ -1,6 +1,11 @@
 // src/lib/tutorial/database.ts
 import type { SchemaTable } from "$lib/types";
-import { getProvider, getDuckDBProvider, type DatabaseProvider } from "$lib/providers";
+import {
+  getProvider,
+  getDuckDBProvider,
+  type ConnectRequest,
+  type DatabaseProvider,
+} from "$lib/providers";
 import { isTauri } from "$lib/utils/environment";
 
 let tutorialProvider: DatabaseProvider | null = null;
@@ -244,6 +249,33 @@ export function getTutorialSchema(): SchemaTable[] {
   ];
 }
 
+/** An in-memory database as a connection form (DuckDB-WASM ignores it). */
+function memoryDatabase(type: "sqlite" | "duckdb", connectionString: string): ConnectRequest {
+  return {
+    target: {
+      type: "form",
+      form: {
+        name: "Tutorial",
+        type,
+        host: "",
+        port: 0,
+        databaseName: ":memory:",
+        username: "",
+        connectionString,
+        sshEnabled: false,
+        sshHost: "",
+        sshPort: 0,
+        sshUsername: "",
+        sshAuthMethod: "",
+        sshKeyPath: "",
+        savePassword: false,
+        saveSshPassword: false,
+        saveSshKeyPassphrase: false,
+      },
+    },
+  };
+}
+
 /**
  * Get or create the tutorial database connection.
  * Uses SQLite via Tauri on desktop and DuckDB-WASM in the browser (the demo
@@ -256,20 +288,15 @@ async function initializeTutorialDatabase(): Promise<void> {
   }
 
   if (isTauri()) {
-    // In Tauri mode, use SQLite via unified provider
+    // On desktop, an in-memory SQLite database through Core
     tutorialProvider = await getProvider();
-    tutorialConnectionId = await tutorialProvider.connect({
-      type: "sqlite",
-      databaseName: ":memory:",
-      connectionString: "sqlite::memory:",
-    });
+    tutorialConnectionId = await tutorialProvider.connect(
+      memoryDatabase("sqlite", "sqlite::memory:"),
+    );
   } else {
     // In the browser (demo and web), DuckDB-WASM in the page
     tutorialProvider = await getDuckDBProvider();
-    tutorialConnectionId = await tutorialProvider.connect({
-      type: "duckdb",
-      databaseName: ":memory:",
-    });
+    tutorialConnectionId = await tutorialProvider.connect(memoryDatabase("duckdb", ""));
   }
   await seedDatabaseWithExecutor((sql) => tutorialProvider!.execute(tutorialConnectionId!, sql));
 }

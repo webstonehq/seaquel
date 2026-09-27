@@ -6,11 +6,19 @@ use std::net::SocketAddr;
 
 /// A minimal stderr logger, so `log` lines (the `/rpc` error log, startup
 /// messages) reach the container's output. Seaquel's own crates log at info
-/// and above; dependencies at warn and above.
+/// and above; dependencies at warn and above, except sqlx's statement log
+/// (`sqlx::query`), which holds a statement's whole SQL and never passes
+/// (the drivers also turn it off).
 struct StderrLogger;
+
+/// sqlx's statement log target.
+const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if metadata.target() == SQLX_QUERY_TARGET {
+            return false;
+        }
         let floor = if metadata.target().starts_with("seaquel") {
             log::Level::Info
         } else {
@@ -182,6 +190,22 @@ pub fn scrub_database_client_env() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn logs(target: &str, level: log::Level) -> bool {
+        use log::Log;
+        StderrLogger.enabled(&log::Metadata::builder().target(target).level(level).build())
+    }
+
+    /// sqlx's statement log holds the whole SQL: never, at any level.
+    #[test]
+    fn sqlx_statement_log_is_dropped() {
+        for level in [log::Level::Error, log::Level::Warn, log::Level::Info] {
+            assert!(!logs("sqlx::query", level), "{level}");
+        }
+        assert!(logs("sqlx::pool", log::Level::Warn));
+        assert!(logs("seaquel_server::routes::rpc", log::Level::Info));
+        assert!(!logs("hyper", log::Level::Info));
+    }
 
     #[test]
     fn database_client_vars_are_recognised() {

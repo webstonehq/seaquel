@@ -74,7 +74,9 @@ async fn sandbox() -> Sandbox {
     std::fs::create_dir_all(&data).unwrap();
     let lite = dir.path().join("app.sqlite");
 
-    let core = seaquel_core::with_default_plugins().build();
+    let core = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
     let config: ConnectConfig = serde_json::from_value(json!({
         "driver": "sqlite",
         "connection_string": format!("sqlite://{}", lite.display()),

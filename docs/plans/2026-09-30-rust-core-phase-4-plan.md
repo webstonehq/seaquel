@@ -66,6 +66,8 @@ Each question has a recommendation, and the plan is written as if it is taken. I
 
 **Answered (2026-09-30):** the owner took all three recommendations: the command is `seaquel-cli` everywhere, the macOS keychain prompt is accepted and explained, and only connections named on the command line are exposed. Execution is subagent-driven.
 
+**Checkpoint (2026-09-26):** the owner ran the manual checks and they passed. The connection edit dialog didn't save the AI sharing overrides, an older bug that the checks exposed; it was fixed in `connection-manager.svelte.ts` `update` and `connection-tabs.svelte.ts` `open`, with tests.
+
 1. **What should users type?** The file is `seaquel-cli` whatever the answer (finding 1).
    - **Recommendation: `seaquel-cli` everywhere,** in `PATH` links, docs and the MCP snippet. It's unambiguous on all three platforms, and MCP hosts are configured with a full path anyway.
    - **The alternative:** `seaquel` on macOS, through the menu's symlink, and `seaquel-cli` on Linux and Windows, where the GUI owns `seaquel`. That matches the design doc but gives different docs per platform.

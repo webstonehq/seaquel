@@ -1,5 +1,14 @@
 //! What a web user may put in a connection config (Decision 11b).
 //!
+//! [`check_connect_config`] is the web `ConnectPolicy`'s check
+//! ([`crate::web_connect_policy`]): Core runs it on the config it builds
+//! for `db.connect` and `db.test`, after the saved row or form and the
+//! supplied secrets are resolved, right before the driver opens it. So it
+//! sees what the driver will: a form's host, database name and SSL mode go
+//! into the URL unescaped, and a `?sslkey=` smuggled through any of them is
+//! caught here. SSH tunnels never get this far: the policy refuses them
+//! before one opens.
+//!
 //! Next to [`crate::WEB_ENGINES`]: the server's engines connect over the
 //! network only. A web user may not point a connection at a file or socket
 //! on the server:
@@ -12,6 +21,10 @@
 //!   `?socket=`) or a URL without a host (sqlx then tries the local socket
 //!   directories) would reach a database on the server host, where peer
 //!   authentication logs in as the server's own OS user.
+//!
+//! A Postgres or MySQL string that isn't a URL is refused too: sqlx only
+//! takes URLs (it parses them with the same `url` crate), so nothing is
+//! lost, and a key=value form a later sqlx might accept can't slip past.
 //!
 //! MSSQL takes host and port fields only, and has no certificate path.
 //! Other drivers aren't checked here: Core refuses them (`WEB_ENGINES`).
@@ -61,9 +74,13 @@ pub fn check_connect_config(config: &ConnectConfig) -> Result<(), DbError> {
     let Some(conn_str) = config.connection_string.as_deref() else {
         return Ok(()); // the driver refuses a missing string itself
     };
-    // What sqlx parses. A string that isn't a URL fails in the driver.
+    // What sqlx parses; it fails on anything else anyway.
     let Ok(url) = Url::parse(conn_str) else {
-        return Ok(());
+        return Err(refused(format!(
+            "A {name} connection on the web app needs a URL connection string \
+             (such as {scheme}://user@host:port/database).",
+            scheme = if name == "MySQL" { "mysql" } else { "postgres" }
+        )));
     };
 
     let host = url.host_str().unwrap_or("");
@@ -216,16 +233,43 @@ mod tests {
     }
 
     #[test]
-    fn other_drivers_and_unparsable_strings_are_left_to_the_driver() {
+    fn other_drivers_are_left_to_core() {
         let mssql: ConnectConfig = serde_json::from_value(serde_json::json!({
             "driver": "mssql", "host": "db", "port": 1433,
         }))
         .unwrap();
         assert!(check_connect_config(&mssql).is_ok());
-        assert_eq!(code(DriverType::Postgres, "not a url"), None);
-        // Credentials with no host don't parse (sqlx's parser is the same
-        // `url` crate), so the driver refuses it.
-        assert!(Url::parse("postgres://u@/app").is_err());
+        // Core has no SQLite engine on web; that refusal is its own.
         assert_eq!(code(DriverType::Sqlite, "sqlite:/data/auth.db"), None);
+    }
+
+    #[test]
+    fn strings_that_arent_urls_are_refused() {
+        for s in [
+            "not a url",
+            "host=/var/run/postgresql dbname=app",
+            // Credentials with no host don't parse (sqlx's parser is the
+            // same `url` crate).
+            "postgres://u@/app",
+        ] {
+            assert_eq!(
+                code(DriverType::Postgres, s).as_deref(),
+                Some(OPTION_NOT_ALLOWED),
+                "{s}"
+            );
+        }
+        assert_eq!(
+            code(DriverType::Mysql, "Server=db;Uid=root").as_deref(),
+            Some(OPTION_NOT_ALLOWED)
+        );
+    }
+
+    #[test]
+    fn mariadb_urls_are_checked_as_mysql() {
+        assert_eq!(code(DriverType::Mysql, "mariadb://root@db/app"), None);
+        assert_eq!(
+            code(DriverType::Mysql, "mariadb://root@db/app?ssl-ca=/x").as_deref(),
+            Some(OPTION_NOT_ALLOWED)
+        );
     }
 }

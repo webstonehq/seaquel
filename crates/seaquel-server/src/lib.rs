@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
-use seaquel_core::Core;
+use seaquel_core::{ConnectPolicy, ConnectionLimits, Core};
 use std::sync::Arc;
 
 mod error;
@@ -43,12 +43,39 @@ pub struct AppState {
 /// the server can.
 pub const WEB_ENGINES: &[&str] = &["postgres", "mysql", "mssql"];
 
+/// What a web user may connect to: [`web_config::check_connect_config`] on
+/// the config Core builds (after the saved row or form and the supplied
+/// secrets are resolved, right before the driver opens it), and no SSH
+/// tunnels (refused before anything is opened: no SSH session, no key file
+/// read on the server).
+pub fn web_connect_policy() -> ConnectPolicy {
+    ConnectPolicy::checked(web_config::check_connect_config, false)
+}
+
+/// What one web user may hold: 16 open connections (connects and tests
+/// still in flight count), each a pool of at most 6 database connections,
+/// so at most 96 per user on the databases they reach. The desktop keeps
+/// the engines' defaults (no cap, pools of 10).
+///
+/// Every stream, query and introspection call on a connection takes one of
+/// its pool's connections, so once 6 statements are streaming on it, the
+/// next call (the schema tree, a table's metadata) waits for one of them to
+/// finish. SQL Server holds one session plus up to 5 read-only connections
+/// (it has 4 at most anyway).
+pub const WEB_CONNECTION_LIMITS: ConnectionLimits = ConnectionLimits {
+    per_workspace: Some(16),
+    max_pool_size: Some(6),
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
-/// others. Core refuses any other driver on `/api/db/connect` and
-/// `/api/db/test` with `ENGINE_NOT_AVAILABLE`, whatever features Cargo
-/// unified into this build.
+/// others, under [`web_connect_policy`] and [`WEB_CONNECTION_LIMITS`]. Core refuses any other driver on
+/// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
+/// Cargo unified into this build.
 pub fn web_core() -> Core {
-    seaquel_core::with_plugins(|id| WEB_ENGINES.contains(&id)).build()
+    seaquel_core::with_plugins(|id| WEB_ENGINES.contains(&id))
+        .connect_policy(web_connect_policy())
+        .connection_limits(WEB_CONNECTION_LIMITS)
+        .build()
 }
 
 impl AppState {
@@ -100,26 +127,15 @@ pub const AUTH_DB_FILE: &str = "auth.db";
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(routes::health::health))
-        .route("/api/db/connect", post(routes::db::connect::connect))
-        .route(
-            "/api/db/disconnect",
-            post(routes::db::disconnect::disconnect),
-        )
-        .route("/api/db/engine", post(routes::db::engine::engine))
-        .route("/api/db/query", post(routes::db::query::query))
-        .route("/api/db/execute", post(routes::db::execute::execute))
-        .route("/api/db/stream", get(routes::db::stream::stream))
-        .route(
-            "/api/db/transaction",
-            post(routes::db::transaction::transaction),
-        )
-        .route("/api/db/test", post(routes::db::test::test))
-        // Workspace calls (storage; secrets answer NOT_SUPPORTED) for the
-        // user in `X-Seaquel-User`. Only Node's `/api/rpc` calls it.
+        // Workspace calls (storage and db; secrets answer NOT_SUPPORTED)
+        // for the user in `X-Seaquel-User`. Only Node's `/api/rpc` calls it.
         .route(
             "/rpc",
             post(routes::rpc::rpc).layer(DefaultBodyLimit::max(routes::rpc::BODY_LIMIT)),
         )
+        // The user's query streams and connection events, multiplexed on one
+        // WebSocket. Only Node's `/api/rpc/stream` upgrade reaches it.
+        .route("/rpc/stream", get(routes::rpc_stream::stream))
         // Licensing for Node's hooks and routes, loopback peers only (the
         // router must be served with connect info; see `main.rs`).
         .nest(

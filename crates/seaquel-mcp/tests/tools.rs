@@ -117,7 +117,9 @@ fn live(name: &str) -> Option<Json> {
 /// Create the SQLite and DuckDB databases through Core: `items` with
 /// `ROWS` rows, `tags` in DuckDB's second schema, a view.
 async fn seed_databases(dir: &Path) -> (PathBuf, PathBuf) {
-    let core = seaquel_core::with_default_plugins().build();
+    let core = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
     let lite = dir.join("app.sqlite");
     let duck = dir.join("app.duckdb");
 
@@ -180,7 +182,9 @@ async fn seed(ai_settings: Option<&str>) -> Seeded {
     let lite_url = format!("sqlite://{}", lite.display());
     let duck_path = duck.to_str().unwrap().to_string();
 
-    let core = seaquel_core::with_default_plugins().build();
+    let core = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
     let ws = core
         .open_workspace(WorkspaceSpec::new(dir.path()))
         .await
@@ -358,6 +362,7 @@ async fn start_with_store(
     let core = Arc::new(
         seaquel_core::with_default_plugins()
             .ssh_known_hosts(&known_hosts)
+            .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
             .build(),
     );
     let spec = WorkspaceSpec::new(seeded.dir.path())
@@ -652,7 +657,11 @@ async fn unexposed_and_unknown_connections_are_not_found() {
 #[tokio::test]
 async fn startup_refuses_unknown_and_ambiguous_names() {
     let seeded = seed(None).await;
-    let core = Arc::new(seaquel_core::with_default_plugins().build());
+    let core = Arc::new(
+        seaquel_core::with_default_plugins()
+            .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+            .build(),
+    );
     let spec = WorkspaceSpec::new(seeded.dir.path()).with_storage_options(StorageOptions {
         read_only: true,
         ..StorageOptions::default()
@@ -1622,7 +1631,11 @@ async fn an_unreadable_secret_is_a_tool_error() {
 #[tokio::test]
 async fn a_workspace_without_a_secret_store_is_a_tool_error() {
     let seeded = seed(None).await;
-    let core = Arc::new(seaquel_core::with_default_plugins().build());
+    let core = Arc::new(
+        seaquel_core::with_default_plugins()
+            .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+            .build(),
+    );
     let spec = WorkspaceSpec::new(seeded.dir.path()).with_storage_options(StorageOptions {
         read_only: true,
         ..StorageOptions::default()

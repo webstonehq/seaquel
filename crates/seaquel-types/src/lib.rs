@@ -7,10 +7,12 @@
 //!
 //! This crate is pure: it must keep building for `wasm32-unknown-unknown`.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+pub mod connect;
 mod dialect;
 pub mod git;
 pub mod license;
@@ -21,7 +23,7 @@ pub use dialect::*;
 pub use value::{Value, MAX_SAFE_INTEGER};
 
 /// Columnar result format for all drivers
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct QueryResult {
     pub columns: Vec<String>,
@@ -54,7 +56,7 @@ fn is_false(b: &bool) -> bool {
 }
 
 /// Result of a write operation
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ExecuteResult {
     // ts-rs maps u64/i64 to `bigint`, but serde_json sends plain JSON numbers.
@@ -222,6 +224,17 @@ pub struct ConnectConfig {
     /// Off by default; the MCP server turns it on for the instances it opens.
     /// Other engines ignore it.
     pub restricted: Option<bool>,
+    /// MSSQL only: the name the server's TLS certificate is checked against,
+    /// when it isn't `host`. Set for a connection through an SSH tunnel,
+    /// where `host` is `127.0.0.1` and this is the server's own name. The
+    /// socket still goes to `host` and `port`.
+    pub tls_server_name: Option<String>,
+    /// DuckDB only: options the database opens with (`access_mode` =
+    /// `read_only`, …), parsed out of a `duckdb://path?key=value` string. An
+    /// option DuckDB doesn't know fails the connect. With `restricted`, the
+    /// lock-down settings are applied after these and win.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, string>", optional))]
+    pub duckdb_config: Option<BTreeMap<String, String>>,
 }
 
 impl fmt::Debug for ConnectConfig {
@@ -245,6 +258,15 @@ impl fmt::Debug for ConnectConfig {
             .field("path", &self.path)
             .field("create_if_missing", &self.create_if_missing)
             .field("restricted", &self.restricted)
+            .field("tls_server_name", &self.tls_server_name)
+            // Values can be credentials (`s3_secret_access_key`): keys only.
+            .field(
+                "duckdb_config",
+                &self
+                    .duckdb_config
+                    .as_ref()
+                    .map(|c| c.keys().map(|k| (k, "<redacted>")).collect::<Vec<_>>()),
+            )
             .finish()
     }
 }
@@ -254,7 +276,7 @@ impl fmt::Debug for ConnectConfig {
 /// with certainty: a string that isn't `scheme://…` (key=value strings carry
 /// `Password=`), an `@` after the authority (a raw `/` in a password, or a
 /// TablePlus `+ssh` URL), or a `password`/`pwd` query parameter.
-fn connection_string_for_debug(s: &str) -> String {
+pub(crate) fn connection_string_for_debug(s: &str) -> String {
     const REDACTED: &str = "<redacted>";
     let Some((scheme, rest)) = s.split_once("://") else {
         return REDACTED.to_string();
@@ -294,7 +316,7 @@ fn connection_string_for_debug(s: &str) -> String {
 }
 
 /// A single statement in a batch/transaction
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields))]
 pub struct BatchStatement {

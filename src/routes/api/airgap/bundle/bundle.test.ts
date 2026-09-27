@@ -125,6 +125,39 @@ describe("POST /api/airgap/bundle", () => {
     expect(client.airgapUpload).not.toHaveBeenCalled();
   });
 
+  it("refuses a domain Host's own origin (DNS rebinding) with nothing configured", async () => {
+    const request = new Request("http://evil.example:8787/api/airgap/bundle", {
+      method: "POST",
+      headers: {
+        origin: "http://evil.example:8787",
+        host: "evil.example:8787",
+        "Content-Type": "application/json",
+      },
+      body: ENVELOPE,
+    });
+    await expect(POST(makeEvent(request, "u_owner"))).rejects.toMatchObject({ status: 403 });
+    expect(client.airgapUpload).not.toHaveBeenCalled();
+  });
+
+  it("trusts the install's own origin (Origin naming the Host) at an IP address with nothing configured", async () => {
+    vi.mocked(client.airgapUpload).mockResolvedValue({
+      status: 200,
+      body: ACCEPTED,
+      revokedUserIds: [],
+    });
+    const request = new Request("http://192.168.1.20:8787/api/airgap/bundle", {
+      method: "POST",
+      headers: {
+        origin: "http://192.168.1.20:8787",
+        host: "192.168.1.20:8787",
+        "Content-Type": "application/json",
+      },
+      body: ENVELOPE,
+    });
+    const res = await POST(makeEvent(request, "u_owner"));
+    expect(res.status).toBe(200);
+  });
+
   it("sends the body's bytes and the signed-in user, and answers Rust's outcome", async () => {
     vi.mocked(client.airgapUpload).mockResolvedValue({
       status: 200,

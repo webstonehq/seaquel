@@ -37,6 +37,17 @@ path). Only connections named on its command line are exposed. Core gained
 row, byte and time limits on read-only queries and a read-only EXPLAIN. The
 GUI still connects through TypeScript, and nothing writes storage from a
 second process yet. Its measured cost is in "Phase 4 cost" below.
+Phase 5a: implemented (see 2026-10-01-rust-core-phase-5a-plan.md). The
+desktop and web GUIs connect, test, query and disconnect through Core's
+workspace (`Workspace::connect`/`test` with a saved id or a form, and the
+`db` RPC group), over `core_call`/`core_stream`/`core_events` on desktop and
+`/rpc` plus a multiplexed `/rpc/stream` WebSocket on web. The TypeScript no
+longer builds connect configs, opens tunnels or scopes ids per user; each
+connection and stream belongs to the workspace that opened it, and Core
+refuses the rest. `/api/db/*` and the `db_*` commands are gone. The recorded
+connect quirks are fixed (the v2 fixtures), web connections are capped per
+user, and a stopped stream stops on the server. The demo is unchanged. Its
+measured cost is in "Phase 5a cost" below.
 
 ## Problem
 
@@ -2030,6 +2041,159 @@ local bundle build.
   budget its fixes separately at about three times the probe itself; here
   they were the largest single cost. Share one target directory between
   agents, or clean them, before starting parallel work with DuckDB.
+
+## Phase 5a cost
+
+Source: `2026-10-01-phase-5a-effort.md` and the phase 5a plan's execution
+notes, plus line counts measured against the phase 4 commit (`5d12ac6`);
+phase 5a is in the working tree on top of it. Times are agent wall time as
+logged, review and probe fixes included, but not the plan, the review passes
+themselves or the owner's checkpoints. Tasks 4 and 5 ran partly in
+parallel, and the probe fixes split into a Rust and a TS agent. The probe
+run itself has no entry in the effort log; its scratch files span about ten
+minutes, so it's counted at ~0.25 h with its setup.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Form-path baseline, v2 fixtures | 1.5–2 h | ~1.25 h | ~0.4 h | ~1.7 h |
+| 2. Core `connect`/`test`, one builder, ownership | 4–5.5 h | ~3 h | — | ~3 h |
+| 3. `seaquel-rpc` `db` group, `CoreEvent` | 1.5–2 h | ~1.25 h | ~1.75 h | ~3 h |
+| 4. Desktop transport | 1.5–2 h | ~1.25 h | ~0.4 h | ~1.7 h |
+| 5. Web transport | 3–4 h | ~2.5 h | ~1.25 h | ~3.75 h |
+| 6. TS onto Core | 3–4 h | ~2.5 h | ~1.75 h | ~4.25 h |
+| 7. Trust-boundary probe | 1–1.5 h | ~0.25 h | ~3.5 h | ~3.75 h |
+| 8. Docs, measure, checks | 0.75–1 h | ~0.4 h | — | ~0.4 h |
+| Probe fixes (the plan's row) | 3–4.5 h | | | |
+| Review fixes (the plan's row) | 6–8 h | | | |
+| **Total** | **~26–35 h** | **~12.4 h** | **~9.05 h** | **~21.5 h** |
+
+Task 1's fixes are the round after the owner settled Decision 6's open
+choices (A, B and I), not a review. Task 3's are two review rounds, and
+most of them landed in Core: `ConnectPolicy` replaced a Cargo feature gate
+that feature unification defeated, and the tunnel refusal moved before any
+secret read. Task 6's are two review rounds, mostly on the connection
+string. Task 7's are the probe's fixes (~2.5 h, with the TS origin work
+in its own agent) and their review round (~1 h).
+
+The plan expected about **18–25 h logged**. It came in at ~21.5 h, in the
+middle of that range and about two-thirds of the plan's 26–35 h. First
+passes took ~12.4 h against 16.25–22 h, 56–76% of their estimates, about
+the same band as phase 4. Fixes took ~9.05 h, 42% of the logged time: review
+fixes ~5.2 h against 6–8 h, and probe fixes ~3.5 h, inside the 3–4.5 h the
+plan set at three times the probe's estimate. The probe itself took far less
+than its 1–1.5 h, since the endpoints were few and scripted; its fixes did
+not.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~5,170 | ~1,670 |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~6,810 | ~2,330 |
+| Fixtures (160 v2 connect-config cases, 53 recorded form cases) | ~9,320 | — |
+| TypeScript/Svelte/JS, production | ~2,410 | ~2,050 |
+| TypeScript/JS, tests | ~2,400 | ~910 |
+| Generated TS types | ~175 | ~11 |
+
+Measured with `git diff -U0` against `5d12ac6` plus the untracked files,
+with `Cargo.lock`, config files, the docs and the message files left out;
+inline test modules counted from their `#[cfg(test)]` line. The recorder
+and the v2 checker in `docs/plans/artifacts` aren't counted.
+
+Where the production Rust went: Core ~1,460 (`connect`/`test`, ownership,
+`ConnectPolicy`, `ConnectionLimits`, events, early cancel), `seaquel-workspace`
+~1,010 (the one builder, the form mapping), `seaquel-server` ~880
+(`/rpc/stream`, eviction, the per-user event hub, status codes),
+`seaquel-rpc` ~470 (the `db` group), `src-tauri` ~320 (`core_stream`,
+`core_events`, per-webview sinks), and ~540 across the Postgres and MySQL
+drivers and `seaquel-engine` for the server-side cancel. On the TS side,
+`src/lib/core` (~780) and `CoreProvider` replaced the two providers, the
+TS tunnel code and `/api/db` (~1,300 lines removed there), so TS production
+code grew by only ~360 lines net.
+
+### Bugs found
+
+By who found them first, counted from the effort log (a review finding
+that bundles several small ones counts once per item). The bracketed
+number is how many were older than phase 5a. The two origin findings
+touched both old routes and the new stream proxy, so they aren't split.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Connect semantics (fixtures, live checks) | 6 [6] | — | — |
+| Core API and policy | — | 6 | — |
+| Desktop transport | — | 2 | — |
+| Web transport and proxy | — | 6 | 1 [1] |
+| TS client and connection string | — | 12 | — |
+| Engines (cancel, logging) | — | 1 | 2 [2] |
+| Web origins | — | 1 | 2 |
+| **Total** | **6 [6]** | **28** | **5 [3+]** |
+
+The serious ones:
+
+- **SQL in the logs** (probe). sqlx logs every statement at DEBUG and any
+  statement slower than a second at WARN, whole. On web that put users'
+  SQL, and anything in it, in the server log. Statement logging is now off
+  on every sqlx pool and connection, and the log filters drop the target.
+- **No per-user connection cap** (probe). One web user could open as many
+  pools as the databases allowed. `ConnectionLimits` now caps a workspace
+  at 16 connections with pools of 6, counting connects in flight.
+- **A stopped stream kept running on the server** (probe). Cancel, disconnect
+  and eviction dropped the stream but not the Postgres or MySQL statement.
+  The drivers now send `pg_cancel_backend` or `KILL QUERY`, guarded by the
+  statement's prefix; the review found the MySQL guard compared text MySQL
+  reports differently, so it never fired for bound parameters.
+- **Dev origins trusted in production, and no Origin check on most `/api`
+  mutations** (probe). Fixed with the Origin gate; its review then found the
+  Host fallback could be reached through DNS rebinding, so it now applies
+  only to `localhost` and IP-address hosts.
+- **The feature gate on `connect` didn't hold** (Task 3 review). Cargo unifies
+  features, so a web build with tests could connect over SSH. `ConnectPolicy`
+  has no default and is checked in code.
+- **A stale connection string** (Task 6 review). Core obeys a stored string,
+  so a string the old GUI rebuilt from the fields would win over a later
+  field edit. Strings now live only while visible, and old rows lose them.
+- **The string migration's save wiped AI sharing flags** (Task 6 second
+  review). The load mapping dropped `aiShareSchema`/`aiShareData`.
+- **The recorded form path lost data** (Task 1): a password typed after
+  pasting a string never reached the driver, an empty username dropped the
+  password, port 0 went out as `:0`, and a pasted `mssql://` URL connected
+  unencrypted. All fixed by the one builder.
+
+### What was harder than expected
+
+- **Tenancy is more than ownership checks.** Ownership held on the first
+  probe: no cross-user access by any route. What the probe found was
+  everything around it: logs, caps, cancel and origins. A multi-user server
+  needs those checked as deliberately as the ids.
+- **WebSocket lifecycle.** Re-authorising a long-lived socket, telling a lost
+  session (1008) from a gate outage or a socket cap (1013) so the client
+  reconnects only when it should, splitting large batches, and closing
+  after 12 h each came from review, not the plan.
+- **Channel ordering on desktop.** A Tauri command's reply can overtake its
+  channel messages, so "the stream ended with no terminal event" wasn't
+  decidable until `core_stream` returned the count it sent.
+- **The connection string.** Moving connects to Core made the stored string
+  authoritative, which exposed every place the old GUI had rebuilt it. The
+  visibility rule and the one-time migration took two review rounds.
+
+What went to plan: the one builder, which passed all 160 v2 cases on its
+first run; ownership, which the probe couldn't break; the `db` RPC group,
+whose 16 tests passed first time; and the live stream path, where a 50,000-row
+stream and a `pg_sleep` cancel worked through the new client on the first run.
+
+### What this means for phase 5b onwards
+
+- **Query execution in Core (5b)** can build on `db.queryStream` and the
+  per-workspace stream registry; nothing in the transports needs to change.
+- **`CONNECTION_CLOSED` and `TUNNEL_CLOSED` are still reserved.** Core can't
+  see a lost connection or a dropped tunnel yet; the GUI finds out on the
+  next call.
+- **Estimating.** First passes ran at 56–76% of their estimates again. Keep
+  the probe and its separate fix budget, and expect a multi-user feature's
+  review to find lifecycle and limits issues the plan didn't list.
 
 ## Risks
 

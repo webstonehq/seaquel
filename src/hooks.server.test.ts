@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.stubEnv("VITE_BUILD_TARGET", "web");
-vi.mock("$app/environment", () => ({ building: false }));
+vi.mock("$app/environment", () => ({ building: false, dev: false }));
 vi.mock("$lib/paraglide/server", () => ({
   paraglideMiddleware: (
     request: Request,
@@ -37,9 +37,9 @@ vi.mock("$lib/server/license-client", async () => {
 const client = await import("$lib/server/license-client");
 const { handle } = await import("./hooks.server");
 
-function run(path: string) {
+function run(path: string, init?: RequestInit) {
   const url = new URL(`http://localhost${path}`);
-  const event = { url, request: new Request(url), locals: {} } as never;
+  const event = { url, request: new Request(url, init), locals: {} } as never;
   const resolve = vi.fn(async () => new Response("resolved"));
   return { result: handle({ event, resolve } as never), resolve };
 }
@@ -87,5 +87,34 @@ describe("handle", () => {
     const { result, resolve } = run("/login");
     expect(await (await result).text()).toBe("resolved");
     expect(resolve).toHaveBeenCalled();
+  });
+
+  it("refuses a cross-site /api mutation before the session or license", async () => {
+    vi.mocked(client.gate).mockRejectedValue(new Error("must not be called"));
+    const { result, resolve } = run("/api/team/u_2", {
+      method: "DELETE",
+      headers: { origin: "https://evil.example", host: "localhost" },
+    });
+    const res = await result;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("lets a same-origin /api mutation through to the gate", async () => {
+    vi.mocked(client.gate).mockResolvedValue({
+      state: "unregistered",
+      tenant: null,
+      member: null,
+      hasTenant: false,
+      bundlePresent: false,
+    });
+    const res = await run("/api/rpc", {
+      method: "POST",
+      headers: { origin: "http://localhost", host: "localhost" },
+      body: "{}",
+    }).result;
+    // No session: the API gate's 401, not the Origin gate's 403.
+    expect(res.status).toBe(401);
   });
 });

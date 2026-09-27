@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use sqlx::{
     migrate::MigrateDatabase,
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    Connection, Pool, Sqlite, SqliteConnection,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    ConnectOptions, Connection, Pool, Sqlite, SqliteConnection,
 };
 
 use seaquel_engine::{
@@ -230,13 +230,28 @@ impl SqlxDriver {
                 }
             }
 
-            Sqlite::create_database(conn_str)
+            // `Sqlite::create_database`, without its statement log.
+            SqliteConnectOptions::from_str(conn_str)
+                .map_err(DbError::connection_error)?
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal)
+                .disable_statement_logging()
+                .connect()
+                .await
+                .map_err(DbError::connection_error)?
+                .close()
                 .await
                 .map_err(DbError::connection_error)?;
         }
 
+        // sqlx logs every statement (and, at WARN, each one slower than a
+        // second) with its whole SQL: never user SQL. The read-only path's
+        // own connection clones these options, so it's off there too.
+        let options = SqliteConnectOptions::from_str(conn_str)
+            .map_err(DbError::connection_error)?
+            .disable_statement_logging();
         let pool = pool_options(conn_str)
-            .connect(conn_str)
+            .connect_with(options)
             .await
             .map_err(DbError::connection_error)?;
 

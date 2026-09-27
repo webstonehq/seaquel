@@ -82,3 +82,20 @@ fn debug_shows_the_duckdb_restriction() {
     let c = config(json!({ "driver": "duckdb", "path": "/tmp/x.duckdb", "restricted": true }));
     assert!(format!("{c:?}").contains("restricted: Some(true)"));
 }
+
+#[test]
+fn duckdb_config_shows_its_keys_only() {
+    let c = config(json!({
+        "driver": "duckdb", "path": ":memory:",
+        "duckdb_config": { "access_mode": "read_only", "s3_secret_access_key": "hunter2-s3" },
+        "tls_server_name": "sql.internal",
+    }));
+    let debug = both(&c);
+    assert!(!debug.contains("hunter2"), "{debug}");
+    assert!(!debug.contains("read_only"), "{debug}");
+    assert!(
+        debug.contains("access_mode") && debug.contains("s3_secret_access_key"),
+        "{debug}"
+    );
+    assert!(debug.contains("sql.internal"), "{debug}");
+}

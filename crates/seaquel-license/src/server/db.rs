@@ -11,6 +11,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
+use sqlx::ConnectOptions;
 
 use super::{Result, ServerError, ServerErrorCode};
 
@@ -75,7 +76,10 @@ impl AuthDb {
             .create_if_missing(false)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(Duration::from_secs(5))
-            .foreign_keys(true);
+            .foreign_keys(true)
+            // sqlx logs each statement at DEBUG (and, at WARN, one slower
+            // than a second) with its whole SQL: nothing here logs SQL.
+            .disable_statement_logging();
         let pool = SqlitePoolOptions::new()
             .max_connections(4)
             .idle_timeout(Some(Duration::from_secs(60)))

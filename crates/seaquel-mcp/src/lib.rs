@@ -22,10 +22,11 @@
 //! - **Sharing.** A connection whose AI schema or data sharing is off (after
 //!   the global default in the app's AI settings) refuses the schema or data
 //!   tools, with `SCHEMA_SHARING_OFF` or `DATA_SHARING_OFF`.
-//! - **Connections** open on first use through `Workspace::connect_saved`
-//!   with `HostKeyPolicy::KnownOnly` and `restricted` (DuckDB: no files
-//!   beyond its database, no extension installs or loads, configuration
-//!   locked), and stay open until [`McpServer::close`].
+//! - **Connections** open on first use through `Workspace::connect` with a
+//!   saved target, `HostKeyPolicy::KnownOnly` and `restricted` (DuckDB: no
+//!   files beyond its database, no extension installs or loads,
+//!   configuration locked), and stay open until [`McpServer::close`]. The
+//!   workspace owns them, and every query goes through it.
 //! - **Reads only.** Queries run through Core's read-only path with a row
 //!   limit (default 100, at most 1000), and every call has a timeout (60 s,
 //!   not counting a pending keychain prompt: [`SecretWait`]), after which its

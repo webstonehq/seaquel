@@ -16,11 +16,18 @@ secrets = ["seaquel-core/secrets"]
 license-desktop = ["seaquel-core/license-desktop"]
 git = ["seaquel-core/git"]
 ssh = ["seaquel-core/ssh"]
+# `db.connect`/`db.test` (`Workspace::connect`), through Core's `workspace`.
+# Every native interface turns it on; the browser build (Core's `browser`,
+# which refuses `workspace`) leaves it off, and then both answer
+# NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
+# `ConnectPolicy`, not this feature.
+workspace = ["seaquel-core/workspace"]
 
 [dependencies]
 seaquel-core = { path = "../seaquel-core", default-features = false }
 seaquel-engine = { path = "../seaquel-engine" }
 seaquel-types = { path = "../seaquel-types" }
+futures = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 # raw_value: storage rows keep their JSON columns as the text that came in.
@@ -29,9 +36,12 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Turns on both workspace groups for this crate's own tests.
-seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh"] }
+seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
+# Real engines for tests/db.rs: SQLite in temp files, Postgres when
+# SEAQUEL_TEST_POSTGRES is set.
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["engine-sqlite", "engine-postgres"] }
 seaquel-runtime = { path = "../seaquel-runtime" }
 tempfile = "3"
 # Only to point libgit2 at an empty config dir in tests/git.rs.
 git2 = { workspace = true }
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }

@@ -41,6 +41,7 @@ import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 import { storageGate } from "$lib/storage/storage-gate.svelte";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte";
 import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
+import { isDemo } from "$lib/utils/environment";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -91,6 +92,8 @@ class UseDatabase {
 
   private _stateRestoration: StateRestorationManager;
   private _readyResolve!: () => void;
+  /** Stops listening for Core's `connectionClosed` events. */
+  private stopCoreEvents: (() => void) | null = null;
   private _readyPromise: Promise<void>;
 
   constructor() {
@@ -355,6 +358,12 @@ class UseDatabase {
     try {
       void log.info("Initializing app");
 
+      // Once per page: connections Core closes on its own (an evicted web
+      // session, a lost connection) show as disconnected. The demo has no Core.
+      if (!isDemo()) {
+        this.stopCoreEvents = this.connections.listenForCoreEvents();
+      }
+
       // The first storage call. Legacy or corrupt storage stops here and the
       // app shell shows the storage error screen instead of empty state.
       if (!(await storageGate.check())) {
@@ -454,6 +463,8 @@ class UseDatabase {
    * would lose whatever the user changed in the last debounce window.
    */
   destroy(): void {
+    this.stopCoreEvents?.();
+    this.stopCoreEvents = null;
     this.sharedRepos.stopBackgroundRefresh();
     this.dashboards.stopAllAutoRefresh();
     void this.persistence.flush();

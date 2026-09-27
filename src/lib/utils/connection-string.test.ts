@@ -158,19 +158,18 @@ describe("getConnectionData", () => {
     saveSshKeyPassphrase: true,
   };
 
-  it("passes a plain connection string through", () => {
-    const connectionString = "postgres://alice@db.example.com:5432/app?options=-c%20foo";
+  it.each([
+    "postgres://alice@db.example.com:5432/app?options=-c%20foo",
+    "postgresql://alice@db.example.com:5432/app?statusColor=686B6F&name=App",
+    "postgresql+ssh://deploy@bastion:22/alice@db.example.com/app",
+  ])("passes the typed string through as it is: %s", (connectionString) => {
+    // Core uses it as it is (TablePlus parameters and `+ssh` URLs included).
     expect(getConnectionData({ ...baseForm, connectionString }).connectionString).toBe(
       connectionString,
     );
   });
 
-  it.each([
-    "postgresql://alice@db.example.com:5432/app?statusColor=686B6F&name=App",
-    "postgresql+ssh://deploy@bastion:22/alice@db.example.com/app",
-  ])("rebuilds TablePlus URLs from form fields: %s", (connectionString) => {
-    expect(getConnectionData({ ...baseForm, connectionString }).connectionString).toBe(
-      "postgres://alice@db.example.com/app?sslmode=require",
-    );
+  it("leaves an empty string empty, for Core to build from the fields", () => {
+    expect(getConnectionData({ ...baseForm, connectionString: "" }).connectionString).toBe("");
   });
 });

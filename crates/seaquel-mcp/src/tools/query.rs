@@ -79,10 +79,14 @@ pub(crate) async fn run_rows(
                 .with_max_rows(Some(max_rows))
                 .with_max_bytes(Some(MAX_FETCH_BYTES))
                 .with_timeout(Some(inner.options.call_timeout));
-            let mut stream =
-                inner
-                    .core
-                    .query_stream(query_id.clone(), connection_id, sql, params, options);
+            let mut stream = inner.workspace.query_stream(
+                &inner.core,
+                query_id.clone(),
+                connection_id,
+                sql,
+                params,
+                options,
+            );
             let mut rows = Rows::new(max_rows);
             while let Some(event) = stream.next().await {
                 match event {
@@ -240,8 +244,9 @@ pub(crate) async fn explain_query(inner: &Inner, args: ExplainArgs) -> Result<Js
         .timed(async {
             let id = inner.connection(c).await?;
             Ok(inner
-                .core
-                .explain_read_only(&id, &args.sql, Vec::new(), Some(timeout))
+                .workspace
+                .engine(&inner.core, &id)?
+                .explain_read_only(&args.sql, Vec::new(), Some(timeout))
                 .await?)
         })
         .await?;

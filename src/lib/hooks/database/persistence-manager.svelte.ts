@@ -1,4 +1,5 @@
 import { withErrorHandling } from "$lib/errors";
+import { stripConnectionStringSecrets } from "$lib/utils/connection-string-rules";
 import type {
   PersistedQueryTab,
   PersistedSchemaTab,
@@ -772,29 +773,9 @@ export class PersistenceManager {
 
   // === CONNECTION PERSISTENCE ===
 
+  /** The string as stored: without any password (`stripConnectionStringSecrets`). */
   stripPasswordFromConnectionString(connectionString?: string): string | undefined {
-    if (!connectionString) return undefined;
-
-    try {
-      // Handle SQLite
-      if (connectionString.startsWith("sqlite://") || connectionString.startsWith("sqlite:")) {
-        return connectionString;
-      }
-
-      // Parse URL-based connection strings
-      let normalized = connectionString.replace("postgresql://", "postgres://");
-      const url = new URL(normalized);
-
-      // Remove password from URL
-      if (url.password) {
-        url.password = "";
-      }
-
-      return url.toString().replace("postgres://", "postgresql://");
-    } catch {
-      // If parsing fails, return original string (it might not be a URL)
-      return connectionString;
-    }
+    return stripConnectionStringSecrets(connectionString);
   }
 
   /**

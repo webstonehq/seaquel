@@ -1,6 +1,7 @@
 //! The workspace RPC: one `Request`/`Response` pair for everything the GUIs
-//! ask of Core: metadata storage and secrets on a user's [`Workspace`], plus
-//! SSH, git and desktop licensing, and [`dispatch_workspace`].
+//! ask of Core: metadata storage, secrets and database calls (`db`, see the
+//! `db` module) on a user's [`Workspace`], plus SSH, git and desktop
+//! licensing, and [`dispatch_workspace`].
 //!
 //! The Tauri app serves it as the `core_call` command and `seaquel-server` as
 //! `POST /rpc`. Wire shape, two levels of adjacent tagging:
@@ -93,6 +94,13 @@ impl From<CoreError> for RpcError {
     }
 }
 
+/// Database errors keep their codes (`CONNECTION_NOT_FOUND`, the driver's).
+impl From<seaquel_types::DbError> for RpcError {
+    fn from(e: seaquel_types::DbError) -> Self {
+        Self::new(e.code, e.message)
+    }
+}
+
 /// For errors from the storage and secret crates, which convert to
 /// [`CoreError`] with their codes.
 #[cfg(any(feature = "storage", feature = "secrets"))]
@@ -116,6 +124,7 @@ pub enum Request {
     License(crate::license::DesktopLicenseRequest),
     Git(crate::git::GitRequest),
     Ssh(crate::ssh::SshRequest),
+    Db(crate::db::DbRequest),
 }
 
 /// A call's result: `{"method": <group>, "result": <the group's response>}`,
@@ -133,10 +142,12 @@ pub enum Response {
     License(crate::license::DesktopLicenseResponse),
     Git(crate::git::GitResponse),
     Ssh(crate::ssh::SshResponse),
+    Db(crate::db::DbResponse),
 }
 
 impl Request {
-    /// The group's wire name: `storage` or `secret`.
+    /// The group's wire name: `storage`, `secret`, `license`, `git`, `ssh`
+    /// or `db`.
     pub fn group(&self) -> &'static str {
         match self {
             Request::Storage(_) => "storage",
@@ -144,6 +155,7 @@ impl Request {
             Request::License(_) => "license",
             Request::Git(_) => "git",
             Request::Ssh(_) => "ssh",
+            Request::Db(_) => "db",
         }
     }
 
@@ -157,6 +169,7 @@ impl Request {
             Request::License(r) => r.method(),
             Request::Git(r) => r.method(),
             Request::Ssh(r) => r.method(),
+            Request::Db(r) => r.method(),
         }
     }
 }
@@ -511,15 +524,22 @@ impl<'de> Visitor<'de> for TagOrder {
 /// Run one workspace call.
 ///
 /// Logs the group and method name only, never the params or the result:
-/// they can hold passwords, keys and user data. `core` is for the calls that
-/// need more than the workspace (SSH tunnels, licensing), which later tasks
-/// add.
+/// they can hold passwords, connection strings, keys and user data.
+///
+/// `db` calls go through `ws`, so they reach only its own connections and
+/// streams. `db.queryStream` is refused here: `dispatch_stream` serves it.
+///
+/// **Who may connect, and to what,** is Core's `ConnectPolicy`, not this
+/// dispatcher's: a Core built without one refuses `db.connect` and `db.test`
+/// with `NOT_SUPPORTED` in every build. The web server's policy limits the
+/// config (`web_config::check_connect_config`, run on the config Core builds
+/// after the saved row or form and secrets are resolved) and refuses SSH
+/// before a tunnel opens; its engines are limited by `with_plugins(WEB_ENGINES)`.
 pub async fn dispatch_workspace(
     core: &Core,
     ws: &Workspace,
     req: Request,
 ) -> Result<Response, RpcError> {
-    let _ = core;
     let (group, method) = (req.group(), req.method());
     logged(group, method, async {
         match req {
@@ -535,6 +555,7 @@ pub async fn dispatch_workspace(
             // whatever features the build unified: a web workspace must not
             // open tunnels from the server.
             Request::Ssh(_) => Err(RpcError::not_supported("SSH tunnels")),
+            Request::Db(r) => crate::db::db(core, ws, r).await.map(Response::Db),
         }
     })
     .await

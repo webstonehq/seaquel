@@ -1,59 +1,58 @@
-//! A saved connection plus its keychain secrets, turned into the
-//! `ConnectConfig` (and SSH `TunnelConfig`) the desktop app would connect
-//! with. A port of the TypeScript in `connection-manager.svelte.ts`
-//! (`initializePersistedConnections`, `autoReconnect`, `reconnect`,
-//! `setupSshTunnel`), `connection-tabs.svelte.ts` (the reconnect tab's
-//! prefill), `connection-string.ts` and `wire.ts` (`toRustConfig`).
+//! The connection builder: a saved connection or a filled-in form, plus the
+//! secrets the caller supplies and the ones in the secret store, turned into
+//! the `ConnectConfig` (and SSH `TunnelConfig`) Core connects with.
 //!
-//! The frozen fixtures in `tests/fixtures/connect-config` are the spec; their
-//! README says which of the app's two paths each case follows:
+//! Both targets go through one function ([`plan`]), so a saved row and a
+//! form that describe the same connection get the same config. The v2
+//! fixtures in `tests/fixtures/connect-config-v2` are the spec; their README
+//! explains every rule and the phase 5a plan's Decision 6 row behind it. In
+//! short:
 //!
-//! - **autoReconnect**, the app's non-interactive path, for everything it
-//!   can connect offline;
-//! - **the reconnect tab's rebuild** (`getConnectionData` and
-//!   `buildConnectionString`) where autoReconnect can't: a Postgres, MySQL,
-//!   MariaDB or SQLite row with no stored string, and a row whose string the
-//!   SSH rewrite can't parse (a key=value MSSQL string);
-//! - `CREDENTIALS_REQUIRED` where the app would wait for the user to type
-//!   something.
+//! - **Secrets.** Supplied secrets always win. A saved row reads the ones
+//!   not supplied from the store under its save flags; a form reads nothing.
+//! - **Giving up** (`CREDENTIALS_REQUIRED`): a saved row with no database
+//!   password and `savePassword` off; SSH password auth without an SSH
+//!   password; SSH key auth without a key file; an empty host or SSH host
+//!   where it is used; an empty MSSQL username (SQL Server has no default
+//!   login).
+//! - **Postgres, MySQL, MariaDB:** the stored or typed string as it is
+//!   (TablePlus `tLSMode` translated, `+ssh` URLs split), or one built from
+//!   the fields when there is none; the password put into it, replacing any
+//!   it has; through a tunnel, its host and port rewritten.
+//! - **MSSQL:** the fields, never the string; through a tunnel,
+//!   `tls_server_name` is the server's own name.
+//! - **SQLite, DuckDB:** never tunnel and never read a secret.
 //!
-//! Secrets always follow autoReconnect's rules ([`read_secrets`]), and there
-//! is no retry with the tab's config after a failure: the caller connects
-//! once with what [`build_config`] returns.
-//!
-//! The call order is [`read_secrets`], then [`tunnel_config`] (open the
-//! tunnel it returns, if any), then [`build_config`] with the tunnel's local
-//! port.
-//!
-//! Two deliberate differences from the TS as recorded, made on both sides in
-//! phase 4, Task 3 (see the fixtures README's "Changes"): reinjection
-//! percent-encodes the password, and MSSQL trusts any certificate only for
-//! `disable`, `allow`, `prefer` or no mode.
+//! The call order is [`plan`], then [`Plan::tunnel`] (open the tunnel it
+//! returns, if any), then [`Plan::config`] with the tunnel's local port.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 
+use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
 use seaquel_types::ssh::TunnelConfig;
 use seaquel_types::storage::PersistedConnection;
 use seaquel_types::{ConnectConfig, DriverType};
 use serde_json::Value;
 
 use crate::connection_string::{
-    connection_data_string, js_number, parses_as_url, reinject_password, rewrite_host_port,
-    username_from_url, FormData,
+    build_url, default_port, is_plus_ssh, js_number, parses_as_url, passwords_in, put_password,
+    split_plus_ssh, through_tunnel, translate_tls_mode, url_host_port, username_from_url,
+    UrlFields,
 };
 
-/// The app would need the user to type something: a password that isn't
-/// saved, an SSH password or key file, or a missing field.
+/// The user has to supply something first: a password that isn't saved, an
+/// SSH password or key file, or a missing field.
 pub const CREDENTIALS_REQUIRED: &str = "CREDENTIALS_REQUIRED";
 
-/// The row can't be turned into a config at all: an unknown type, a port out
-/// of range, a string the SSH rewrite can't parse, or a tunnelled row built
-/// without its tunnel's port.
+/// The connection can't be turned into a config at all: an unknown type, a
+/// port out of range, a string the SSH rewrite can't parse, or a tunnelled
+/// connection built without its tunnel's port.
 pub const INVALID_CONNECTION: &str = "INVALID_CONNECTION";
 
-/// Why a saved connection can't be connected. Messages name the connection
-/// and never include a secret or the connection string.
+/// Why a connection can't be connected. Messages never include a secret or
+/// the connection string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
     pub code: &'static str,
@@ -77,24 +76,23 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// The keychain secrets a connection uses, as [`read_secrets`] returns them.
-/// An empty secret is kept as `None`. `Debug` redacts the values.
+/// The secrets a connection uses: supplied, or read from the store. An
+/// empty secret is kept as `None`. `Debug` redacts the values.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Secrets {
-    /// `db:<id>`: the database password.
+    /// The database password (`db:<id>`).
     pub db: Option<String>,
-    /// `ssh:<id>`: the SSH password.
+    /// The SSH password (`ssh:<id>`).
     pub ssh: Option<String>,
-    /// `ssh-key:<id>`: the SSH key's passphrase.
+    /// The SSH key's passphrase (`ssh-key:<id>`).
     pub ssh_key: Option<String>,
-    /// Reads that failed (a denied prompt, a locked keychain), with the
-    /// store's error code. The TS treats those as no secret, and so does
-    /// this; they are kept so a caller can refuse to connect without them
-    /// (`Workspace::connect_saved` does, with `SECRET_UNREADABLE`).
+    /// Store reads that failed (a denied prompt, a locked keychain), with the
+    /// store's error code. They count as no secret here; Core refuses to
+    /// connect without them (`SECRET_UNREADABLE`).
     pub unreadable: Vec<UnreadableSecret>,
 }
 
-/// A keychain read that failed: its key and the store's error code.
+/// A store read that failed: its key and the store's error code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnreadableSecret {
     pub key: String,
@@ -113,254 +111,370 @@ impl fmt::Debug for Secrets {
     }
 }
 
-/// The keychain key of a connection's database password.
+/// The store key of a connection's database password.
 pub fn db_key(id: &str) -> String {
     format!("db:{id}")
 }
 
-/// The keychain key of a connection's SSH password.
+/// The store key of a connection's SSH password.
 pub fn ssh_key(id: &str) -> String {
     format!("ssh:{id}")
 }
 
-/// The keychain key of a connection's SSH key passphrase.
+/// The store key of a connection's SSH key passphrase.
 pub fn ssh_key_passphrase_key(id: &str) -> String {
     format!("ssh-key:{id}")
 }
 
-/// Read the secrets connecting `row` needs, the way autoReconnect does, and
-/// give up where it does. `get` reads one keychain key and fails with the
-/// store's error code; a failed read counts as no secret (and is listed in
-/// [`Secrets::unreadable`]).
+/// What to connect.
+#[derive(Debug, Clone, Copy)]
+pub enum Target<'a> {
+    /// A saved connection: its secrets come from the caller first, then the
+    /// store under the row's save flags.
+    Saved(&'a PersistedConnection),
+    /// A filled-in form (add, the reconnect tab, test): only the caller's
+    /// secrets, and nothing is read from the store.
+    Form(&'a ConnectionForm),
+}
+
+/// Turn `target` into a [`Plan`]: pick its secrets, apply the give-up
+/// rules, and work out the tunnel and the database address.
 ///
-/// - SQLite and DuckDB read nothing.
-/// - `db:<id>` is read only when `savePassword` is on. With it off, this
-///   gives up (`CREDENTIALS_REQUIRED`) before reading anything else, even if
-///   the stored string still carries a password. With it on and nothing
-///   saved, the connection is taken to be passwordless.
-/// - With an enabled SSH tunnel, `ssh:<id>` is read when `saveSshPassword`
-///   is on and `ssh-key:<id>` when `saveSshKeyPassphrase` is on. Password
-///   auth without an SSH password, and key auth without a key file, give up.
-/// - Where the reconnect tab's rebuild applies, a row missing what the tab
-///   requires (a name, a database, a host, the SSH host or user) gives up
-///   too.
-pub async fn read_secrets<F, Fut>(
-    row: &PersistedConnection,
+/// `get` reads one store key and fails with the store's error code; a failed
+/// read counts as no secret (and is listed in [`Secrets::unreadable`]). It is
+/// called only for a saved row, only for secrets `supplied` lacks, and only
+/// under the row's flags, in this order: `db:<id>` (then the password
+/// give-up, before anything else is read), `ssh:<id>`, `ssh-key:<id>`.
+pub async fn plan<F, Fut>(
+    target: Target<'_>,
+    supplied: &SuppliedSecrets,
     mut get: F,
-) -> Result<Secrets, ConfigError>
+) -> Result<Plan, ConfigError>
 where
     F: FnMut(String) -> Fut,
     Fut: Future<Output = Result<Option<String>, String>>,
 {
-    let conn = Conn::new(row)?;
-    let mut secrets = Secrets::default();
-    if !conn.kind.is_file() {
-        if row.save_password {
-            let key = db_key(&row.id);
-            secrets.db = read(&mut get, key, &mut secrets.unreadable).await;
-        }
-        // The password check comes before any SSH secret is read.
-        conn.check_password(&secrets)?;
-        if conn.ssh.is_some() {
-            if row.save_ssh_password {
-                let key = ssh_key(&row.id);
-                secrets.ssh = read(&mut get, key, &mut secrets.unreadable).await;
-            }
-            if row.save_ssh_key_passphrase {
-                let key = ssh_key_passphrase_key(&row.id);
-                secrets.ssh_key = read(&mut get, key, &mut secrets.unreadable).await;
-            }
-        }
-    }
-    conn.check(&secrets)?;
-    Ok(secrets)
-}
+    let mut d = Draft::new(target)?;
 
-async fn read<F, Fut>(
-    get: &mut F,
-    key: String,
-    unreadable: &mut Vec<UnreadableSecret>,
-) -> Option<String>
-where
-    F: FnMut(String) -> Fut,
-    Fut: Future<Output = Result<Option<String>, String>>,
-{
-    match get(key.clone()).await {
-        Ok(value) => value.filter(|v| !v.is_empty()),
-        Err(code) => {
-            unreadable.push(UnreadableSecret { key, code });
-            None
-        }
-    }
-}
-
-/// The SSH tunnel to open before connecting `row`, or `None` when it has no
-/// enabled tunnel (SQLite and DuckDB never do: autoReconnect ignores their
-/// tunnel). `trust_host_key` is the fingerprint the user approved, or `None`
-/// to accept only a host already in known_hosts.
-///
-/// It forwards to the row's host and port, whatever the stored string says
-/// (quirk 7). On autoReconnect's path, the password and passphrase are sent
-/// only when saved; on the reconnect tab's they are always sent, as `""`
-/// when missing, and so is the key path (quirk 5).
-///
-/// Gives up like [`read_secrets`] when `secrets` lack something required.
-pub fn tunnel_config(
-    row: &PersistedConnection,
-    secrets: &Secrets,
-    trust_host_key: Option<String>,
-) -> Result<Option<TunnelConfig>, ConfigError> {
-    let conn = Conn::new(row)?;
-    conn.check(secrets)?;
-    let Some(ssh) = &conn.ssh else {
-        return Ok(None);
-    };
-    let config = match conn.path {
-        Path::AutoReconnect => TunnelConfig {
-            ssh_host: ssh.host.clone(),
-            ssh_port: conn.port(ssh.port, "SSH port")?,
-            ssh_username: ssh.username.clone(),
-            auth_method: ssh.auth_method.clone(),
-            password: secrets.ssh.clone().filter(|s| !s.is_empty()),
-            key_path: ssh.key_path.clone(),
-            key_passphrase: secrets.ssh_key.clone().filter(|s| !s.is_empty()),
-            remote_host: row.host.clone(),
-            remote_port: conn.port(Some(row.port), "port")?,
-            trust_host_key,
-        },
-        Path::ReconnectTab => {
-            let form = conn.form(secrets);
-            let tab = conn.tab_ssh(ssh);
-            TunnelConfig {
-                ssh_host: tab.host.to_string(),
-                ssh_port: conn.port(Some(tab.port), "SSH port")?,
-                ssh_username: tab.username.to_string(),
-                auth_method: tab.auth_method.to_string(),
-                password: Some(secrets.ssh.clone().unwrap_or_default()),
-                key_path: Some(tab.key_path.to_string()),
-                key_passphrase: Some(secrets.ssh_key.clone().unwrap_or_default()),
-                remote_host: form.host.to_string(),
-                remote_port: conn.port(Some(form.port), "port")?,
-                trust_host_key,
-            }
-        }
-    };
-    Ok(Some(config))
-}
-
-/// The config to open `row` with on Core. `tunnel_port` is the local port of
-/// the tunnel [`tunnel_config`] asked for; it is required when there is one
-/// and ignored otherwise.
-///
-/// - **Postgres, MySQL, MariaDB** (MariaDB on the `mysql` driver): the
-///   stored string, or the tab's rebuild when there is none. Through a
-///   tunnel its host and port become `127.0.0.1:<tunnel_port>`. A saved
-///   password is put into its user info, percent-encoded; without one the
-///   stored string goes out verbatim (`postgresql://` included).
-/// - **SQLite**: the stored string, or `sqlite://<databaseName>`;
-///   `create_if_missing` off.
-/// - **DuckDB**: the string without `duckdb://` or `duckdb:` (query
-///   parameters kept), `:memory:` when that leaves nothing, and the database
-///   name (or `:memory:`) when there is no string.
-/// - **MSSQL**: the row's fields; the string is ignored. `encrypt` unless the
-///   mode is `disable`; `trust_cert` only for `disable`, `allow`, `prefer`
-///   or no mode.
-///
-/// Gives up like [`read_secrets`] when `secrets` lack something required.
-pub fn build_config(
-    row: &PersistedConnection,
-    secrets: &Secrets,
-    tunnel_port: Option<u16>,
-) -> Result<ConnectConfig, ConfigError> {
-    let conn = Conn::new(row)?;
-    conn.check(secrets)?;
-    let tunnel_port = match conn.ssh {
-        Some(_) => Some(tunnel_port.ok_or_else(|| {
-            ConfigError::invalid(format!(
-                "Connection {:?} goes through an SSH tunnel; its local port is required",
-                row.name
-            ))
-        })?),
-        None => None,
-    };
-    let form = conn.form(secrets);
-    let password = secrets.db.as_deref().filter(|p| !p.is_empty());
-    // The string `reconnect` starts from.
-    let string = match conn.path {
-        Path::AutoReconnect => conn.connection_string.map(str::to_string),
-        Path::ReconnectTab => Some(connection_data_string(&form)),
-    };
-    // `setupSshTunnel`'s rewrite. MSSQL runs it too (and discards the
-    // result), so a string it can't parse fails there as well.
-    let string = match (string, tunnel_port) {
-        (Some(s), Some(port)) => Some(rewrite_host_port(&s, port).ok_or_else(|| {
-            ConfigError::invalid(format!(
-                "Connection {:?}: its connection string isn't a URL, so it can't go through \
-                 the SSH tunnel",
-                row.name
-            ))
-        })?),
-        (s, _) => s,
-    };
-
-    let mut config = empty(conn.kind.driver());
-    match conn.kind {
-        Kind::Duckdb => {
-            let path = match conn.connection_string {
-                Some(s) => {
-                    let rest = s.strip_prefix("duckdb://").unwrap_or(s);
-                    let rest = rest.strip_prefix("duckdb:").unwrap_or(rest);
-                    if rest.is_empty() {
-                        ":memory:"
+    // Row 7b: a TablePlus `+ssh` URL is its database URL plus an SSH part.
+    // The connection's own enabled tunnel wins (choice C).
+    let mut string = d.string.clone();
+    let mut url_ssh_password = None;
+    if d.kind.is_url() {
+        if let Some(s) = string.as_deref().filter(|s| is_plus_ssh(s)) {
+            let (db, ssh) = split_plus_ssh(s, &d.ty).ok_or_else(|| {
+                ConfigError::invalid(format!(
+                    "{} has a TablePlus SSH URL that can't be read",
+                    d.subject()
+                ))
+            })?;
+            string = Some(db);
+            if d.ssh.is_none() {
+                d.ssh = Some(Ssh {
+                    host: ssh.host,
+                    port: ssh.port.map_or(0.0, f64::from),
+                    username: ssh.username,
+                    auth_method: if ssh.use_private_key {
+                        "key"
                     } else {
-                        rest
+                        "password"
                     }
-                }
-                None if row.database_name.is_empty() => ":memory:",
-                None => &row.database_name,
+                    .into(),
+                    key_path: None,
+                });
+                url_ssh_password = ssh.password;
+            }
+        }
+    }
+    // Row 11: the string's user, decoded, when the field is empty.
+    if d.username.is_empty() {
+        if let Some(user) = string.as_deref().and_then(username_from_url) {
+            d.username = user;
+        }
+    }
+
+    let secrets = d.secrets(supplied, &mut get, url_ssh_password).await?;
+    d.check(&secrets)?;
+
+    let mut remote = None;
+    let endpoint = match d.kind {
+        Kind::Duckdb => {
+            let (path, config) = match &string {
+                Some(s) => duckdb_path(s),
+                None if d.database.is_empty() => (":memory:".to_string(), None),
+                None => (d.database.clone(), None),
             };
-            config.path = Some(path.to_string());
+            Endpoint::Duckdb { path, config }
         }
-        Kind::Sqlite => {
-            config.connection_string = string;
-            config.create_if_missing = Some(false);
-        }
+        Kind::Sqlite => Endpoint::Sqlite(
+            string
+                .clone()
+                .unwrap_or_else(|| format!("sqlite://{}", d.database)),
+        ),
         Kind::Mssql => {
-            let (ssl_mode, host, port) = match conn.path {
-                Path::AutoReconnect => (row.ssl_mode.as_deref(), row.host.as_str(), row.port),
-                Path::ReconnectTab => (Some(form.ssl_mode), form.host, form.port),
-            };
-            config.host = Some(match tunnel_port {
-                Some(_) => "127.0.0.1".to_string(),
-                None => host.to_string(),
-            });
-            config.port = Some(match tunnel_port {
-                Some(port) => port,
-                None => conn.port(Some(port), "port")?,
-            });
-            config.database = Some(row.database_name.clone());
-            config.username = Some(conn.username.clone());
-            config.password = Some(password.unwrap_or_default().to_string());
-            config.encrypt = Some(ssl_mode != Some("disable"));
-            config.trust_cert = Some(mssql_trusts_any_cert(ssl_mode));
+            if d.host.trim().is_empty() {
+                return Err(d.missing(Missing::Field("host"), &secrets));
+            }
+            // Row 3: SQL Server has no default login; an empty one fails
+            // with 18456 "Login failed for user ''" (checked live).
+            if d.username.trim().is_empty() {
+                return Err(d.missing(Missing::Field("username"), &secrets));
+            }
+            let port = d.port_or_default(d.port, 1433, "port")?;
+            remote = Some((d.host.clone(), port));
+            Endpoint::Mssql {
+                host: d.host.clone(),
+                port,
+                database: d.database.clone(),
+                username: d.username.clone(),
+                password: secrets.db.clone().unwrap_or_default(),
+                ssl_mode: d.ssl_mode.clone(),
+            }
         }
         Kind::Postgres | Kind::Mysql | Kind::Mariadb => {
-            config.connection_string = match (string, password) {
-                (Some(s), Some(pw)) => Some(reinject_password(&s, pw)),
-                (s, _) => s,
+            let default = default_port(&d.ty).unwrap_or(0);
+            let s = match &string {
+                // Row 4: as it is, `tLSMode` translated (settled B).
+                Some(s) => translate_tls_mode(s, &d.ty),
+                // Row 1: built from the fields.
+                None => {
+                    if d.host.trim().is_empty() {
+                        return Err(d.missing(Missing::Field("host"), &secrets));
+                    }
+                    let port = d.port_or_default(d.port, 0, "port")?;
+                    build_url(&UrlFields {
+                        ty: &d.ty,
+                        host: &d.host,
+                        port,
+                        database_name: &d.database,
+                        username: &d.username,
+                        ssl_mode: d.ssl_mode.as_deref(),
+                    })
+                }
             };
+            // Settled A: the supplied or saved password replaces the string's.
+            let s = match &secrets.db {
+                Some(pw) => put_password(&s, pw),
+                None => s,
+            };
+            if d.ssh.is_some() {
+                if !parses_as_url(&s) {
+                    return Err(ConfigError::invalid(format!(
+                        "{}: its connection string isn't a URL, so it can't go through the SSH \
+                         tunnel",
+                        d.subject()
+                    )));
+                }
+                // Row 7c: forward to where the string points.
+                remote = Some(match url_host_port(&s, default) {
+                    Some(hp) => hp,
+                    None => (d.host.clone(), d.port_or_default(d.port, default, "port")?),
+                });
+            }
+            Endpoint::Url(s)
         }
-    }
-    Ok(config)
+    };
+
+    let tunnel = match (&d.ssh, remote) {
+        (Some(ssh), Some((remote_host, remote_port))) => Some(TunnelConfig {
+            ssh_host: ssh.host.clone(),
+            ssh_port: d.port_or_default(ssh.port, 22, "SSH port")?,
+            ssh_username: ssh.username.clone(),
+            auth_method: ssh.auth_method.clone(),
+            password: secrets.ssh.clone(),
+            key_path: ssh.key_path.clone(),
+            key_passphrase: secrets.ssh_key.clone(),
+            remote_host,
+            remote_port,
+            trust_host_key: None,
+        }),
+        _ => None,
+    };
+
+    let string_passwords = d.string.as_deref().map(passwords_in).unwrap_or_default();
+    Ok(Plan {
+        string_passwords,
+        name: d.name,
+        driver: d.kind.driver(),
+        secrets,
+        tunnel,
+        endpoint,
+    })
 }
 
-/// Whether an MSSQL connection with this `sslMode` accepts any server
+/// What [`plan`] worked out: the secrets, the tunnel to open (if any) and
+/// the database address. Its `Debug` shows no secret or string.
+pub struct Plan {
+    name: String,
+    /// Passwords the stored or typed string holds itself, for redaction.
+    string_passwords: Vec<String>,
+    driver: DriverType,
+    secrets: Secrets,
+    tunnel: Option<TunnelConfig>,
+    endpoint: Endpoint,
+}
+
+enum Endpoint {
+    /// Postgres, MySQL, MariaDB: the string, password included.
+    Url(String),
+    Mssql {
+        host: String,
+        port: u16,
+        database: String,
+        username: String,
+        password: String,
+        ssl_mode: Option<String>,
+    },
+    Sqlite(String),
+    Duckdb {
+        path: String,
+        config: Option<BTreeMap<String, String>>,
+    },
+}
+
+impl Plan {
+    /// The connection's name (a form's may be empty).
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The secrets it uses, and the store reads that failed.
+    pub fn secrets(&self) -> &Secrets {
+        &self.secrets
+    }
+
+    /// Every secret value an error could echo, for redacting it: the
+    /// supplied or stored secrets, and any password the connection string
+    /// holds itself (as written and decoded).
+    pub fn secret_values(&self) -> Vec<String> {
+        let mut out: Vec<String> = [&self.secrets.db, &self.secrets.ssh, &self.secrets.ssh_key]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        out.extend(self.string_passwords.iter().cloned());
+        out
+    }
+
+    /// The SSH tunnel to open first, or `None`. `trust_host_key` is the
+    /// fingerprint the user approved, or `None` to accept only a host
+    /// already in known_hosts.
+    pub fn tunnel(&self, trust_host_key: Option<String>) -> Option<TunnelConfig> {
+        self.tunnel.clone().map(|mut t| {
+            t.trust_host_key = trust_host_key;
+            t
+        })
+    }
+
+    /// The config to open on Core. `tunnel_port` is the local port of the
+    /// tunnel [`Plan::tunnel`] asked for: required when there is one, ignored
+    /// otherwise. `create_if_missing` applies to SQLite.
+    pub fn config(
+        &self,
+        tunnel_port: Option<u16>,
+        create_if_missing: bool,
+    ) -> Result<ConnectConfig, ConfigError> {
+        let tunnel_port = match (&self.tunnel, tunnel_port) {
+            (Some(_), Some(port)) => Some(port),
+            (Some(_), None) => {
+                return Err(ConfigError::invalid(format!(
+                    "Connection {:?} goes through an SSH tunnel; its local port is required",
+                    self.name
+                )))
+            }
+            (None, _) => None,
+        };
+        let mut config = empty(self.driver);
+        match &self.endpoint {
+            Endpoint::Url(s) => {
+                config.connection_string = Some(match tunnel_port {
+                    Some(port) => through_tunnel(s, port).ok_or_else(|| {
+                        ConfigError::invalid(format!(
+                            "Connection {:?}: its connection string can't go through the SSH \
+                             tunnel",
+                            self.name
+                        ))
+                    })?,
+                    None => s.clone(),
+                });
+            }
+            Endpoint::Mssql {
+                host,
+                port,
+                database,
+                username,
+                password,
+                ssl_mode,
+            } => {
+                match tunnel_port {
+                    Some(local) => {
+                        config.host = Some("127.0.0.1".to_string());
+                        config.port = Some(local);
+                        // Row 6: the certificate is the server's, not 127.0.0.1's.
+                        config.tls_server_name = Some(host.clone());
+                    }
+                    None => {
+                        config.host = Some(host.clone());
+                        config.port = Some(*port);
+                    }
+                }
+                config.database = Some(database.clone());
+                config.username = Some(username.clone());
+                config.password = Some(password.clone());
+                let mode = ssl_mode.as_deref();
+                config.encrypt = Some(mode != Some("disable"));
+                config.trust_cert = Some(mssql_trusts_any_cert(mode));
+            }
+            Endpoint::Sqlite(s) => {
+                config.connection_string = Some(s.clone());
+                config.create_if_missing = Some(create_if_missing);
+            }
+            Endpoint::Duckdb { path, config: opts } => {
+                config.path = Some(path.clone());
+                config.duckdb_config = opts.clone();
+            }
+        }
+        Ok(config)
+    }
+}
+
+impl fmt::Debug for Plan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Plan")
+            .field("name", &self.name)
+            .field("driver", &self.driver)
+            .field("secrets", &self.secrets)
+            .field("tunnel", &self.tunnel)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Whether an MSSQL connection with this SSL mode accepts any server
 /// certificate: only for `disable`, `allow`, `prefer` and no mode (unset or
 /// `""`). `require`, `verify-ca`, `verify-full` and anything else verify it.
-/// The TS used to trust for everything but `require` (phase 4, Task 3 fixed
-/// both sides).
 pub fn mssql_trusts_any_cert(ssl_mode: Option<&str>) -> bool {
     matches!(ssl_mode, None | Some("" | "disable" | "allow" | "prefer"))
+}
+
+/// A DuckDB string as a path and its options (row 10): without `duckdb://`
+/// or `duckdb:`, the query parsed out, and `:memory:` when nothing is left.
+fn duckdb_path(s: &str) -> (String, Option<BTreeMap<String, String>>) {
+    let rest = s.strip_prefix("duckdb://").unwrap_or(s);
+    let rest = rest.strip_prefix("duckdb:").unwrap_or(rest);
+    let (path, query) = match rest.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (rest, None),
+    };
+    let config: Option<BTreeMap<String, String>> = query
+        .map(|q| {
+            url::form_urlencoded::parse(q.as_bytes())
+                .filter(|(k, _)| !k.is_empty())
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect()
+        })
+        .filter(|m: &BTreeMap<String, String>| !m.is_empty());
+    let path = if path.is_empty() { ":memory:" } else { path };
+    (path.to_string(), config)
 }
 
 fn empty(driver: DriverType) -> ConnectConfig {
@@ -377,6 +491,8 @@ fn empty(driver: DriverType) -> ConnectConfig {
         path: None,
         create_if_missing: None,
         restricted: None,
+        tls_server_name: None,
+        duckdb_config: None,
     }
 }
 
@@ -395,6 +511,11 @@ impl Kind {
         matches!(self, Kind::Sqlite | Kind::Duckdb)
     }
 
+    /// Connects with a URL string (sqlx).
+    fn is_url(self) -> bool {
+        matches!(self, Kind::Postgres | Kind::Mysql | Kind::Mariadb)
+    }
+
     fn driver(self) -> DriverType {
         match self {
             Kind::Postgres => DriverType::Postgres,
@@ -406,32 +527,19 @@ impl Kind {
     }
 }
 
-/// Which of the app's paths a row follows (module docs).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Path {
-    AutoReconnect,
-    ReconnectTab,
-}
-
-/// The row's `sshTunnel`, when enabled.
+/// An enabled SSH tunnel.
 struct Ssh {
     host: String,
-    port: Option<f64>,
+    /// 0 means 22.
+    port: f64,
     username: String,
+    /// `""` became `password`.
     auth_method: String,
+    /// `None` when empty.
     key_path: Option<String>,
 }
 
-/// The reconnect tab's SSH fields (`connection-tabs.svelte.ts` `open`).
-struct TabSsh<'a> {
-    host: &'a str,
-    port: f64,
-    username: &'a str,
-    auth_method: &'a str,
-    key_path: &'a str,
-}
-
-/// What's missing when the app would wait for the user.
+/// What's missing when the user has to supply something.
 enum Missing {
     Password,
     SshPassword,
@@ -439,22 +547,76 @@ enum Missing {
     Field(&'static str),
 }
 
-/// A row as the app holds it after loading: the URL-username fallback
-/// applied, the tunnel parsed, and its path decided.
-struct Conn<'a> {
-    row: &'a PersistedConnection,
+/// The intermediate form both targets map to: a saved row's fields (or the
+/// form's), its tunnel when enabled, and its save flags.
+struct Draft {
+    /// The row's id; `None` for a form.
+    saved_id: Option<String>,
+    name: String,
+    ty: String,
     kind: Kind,
-    /// The stored string; `""` counts as none.
-    connection_string: Option<&'a str>,
+    host: String,
+    port: f64,
+    database: String,
     username: String,
-    /// Only for server engines: autoReconnect ignores a file engine's tunnel.
+    /// `None` for unset or `""`: the engine's default.
+    ssl_mode: Option<String>,
+    /// `None` for unset or `""`.
+    string: Option<String>,
+    /// Only for server engines: file engines never tunnel (row 7d).
     ssh: Option<Ssh>,
-    path: Path,
+    save_password: bool,
+    save_ssh_password: bool,
+    save_ssh_key_passphrase: bool,
 }
 
-impl<'a> Conn<'a> {
-    fn new(row: &'a PersistedConnection) -> Result<Self, ConfigError> {
-        let kind = match row.ty.as_str() {
+fn non_empty(s: Option<&str>) -> Option<String> {
+    s.filter(|s| !s.is_empty()).map(str::to_string)
+}
+
+impl Draft {
+    fn new(target: Target<'_>) -> Result<Self, ConfigError> {
+        let mut d = match target {
+            Target::Saved(row) => Self {
+                saved_id: Some(row.id.clone()),
+                name: row.name.clone(),
+                ty: row.ty.clone(),
+                kind: Kind::Postgres,
+                host: row.host.clone(),
+                port: row.port,
+                database: row.database_name.clone(),
+                username: row.username.clone(),
+                ssl_mode: non_empty(row.ssl_mode.as_deref()),
+                string: non_empty(row.connection_string.as_deref()),
+                ssh: parse_ssh(row),
+                save_password: row.save_password,
+                save_ssh_password: row.save_ssh_password,
+                save_ssh_key_passphrase: row.save_ssh_key_passphrase,
+            },
+            Target::Form(form) => Self {
+                saved_id: None,
+                name: form.name.clone(),
+                ty: form.ty.clone(),
+                kind: Kind::Postgres,
+                host: form.host.clone(),
+                port: form.port,
+                database: form.database_name.clone(),
+                username: form.username.clone(),
+                ssl_mode: non_empty(form.ssl_mode.as_deref()),
+                string: non_empty(Some(&form.connection_string)),
+                ssh: form.ssh_enabled.then(|| Ssh {
+                    host: form.ssh_host.clone(),
+                    port: form.ssh_port,
+                    username: form.ssh_username.clone(),
+                    auth_method: form.ssh_auth_method.clone(),
+                    key_path: non_empty(Some(&form.ssh_key_path)),
+                }),
+                save_password: form.save_password,
+                save_ssh_password: form.save_ssh_password,
+                save_ssh_key_passphrase: form.save_ssh_key_passphrase,
+            },
+        };
+        d.kind = match d.ty.as_str() {
             "postgres" => Kind::Postgres,
             "mysql" => Kind::Mysql,
             "mariadb" => Kind::Mariadb,
@@ -463,117 +625,162 @@ impl<'a> Conn<'a> {
             "mssql" => Kind::Mssql,
             other => {
                 return Err(ConfigError::invalid(format!(
-                    "Connection {:?} has an unknown database type {other:?}",
-                    row.name
+                    "{} has an unknown database type {other:?}",
+                    d.subject()
                 )))
             }
         };
-        let connection_string = row.connection_string.as_deref().filter(|s| !s.is_empty());
-        let username = match connection_string {
-            Some(s) if row.username.is_empty() => username_from_url(s).unwrap_or_default(),
-            _ => row.username.clone(),
-        };
-        let ssh = if kind.is_file() { None } else { parse_ssh(row) };
-        let unparseable = || connection_string.is_some_and(|s| !parses_as_url(s));
-        let path = match kind {
-            Kind::Duckdb => Path::AutoReconnect,
-            Kind::Sqlite if connection_string.is_none() => Path::ReconnectTab,
-            Kind::Sqlite => Path::AutoReconnect,
-            Kind::Mssql if ssh.is_some() && unparseable() => Path::ReconnectTab,
-            Kind::Mssql => Path::AutoReconnect,
-            _ if connection_string.is_none() || (ssh.is_some() && unparseable()) => {
-                Path::ReconnectTab
-            }
-            _ => Path::AutoReconnect,
-        };
-        Ok(Self {
-            row,
-            kind,
-            connection_string,
-            username,
-            ssh,
-            path,
-        })
-    }
-
-    /// autoReconnect's first give-up: no password and `savePassword` off.
-    fn check_password(&self, secrets: &Secrets) -> Result<(), ConfigError> {
-        let has_password = secrets.db.as_deref().is_some_and(|p| !p.is_empty());
-        if !self.kind.is_file() && !has_password && !self.row.save_password {
-            return Err(self.missing(Missing::Password, secrets));
+        if d.kind.is_file() {
+            d.ssh = None;
         }
-        Ok(())
+        if let Some(ssh) = &mut d.ssh {
+            if ssh.auth_method.is_empty() {
+                ssh.auth_method = "password".into();
+            }
+        }
+        Ok(d)
     }
 
-    /// Every give-up: autoReconnect's, then (on the tab's path) what
-    /// `hasAllCredentials` requires before the tab connects on its own.
+    /// `Connection "name"`, or `The connection` for a form without a name.
+    fn subject(&self) -> String {
+        if self.saved_id.is_none() && self.name.trim().is_empty() {
+            "The connection".to_string()
+        } else {
+            format!("Connection {:?}", self.name)
+        }
+    }
+
+    /// Supplied secrets first; for a saved row, the rest from the store
+    /// under its flags. Gives up when a saved row has no database password
+    /// and `savePassword` is off, before any SSH secret is read.
+    async fn secrets<F, Fut>(
+        &self,
+        supplied: &SuppliedSecrets,
+        get: &mut F,
+        url_ssh_password: Option<String>,
+    ) -> Result<Secrets, ConfigError>
+    where
+        F: FnMut(String) -> Fut,
+        Fut: Future<Output = Result<Option<String>, String>>,
+    {
+        let mut secrets = Secrets::default();
+        if self.kind.is_file() {
+            return Ok(secrets);
+        }
+        let saved = self.saved_id.as_deref();
+        secrets.db = match non_empty(supplied.db.as_deref()) {
+            Some(pw) => Some(pw),
+            None => match saved {
+                Some(id) if self.save_password => {
+                    read(get, db_key(id), &mut secrets.unreadable).await
+                }
+                _ => None,
+            },
+        };
+        if saved.is_some() && secrets.db.is_none() && !self.save_password {
+            return Err(self.missing(Missing::Password, &secrets));
+        }
+        if self.ssh.is_some() {
+            secrets.ssh = match non_empty(supplied.ssh.as_deref()) {
+                Some(pw) => Some(pw),
+                None => match saved {
+                    Some(id) if self.save_ssh_password => {
+                        read(get, ssh_key(id), &mut secrets.unreadable).await
+                    }
+                    _ => None,
+                },
+            };
+            secrets.ssh_key = match non_empty(supplied.ssh_key.as_deref()) {
+                Some(pw) => Some(pw),
+                None => match saved {
+                    Some(id) if self.save_ssh_key_passphrase => {
+                        read(get, ssh_key_passphrase_key(id), &mut secrets.unreadable).await
+                    }
+                    _ => None,
+                },
+            };
+            if secrets.ssh.is_none() {
+                secrets.ssh = url_ssh_password;
+            }
+        }
+        Ok(secrets)
+    }
+
+    /// The tunnel's give-ups: password auth without a password, key auth
+    /// without a key file, no SSH host or user.
     fn check(&self, secrets: &Secrets) -> Result<(), ConfigError> {
-        self.check_password(secrets)?;
-        let has_ssh_password = secrets.ssh.as_deref().is_some_and(|p| !p.is_empty());
-        if let Some(ssh) = &self.ssh {
-            if ssh.auth_method == "password" && !has_ssh_password {
-                return Err(self.missing(Missing::SshPassword, secrets));
-            }
-            if ssh.auth_method == "key" && ssh.key_path.as_deref().unwrap_or("").is_empty() {
-                return Err(self.missing(Missing::SshKeyPath, secrets));
-            }
+        let Some(ssh) = &self.ssh else {
+            return Ok(());
+        };
+        if ssh.auth_method == "password" && secrets.ssh.is_none() {
+            return Err(self.missing(Missing::SshPassword, secrets));
         }
-        if self.path == Path::ReconnectTab {
-            let form = self.form(secrets);
-            if self.row.name.trim().is_empty() {
-                return Err(self.missing(Missing::Field("name"), secrets));
-            }
-            if form.database_name.trim().is_empty() {
-                return Err(self.missing(Missing::Field("database"), secrets));
-            }
-            if !self.kind.is_file() && form.host.trim().is_empty() {
-                return Err(self.missing(Missing::Field("host"), secrets));
-            }
-            if let Some(ssh) = &self.ssh {
-                let tab = self.tab_ssh(ssh);
-                if tab.host.trim().is_empty() {
-                    return Err(self.missing(Missing::Field("SSH host"), secrets));
-                }
-                if tab.username.trim().is_empty() {
-                    return Err(self.missing(Missing::Field("SSH username"), secrets));
-                }
-                if tab.auth_method == "password" && !has_ssh_password {
-                    return Err(self.missing(Missing::SshPassword, secrets));
-                }
-                if tab.auth_method == "key" && tab.key_path.is_empty() {
-                    return Err(self.missing(Missing::SshKeyPath, secrets));
-                }
-            }
+        if ssh.auth_method == "key" && ssh.key_path.is_none() {
+            return Err(self.missing(Missing::SshKeyPath, secrets));
+        }
+        if ssh.host.trim().is_empty() {
+            return Err(self.missing(Missing::Field("SSH host"), secrets));
+        }
+        if ssh.username.trim().is_empty() {
+            return Err(self.missing(Missing::Field("SSH username"), secrets));
         }
         Ok(())
     }
 
     fn missing(&self, what: Missing, secrets: &Secrets) -> ConfigError {
-        let name = &self.row.name;
-        let unreadable = |key: String| secrets.unreadable.iter().any(|u| u.key == key);
-        let message = match what {
-            Missing::Password => format!(
-                "Connection {name:?} has no saved password. Open it in the Seaquel app, enter \
-                 the password with \"Save password in keychain\" on, and connect once."
-            ),
-            Missing::SshPassword if unreadable(ssh_key(&self.row.id)) => format!(
-                "Seaquel couldn't read the SSH password of connection {name:?} from the \
-                 keychain. Allow access when the system asks, or open the connection in the \
-                 Seaquel app and save its SSH password again."
-            ),
-            Missing::SshPassword => format!(
-                "Connection {name:?} goes through an SSH tunnel whose password isn't saved. \
-                 Open it in the Seaquel app, enter the SSH password with saving on, and connect \
-                 once."
-            ),
-            Missing::SshKeyPath => format!(
-                "Connection {name:?} uses SSH key authentication but has no key file. Open it in \
-                 the Seaquel app, choose the key file, and connect once."
-            ),
-            Missing::Field(field) => format!(
-                "Connection {name:?} has no {field}. Open it in the Seaquel app, fill it in, and \
-                 connect once."
-            ),
+        let message = match &self.saved_id {
+            Some(id) => {
+                let name = &self.name;
+                let unreadable = |key: String| {
+                    secrets
+                        .unreadable
+                        .iter()
+                        .find(|u| u.key == key)
+                        .map(|u| u.code.as_str())
+                };
+                match what {
+                    Missing::Password => format!(
+                        "Connection {name:?} has no saved password. Open it in the Seaquel app, \
+                         enter the password with \"Save password in keychain\" on, and connect \
+                         once."
+                    ),
+                    Missing::SshPassword if unreadable(ssh_key(id)) == Some("NO_SECRET_STORE") => {
+                        format!(
+                            "Connection {name:?} needs its saved SSH password, but this \
+                             workspace has no secret store to read it from. Enter the SSH \
+                             password to connect."
+                        )
+                    }
+                    Missing::SshPassword if unreadable(ssh_key(id)).is_some() => format!(
+                        "Seaquel couldn't read the SSH password of connection {name:?} from the \
+                         keychain. Allow access when the system asks, or open the connection in \
+                         the Seaquel app and save its SSH password again."
+                    ),
+                    Missing::SshPassword => format!(
+                        "Connection {name:?} goes through an SSH tunnel whose password isn't \
+                         saved. Open it in the Seaquel app, enter the SSH password with saving \
+                         on, and connect once."
+                    ),
+                    Missing::SshKeyPath => format!(
+                        "Connection {name:?} uses SSH key authentication but has no key file. \
+                         Open it in the Seaquel app, choose the key file, and connect once."
+                    ),
+                    Missing::Field(field) => format!(
+                        "Connection {name:?} has no {field}. Open it in the Seaquel app, fill it \
+                         in, and connect once."
+                    ),
+                }
+            }
+            None => match what {
+                Missing::Password => "Enter the password.".to_string(),
+                Missing::SshPassword => {
+                    "Enter the SSH password to connect through the SSH tunnel.".to_string()
+                }
+                Missing::SshKeyPath => {
+                    "Choose the SSH key file to connect through the SSH tunnel.".to_string()
+                }
+                Missing::Field(field) => format!("Enter the {field} to connect."),
+            },
         };
         ConfigError {
             code: CREDENTIALS_REQUIRED,
@@ -581,65 +788,35 @@ impl<'a> Conn<'a> {
         }
     }
 
-    /// The reconnect tab's form (`connection-tabs.svelte.ts` `open`, with
-    /// the credentials loaded): an empty host becomes `localhost`, port 0
-    /// becomes 5432, and an unset `sslMode` becomes `disable` (quirk 5).
-    fn form(&self, secrets: &'a Secrets) -> FormData<'_> {
-        let row = self.row;
-        FormData {
-            ty: &row.ty,
-            host: if row.host.is_empty() {
-                "localhost"
-            } else {
-                &row.host
-            },
-            port: truthy_or(row.port, 5432.0),
-            database_name: &row.database_name,
-            username: &self.username,
-            password: secrets.db.as_deref().unwrap_or(""),
-            ssl_mode: row
-                .ssl_mode
-                .as_deref()
-                .filter(|m| !m.is_empty())
-                .unwrap_or("disable"),
-            connection_string: self.connection_string.unwrap_or(""),
+    /// A JSON number as a `u16` port, with 0 as `default`.
+    fn port_or_default(&self, n: f64, default: u16, what: &str) -> Result<u16, ConfigError> {
+        if n.fract() == 0.0 && (0.0..=65535.0).contains(&n) {
+            let port = n as u16;
+            return Ok(if port == 0 { default } else { port });
         }
-    }
-
-    fn tab_ssh<'s>(&self, ssh: &'s Ssh) -> TabSsh<'s> {
-        TabSsh {
-            host: &ssh.host,
-            port: truthy_or(ssh.port.unwrap_or(0.0), 22.0),
-            username: &ssh.username,
-            auth_method: if ssh.auth_method.is_empty() {
-                "password"
-            } else {
-                &ssh.auth_method
-            },
-            key_path: ssh.key_path.as_deref().unwrap_or(""),
-        }
-    }
-
-    /// A JSON number as a port, which Core's `u16` fields need.
-    fn port(&self, n: Option<f64>, what: &str) -> Result<u16, ConfigError> {
-        n.filter(|n| n.fract() == 0.0 && (0.0..=65535.0).contains(n))
-            .map(|n| n as u16)
-            .ok_or_else(|| {
-                let shown = n.map_or_else(|| "none".to_string(), js_number);
-                ConfigError::invalid(format!(
-                    "Connection {:?} has an invalid {what}: {shown}",
-                    self.row.name
-                ))
-            })
+        Err(ConfigError::invalid(format!(
+            "{} has an invalid {what}: {}",
+            self.subject(),
+            js_number(n)
+        )))
     }
 }
 
-/// JavaScript's `n || fallback` for a number.
-fn truthy_or(n: f64, fallback: f64) -> f64 {
-    if n == 0.0 || n.is_nan() {
-        fallback
-    } else {
-        n
+async fn read<F, Fut>(
+    get: &mut F,
+    key: String,
+    unreadable: &mut Vec<UnreadableSecret>,
+) -> Option<String>
+where
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = Result<Option<String>, String>>,
+{
+    match get(key.clone()).await {
+        Ok(value) => value.filter(|v| !v.is_empty()),
+        Err(code) => {
+            unreadable.push(UnreadableSecret { key, code });
+            None
+        }
     }
 }
 
@@ -665,13 +842,10 @@ fn parse_ssh(row: &PersistedConnection) -> Option<Ssh> {
     let text = |k: &str| obj.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     Some(Ssh {
         host: text("host"),
-        port: obj.get("port").and_then(Value::as_f64),
+        port: obj.get("port").and_then(Value::as_f64).unwrap_or(0.0),
         username: text("username"),
         auth_method: text("authMethod"),
-        key_path: obj
-            .get("keyPath")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        key_path: non_empty(obj.get("keyPath").and_then(Value::as_str)),
     })
 }
 
@@ -715,5 +889,20 @@ mod tests {
         let debug = format!("{s:?} {s:#?}");
         assert!(!debug.contains("hunter2"), "{debug}");
         assert!(debug.contains("<redacted>") && debug.contains("ssh:x"));
+    }
+
+    #[test]
+    fn duckdb_options_come_out_of_the_path() {
+        let (path, config) = duckdb_path("duckdb:///x.duckdb?access_mode=read_only&threads=2");
+        assert_eq!(path, "/x.duckdb");
+        let config = config.unwrap();
+        assert_eq!(config["access_mode"], "read_only");
+        assert_eq!(config["threads"], "2");
+        assert_eq!(duckdb_path("duckdb://").0, ":memory:");
+        assert_eq!(duckdb_path("duckdb://?threads=1").0, ":memory:");
+        assert_eq!(
+            duckdb_path("duckdb:rel.duckdb"),
+            ("rel.duckdb".into(), None)
+        );
     }
 }

@@ -77,12 +77,13 @@ pub fn run(args: McpArgs) -> ExitCode {
     }
 }
 
-/// sqlx's statement log target. It logs every statement slower than 1 s at
-/// WARN with its whole SQL, which may quote values.
+/// sqlx's statement log target. It logs every statement at DEBUG, and each
+/// one slower than a second at WARN, with its whole SQL, which may quote
+/// values. The drivers turn it off; this drops it too, at every level.
 const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
 /// What `--log-level` lets through: everything at `level`, except
-/// `sqlx::query` below ERROR unless the level is `debug` or `trace`.
+/// `sqlx::query`, which never passes.
 pub(crate) fn log_filter(level: LogLevel) -> Targets {
     let filter = match level {
         LogLevel::Off => LevelFilter::OFF,
@@ -92,14 +93,9 @@ pub(crate) fn log_filter(level: LogLevel) -> Targets {
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Trace => LevelFilter::TRACE,
     };
-    let sqlx = if matches!(level, LogLevel::Debug | LogLevel::Trace) {
-        filter
-    } else {
-        filter.min(LevelFilter::ERROR)
-    };
     Targets::new()
         .with_default(filter)
-        .with_target(SQLX_QUERY_TARGET, sqlx)
+        .with_target(SQLX_QUERY_TARGET, LevelFilter::OFF)
 }
 
 fn init_logging(level: LogLevel) {
@@ -147,7 +143,10 @@ fn startup_error(e: CoreError) -> String {
 
 async fn serve(args: McpArgs) -> Result<(), String> {
     let dir = data_dir(APP_IDENTIFIER).map_err(|e| startup_error(e.into()))?;
-    let mut builder = seaquel_core::with_default_plugins();
+    // The MCP server connects to the user's own saved connections, as the
+    // desktop app would.
+    let mut builder = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted);
     if let Some(path) = test_hook(TEST_KNOWN_HOSTS_ENV) {
         builder = builder.ssh_known_hosts(path);
     }
@@ -256,6 +255,7 @@ mod tests {
         const WARN: LevelFilter = LevelFilter::WARN;
         const INFO: LevelFilter = LevelFilter::INFO;
         const DEBUG: LevelFilter = LevelFilter::DEBUG;
+        const TRACE: LevelFilter = LevelFilter::TRACE;
     }
 
     fn enables(t: &Targets, target: &str, level: LevelFilter) -> bool {
@@ -263,13 +263,25 @@ mod tests {
     }
 
     #[test]
-    fn sqlx_statement_logs_need_debug() {
-        for level in [LogLevel::Warn, LogLevel::Info, LogLevel::Error] {
+    fn sqlx_statement_logs_never_pass() {
+        for level in [
+            LogLevel::Off,
+            LogLevel::Error,
+            LogLevel::Warn,
+            LogLevel::Info,
+            LogLevel::Debug,
+            LogLevel::Trace,
+        ] {
             let t = log_filter(level);
-            assert!(!enables(&t, "sqlx::query", Level::WARN), "{level:?}");
-            assert!(!enables(&t, "sqlx::query", Level::INFO), "{level:?}");
-            assert!(enables(&t, "sqlx::query", Level::ERROR), "{level:?}");
-            assert!(enables(&t, "seaquel_mcp", Level::ERROR), "{level:?}");
+            for l in [
+                Level::ERROR,
+                Level::WARN,
+                Level::INFO,
+                Level::DEBUG,
+                Level::TRACE,
+            ] {
+                assert!(!enables(&t, "sqlx::query", l), "{level:?} {l:?}");
+            }
         }
         assert!(enables(
             &log_filter(LogLevel::Warn),
@@ -281,14 +293,9 @@ mod tests {
             "sqlx::pool",
             Level::WARN
         ));
-        for level in [LogLevel::Debug, LogLevel::Trace] {
-            let t = log_filter(level);
-            assert!(enables(&t, "sqlx::query", Level::WARN), "{level:?}");
-            assert!(enables(&t, "sqlx::query", Level::DEBUG), "{level:?}");
-        }
-        assert!(!enables(
-            &log_filter(LogLevel::Off),
-            "sqlx::query",
+        assert!(enables(
+            &log_filter(LogLevel::Error),
+            "seaquel_mcp",
             Level::ERROR
         ));
     }

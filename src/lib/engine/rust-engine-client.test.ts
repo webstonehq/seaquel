@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { EngineCall } from "$lib/types/generated/EngineCall";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { EngineRequest } from "$lib/types/generated/EngineRequest";
 import type { EngineResponse } from "$lib/types/generated/EngineResponse";
 import type { CreateTableDefinition } from "$lib/types";
 import { SqlDecimal } from "$lib/values";
@@ -21,14 +21,19 @@ vi.mock("$lib/utils/environment", () => ({
   isDemo: () => false,
 }));
 
-import { RustEngineClient, httpTransport, tauriTransport } from "./rust-engine-client";
+import { RustEngineClient, coreEngineTransport } from "./rust-engine-client";
+
+interface Call {
+  connectionId: string;
+  request: EngineRequest;
+}
 
 /** A client whose transport records the call and answers `response`. */
 function recording(response: EngineResponse, id: string | null = "pc-1") {
-  const calls: EngineCall[] = [];
-  const transport = vi.fn((call: EngineCall) => {
+  const calls: Call[] = [];
+  const transport = vi.fn((connectionId: string, request: EngineRequest) => {
     // Round-trip through JSON, as both real transports do.
-    calls.push(JSON.parse(JSON.stringify(call)) as EngineCall);
+    calls.push(JSON.parse(JSON.stringify({ connectionId, request })) as Call);
     return Promise.resolve(JSON.parse(JSON.stringify(response)) as EngineResponse);
   });
   return {
@@ -50,7 +55,7 @@ describe("RustEngineClient request shapes and unwrapping", () => {
   it("listSchemas", async () => {
     const { client, calls } = recording({ kind: "schemas", data: ["public"] });
     expect(await client.listSchemas()).toEqual(["public"]);
-    expect(calls).toEqual([{ connection_id: "pc-1", request: { method: "listSchemas" } }]);
+    expect(calls).toEqual([{ connectionId: "pc-1", request: { method: "listSchemas" } }]);
   });
 
   it("schemaTables", async () => {
@@ -472,8 +477,8 @@ describe("RustEngineClient.qualifiedTable (computed locally)", () => {
 describe("RustEngineClient connection id", () => {
   it("reads the id on every call, so a reconnect is picked up", async () => {
     let id: string | undefined = "old";
-    const transport = vi.fn((call: EngineCall) =>
-      Promise.resolve<EngineResponse>({ kind: "schemas", data: [call.connection_id] }),
+    const transport = vi.fn((connectionId: string) =>
+      Promise.resolve<EngineResponse>({ kind: "schemas", data: [connectionId] }),
     );
     const client = new RustEngineClient("postgres", () => id, transport);
     expect(await client.listSchemas()).toEqual(["old"]);
@@ -485,116 +490,79 @@ describe("RustEngineClient connection id", () => {
   });
 });
 
-describe("tauriTransport", () => {
-  beforeEach(() => {
-    // Braces matter: a function returned from beforeEach runs as its teardown.
-    invoke.mockReset();
-  });
+/** The request bytes `core_call` or `POST /api/rpc` got, parsed. */
+function decode(body: unknown): unknown {
+  return JSON.parse(new TextDecoder().decode(body as Uint8Array));
+}
 
-  it('invokes "db_engine" with { call }', async () => {
-    invoke.mockResolvedValue({ kind: "schemas", data: ["public"] });
-    const client = new RustEngineClient("postgres", () => "pc-1", tauriTransport);
-    expect(await client.listSchemas()).toEqual(["public"]);
-    expect(invoke).toHaveBeenCalledWith("db_engine", {
-      call: { connection_id: "pc-1", request: { method: "listSchemas" } },
-    });
-  });
-
-  it("maps a DbError rejection to CODE: message", async () => {
-    invoke.mockRejectedValue({ code: "NOT_SUPPORTED", message: "no dialect" });
-    const client = new RustEngineClient("postgres", () => "pc-1", tauriTransport);
-    await expect(client.statistics()).rejects.toThrow("NOT_SUPPORTED: no dialect");
-  });
-
-  it("keeps a plain string rejection (argument deserialization failure)", async () => {
-    invoke.mockRejectedValue("invalid args `call` for command `db_engine`");
-    const client = new RustEngineClient("postgres", () => "pc-1", tauriTransport);
-    await expect(client.statistics()).rejects.toThrow("invalid args `call`");
-  });
-});
-
-describe("httpTransport", () => {
-  const fetchMock = vi.fn<typeof fetch>();
-  beforeEach(() => {
-    fetchMock.mockReset();
-    vi.stubGlobal("fetch", fetchMock);
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("POSTs the call as JSON to /api/db/engine", async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ kind: "sql", data: "CREATE" })));
-    const client = new RustEngineClient(
-      "postgres",
-      () => "pc-1",
-      httpTransport("https://example.test"),
-    );
-    expect(await client.createTable(def)).toBe("CREATE");
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://example.test/api/db/engine");
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(init?.body as string)).toEqual({
-      connection_id: "pc-1",
-      request: { method: "createTable", params: { definition: def } },
-    });
-  });
-
-  it("uses same-origin URLs by default", async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ kind: "schemas", data: [] })));
-    await new RustEngineClient("postgres", () => "pc-1", httpTransport()).listSchemas();
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/db/engine");
-  });
-
-  it.each([
-    [404, "CONNECTION_NOT_FOUND", "CONNECTION_NOT_FOUND: gone"],
-    [501, "NOT_SUPPORTED", "NOT_SUPPORTED: no dialect"],
-  ])("maps a %i DbError body to CODE: message", async (status, code, expected) => {
-    const message = code === "NOT_SUPPORTED" ? "no dialect" : "gone";
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ code, message }), { status }));
-    const client = new RustEngineClient("postgres", () => "pc-1", httpTransport(""));
-    await expect(client.schemaTables()).rejects.toThrow(expected);
-  });
-
-  it("maps a non-JSON error body (axum 422, proxy 403) to HTTP_<status>", async () => {
-    fetchMock.mockResolvedValue(
-      new Response("Failed to deserialize the JSON body", {
-        status: 422,
-        statusText: "Unprocessable Entity",
-      }),
-    );
-    const client = new RustEngineClient("postgres", () => "pc-1", httpTransport(""));
-    await expect(client.schemaTables()).rejects.toThrow("HTTP_422: Unprocessable Entity");
-  });
-
-  it("maps a network failure to NETWORK_ERROR", async () => {
-    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-    const client = new RustEngineClient("postgres", () => "pc-1", httpTransport(""));
-    await expect(client.schemaTables()).rejects.toThrow("NETWORK_ERROR: Failed to fetch");
-  });
-});
-
-describe("default transport", () => {
+describe("coreEngineTransport", () => {
   afterEach(() => {
     env.tauri = false;
     invoke.mockReset();
     vi.unstubAllGlobals();
   });
 
-  it("uses Tauri IPC on desktop", async () => {
+  it("sends db.engine on desktop through core_call", async () => {
     env.tauri = true;
-    invoke.mockResolvedValue({ kind: "schemas", data: [] });
-    await new RustEngineClient("postgres", () => "pc-1").listSchemas();
-    expect(invoke).toHaveBeenCalledWith("db_engine", expect.anything());
+    invoke.mockResolvedValue({
+      method: "db",
+      result: { method: "engine", result: { kind: "schemas", data: ["public"] } },
+    });
+    expect(await new RustEngineClient("postgres", () => "pc-1").listSchemas()).toEqual(["public"]);
+    expect(invoke).toHaveBeenCalledOnce();
+    const [cmd, body] = invoke.mock.calls[0] as [string, unknown];
+    expect(cmd).toBe("core_call");
+    expect(decode(body)).toEqual({
+      method: "db",
+      params: {
+        method: "engine",
+        params: { connectionId: "pc-1", request: { method: "listSchemas" } },
+      },
+    });
   });
 
-  it("uses HTTP on web", async () => {
+  it("sends db.engine on web through POST /api/rpc", async () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
-      Promise.resolve(new Response(JSON.stringify({ kind: "schemas", data: [] }))),
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            method: "db",
+            result: { method: "engine", result: { kind: "sql", data: "CREATE" } },
+          }),
+        ),
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    await new RustEngineClient("postgres", () => "pc-1").listSchemas();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const client = new RustEngineClient("postgres", () => "pc-1", coreEngineTransport());
+    expect(await client.createTable(def)).toBe("CREATE");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/rpc");
+    expect(decode(init?.body)).toEqual({
+      method: "db",
+      params: {
+        method: "engine",
+        params: {
+          connectionId: "pc-1",
+          request: { method: "createTable", params: { definition: def } },
+        },
+      },
+    });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("maps an RpcError to CODE: message", async () => {
+    env.tauri = true;
+    invoke.mockRejectedValue({ code: "CONNECTION_NOT_FOUND", message: "gone" });
+    await expect(new RustEngineClient("postgres", () => "pc-1").statistics()).rejects.toThrow(
+      "CONNECTION_NOT_FOUND: gone",
+    );
+  });
+
+  it("refuses a response for another method", async () => {
+    env.tauri = true;
+    invoke.mockResolvedValue({ method: "db", result: { method: "query", result: {} } });
+    await expect(new RustEngineClient("postgres", () => "pc-1").statistics()).rejects.toThrow(
+      "PROTOCOL_ERROR",
+    );
   });
 });

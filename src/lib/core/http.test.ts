@@ -1,0 +1,316 @@
+/**
+ * `HttpCoreClient` over a fake WebSocket: one socket shared by every stream,
+ * frames routed by stream id, the per-socket cap, cancel frames, failing
+ * started streams when the socket closes, reconnecting with backoff, a 1008
+ * close (access lost), and `connectionClosed` events.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CoreEvent } from "$lib/types/generated/CoreEvent";
+
+vi.mock("$lib/utils/logger", () => ({
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
+vi.mock("$lib/utils/toast", () => ({ errorToast: vi.fn() }));
+
+const { HttpCoreClient } = await import("./http");
+import type { QueryStreamRequest, StreamEvent } from "./client";
+
+class FakeSocket {
+  static all: FakeSocket[] = [];
+  readyState: WebSocket["readyState"] = 0;
+  sent: Record<string, unknown>[] = [];
+  onopen: ((e: Event) => void) | null = null;
+  onmessage: ((e: MessageEvent) => void) | null = null;
+  onerror: ((e: Event) => void) | null = null;
+  onclose: ((e: CloseEvent) => void) | null = null;
+  constructor(readonly url: string) {
+    FakeSocket.all.push(this);
+  }
+  open() {
+    this.readyState = 1;
+    this.onopen?.({} as Event);
+  }
+  send(data: string) {
+    this.sent.push(JSON.parse(data) as Record<string, unknown>);
+  }
+  close() {}
+  /** The server closes the socket. */
+  drop(code = 1006) {
+    this.readyState = 3;
+    this.onclose?.({ code } as CloseEvent);
+  }
+  receive(event: CoreEvent) {
+    this.onmessage?.({ data: JSON.stringify(event) } as MessageEvent);
+  }
+  emit(streamId: string, event: StreamEvent) {
+    this.receive({ type: "stream", streamId, event });
+  }
+  starts(): string[] {
+    return this.sent.filter((f) => f.op === "start").map((f) => f.streamId as string);
+  }
+}
+
+function request(streamId: string): QueryStreamRequest {
+  return {
+    method: "db",
+    params: {
+      method: "queryStream",
+      params: { connectionId: "c-1", streamId, sql: "SELECT 1", params: [] },
+    },
+  };
+}
+
+async function collect(iterable: AsyncIterable<StreamEvent>): Promise<StreamEvent[]> {
+  const out: StreamEvent[] = [];
+  for await (const event of iterable) out.push(event);
+  return out;
+}
+
+const onAccessLost = vi.fn();
+
+function client(options: { maxStreams?: number } = {}) {
+  return new HttpCoreClient({
+    url: "ws://seaquel.test/api/rpc/stream",
+    createSocket: (url) => new FakeSocket(url),
+    initialDelayMs: 100,
+    maxDelayMs: 1000,
+    retryDelayMs: 10,
+    onAccessLost,
+    ...options,
+  });
+}
+
+const socket = (i = 0) => FakeSocket.all[i];
+
+beforeEach(() => {
+  FakeSocket.all = [];
+  onAccessLost.mockClear();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("HttpCoreClient streams", () => {
+  it("runs every stream over one socket, routed by stream id", async () => {
+    const c = client();
+    const a = collect(c.stream(request("a")));
+    const b = collect(c.stream(request("b")));
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(socket().url).toBe("ws://seaquel.test/api/rpc/stream");
+    socket().open();
+    expect(socket().sent).toEqual([
+      { op: "start", streamId: "a", request: request("a") },
+      { op: "start", streamId: "b", request: request("b") },
+    ]);
+    socket().emit("b", { type: "done" });
+    socket().emit("a", { type: "batch", columns: ["n"], rows: [[1]], is_final: true });
+    socket().emit("a", { type: "done" });
+    expect(await a).toEqual([
+      { type: "batch", columns: ["n"], rows: [[1]], is_final: true },
+      { type: "done" },
+    ]);
+    expect(await b).toEqual([{ type: "done" }]);
+    // A later stream reuses the open socket.
+    void c.stream(request("c"));
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(socket().starts()).toEqual(["a", "b", "c"]);
+  });
+
+  it("starts at most maxStreams at once; the rest wait for a free slot", async () => {
+    const c = client({ maxStreams: 2 });
+    const streams = ["a", "b", "c"].map((id) => collect(c.stream(request(id))));
+    socket().open();
+    expect(socket().starts()).toEqual(["a", "b"]);
+    socket().emit("a", { type: "done" });
+    await streams[0];
+    expect(socket().starts()).toEqual(["a", "b", "c"]);
+  });
+
+  it("gives up on a start refused too often, with TOO_MANY_STREAMS", async () => {
+    const c = new HttpCoreClient({
+      url: "ws://x",
+      createSocket: (url) => new FakeSocket(url),
+      retryDelayMs: 1,
+      maxStreamRetries: 2,
+    });
+    const a = collect(c.stream(request("a")));
+    socket().open();
+    const refuse = () =>
+      socket().emit("a", { type: "error", code: "TOO_MANY_STREAMS", message: "16 running" });
+    refuse();
+    await vi.waitFor(() => expect(socket().starts()).toHaveLength(2));
+    refuse();
+    await vi.waitFor(() => expect(socket().starts()).toHaveLength(3));
+    refuse();
+    expect(await a).toEqual([expect.objectContaining({ code: "TOO_MANY_STREAMS" })]);
+  });
+
+  it("retries a start the server refused with TOO_MANY_STREAMS", async () => {
+    const c = client();
+    const a = collect(c.stream(request("a")));
+    socket().open();
+    socket().emit("a", { type: "error", code: "TOO_MANY_STREAMS", message: "16 running" });
+    await vi.waitFor(() => expect(socket().starts()).toEqual(["a", "a"]));
+    socket().emit("a", { type: "done" });
+    expect(await a).toEqual([{ type: "done" }]);
+  });
+
+  it("aborting sends a cancel frame and ends the stream as CANCELLED", async () => {
+    const c = client();
+    const controller = new AbortController();
+    const a = collect(c.stream(request("a"), { signal: controller.signal }));
+    socket().open();
+    controller.abort();
+    expect(await a).toEqual([expect.objectContaining({ type: "error", code: "CANCELLED" })]);
+    expect(socket().sent.at(-1)).toEqual({ op: "cancel", streamId: "a" });
+    // The server's late events for it go nowhere.
+    socket().emit("a", { type: "done" });
+  });
+
+  it("a stream aborted before its start never starts", async () => {
+    const c = client();
+    const controller = new AbortController();
+    const a = collect(c.stream(request("a"), { signal: controller.signal }));
+    controller.abort();
+    await a;
+    socket().open();
+    expect(socket().sent).toEqual([]);
+  });
+
+  it("fails started streams when the socket closes, and reconnects with backoff", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    const stop = c.events(() => {});
+    const a = collect(c.stream(request("a")));
+    socket().open();
+    socket().drop();
+    expect(await a).toEqual([expect.objectContaining({ type: "error", code: "WS_CLOSED" })]);
+    expect(FakeSocket.all).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(2);
+    // It never opens: the next wait doubles.
+    socket(1).drop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(3);
+    // A socket that proves itself (a message) resets the backoff, so a
+    // later close (the server's lifetime cap) comes back quietly.
+    socket(2).open();
+    socket(2).receive({ type: "connectionClosed", connectionId: "x", code: "C", message: "" });
+    socket(2).drop(1000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(4);
+    expect(onAccessLost).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("keeps backing off when sockets close right after opening", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    c.events(() => {});
+    // Each socket opens and is closed at once (a refused upgrade).
+    for (const wait of [100, 200, 400, 800, 1000, 1000]) {
+      socket(FakeSocket.all.length - 1).open();
+      socket(FakeSocket.all.length - 1).drop(1011);
+      const before = FakeSocket.all.length;
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(FakeSocket.all).toHaveLength(before);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeSocket.all).toHaveLength(before + 1);
+    }
+  });
+
+  it("resets the backoff once a socket has stayed open a while", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    c.events(() => {});
+    socket().drop();
+    await vi.advanceTimersByTimeAsync(100);
+    socket(1).drop();
+    await vi.advanceTimersByTimeAsync(200);
+    socket(2).open();
+    await vi.advanceTimersByTimeAsync(5_000);
+    socket(2).drop(1000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(4);
+  });
+
+  it("fails every stream on TOO_MANY_SOCKETS and keeps backing off", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    c.events(() => {});
+    const a = collect(c.stream(request("a")));
+    const b = collect(c.stream(request("b")));
+    socket().open();
+    socket().onclose?.({
+      code: 1013,
+      reason: "TOO_MANY_SOCKETS: at most 8 open at once",
+    } as CloseEvent);
+    for (const out of [await a, await b]) {
+      expect(out).toEqual([expect.objectContaining({ type: "error", code: "TOO_MANY_TABS" })]);
+    }
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(2);
+    socket(1).open();
+    socket(1).onclose?.({ code: 1013, reason: "TOO_MANY_SOCKETS" } as CloseEvent);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(3);
+  });
+
+  it("fails a waiting stream when the server can't be reached", async () => {
+    const c = client();
+    const a = collect(c.stream(request("a")));
+    socket().drop();
+    expect(await a).toEqual([expect.objectContaining({ type: "error", code: "WS_CLOSED" })]);
+  });
+
+  it("a new stream doesn't wait out the backoff", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    c.events(() => {});
+    socket().open();
+    socket().drop();
+    void c.stream(request("a"));
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it("on a 1008 close, fails every stream, says so once, and stops reconnecting", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    c.events(() => {});
+    const a = collect(c.stream(request("a")));
+    const b = collect(c.stream(request("b")));
+    socket().open();
+    socket().drop(1008);
+    for (const out of [await a, await b]) {
+      expect(out).toEqual([expect.objectContaining({ type: "error", code: "ACCESS_LOST" })]);
+    }
+    expect(onAccessLost).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(FakeSocket.all).toHaveLength(1);
+    // A new query tries again.
+    void c.stream(request("c"));
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+});
+
+describe("HttpCoreClient.events", () => {
+  it("opens the socket and delivers connectionClosed events", () => {
+    const c = client();
+    const handler = vi.fn();
+    c.events(handler);
+    expect(FakeSocket.all).toHaveLength(1);
+    socket().open();
+    const closed: CoreEvent = {
+      type: "connectionClosed",
+      connectionId: "c-1",
+      code: "WORKSPACE_EVICTED",
+      message: "evicted",
+    };
+    socket().receive(closed);
+    expect(handler).toHaveBeenCalledWith(closed);
+  });
+});
