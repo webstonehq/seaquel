@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt;
-use seaquel_engine::{ConnectConfig, DbError, Driver, Engine, ExecuteResult, QueryResult, Value};
+use seaquel_engine::{
+    CappedResult, ConnectConfig, DbError, Driver, Engine, ExecuteResult, QueryResult, Value,
+};
 use seaquel_engine_testkit::{run_read_only, Attack, Check, ReadOnlySpec};
 use std::panic::AssertUnwindSafe;
 
@@ -123,7 +125,8 @@ impl Driver for FakeDriver {
         &self,
         sql: &str,
         _params: Vec<Value>,
-    ) -> Result<QueryResult, DbError> {
+        _max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         // A previous slow query still holds the one connection.
         while self.busy.load(Ordering::SeqCst) {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -136,22 +139,19 @@ impl Driver for FakeDriver {
         if sql == "LEAVE_OPEN" {
             // Returns, but leaves the read-only path's own connection dirty.
             self.path_dirty.store(true, Ordering::SeqCst);
-            return self.select("SELECT 1 AS one");
+            return self.select("SELECT 1 AS one").map(Into::into);
         }
         if sql == "SLOW" {
             self.busy.store(true, Ordering::SeqCst);
             let _running = Running(self.busy.clone(), self.flaw != Flaw::IgnoresCancel);
             tokio::time::sleep(Duration::from_secs(60)).await;
-            return self.select("SELECT 1 AS one");
+            return self.select("SELECT 1 AS one").map(Into::into);
         }
         if sql.starts_with("INSERT") || sql.starts_with("DELETE") {
             return match self.flaw {
                 Flaw::Writes => {
                     self.write(sql)?;
-                    Ok(QueryResult {
-                        columns: vec![],
-                        rows: vec![],
-                    })
+                    Ok(CappedResult::default())
                 }
                 Flaw::LeaksSession => {
                     self.pool_read_only.store(true, Ordering::SeqCst);
@@ -165,7 +165,7 @@ impl Driver for FakeDriver {
                 )),
             };
         }
-        self.select(sql)
+        self.select(sql).map(Into::into)
     }
 
     async fn close(&self) -> Result<(), DbError> {
@@ -499,7 +499,8 @@ impl Driver for PoolDriver {
         &self,
         sql: &str,
         _params: Vec<Value>,
-    ) -> Result<QueryResult, DbError> {
+        _max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         if sql == "SLOW" {
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
@@ -512,9 +513,10 @@ impl Driver for PoolDriver {
                 "cannot write in a read-only transaction",
             ));
         }
-        Ok(QueryResult {
+        Ok(CappedResult {
             columns: vec!["one".into()],
             rows: vec![vec![Value::Int(1)]],
+            truncated: false,
         })
     }
 

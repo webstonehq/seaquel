@@ -5,8 +5,9 @@ use tokio::sync::{Mutex, Semaphore};
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 use seaquel_engine::{
-    BatchStatement, ConnectConfig, DbError, Driver, ExecuteResult, ExpectRows, ExplainResult,
-    QueryResult, SchemaColumn, SchemaIndex, SchemaTable, Value,
+    BatchStatement, CappedResult, ConnectConfig, DbError, Driver, ExecuteResult, ExpectRows,
+    ExplainResult, QueryResult, ReadOnlyOptions, RowCap, SchemaColumn, SchemaIndex, SchemaTable,
+    Value,
 };
 
 use crate::introspect;
@@ -193,6 +194,30 @@ const READ_ONLY_CONNECTIONS: usize = 4;
 /// included. Past it the call is dropped (its connection with it), so a
 /// query that never ends can't hold a slot for good.
 const READ_ONLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The read-only call's limit: the caller's timeout when it is shorter than
+/// [`READ_ONLY_TIMEOUT`].
+fn read_only_limit(timeout: Option<std::time::Duration>) -> std::time::Duration {
+    timeout.map_or(READ_ONLY_TIMEOUT, |t| t.min(READ_ONLY_TIMEOUT))
+}
+
+/// `TIMEOUT` for a read-only `what` dropped after `limit`.
+fn timed_out(what: &str, limit: std::time::Duration) -> DbError {
+    seaquel_engine::timeout_error(format!(
+        "The read-only {what} didn't finish within {} and was cancelled",
+        humanize(limit)
+    ))
+}
+
+/// `60 seconds`, `1.5 seconds`, `1 second`.
+fn humanize(d: std::time::Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs == 1.0 {
+        "1 second".to_string()
+    } else {
+        format!("{secs} seconds")
+    }
+}
 
 /// Opens `query_read_only`'s transaction; returns its id and depth
 /// (`@@TRANCOUNT`).
@@ -636,12 +661,14 @@ impl MssqlDriver {
             })
     }
 
-    /// `query_read_only` without its overall timeout.
+    /// `query_read_only` without its overall timeout. The `bool` is set
+    /// when `cap` truncated the result.
     async fn read_only_call(
         &self,
         sql: &str,
         params: Vec<Value>,
-    ) -> Result<Vec<ResultSet>, DbError> {
+        cap: RowCap,
+    ) -> Result<(Vec<ResultSet>, bool), DbError> {
         if params.iter().any(|p| matches!(p, Value::Array(_))) {
             return Err(DbError::query_error("array parameters are not supported"));
         }
@@ -665,19 +692,23 @@ impl MssqlDriver {
             DbError::query_error("The read-only transaction's id could not be read")
         })?;
         let query = read_only_query(sql, &params, tx)?;
-        // Over the row cap the rest is read and dropped, so the end batch
-        // can still run and an escape before that point is still reported.
-        let run = session.run_query_drained(query, Keep::First).await;
+        // Over the row cap (or past `max_rows`) the rest is read and
+        // dropped, so the end batch can still run and an escape anywhere in
+        // the query is still reported, a truncated one's included.
+        let run = session.run_query_drained(query, Keep::First, cap).await;
+        let truncated = matches!(run, Ok((_, true)));
+        let run = run.map(|(sets, _)| sets);
         let outcome = if session.last_request_clean() {
             match session.run_batch(READ_ONLY_END, Keep::All).await {
-                Ok(end) => read_only_outcome(&begin, &end, run),
+                Ok(end) => read_only_outcome(&begin, &end, run).map(|sets| (sets, truncated)),
                 Err(f) => Err(f.into_db(Op::Query)),
             }
         } else {
             // Half a response on the wire (a fatal error, a panic): nothing
             // more can be sent. Dropping the connection rolls back. An
             // escape before that point goes unreported.
-            run.map_err(|f| f.into_db(Op::Query))
+            run.map(|sets| (sets, truncated))
+                .map_err(|f| f.into_db(Op::Query))
         };
         session.close();
         outcome
@@ -834,8 +865,9 @@ impl Driver for MssqlDriver {
     /// 4. The query in a nested `sp_executesql` inside TRY/CATCH
     ///    ([`read_only_query`]; always RPC: a plain batch would keep its
     ///    `SET` options), keeping the first result set. The CATCH tells the
-    ///    query's own errors from escapes. Past the row cap the rest of the
-    ///    response is read and dropped.
+    ///    query's own errors from escapes. Past the row cap, or past
+    ///    `max_rows` (which truncates instead of failing), the rest of the
+    ///    response is read and dropped, so step 5 still runs.
     /// 5. [`READ_ONLY_END`]: reads `@@TRANCOUNT` and the transaction id,
     ///    then rolls back.
     /// 6. The connection is dropped, whatever happened. ROLLBACK and the end
@@ -858,24 +890,40 @@ impl Driver for MssqlDriver {
     /// [`read_only_outcome`]); what it committed stays committed. A read-only
     /// login is the only full fix. Also not undone: `NEXT VALUE FOR`
     /// advances a sequence for good.
-    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
-        let call = tokio::time::timeout(READ_ONLY_TIMEOUT, self.read_only_call(sql, params));
-        let sets = match call.await {
+    async fn query_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
+        let options = ReadOnlyOptions::default().with_max_rows(max_rows);
+        self.query_read_only_with(sql, params, options).await
+    }
+
+    /// [`MssqlDriver::query_read_only`] with its timeout at
+    /// `options.timeout` when that is under the driver's own 60 s. Past it
+    /// the call's connection is dropped, and the server rolls back and
+    /// stops.
+    async fn query_read_only_with(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        options: ReadOnlyOptions,
+    ) -> Result<CappedResult, DbError> {
+        let cap = options.row_cap();
+        let limit = read_only_limit(options.timeout);
+        let call = tokio::time::timeout(limit, self.read_only_call(sql, params, cap));
+        let (sets, truncated) = match call.await {
             Ok(result) => result,
             // `timeout` dropped the call: its slot and its connection.
-            Err(_) => Err(DbError {
-                message: format!(
-                    "The read-only query didn't finish within {} seconds and was cancelled",
-                    READ_ONLY_TIMEOUT.as_secs()
-                ),
-                code: "TIMEOUT".to_string(),
-            }),
+            Err(_) => Err(timed_out("query", limit)),
         }
         .inspect_err(log_read_only_failure)?;
         let first = sets.into_iter().next().unwrap_or_default();
-        Ok(QueryResult {
+        Ok(CappedResult {
             columns: first.columns,
             rows: first.rows,
+            truncated,
         })
     }
 
@@ -952,6 +1000,53 @@ impl Driver for MssqlDriver {
         params: Vec<Value>,
         analyze: bool,
     ) -> Result<ExplainResult, DbError> {
+        let sets = self.explain_sets(sql, params, analyze).await?;
+        Ok(introspect::parse_explain(
+            &introspect::plan_result(&sets),
+            analyze,
+        ))
+    }
+
+    /// The plain EXPLAIN of [`MssqlDriver::explain`]: under `SHOWPLAN_XML`
+    /// the server only compiles the batch and runs none of it, so planning
+    /// can't write. More than one statement is refused, counted from the
+    /// plans (SQL Server needs no `;` between statements, so Core's split
+    /// on `;` can't see `SELECT 1 SELECT 2`); nothing ran by then either.
+    /// With `timeout`, past it the call is dropped, and the held session
+    /// reconnects on the next call, as after any EXPLAIN that didn't finish.
+    async fn explain_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        let sets = match timeout {
+            None => self.explain_sets(sql, params, false).await,
+            Some(limit) => tokio::time::timeout(limit, self.explain_sets(sql, params, false))
+                .await
+                .unwrap_or_else(|_| Err(timed_out("EXPLAIN", limit))),
+        }?;
+        match introspect::plan_statement_count(&sets) {
+            Some(0 | 1) => {}
+            Some(_) => return Err(DbError::read_only(seaquel_engine::EXPLAIN_ONE_STATEMENT)),
+            None => return Err(DbError::read_only("The query plan couldn't be read")),
+        }
+        Ok(introspect::parse_explain(
+            &introspect::plan_result(&sets),
+            false,
+        ))
+    }
+}
+
+impl MssqlDriver {
+    /// The result sets of [`introspect::explain_batches`] run on the held
+    /// connection. See [`MssqlDriver::explain`].
+    async fn explain_sets(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        analyze: bool,
+    ) -> Result<Vec<ResultSet>, DbError> {
         let [on, query, off] = introspect::explain_batches(sql, analyze);
         let request = if analyze {
             Request::new(&query, &params)?
@@ -977,13 +1072,9 @@ impl Driver for MssqlDriver {
             }
         }
         self.restore_database(&mut session, &[sql]).await;
-        let sets = run.inspect_err(|e| {
+        run.inspect_err(|e| {
             error!(activity = "db.explain", driver = "mssql", error_code = e.code.as_str(); "EXPLAIN failed");
-        })?;
-        Ok(introspect::parse_explain(
-            &introspect::plan_result(&sets),
-            analyze,
-        ))
+        })
     }
 }
 

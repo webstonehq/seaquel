@@ -7,6 +7,8 @@
 //!
 //! This crate is pure: it must keep building for `wasm32-unknown-unknown`.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 mod dialect;
@@ -38,6 +40,17 @@ pub struct StreamBatch {
     #[cfg_attr(feature = "ts", ts(type = "unknown[][]"))]
     pub rows: Vec<Vec<Value>>,
     pub is_final: bool,
+    /// Only on the final batch of a read-only query run with `max_rows`:
+    /// the query had more rows than that, and only the first `max_rows`
+    /// were sent. Absent (false) everywhere else.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub truncated: bool,
+}
+
+/// `skip_serializing_if` for flags that are absent when false.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Result of a write operation
@@ -175,8 +188,12 @@ impl DriverType {
     }
 }
 
-/// Connection configuration — superset of all driver needs
-#[derive(Debug, Deserialize, Clone)]
+/// Connection configuration — superset of all driver needs.
+///
+/// It carries a password, so its `Debug` hides it: `password` shows as
+/// `<redacted>`, and `connection_string` as the URL without its password (or
+/// `<redacted>` when it can't safely tell where the password is).
+#[derive(Deserialize, Clone)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields))]
 pub struct ConnectConfig {
     pub driver: DriverType,
@@ -196,6 +213,84 @@ pub struct ConnectConfig {
     /// exist. Off by default so a mistyped path fails instead of silently
     /// opening a new, empty database.
     pub create_if_missing: Option<bool>,
+    /// DuckDB only: lock the database instance down. It opens with
+    /// `enable_external_access`, `autoinstall_known_extensions` and
+    /// `autoload_known_extensions` off and `lock_configuration` on, so a
+    /// query can read only the database itself: no other files, no URLs, no
+    /// `ATTACH`, no extension installs or loads, and no global `SET` to
+    /// undo it.
+    /// Off by default; the MCP server turns it on for the instances it opens.
+    /// Other engines ignore it.
+    pub restricted: Option<bool>,
+}
+
+impl fmt::Debug for ConnectConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectConfig")
+            .field("driver", &self.driver)
+            .field(
+                "connection_string",
+                &self
+                    .connection_string
+                    .as_deref()
+                    .map(connection_string_for_debug),
+            )
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("encrypt", &self.encrypt)
+            .field("trust_cert", &self.trust_cert)
+            .field("path", &self.path)
+            .field("create_if_missing", &self.create_if_missing)
+            .field("restricted", &self.restricted)
+            .finish()
+    }
+}
+
+/// A connection string for `Debug`: a `scheme://…` URL with the password
+/// taken out of its user info, or `<redacted>` for anything it can't read
+/// with certainty: a string that isn't `scheme://…` (key=value strings carry
+/// `Password=`), an `@` after the authority (a raw `/` in a password, or a
+/// TablePlus `+ssh` URL), or a `password`/`pwd` query parameter.
+fn connection_string_for_debug(s: &str) -> String {
+    const REDACTED: &str = "<redacted>";
+    let Some((scheme, rest)) = s.split_once("://") else {
+        return REDACTED.to_string();
+    };
+    let valid_scheme = scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    if !valid_scheme {
+        return REDACTED.to_string();
+    }
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    if tail.contains('@') {
+        return REDACTED.to_string();
+    }
+    if let Some((_, query)) = tail.split_once('?') {
+        let has_password = query.split(['&', ';']).any(|pair| {
+            let key = pair.split('=').next().unwrap_or("").to_ascii_lowercase();
+            key == "password" || key == "pwd"
+        });
+        if has_password {
+            return REDACTED.to_string();
+        }
+    }
+    let authority = match authority.rsplit_once('@') {
+        Some((userinfo, host)) => {
+            let user = userinfo.split(':').next().unwrap_or("");
+            format!("{user}@{host}")
+        }
+        None => authority.to_string(),
+    };
+    format!("{scheme}://{authority}{tail}")
 }
 
 /// A single statement in a batch/transaction

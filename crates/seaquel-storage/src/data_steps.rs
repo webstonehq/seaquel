@@ -36,7 +36,11 @@ const STEPS: &[Step] = &[Step {
 /// next open tries it again. A cleanup mustn't make the app unusable on
 /// every start.
 pub(crate) async fn run(pool: &SqlitePool) {
-    let pending = match pending(pool).await {
+    let read = match pool.acquire().await {
+        Ok(mut conn) => pending(&mut conn).await,
+        Err(e) => Err(e.into()),
+    };
+    let pending = match read {
         Ok(pending) => pending,
         Err(e) => {
             log::warn!(
@@ -108,17 +112,20 @@ async fn run_step(pool: &SqlitePool, step: &Step) -> Result<(), StorageError> {
 }
 
 /// The steps not yet recorded (all of them when the table doesn't exist).
-async fn pending(pool: &SqlitePool) -> Result<Vec<&'static str>, StorageError> {
+/// It only reads, so a read-only open uses it too.
+pub(crate) async fn pending(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<&'static str>, StorageError> {
     let exists: Option<(String,)> =
         sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
             .bind(DATA_STEPS_TABLE)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await?;
     if exists.is_none() {
         return Ok(STEPS.iter().map(|s| s.name).collect());
     }
     let done: Vec<(String,)> = sqlx::query_as(&format!("SELECT name FROM {DATA_STEPS_TABLE}"))
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     Ok(STEPS
         .iter()

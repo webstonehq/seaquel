@@ -135,8 +135,8 @@ describe("checkCrateDeps", () => {
   });
 
   it("requires every crate to be classified", () => {
-    expect(checkCrateDeps([pkg("seaquel-workspace")])).toEqual([
-      "seaquel-workspace: unclassified crate. Add it to scripts/check-crate-deps.mjs.",
+    expect(checkCrateDeps([pkg("seaquel-unclassified")])).toEqual([
+      "seaquel-unclassified: unclassified crate. Add it to scripts/check-crate-deps.mjs.",
     ]);
   });
 
@@ -173,6 +173,79 @@ describe("checkCrateDeps", () => {
     ]);
     expect(errors).toEqual([
       "seaquel-storage -> seaquel-engine-sqlite: reach engines through EngineRegistry, never by crate name",
+    ]);
+  });
+
+  it("accepts the phase 4 crates: the workspace domain behind Core, the MCP and CLI interfaces", () => {
+    const packages = [
+      pkg("seaquel-runtime"),
+      pkg("seaquel-types"),
+      pkg("seaquel-sql"),
+      pkg("seaquel-storage", "seaquel-types"),
+      pkg("seaquel-secrets"),
+      pkg(
+        "seaquel-workspace",
+        "seaquel-types",
+        "seaquel-sql",
+        "seaquel-storage",
+        "seaquel-secrets",
+      ),
+      pkg(
+        "seaquel-core",
+        "seaquel-types",
+        "seaquel-workspace",
+        "seaquel-storage",
+        "seaquel-secrets",
+      ),
+      pkg("seaquel-rpc", "seaquel-core", "seaquel-types"),
+      pkg("seaquel-mcp", "seaquel-core", "seaquel-rpc", "seaquel-types"),
+      pkg("seaquel-cli", "seaquel-core", "seaquel-mcp", "seaquel-rpc", "seaquel-types"),
+    ];
+    expect(checkCrateDeps(packages)).toEqual([]);
+  });
+
+  it("rejects seaquel-cli depending on seaquel-workspace directly", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-cli", "seaquel-core", "seaquel-workspace"),
+      pkg("seaquel-core"),
+      pkg("seaquel-workspace"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-cli -> seaquel-workspace: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+    ]);
+  });
+
+  it("rejects an interface depending on an interface other than seaquel-mcp", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-mcp", "seaquel-core", "seaquel-cli"),
+      pkg("seaquel-server", "seaquel-core", "seaquel-mcp"),
+      pkg("seaquel-core"),
+      pkg("seaquel-cli", "seaquel-core"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-mcp -> seaquel-cli: interfaces reach everything through seaquel-core",
+    ]);
+  });
+
+  it("rejects seaquel-mcp bypassing Core for an engine", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-mcp", "seaquel-core", "seaquel-engine-postgres"),
+      pkg("seaquel-core"),
+      pkg("seaquel-engine-postgres"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-mcp -> seaquel-engine-postgres: interfaces reach everything through seaquel-core",
+    ]);
+  });
+
+  it("rejects seaquel-workspace naming an engine crate", () => {
+    const errors = checkCrateDeps([
+      pkg("seaquel-workspace", "seaquel-types", "seaquel-engine-mssql"),
+      pkg("seaquel-types"),
+      pkg("seaquel-engine-mssql"),
+    ]);
+    expect(errors).toEqual([
+      "seaquel-workspace -> seaquel-engine-mssql: reach engines through EngineRegistry, never by crate name",
     ]);
   });
 

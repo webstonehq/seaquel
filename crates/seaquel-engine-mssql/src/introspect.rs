@@ -221,6 +221,32 @@ pub fn plan_result(sets: &[ResultSet]) -> QueryResult {
         })
 }
 
+/// How many statements the plans among a response's result sets cover:
+/// every statement directly under a `Batch`'s `Statements`, across every
+/// ShowPlan XML document the plan sets hold (SQL Server needs no `;`
+/// between statements, so `SELECT 1 SELECT 2` is two). A statement nested
+/// in another (`StmtCond`'s branches) isn't counted again. `None` when a
+/// document doesn't parse.
+pub fn plan_statement_count(sets: &[ResultSet]) -> Option<usize> {
+    let mut count = 0;
+    let plans = sets
+        .iter()
+        .filter(|s| s.columns.iter().any(|c| c == SHOWPLAN_COLUMN));
+    for cell in plans.flat_map(|s| s.rows.iter().flatten()) {
+        let Value::Text(xml) = cell else { continue };
+        if !xml.contains("<ShowPlanXML") {
+            continue;
+        }
+        let doc = roxmltree::Document::parse(xml).ok()?;
+        count += doc
+            .descendants()
+            .filter(|n| is(n, "Statements") && n.parent_element().is_some_and(|b| is(&b, "Batch")))
+            .map(|n| n.children().filter(|c| c.is_element()).count())
+            .sum::<usize>();
+    }
+    Some(count)
+}
+
 /// A plan result (TS `parseExplainResult`): the first text cell holding
 /// `<ShowPlanXML`, read from its first `StmtSimple > QueryPlan > RelOp` (or
 /// its first `RelOp`). Without a plan the root is a `Query Plan` node that
@@ -432,5 +458,31 @@ mod tests {
         ];
         assert_eq!(plan_result(&sets).rows, vec![vec![Value::from("first")]]);
         assert!(plan_result(&sets[..1]).rows.is_empty());
+    }
+
+    #[test]
+    fn plan_statements_are_counted_per_batch() {
+        let plan = |statements: &str| ResultSet {
+            columns: vec![SHOWPLAN_COLUMN.to_string()],
+            rows: vec![vec![Value::from(format!(
+                "<ShowPlanXML xmlns=\"http://schemas.microsoft.com/sqlserver/2004/07/showplan\">\
+                 <BatchSequence><Batch><Statements>{statements}</Statements></Batch>\
+                 </BatchSequence></ShowPlanXML>"
+            ))]],
+        };
+        let one = plan("<StmtSimple StatementText=\"SELECT 1\"/>");
+        let two = plan("<StmtSimple/><StmtSimple/>");
+        let nested =
+            plan("<StmtCond><Then><Statements><StmtSimple/></Statements></Then></StmtCond>");
+        assert_eq!(plan_statement_count(std::slice::from_ref(&one)), Some(1));
+        assert_eq!(plan_statement_count(&[two]), Some(2));
+        assert_eq!(plan_statement_count(&[one.clone(), one]), Some(2));
+        assert_eq!(plan_statement_count(&[nested]), Some(1));
+        assert_eq!(plan_statement_count(&[]), Some(0));
+        let broken = ResultSet {
+            columns: vec![SHOWPLAN_COLUMN.to_string()],
+            rows: vec![vec![Value::from("<ShowPlanXML><unclosed>")]],
+        };
+        assert_eq!(plan_statement_count(&[broken]), None);
     }
 }

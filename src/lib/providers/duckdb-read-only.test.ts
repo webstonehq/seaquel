@@ -114,6 +114,25 @@ describe("selectReadOnlyOn (demo DuckDB-WASM)", () => {
     expect(await selectReadOnlyOn(db, "SELECT a FROM t WHERE a > 5")).toEqual([]);
   });
 
+  it("stops at a row limit, the demo's maxRows + 1", async () => {
+    const sql = "SELECT * FROM range(1000000) r(n)";
+    expect(await selectReadOnlyOn(db, sql, undefined, 3)).toEqual([
+      { n: 0n },
+      { n: 1n },
+      { n: 2n },
+    ]);
+    expect(await selectReadOnlyOn(db, "SELECT a FROM t", undefined, 3)).toEqual([{ a: 1 }]);
+    expect(await selectReadOnlyOn(db, sql, undefined, 0)).toEqual([]);
+  });
+
+  it("refuses a row limit that isn't a count", async () => {
+    for (const limit of [-1, 1.5, Number.NaN]) {
+      await expect(selectReadOnlyOn(db, "SELECT a FROM t", undefined, limit)).rejects.toThrow(
+        /^QUERY_ERROR: invalid row limit/,
+      );
+    }
+  });
+
   it("names duplicate columns as query() does", async () => {
     expect(await selectReadOnlyOn(db, "SELECT 1 AS a, 2 AS a")).toEqual([{ a: 1, a_1: 2 }]);
   });

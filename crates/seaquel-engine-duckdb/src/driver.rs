@@ -3,16 +3,16 @@ use std::sync::{Arc, Mutex};
 
 use duckdb::arrow::array::{Array, StructArray};
 use duckdb::{
-    params_from_iter, types::Decimal as DuckDecimal, types::Value as DuckValue, Connection,
+    params_from_iter, types::Decimal as DuckDecimal, types::Value as DuckValue, Config, Connection,
     InterruptHandle, Statement,
 };
 use tokio::sync::mpsc;
 
 use log::warn;
 use seaquel_engine::{
-    BatchStatement, BoxStream, CancellationToken, ConnectConfig, DatabaseStatistics, DbError,
-    Driver, ExecuteResult, ExpectRows, ExplainResult, QueryResult, SchemaColumn, SchemaIndex,
-    SchemaTable, StreamBatch, Value,
+    BatchStatement, BoxStream, CancellationToken, CappedResult, ConnectConfig, DatabaseStatistics,
+    DbError, Driver, ExecuteResult, ExpectRows, ExplainResult, QueryResult, ReadOnlyOptions,
+    RowCap, SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, Value,
 };
 
 use crate::blocking::{self, Op, Worker};
@@ -109,12 +109,48 @@ pub struct DuckdbDriver {
     read_only_source: Arc<Mutex<Connection>>,
 }
 
+/// The instance settings for [`ConnectConfig::restricted`], in the open
+/// config so they hold before the first statement:
+///
+/// - `enable_external_access = false`: no file but the database's own (and
+///   its WAL and temp directory), no URLs, no `ATTACH`, no `COPY`, no
+///   `INSTALL`/`LOAD`. DuckDB refuses to turn it back on while the database
+///   is running.
+/// - `autoinstall_known_extensions` and `autoload_known_extensions = false`:
+///   a query that needs an extension fails instead of downloading it into
+///   `~/.duckdb` or loading one that's there.
+/// - `lock_configuration = true`: changing a global option fails, so a query
+///   can't turn the autoload settings back on (DuckDB already refuses to
+///   re-enable external access). Session settings (`search_path`,
+///   `enable_profiling`) still change; with external access off, the ones
+///   naming a file (`profiling_output`, `log_query_path`) don't write it
+///   (`tests/restricted.rs`). `arrow_lossless_conversion` goes in here
+///   too, since [`open_sessions`] couldn't `SET` it afterwards.
+///
+/// DuckDB still opens and writes the database file, its WAL and its temp
+/// directory. `duckdb_extensions()` fails, since it lists the extension
+/// directory.
+fn restricted_config() -> Result<Config, DbError> {
+    Config::default()
+        .enable_external_access(false)
+        .and_then(|c| c.enable_autoload_extension(false))
+        .and_then(|c| c.with("arrow_lossless_conversion", "true"))
+        .and_then(|c| c.with("lock_configuration", "true"))
+        .map_err(DbError::connection_error)
+}
+
 /// Opens the database. Blocking: DuckDB may read or create a file.
 fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
     let path = config.path.as_deref().unwrap_or(":memory:");
+    let restricted = config.restricted.unwrap_or(false);
 
     if path == ":memory:" || path.is_empty() {
-        return Connection::open_in_memory().map_err(DbError::connection_error);
+        return if restricted {
+            Connection::open_in_memory_with_flags(restricted_config()?)
+        } else {
+            Connection::open_in_memory()
+        }
+        .map_err(DbError::connection_error);
     }
     // DuckDB creates missing files on open; only allow that when asked
     // so a mistyped path fails instead of opening a new, empty database.
@@ -132,7 +168,12 @@ fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
             })?;
         }
     }
-    Connection::open(path).map_err(DbError::connection_error)
+    if restricted {
+        Connection::open_with_flags(path, restricted_config()?)
+    } else {
+        Connection::open(path)
+    }
+    .map_err(DbError::connection_error)
 }
 
 /// Opens the database and sets up the session. `arrow_lossless_conversion`
@@ -148,8 +189,12 @@ fn open(config: &ConnectConfig) -> Result<Connection, DbError> {
 /// every clone.
 fn open_sessions(config: &ConnectConfig) -> Result<(Connection, Connection), DbError> {
     let conn = open(config)?;
-    conn.execute_batch("SET arrow_lossless_conversion = true")
-        .map_err(DbError::connection_error)?;
+    // A restricted instance has it from its open config, and its
+    // configuration is locked.
+    if !config.restricted.unwrap_or(false) {
+        conn.execute_batch("SET arrow_lossless_conversion = true")
+            .map_err(DbError::connection_error)?;
+    }
     let read_only = conn.try_clone().map_err(DbError::connection_error)?;
     Ok((conn, read_only))
 }
@@ -311,26 +356,49 @@ fn query_blocking(
     sql: &str,
     bound: &[DuckValue],
 ) -> Result<QueryResult, DbError> {
+    let cap = RowCap::fail(seaquel_engine::max_query_rows());
+    query_capped(conn, worker, sql, bound, cap).map(Into::into)
+}
+
+/// Runs `sql` and collects its rows under `cap`: past it,
+/// `RESULT_TOO_LARGE` or the rows so far with `truncated` set. A byte
+/// budget counts the rows decoded from the result's chunks; the chunk
+/// being read is already in DuckDB's memory, and so is the whole result
+/// (up to the wrapper's `LIMIT` on the read-only path): `Statement::execute`
+/// materializes it before the first row is read.
+fn query_capped(
+    conn: &Connection,
+    worker: &Worker,
+    sql: &str,
+    bound: &[DuckValue],
+    cap: RowCap,
+) -> Result<CappedResult, DbError> {
     let mut stmt = prepare(conn, worker, Op::Query, sql)?;
     stmt.execute(params_from_iter(bound.iter()))
         .map_err(DbError::query_error)?;
     let mut reader = ResultReader::new(&stmt);
 
-    let cap = seaquel_engine::max_query_rows();
     let mut rows: Vec<Vec<Value>> = Vec::new();
+    let mut truncated = false;
+    let mut kept_bytes = 0usize;
     while let Some(row) = reader.next_row()? {
         if worker.is_cancelled() {
             return Err(DbError::query_error("cancelled"));
         }
-        if rows.len() >= cap {
-            return Err(DbError::result_too_large(cap));
+        if !cap.admit(rows.len(), kept_bytes)? {
+            truncated = true;
+            break;
+        }
+        if cap.max_bytes().is_some() {
+            kept_bytes = kept_bytes.saturating_add(seaquel_engine::row_bytes(&row));
         }
         rows.push(row);
     }
 
-    Ok(QueryResult {
+    Ok(CappedResult {
         columns: reader.columns,
         rows,
+        truncated,
     })
 }
 
@@ -380,6 +448,7 @@ fn stream_blocking(
                 columns: columns.take(),
                 rows: std::mem::replace(&mut buffer, Vec::with_capacity(BATCH_SIZE)),
                 is_final: false,
+                truncated: false,
             };
             if tx.blocking_send(Ok(batch)).is_err() {
                 return Ok(());
@@ -391,6 +460,7 @@ fn stream_blocking(
         columns,
         rows: buffer,
         is_final: true,
+        truncated: false,
     }));
     Ok(())
 }
@@ -456,12 +526,13 @@ fn transaction_blocking(
 /// connection can't contain, such as `enable_logging()`.)
 const READ_ONLY_WRAPPER: &str = "SELECT * FROM query(?)";
 
-/// [`READ_ONLY_WRAPPER`] with `LIMIT` one past the row cap, so DuckDB stops
-/// there instead of materializing a huge result before the driver's cap
-/// (`RESULT_TOO_LARGE`) sees it. The limit is our own number, never user
-/// input.
-fn read_only_wrapper() -> String {
-    let limit = seaquel_engine::max_query_rows().saturating_add(1);
+/// [`READ_ONLY_WRAPPER`] with `LIMIT` one past the row cap (`max_rows`, or
+/// the driver's own cap without it), so DuckDB stops there instead of
+/// materializing a huge result before the cap sees it: the one row past it
+/// is how the cap tells `RESULT_TOO_LARGE` or `truncated`. The limit is a
+/// number, never SQL text from the caller.
+fn read_only_wrapper(cap: RowCap) -> String {
+    let limit = cap.limit().saturating_add(1);
     format!("{READ_ONLY_WRAPPER} LIMIT {limit}")
 }
 
@@ -481,7 +552,8 @@ fn read_only_blocking(
     conn: &Connection,
     worker: &Worker,
     sql: &str,
-) -> Result<QueryResult, DbError> {
+    cap: RowCap,
+) -> Result<CappedResult, DbError> {
     let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
     if let Err(e) = conn.execute("BEGIN TRANSACTION READ ONLY", no_params()) {
         // An interrupt can land in BEGIN. Whether or not it opened the
@@ -490,11 +562,12 @@ fn read_only_blocking(
         return Err(DbError::query_error(e));
     }
     let body = catch_unwind(AssertUnwindSafe(|| {
-        query_blocking(
+        query_capped(
             conn,
             worker,
-            &read_only_wrapper(),
+            &read_only_wrapper(cap),
             &[DuckValue::Text(sql.to_string())],
+            cap,
         )
     }));
     rollback_read_only(conn);
@@ -526,6 +599,43 @@ fn rollback_read_only(conn: &Connection) {
     if let Err(e) = conn.execute("ROLLBACK", no_params()) {
         warn!(activity = "db.query_read_only", driver = "duckdb"; "ROLLBACK of a read-only query failed: {e}");
     }
+}
+
+/// `Driver::explain_read_only`, on the blocking thread, on the call's own
+/// connection: the EXPLAIN in a `BEGIN TRANSACTION READ ONLY` that is always
+/// rolled back, as [`read_only_blocking`] does for queries. `explain` is one
+/// statement (checked by the caller): duckdb-rs's `prepare` runs every
+/// statement but the last itself, so `EXPLAIN SELECT 1; DELETE …` would run
+/// the DELETE for real.
+fn explain_read_only_blocking(
+    conn: &Connection,
+    worker: &Worker,
+    explain: &str,
+    bound: &[DuckValue],
+) -> Result<QueryResult, DbError> {
+    let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
+    if let Err(e) = conn.execute("BEGIN TRANSACTION READ ONLY", no_params()) {
+        let _ = conn.execute("ROLLBACK", no_params());
+        return Err(DbError::query_error(e));
+    }
+    let cap = RowCap::fail(seaquel_engine::max_query_rows());
+    let body = catch_unwind(AssertUnwindSafe(|| {
+        query_capped(conn, worker, explain, bound, cap)
+    }));
+    rollback_read_only(conn);
+    let outcome = body.unwrap_or_else(|payload| {
+        Err(DbError::query_error(format!(
+            "DuckDB panicked: {}",
+            blocking::panic_message(&*payload)
+        )))
+    });
+    outcome.map(Into::into).map_err(|e| {
+        if READ_ONLY_REFUSALS.iter().any(|r| e.message.contains(r)) {
+            DbError::read_only(e.message)
+        } else {
+            e
+        }
+    })
 }
 
 fn bind_all(params: &[Value]) -> Result<Vec<DuckValue>, DbError> {
@@ -627,7 +737,25 @@ impl Driver for DuckdbDriver {
     /// See [`read_only_blocking`]. DuckDB's read-only path takes no bind
     /// values: its one parameter is the user's SQL. Nothing that calls it
     /// passes any.
-    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+    async fn query_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
+        let options = ReadOnlyOptions::default().with_max_rows(max_rows);
+        self.query_read_only_with(sql, params, options).await
+    }
+
+    /// [`DuckdbDriver::query_read_only`] with the options' `max_rows` and
+    /// `max_bytes`. The timeout is ignored: dropping the call interrupts the
+    /// query (the session's guard).
+    async fn query_read_only_with(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        options: ReadOnlyOptions,
+    ) -> Result<CappedResult, DbError> {
         if !params.is_empty() {
             return Err(DbError::read_only(
                 "read-only DuckDB queries take no bind values",
@@ -642,8 +770,9 @@ impl Driver for DuckdbDriver {
         // when it finishes (after a cancel, once the interrupt has landed).
         let session = Session::new(conn);
         let sql = sql.to_string();
+        let cap = options.row_cap();
         run_on(&session, Op::Query, move |conn, worker| {
-            read_only_blocking(conn, worker, &sql)
+            read_only_blocking(conn, worker, &sql, cap)
         })
         .await
     }
@@ -737,6 +866,35 @@ impl Driver for DuckdbDriver {
             .query(&introspect::explain_sql(sql, analyze), params)
             .await?;
         Ok(introspect::parse_explain(&r, analyze))
+    }
+
+    /// A plain `EXPLAIN (FORMAT JSON)` of one statement (a second is
+    /// refused before anything runs), on a connection cloned for the call
+    /// like [`DuckdbDriver::query_read_only`]'s, in a read-only transaction
+    /// (see [`explain_read_only_blocking`]). No timeout: dropping the call
+    /// interrupts it.
+    async fn explain_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        _timeout: Option<std::time::Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        if seaquel_sql::scan::split_statements(sql, seaquel_sql::SqlEngine::Duckdb).len() > 1 {
+            return Err(DbError::read_only(seaquel_engine::EXPLAIN_ONE_STATEMENT));
+        }
+        let bound = bind_all(&params)?;
+        let source = self.read_only_source.clone();
+        let conn = tokio::task::spawn_blocking(move || blocking::lock(&source).try_clone())
+            .await
+            .map_err(|e| Op::Query.join_error(e))?
+            .map_err(DbError::query_error)?;
+        let session = Session::new(conn);
+        let explain = introspect::explain_sql(sql, false);
+        let r = run_on(&session, Op::Query, move |conn, worker| {
+            explain_read_only_blocking(conn, worker, &explain, &bound)
+        })
+        .await?;
+        Ok(introspect::parse_explain(&r, false))
     }
 }
 

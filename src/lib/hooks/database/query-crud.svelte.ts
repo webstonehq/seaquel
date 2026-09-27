@@ -1,6 +1,6 @@
 import type { PendingChangeOrigin, PendingChangeTarget } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
-import type { ProviderRegistry } from "$lib/providers";
+import type { ProviderRegistry, ReadOnlyRows } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
@@ -484,13 +484,17 @@ export class QueryCrudManager {
    * @param connectionName The name for the "was removed" refusal, which has
    *   no connection to read it from.
    * @param signal Aborting it cancels the query and rejects the promise.
+   * @param maxRows Return at most this many rows, `truncated` when there
+   *   were more (the AI's `run_query`). Without it a result past the
+   *   engine's row cap fails (dashboard widgets).
    */
   async executeReadOnly(
     connectionId: string,
     sql: string,
     signal?: AbortSignal,
     connectionName?: string,
-  ): Promise<Record<string, unknown>[]> {
+    maxRows?: number,
+  ): Promise<ReadOnlyRows> {
     const lookUp = () => {
       const connection = this.state.connections.find((c) => c.id === connectionId);
       if (!connection) {
@@ -521,7 +525,7 @@ export class QueryCrudManager {
     const refusal = readOnlyError(sql, connection.type);
     if (refusal) throw new Error(refusal);
 
-    return await provider.selectReadOnly(providerConnectionId, sql, signal);
+    return await provider.selectReadOnly(providerConnectionId, sql, signal, maxRows);
   }
 
   /**

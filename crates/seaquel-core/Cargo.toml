@@ -20,6 +20,9 @@ ssh = ["dep:seaquel-ssh"]
 git = ["dep:seaquel-git"]
 license-desktop = ["dep:seaquel-license", "seaquel-license/desktop"]
 license-server = ["dep:seaquel-license", "seaquel-license/server"]
+# The workspace domain (phase 4): saved connection -> ConnectConfig, re-exported
+# as `seaquel_core::domain`. seaquel-cli enables it with storage, secrets and ssh.
+workspace = ["dep:seaquel-workspace"]
 # The wasm32 build for the browser (phase 8's Core in the web page): no
 # engines and no infrastructure, only what builds for wasm32-unknown-unknown.
 # CI checks it with --no-default-features --features seaquel-core/browser.
@@ -40,6 +43,7 @@ seaquel-secrets = { path = "../seaquel-secrets", optional = true }
 seaquel-ssh = { path = "../seaquel-ssh", optional = true }
 seaquel-git = { path = "../seaquel-git", optional = true }
 seaquel-license = { path = "../seaquel-license", optional = true }
+seaquel-workspace = { path = "../seaquel-workspace", optional = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -53,7 +57,8 @@ uuid = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 # Turns on the workspace features for this crate's own tests
-# (tests/workspace.rs), so `cargo test -p seaquel-core` runs them.
-seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh"] }
+# (tests/workspace.rs, tests/connect_saved.rs), so `cargo test -p seaquel-core`
+# runs them.
+seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }

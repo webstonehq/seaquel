@@ -29,10 +29,27 @@ fn stream_batch_keeps_snake_case_fields() {
         columns: None,
         rows: vec![],
         is_final: true,
+        truncated: false,
     };
     assert_eq!(
         to_value(&b).unwrap(),
         json!({ "columns": null, "rows": [], "is_final": true })
+    );
+}
+
+/// `truncated` is sent only when set (a read-only query with `max_rows`),
+/// so every other batch keeps its shape.
+#[test]
+fn stream_batch_truncated_is_absent_unless_set() {
+    let b = StreamBatch {
+        columns: Some(vec!["n".into()]),
+        rows: vec![vec![Value::Int(1)]],
+        is_final: true,
+        truncated: true,
+    };
+    assert_eq!(
+        to_value(StreamEvent::Batch(b)).unwrap(),
+        json!({ "type": "batch", "columns": ["n"], "rows": [[1]], "is_final": true, "truncated": true })
     );
 }
 
@@ -82,7 +99,8 @@ fn connect_config_accepts_every_field() {
         "encrypt": true,
         "trust_cert": false,
         "path": "/tmp/x.duckdb",
-        "create_if_missing": true
+        "create_if_missing": true,
+        "restricted": true
     }))
     .unwrap();
     assert_eq!(c.driver, DriverType::Mssql);
@@ -96,6 +114,7 @@ fn connect_config_accepts_every_field() {
     assert_eq!(c.trust_cert, Some(false));
     assert_eq!(c.path.as_deref(), Some("/tmp/x.duckdb"));
     assert_eq!(c.create_if_missing, Some(true));
+    assert_eq!(c.restricted, Some(true));
 }
 
 #[test]
@@ -105,6 +124,7 @@ fn connect_config_optional_fields_default_to_none() {
     assert!(c.connection_string.is_none());
     assert!(c.path.is_none());
     assert!(c.create_if_missing.is_none());
+    assert!(c.restricted.is_none());
 }
 
 #[test]
@@ -152,6 +172,7 @@ fn stream_event_batch_is_flattened() {
         columns: Some(vec!["n".into()]),
         rows: vec![vec![Value::Int(1)]],
         is_final: false,
+        truncated: false,
     });
     assert_eq!(
         to_value(&ev).unwrap(),

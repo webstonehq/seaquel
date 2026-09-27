@@ -413,13 +413,16 @@ fn check_split(sql: &str, e: SqlEngine) {
 
 fn check_engine(sql: &str, e: SqlEngine) {
     for ts_words in [false, true] {
-        let options = ScanOptions {
-            exec_comments: true,
-            ansi_mysql: true,
-            pg_backslash: true,
-            ts_words,
-        };
-        check_scan(sql, e, options);
+        for cr_ends_comments in [false, true] {
+            let options = ScanOptions {
+                exec_comments: true,
+                ansi_mysql: true,
+                pg_backslash: true,
+                ts_words,
+                cr_ends_comments,
+            };
+            check_scan(sql, e, options);
+        }
     }
     check_split(sql, e);
     let _ = has_row_limit(sql, e);

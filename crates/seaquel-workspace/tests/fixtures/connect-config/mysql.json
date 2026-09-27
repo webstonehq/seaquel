@@ -1,0 +1,565 @@
+[
+  {
+    "name": "mysql/stored-string-default-port",
+    "row": {
+      "id": "conn-mysql-stored-string-default-port",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "disable",
+      "connectionString": "mysql://root@mysql.example.com/shop?ssl-mode=DISABLED"
+    },
+    "secrets": {
+      "db:conn-mysql-stored-string-default-port": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-stored-string-default-port"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-stored-string-default-port"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=DISABLED"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-stored-string-default-port"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=DISABLED"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mysql/custom-port",
+    "row": {
+      "id": "conn-mysql-custom-port",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "require",
+      "connectionString": "mysql://root@mysql.example.com:3307/shop?ssl-mode=REQUIRED"
+    },
+    "secrets": {
+      "db:conn-mysql-custom-port": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-custom-port"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-custom-port"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com:3307/shop?ssl-mode=REQUIRED"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-custom-port"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com:3307/shop?ssl-mode=REQUIRED"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mysql/sslmode-disable",
+    "row": {
+      "id": "conn-mysql-sslmode-disable",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "disable"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-disable": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-disable"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-disable"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-disable"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=DISABLED"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/sslmode-allow",
+    "row": {
+      "id": "conn-mysql-sslmode-allow",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "allow"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-allow": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-allow"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-allow"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-allow"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/sslmode-prefer",
+    "row": {
+      "id": "conn-mysql-sslmode-prefer",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "prefer"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-prefer": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-prefer"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-prefer"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-prefer"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/sslmode-require",
+    "row": {
+      "id": "conn-mysql-sslmode-require",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "require"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-require": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-require"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-require"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-require"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=REQUIRED"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/sslmode-verify-ca",
+    "row": {
+      "id": "conn-mysql-sslmode-verify-ca",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "verify-ca"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-verify-ca": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-ca"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-ca"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-ca"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=verify-ca"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/sslmode-verify-full",
+    "row": {
+      "id": "conn-mysql-sslmode-verify-full",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "verify-full"
+    },
+    "secrets": {
+      "db:conn-mysql-sslmode-verify-full": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-full"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-full"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-sslmode-verify-full"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:pw@mysql.example.com/shop?ssl-mode=verify-full"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mysql/special-password",
+    "row": {
+      "id": "conn-mysql-special-password",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "root",
+      "connectionString": "mysql://root@mysql.example.com:3307/shop?ssl-mode=PREFERRED",
+      "sslMode": "prefer"
+    },
+    "secrets": {
+      "db:conn-mysql-special-password": "p@ss:w/rd#?%"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-special-password"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-special-password"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:p%40ss%3Aw%2Frd%23%3F%25@mysql.example.com:3307/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-special-password"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root:p%40ss%3Aw%2Frd%23%3F%25@mysql.example.com:3307/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mysql/empty-username",
+    "row": {
+      "id": "conn-mysql-empty-username",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "",
+      "connectionString": "mysql://mysql.example.com:3307/shop"
+    },
+    "secrets": {
+      "db:conn-mysql-empty-username": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-empty-username"
+      ],
+      "username": "",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-empty-username"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://:pw@mysql.example.com:3307/shop"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-empty-username"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://:pw@mysql.example.com:3307/shop"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mysql/passwordless",
+    "notes": "savePassword on, nothing in the keychain: an intentionally passwordless connection.",
+    "row": {
+      "id": "conn-mysql-passwordless",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MySQL",
+      "type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "root",
+      "connectionString": "mysql://root@mysql.example.com:3307/shop"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mysql-passwordless"
+      ],
+      "username": "root",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mysql-passwordless"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root@mysql.example.com:3307/shop"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mysql-passwordless"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mysql://root@mysql.example.com:3307/shop"
+      }
+    },
+    "gui": "autoReconnect"
+  }
+]

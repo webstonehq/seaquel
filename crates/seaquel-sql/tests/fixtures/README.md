@@ -161,6 +161,28 @@ So a Rust parity test reads a fixture file, replaces each case named by a
 `bugfixes.json` `replaces`, runs the standalone cases of its kind too, and
 compares everything. It doesn't need `modelCases`.
 
+## Changed after the freeze
+
+Edited by hand (the recorder is gone), each with a `modelCases` entry in
+`bugfixes.json` and the fix number in the case's `fixes`:
+
+- **Fix 20 (phase 4): a SQL Server `--` comment ends at a lone `\r`.** The
+  phase 4 security probe found that SQL Server ends it there
+  (`SELECT 1 AS a -- x\r, 2 AS b` returns two columns), while the scanner
+  kept the rest of the line a comment on SQL Server, as the TS did. So the
+  read-only check passed `SELECT 1 AS a -- x\rDELETE FROM t … COMMIT COMMIT`
+  and the MCP server committed the DELETE. The scanner now ends SQL Server's
+  `--` comments at `\r` as fix 10 does for Postgres and DuckDB (MySQL,
+  MariaDB and SQLite don't; the probe also measured that NUL, VT, FF, U+0085
+  and U+2028 don't end one on SQL Server). The `mssql` outputs that changed:
+  `split.json` and `statement-at.json` `fix10:cr-comment` (two statements,
+  not one), `row-limit.json` `fix10:cr-comment-limit` (`true`: the `LIMIT` is
+  code), and `params.json` `fix10:duckdb-cr-param values 0` and `… values 0
+  inline` (the `{{a}}` after the `\r` is substituted). `read-only.json` and
+  `statements.json` didn't change. The read-only check also reads every input
+  with a lone `\r` ending line comments on every engine
+  (`ScanOptions::cr_ends_comments`), which only ever refuses more.
+
 ## What the fixtures pin that may look wrong
 
 Parity means these TS quirks are expected output (decision 2), not bugs to fix

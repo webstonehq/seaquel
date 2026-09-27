@@ -32,8 +32,11 @@ const WASM_GLUE = new Set(["seaquel-wasm"]);
 /** Registers the default plugins, so it's the one crate allowed to name engines. */
 const CORE = new Set(["seaquel-core"]);
 
-/** Thin shells over Core. `seaquel` is the Tauri app in src-tauri/. */
-const INTERFACES = new Set(["seaquel", "seaquel-server"]);
+/**
+ * Thin shells over Core. `seaquel` is the Tauri app in src-tauri/;
+ * `seaquel-mcp` is the MCP server library behind `seaquel-cli mcp`.
+ */
+const INTERFACES = new Set(["seaquel", "seaquel-server", "seaquel-mcp", "seaquel-cli"]);
 
 /**
  * Code shared by the interfaces (the wire types and dispatcher behind the
@@ -48,10 +51,11 @@ const TESTKIT = new Set(["seaquel-engine-testkit"]);
 /**
  * Domain and infrastructure crates. They may depend on anything but engine
  * crates, and only Core may depend on them: interfaces reach them through
- * Core (`core.license_server()`, not `seaquel-license`). Later phases add
- * more (seaquel-workspace, …); list them here as they're created.
+ * Core (`core.license_server()`, not `seaquel-license`). List new ones here
+ * as they're created.
  */
 const DOMAIN_AND_INFRA = new Set([
+  "seaquel-workspace",
   "seaquel-storage",
   "seaquel-secrets",
   "seaquel-ssh",
@@ -65,11 +69,19 @@ const ENGINE_MAY_USE = new Set([
   "seaquel-types",
   "seaquel-sql",
 ]);
+/**
+ * Interface crates that other interfaces may build on: `seaquel-cli` serves
+ * the MCP server from `seaquel-mcp`. They follow the interface rules
+ * themselves.
+ */
+const INTERFACE_LIBS = new Set(["seaquel-mcp"]);
+
 const INTERFACE_MAY_USE = new Set([
   "seaquel-core",
   "seaquel-runtime",
   "seaquel-types",
   "seaquel-rpc",
+  ...INTERFACE_LIBS,
 ]);
 
 const INTERFACE_GLUE_MAY_USE = new Set([

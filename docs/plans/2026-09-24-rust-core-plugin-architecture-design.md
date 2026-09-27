@@ -28,6 +28,15 @@ Core, served over the workspace RPC (`core_call` on desktop, `/rpc` and
 database, the legacy JSON import is gone, and Core builds for wasm32 with
 the `browser` feature. SQLite and DuckDB connections are off on web
 (Decision 11b of that plan). Its measured cost is in "Phase 3 cost" below.
+Phase 4: implemented (see 2026-09-30-rust-core-phase-4-plan.md). The desktop
+app bundles `seaquel-cli` as a sidecar; `seaquel-cli mcp` is a read-only MCP
+server over stdio (`seaquel-mcp`) that opens the app's `seaquel.db` read-only,
+reads its keychain entries and connects saved connections through
+`Workspace::connect_saved` (`seaquel-workspace`, a port of the GUI's connect
+path). Only connections named on its command line are exposed. Core gained
+row, byte and time limits on read-only queries and a read-only EXPLAIN. The
+GUI still connects through TypeScript, and nothing writes storage from a
+second process yet. Its measured cost is in "Phase 4 cost" below.
 
 ## Problem
 
@@ -386,6 +395,23 @@ As built in phase 3 (details in that plan's Decisions 2–6 and findings):
 - **Data dir** is `seaquel_storage::data_dir`, with the `dirs` crate rather
   than `directories`. The desktop and web files didn't move.
 
+As built in phase 4:
+
+- **The MCP server doesn't write storage.** It opens `seaquel.db` with
+  `StorageOptions { read_only: true }`: no baseline, migrations or data
+  steps, and no journal-mode change. A file with any of them pending is
+  refused with `STORAGE_NEEDS_UPGRADE` ("Open the Seaquel app once…"), a
+  missing one with `STORAGE_NOT_FOUND`. So there is no query history from
+  MCP and no saved-query edits.
+- **`data_version` polling and `StorageChanged` are deferred again**, to the
+  first phase with a second writer (phase 5 or phase 7's `seaquel conn add`).
+  A read-only reader needs neither: it re-reads the rows it needs, such as the
+  sharing flags, on every call.
+- **Opens are serialised.** A pending migration runs under `BEGIN IMMEDIATE`
+  on the migrator's own connection and is re-checked under the lock, so two
+  processes or two pools opening one file apply it once. This fixed the race
+  phase 3 left on web.
+
 ### Secrets
 
 `SecretStore` has two implementations:
@@ -593,6 +619,33 @@ change.
 Standalone distribution later (Homebrew, cargo-dist, `ghcr.io`) needs no design
 change. The binary already finds its data dir without Tauri (see Storage
 ownership).
+
+As built in phase 4:
+
+- **The binary is `seaquel-cli`, everywhere.** tauri-build refuses a sidecar
+  named like the Cargo package, and the GUI already owns `seaquel` on every
+  platform: `Contents/MacOS/seaquel` on a case-insensitive APFS, `/usr/bin/seaquel`
+  from deb and rpm, and `Seaquel.exe` on Windows. The `PATH` links, docs and MCP
+  snippets all say `seaquel-cli`.
+- **Windows `PATH` is deferred.** The installer doesn't change it; the settings
+  panel shows the full path, which is all an MCP host needs. NSIS and WiX hooks
+  are a follow-up.
+- **A keychain prompt instead of an access group.** keyring 3.6 uses the
+  legacy file keychain, where each item trusts only the app that created it,
+  and access groups exist only in the data protection keychain, which would
+  orphan every saved password and needs a provisioning profile a bare binary
+  can't carry. So on macOS the first read of each item shows an "Allow /
+  Always Allow / Deny" prompt. The settings panel and README say to choose
+  "Always Allow"; the MCP call's timeout pauses while a prompt is open, and a
+  denial fails with `SECRET_UNREADABLE` naming the connection. Checking that
+  "Always Allow" sticks on a signed build is a manual check.
+- **The bundler signs the sidecar.** tauri-bundler 2.9.4 codesigns sidecars
+  with the hardened runtime before the app and then notarizes the app, and
+  on Windows signs them with `signCommand`. `release.yml` builds the sidecar
+  per target in its own step. The first draft release still has to confirm it
+  (`codesign -dv --verbose=4`, `signtool verify /pa`).
+- **The CLI doesn't enable `git` or either `license-*` feature**, and
+  `--version` and `--help` print the terms line.
 
 ## The demo: Core in the browser
 
@@ -1801,6 +1854,183 @@ didn't (Part 2). Budget 40% for review fixes on anything a network client
 or another process can reach, and put a probe of the trust boundary in the
 plan itself rather than leaving it to review.
 
+## Phase 4 cost
+
+Source: `2026-09-30-phase-4-effort.md` and the phase 4 plan's execution
+notes, plus line counts measured against the phase 3 commit (`5d555e0`);
+phase 4 is in the working tree on top of it. Times are agent wall time as
+logged, review and probe fixes included, but not the plan, the review passes
+themselves or the owner's checkpoints. Tasks 1–2, 3–5 and 7–9 ran partly in
+parallel. The probe's two runs aren't in the effort log; their times come
+from the timestamps of their scratch files.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Crates, rules, pins | 0.5–0.75 h | ~0.6 h | — | ~0.6 h |
+| 2. Freeze the TS connect-config baseline | 1–1.5 h | ~0.8 h | — | ~0.8 h |
+| 3. `seaquel-workspace`, `connect_saved` | 2–3 h | ~1.25 h | ~0.7 h | ~1.9 h |
+| 4. Read-only storage, migration lock | 1–1.5 h | ~1.1 h | — | ~1.1 h |
+| 5. `max_rows` (Core, 5 engines, in-app AI) | 2–3 h | ~1.7 h | — | ~1.7 h |
+| 6. `seaquel-mcp`, `seaquel-cli mcp` | 3–4 h | ~1.8 h | ~2 h | ~3.8 h |
+| 7. Trust-boundary probe (two runs) | 1–1.5 h | ~0.9 h | ~4.9 h | ~5.8 h |
+| 8. Sidecar, release, menu, PATH | 2–3 h | ~1.8 h | — | ~1.8 h |
+| 9. MCP settings panel | 1–1.5 h | ~0.75 h | — | ~0.75 h |
+| 10. Docs, measure, checks | 0.75–1 h | ~0.4 h | — | ~0.4 h |
+| Review fixes (the plan's own row) | 6–8 h | | | |
+| **Total** | **~21–29 h** | **~11.1 h** | **~7.6 h** | **~18.7 h** |
+
+Task 8's first pass includes the ~0.6 h rerun after the disk filled up
+(below). Task 6's fixes are the review round on the MCP layer (~1.6 h) and
+two small follow-ons: EXPLAIN and timeout wiring, and the `-32700` id. Task
+7's fixes are the five the probe led to: the SQL Server `\r` comment
+(~0.5 h), restricted DuckDB (~0.7 h), read-only EXPLAIN with a server-side
+timeout and cancel (~2 h), DuckDB json linked statically (~0.6 h) and a
+byte budget in the drivers (~1.2 h).
+
+The plan expected about **13–17 h logged**. It came in at ~18.7 h: above that,
+and about two-thirds of the plan's 21–29 h. First passes took ~11.1 h against
+14.25–20.75 h, between 53% and 78% of their estimates, less of a saving than
+phase 3's Part 1 because most tasks here were new mechanisms rather than
+ports. Fixes took ~7.6 h, the top of the 6–8 h the plan budgeted, and 41% of
+the logged time, right on the 40% the phase 3 notes advised. What the plan
+didn't foresee is where they came from: the probe, estimated at 1–1.5 h,
+cost ~5.8 h once its fixes are counted, more than any other task.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~7,260 | ~290 |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~7,350 | ~60 |
+| Fixtures (107 connect-config cases, `seaquel-sql` fixture updates, test migrations) | ~6,050 | — |
+| TypeScript/Svelte, production | ~540 | ~45 |
+| TypeScript/JS, tests | ~480 | ~35 |
+| Generated TS types | ~25 | — |
+| Build and dev scripts (`build-cli.mjs`, `tauri.mjs`) | ~220 | — |
+
+Measured with `git diff -U0` against `5d555e0` plus the untracked files, with
+`Cargo.lock`, `package-lock.json`, config files, the docs and the message
+files left out; inline test modules counted from their `#[cfg(test)]` line.
+The ~650-line connect-config recorder in `docs/plans/artifacts` isn't counted.
+
+Where the production Rust went: `seaquel-mcp` ~2,520 (with ~2,280 lines of
+tests), `seaquel-workspace` ~950, `src-tauri` ~710 (`cli_install.rs`,
+`cli_info.rs`, the menu), Core ~700 (`connect_saved`, the tunnel ownership,
+`QueryOptions`, `explain_read_only`), `seaquel-storage` ~410, `seaquel-cli`
+~380, `seaquel-engine` ~330 (`RowCap`, `ReadOnlyOptions`, the trait
+methods), the testkit ~230 and ~880 across the five engines. The tests
+outweigh the production code, mostly the MCP server's and the engines' live
+read-only tests.
+
+### Bugs found
+
+By who found them first, counted from the effort log. "Implementer" means a
+fixture, live test or check while building the task; "review" a review round
+after it; "probe" Task 7's attack on the running server, or the fixes it
+led to. The bracketed number is how many were older than phase 4.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Connecting saved connections | 3 [3] | 3 | — |
+| Read-only queries (Core, engines, `seaquel-sql`) | 1 | — | 5 [3] |
+| MCP server | — | 9 | — |
+| Packaging | 1 | — | — |
+| **Total** | **5 [3]** | **12** | **5 [3]** |
+
+The serious ones:
+
+- **SQL Server `\r` comments hid a write from the read-only check** (probe).
+  `SELECT 1 AS a -- x\rDELETE … COMMIT COMMIT` passed, because the scanner
+  ended `--` at a lone `\r` only on Postgres and DuckDB, and SQL Server does
+  too. It affected the in-app AI as well as MCP. The check now also reads
+  every input with `\r` ending comments, on every engine.
+- **EXPLAIN could write** (probe). The editor's `explain` isn't meant for
+  untrusted SQL: Postgres folds immutable functions while planning, MariaDB
+  evaluates `NEXTVAL` in a derived table or a primary-key lookup, SQLite's
+  EXPLAIN runs every statement and DuckDB's all but the first. `explain_read_only` plans
+  one statement inside the engine's read-only transaction or session.
+- **DuckDB could read any file the user can** (probe): `read_csv`, a path as
+  a table, `glob`, `ATTACH`. The MCP server's instances are now restricted.
+  The in-app AI keeps the gap, documented.
+- **A timed-out query kept running on the server** (probe; an AI safety
+  follow-up). Dropping a sqlx stream doesn't cancel a Postgres or MySQL
+  statement. Now the database's own timeout is set, and a drop sends
+  `pg_cancel_backend` or `KILL QUERY` from a fresh connection.
+- **No byte limit** (review, then probe). A result was bounded only by rows,
+  so 1,000 rows of 1 MB took 1.2 GB of memory. The MCP layer now cuts cells
+  and results, and the drivers stop fetching at a byte budget (peak RSS
+  121 MB on SQLite and 82 MB on Postgres for the same query).
+- **Passwords with `%` or `+` failed to reconnect** (Task 2 recording). The
+  URL password setter leaves them unencoded, so `50%off` became an invalid
+  escape. Fixed in the app too.
+- **SQL Server `verify-full` accepted any certificate** (Task 2 recording):
+  `trust_cert` was on for every mode but `require`. Fixed in the app too.
+- **A failed keychain read connected without a password** (Task 3 review).
+  The TS treats a failed read as no secret; `connect_saved` refuses with
+  `SECRET_UNREADABLE` instead.
+
+The MCP review's nine were in new code: no output byte limits, non-JSON
+input dropped silently, saved queries listed for connections that don't
+share their schema, a keychain prompt counted against the call timeout, a
+process that hung after SIGTERM, a `{{name}}` missing from the stored
+definitions not treated as a parameter, `sqlx::query` logging SQL at the default level, the DuckDB
+lockdown not wired in, and a `-32700` reply without `"id": null`.
+
+The probe found fewer bugs than the reviews but the worst ones, and three of
+its five were older than the phase. Writing it into the plan, as phase 3
+advised, paid off.
+
+### What was harder than expected
+
+- **The trust boundary needed the database, not just the check.** Decision 7
+  first relied on the read-only check, the engines' read-only modes and
+  dropping a stream. The probe showed each wasn't enough for a model with
+  direct access: EXPLAIN, a server that keeps running, a DuckDB instance
+  that reads files, and memory bounded only by rows. Each fix went into the
+  drivers.
+- **DuckDB extensions.** Locking the instance meant no autoload, so JSON
+  functions stopped working until `json` was linked in. `icu` can't be:
+  duckdb-rs's `icu` feature needs a DuckDB source checkout the crates.io
+  package leaves out, so it would mean a git dependency and cmake on every
+  runner. Time zones stay broken on the MCP server.
+- **Two connect paths in the GUI.** The TS connects through autoReconnect or
+  through the reconnect tab's rebuild, and some rows (every shared import)
+  only ever connect through the second. The fixtures had to record which
+  path the GUI takes per row.
+- **rmcp's edges.** It drops a non-JSON line without a reply and offers no
+  hook, so seaquel-mcp has its own line transport; its default server info
+  reports rmcp's own name; tokio's blocking stdin read kept the process
+  alive after a signal.
+- **Disk and load.** Each parallel agent kept its own target directory
+  (up to 56 GB each with DuckDB), and during Task 8 the disk filled up, so
+  its first pass couldn't build or test anything and was rerun on a clean
+  directory. Load averages of 25–34 made one wasm parity test exceed
+  vitest's 5 s timeout.
+
+What went to plan: the read-only storage open and the migration lock; `max_rows`
+on all five engines, live, first time; the Rust port of the connect path,
+which matched all 107 recorded cases except the five the two fixes changed
+(the `url` crate matched WHATWG `new URL` on every case); and the sidecar in
+the bundle, which printed its version from inside `Seaquel.app` on the first
+local bundle build.
+
+### What this means for phase 5
+
+- **The GUI can move onto `connect_saved`.** The port, the fixtures and
+  `HostKeyPolicy::Trust` exist. The quirks the fixtures kept (the README's
+  list: MySQL `verify-*` unmapped, the rebuild dropping parameters, DuckDB
+  keeping `?params` in the path, …) become decisions then, as does the
+  MSSQL TLS server-name override for tunnelled connections.
+- **The first second writer brings `StorageChanged`.** Phase 4 avoided it by
+  not writing.
+- **Estimating.** First passes ran at 53–78% of their estimates, not half:
+  budget new mechanisms near the estimate. Keep a probe in the plan, and
+  budget its fixes separately at about three times the probe itself; here
+  they were the largest single cost. Share one target directory between
+  agents, or clean them, before starting parallel work with DuckDB.
+
 ## Risks
 
 - **Port size.** About 5k lines of dialect code and 14k lines of state
@@ -1847,4 +2077,5 @@ Two choices are left to the spikes and don't block the plan:
 
 - The browser storage backend: rusqlite on `sqlite-wasm-rs`, or a bridge to
   sql.js. This is decided in phase 8.
-- The keychain access group setup on macOS. This is verified in phase 4.
+- The keychain access group setup on macOS. Settled in phase 4: no access
+  group; the CLI accepts one prompt per item (see "Terminal binaries").

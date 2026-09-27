@@ -278,3 +278,35 @@ async fn the_comparison_sees_known_differences() {
         assert_eq!(fixture_shape(same).await, current, "{same}");
     }
 }
+
+/// `schema::is_current`, which a read-only open relies on, says true exactly
+/// when the baseline would change nothing, on every release's file.
+#[tokio::test]
+async fn is_current_is_true_exactly_when_the_baseline_changes_nothing() {
+    let mut seen = Vec::new();
+    for (release, _) in RELEASES {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seaquel.db");
+        load_fixture(&path, &format!("schemas/{release}.sql")).await;
+        let before = snapshot(&path).await;
+
+        let mut conn = raw_connect(&path).await;
+        let current = seaquel_storage::schema::is_current(&mut conn)
+            .await
+            .unwrap();
+        let mut tx = conn.begin().await.unwrap();
+        seaquel_storage::schema::baseline(&mut tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let after_baseline = seaquel_storage::schema::is_current(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+
+        let changed = snapshot(&path).await != before;
+        assert_eq!(current, !changed, "{release}");
+        assert!(after_baseline, "{release}");
+        seen.push(current);
+    }
+    // Both answers are covered.
+    assert!(seen.contains(&true) && seen.contains(&false), "{seen:?}");
+}

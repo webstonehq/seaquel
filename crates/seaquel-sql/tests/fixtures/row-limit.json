@@ -5302,11 +5302,12 @@
         "mysql": false,
         "mariadb": false,
         "sqlite": false,
-        "mssql": false,
+        "mssql": true,
         "duckdb": true
       },
       "fixes": {
         "postgres": [10],
+        "mssql": [20],
         "duckdb": [10]
       }
     },

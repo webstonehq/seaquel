@@ -145,3 +145,64 @@ fn debug_hides_the_secret_store() {
     let text = format!("{spec:?}");
     assert!(text.contains("<store>"), "{text}");
 }
+
+fn read_only_spec(dir: &std::path::Path) -> WorkspaceSpec {
+    WorkspaceSpec::new(dir).with_storage_options(seaquel_core::storage::StorageOptions {
+        read_only: true,
+        ..Default::default()
+    })
+}
+
+/// The CLI opens the app's file read-only: a missing file keeps its code and
+/// isn't created, and a current one reads but can't be written.
+#[tokio::test]
+async fn a_read_only_workspace_reads_and_never_creates_or_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    let err = core()
+        .open_workspace(read_only_spec(&data_dir))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "STORAGE_NOT_FOUND", "{}", err.message);
+    assert!(!data_dir.exists());
+
+    let ws = core()
+        .open_workspace(WorkspaceSpec::new(&data_dir))
+        .await
+        .unwrap();
+    projects::save(ws.storage(), &project("p1")).await.unwrap();
+    ws.close().await;
+
+    let ro = core()
+        .open_workspace(read_only_spec(&data_dir))
+        .await
+        .unwrap();
+    assert_eq!(
+        projects::load_all(ro.storage())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect::<Vec<_>>(),
+        ["p1"]
+    );
+    assert!(projects::save(ro.storage(), &project("p2")).await.is_err());
+    ro.close().await;
+}
+
+#[tokio::test]
+async fn a_read_only_workspace_on_an_outdated_file_needs_an_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(DESKTOP_STORAGE_FILE), b"").unwrap();
+    let err = core()
+        .open_workspace(read_only_spec(dir.path()))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "STORAGE_NEEDS_UPGRADE");
+    assert!(
+        err.message
+            .contains("Open the Seaquel app once to update your data."),
+        "{}",
+        err.message
+    );
+}

@@ -47,7 +47,8 @@ use serde_json::value::RawValue;
 /// `DbError`. Codes:
 ///
 /// - storage: `LEGACY_STORAGE`, `STORAGE_CORRUPT`, `NO_DATA_DIR` (desktop),
-///   `STORAGE_ERROR`;
+///   `STORAGE_ERROR`, and from a read-only workspace (the CLI)
+///   `STORAGE_NEEDS_UPGRADE` and `STORAGE_NOT_FOUND`;
 /// - secrets: `INVALID_ARGUMENT` (a bad key), `SECRET_STORE_ERROR`;
 /// - `INVALID_ARGUMENT` for a body that isn't a valid request;
 /// - `NOT_SUPPORTED` when the workspace or build lacks the piece asked for.

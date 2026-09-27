@@ -25,6 +25,7 @@
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
 	import { isTauri, isWeb } from "$lib/utils/environment";
 	import UsersIcon from "@lucide/svelte/icons/users";
+	import PlugIcon from "@lucide/svelte/icons/plug";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 
 	import AppInfoSection from "./general/app-info-section.svelte";
@@ -38,6 +39,7 @@
 	import AiPrivacySection from "./ai/ai-privacy-section.svelte";
 	import TeamSection from "./general/team-section.svelte";
 	import AirgapSection from "./general/airgap-section.svelte";
+	import McpSection from "./mcp/mcp-section.svelte";
 
 	interface Props {
 		tab: SettingsTab;
@@ -126,6 +128,7 @@
 			icon: SparklesIcon,
 			items: [
 				{ id: "ai-provider", name: m.settings_ai_provider(), icon: SparklesIcon },
+				...(isTauri() ? [{ id: "mcp" as const, name: m.settings_mcp(), icon: PlugIcon }] : []),
 				{ id: "ai-privacy", name: m.settings_ai_privacy(), icon: ShieldIcon },
 			],
 		},
@@ -325,6 +328,10 @@
 
 			{#if shouldShowSection("ai-provider")}
 				<AiProviderSection />
+			{/if}
+
+			{#if isTauri() && shouldShowSection("mcp")}
+				<McpSection />
 			{/if}
 
 			{#if shouldShowSection("ai-privacy")}

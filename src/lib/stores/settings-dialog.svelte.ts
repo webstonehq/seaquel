@@ -9,6 +9,7 @@ export type SettingsSection =
   | "ai-feature"
   | "learn"
   | "ai-provider"
+  | "mcp"
   | "ai-privacy"
   | "query-history"
   | "pending-changes";
@@ -27,6 +28,7 @@ export const sectionToGroup: Record<SettingsSection, SettingsGroup> = {
   "ai-feature": "features",
   learn: "features",
   "ai-provider": "ai",
+  mcp: "ai",
   "ai-privacy": "ai",
   "query-history": "general",
   "pending-changes": "features",
@@ -37,7 +39,7 @@ export const groupSections: Record<SettingsGroup, SettingsSection[]> = {
   general: ["app-info", "license", "team", "airgap", "query-history"],
   appearance: ["theme", "themes", "editor"],
   features: ["ai-feature", "learn", "pending-changes"],
-  ai: ["ai-provider", "ai-privacy"],
+  ai: ["ai-provider", "mcp", "ai-privacy"],
 };
 
 class SettingsDialogStore {

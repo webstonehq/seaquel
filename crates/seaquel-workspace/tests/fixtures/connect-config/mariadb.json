@@ -1,0 +1,238 @@
+[
+  {
+    "name": "mariadb/stored-string",
+    "row": {
+      "id": "conn-mariadb-stored-string",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "Maria",
+      "type": "mariadb",
+      "host": "maria.example.com",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "prefer",
+      "connectionString": "mariadb://root@maria.example.com:3307/shop?ssl-mode=PREFERRED"
+    },
+    "secrets": {
+      "db:conn-mariadb-stored-string": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mariadb-stored-string"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mariadb-stored-string"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@maria.example.com:3307/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mariadb-stored-string"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@maria.example.com:3307/shop?ssl-mode=PREFERRED"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mariadb/default-port-string",
+    "row": {
+      "id": "conn-mariadb-default-port-string",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "Maria",
+      "type": "mariadb",
+      "host": "maria.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "disable",
+      "connectionString": "mariadb://root@maria.example.com/shop?ssl-mode=DISABLED"
+    },
+    "secrets": {
+      "db:conn-mariadb-default-port-string": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mariadb-default-port-string"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mariadb-default-port-string"
+      ],
+      "connected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@maria.example.com/shop?ssl-mode=DISABLED"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mariadb-default-port-string"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@maria.example.com/shop?ssl-mode=DISABLED"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "mariadb/no-string-require",
+    "row": {
+      "id": "conn-mariadb-no-string-require",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "Maria",
+      "type": "mariadb",
+      "host": "maria.example.com",
+      "port": 3306,
+      "databaseName": "shop",
+      "username": "root",
+      "sslMode": "require"
+    },
+    "secrets": {
+      "db:conn-mariadb-no-string-require": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-mariadb-no-string-require"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mariadb-no-string-require"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "mysql"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for MySQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mariadb-no-string-require"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@maria.example.com/shop?ssl-mode=REQUIRED"
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "mariadb/ssh",
+    "row": {
+      "id": "conn-mariadb-ssh",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": true,
+      "saveSshKeyPassphrase": false,
+      "name": "Maria",
+      "type": "mariadb",
+      "host": "maria.internal",
+      "port": 3307,
+      "databaseName": "shop",
+      "username": "root",
+      "connectionString": "mariadb://root@maria.internal:3307/shop",
+      "sshTunnel": {
+        "enabled": true,
+        "host": "bastion.example.com",
+        "port": 22,
+        "username": "deploy",
+        "authMethod": "password"
+      }
+    },
+    "secrets": {
+      "db:conn-mariadb-ssh": "pw",
+      "ssh:conn-mariadb-ssh": "ssh-pw"
+    },
+    "tunnelPort": 50306,
+    "load": {
+      "secretsRead": [
+        "db:conn-mariadb-ssh"
+      ],
+      "username": "root",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-mariadb-ssh",
+        "ssh:conn-mariadb-ssh"
+      ],
+      "connected": true,
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "remoteHost": "maria.internal",
+        "remotePort": 3307
+      },
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@127.0.0.1:50306/shop"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-mariadb-ssh",
+        "ssh:conn-mariadb-ssh"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "tunnel": {
+        "sshHost": "bastion.example.com",
+        "sshPort": 22,
+        "sshUsername": "deploy",
+        "authMethod": "password",
+        "password": "ssh-pw",
+        "keyPath": "",
+        "keyPassphrase": "",
+        "remoteHost": "maria.internal",
+        "remotePort": 3307
+      },
+      "config": {
+        "driver": "mysql",
+        "connection_string": "mariadb://root:pw@127.0.0.1:50306/shop"
+      }
+    },
+    "gui": "autoReconnect"
+  }
+]

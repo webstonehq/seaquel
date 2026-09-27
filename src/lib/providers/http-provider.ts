@@ -11,7 +11,7 @@
  * contract) is oblivious to the transport switch.
  */
 
-import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
+import type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
 import type {
   DbConnectResult,
   DbExecuteResult,
@@ -109,9 +109,10 @@ export class HttpProvider implements DatabaseProvider {
     connectionId: string,
     sql: string,
     signal?: AbortSignal,
-  ): Promise<Record<string, unknown>[]> {
+    maxRows?: number,
+  ): Promise<ReadOnlyRows> {
     return collectReadOnly(
-      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true),
+      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true, maxRows),
       signal,
     );
   }
@@ -127,6 +128,7 @@ export class HttpProvider implements DatabaseProvider {
     onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
     signal: AbortSignal | undefined,
     readOnly: boolean,
+    maxRows?: number,
   ): Promise<StreamOutcome> {
     if (signal?.aborted) return { aborted: true };
 
@@ -162,6 +164,7 @@ export class HttpProvider implements DatabaseProvider {
       columns: string[] | null;
       rows: unknown[][];
       is_final: boolean;
+      truncated?: boolean;
     }) => {
       if (cancelled) return;
 
@@ -172,6 +175,7 @@ export class HttpProvider implements DatabaseProvider {
         columns: event.columns,
         rows: decodeRows(event.rows),
         isFinal: event.is_final,
+        truncated: event.truncated,
       });
 
       if (!keepGoing || signal?.aborted) {
@@ -193,6 +197,8 @@ export class HttpProvider implements DatabaseProvider {
           sql,
           values: encodeParams(params),
           read_only: readOnly,
+          // Only from `selectReadOnly`; `JSON.stringify` leaves out undefined.
+          max_rows: maxRows,
         }),
       );
     };

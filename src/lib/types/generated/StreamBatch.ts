@@ -6,4 +6,10 @@
  * and None on subsequent batches. `is_final` marks the terminal batch, which
  * may carry zero rows.
  */
-export type StreamBatch = { columns: Array<string> | null, rows: unknown[][], is_final: boolean, };
+export type StreamBatch = { columns: Array<string> | null, rows: unknown[][], is_final: boolean, 
+/**
+ * Only on the final batch of a read-only query run with `max_rows`:
+ * the query had more rows than that, and only the first `max_rows`
+ * were sent. Absent (false) everywhere else.
+ */
+truncated?: boolean, };

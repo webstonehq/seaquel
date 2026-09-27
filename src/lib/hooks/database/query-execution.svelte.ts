@@ -1209,8 +1209,9 @@ export class QueryExecutionManager {
     sql: string,
     signal?: AbortSignal,
     connectionName?: string,
+    maxRows?: number,
   ) {
-    return this.crud.executeReadOnly(connectionId, sql, signal, connectionName);
+    return this.crud.executeReadOnly(connectionId, sql, signal, connectionName, maxRows);
   }
 
   executeRawDdl(query: string) {

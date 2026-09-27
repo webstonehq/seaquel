@@ -13596,6 +13596,46 @@
       "case": "create-table.json: hand: three-part name with a dot and a quote",
       "reason": "fix 17: parseCreateTableSql gave null for a name with a doubled quote (\"\", ``, ]]) or a three-part name, which the engines' own DDL writes",
       "diff": ["$: null → {\"tableName\":\"t\",\"schemaName\":\"\\\"my.cat\\\".\\\"ma\\\"\\\"in\\\"\",\"columns\":[{\"name\":\"id\",\"type\":\"INTEGER\",\"nullable\":true,\"defaultValue\":\"\",\"isPrimaryKey\":false,\"isUnique\":false}],\"indexes\":[],\"foreignKeys\":[]}"]
+    },
+    {
+      "name": "split: fix10:cr-comment [mssql]",
+      "fixes": [20],
+      "case": "split.json: fix10:cr-comment",
+      "engine": "mssql",
+      "reason": "fix 20 (phase 4, by hand: the recorder is gone): SQL Server ends a `--` comment at a lone \\r too (`SELECT 1 AS a -- x\\r, 2 AS b` gives two columns), which the phase 4 security probe measured after `SELECT 1 -- x\\rDELETE …` passed the read-only check and committed through the MCP server",
+      "diff": ["$.length: 1 → 2"]
+    },
+    {
+      "name": "statement-at: fix10:cr-comment [mssql]",
+      "fixes": [20],
+      "case": "statement-at.json: fix10:cr-comment",
+      "engine": "mssql",
+      "reason": "fix 20 (phase 4, by hand: the recorder is gone): SQL Server ends a `--` comment at a lone \\r too (`SELECT 1 AS a -- x\\r, 2 AS b` gives two columns), which the phase 4 security probe measured after `SELECT 1 -- x\\rDELETE …` passed the read-only check and committed through the MCP server",
+      "diff": ["offsets 9–28: 0 \"SELECT 1\" → 1 \"SELECT 2\""]
+    },
+    {
+      "name": "row-limit: fix10:cr-comment-limit [mssql]",
+      "fixes": [20],
+      "case": "row-limit.json: fix10:cr-comment-limit",
+      "engine": "mssql",
+      "reason": "fix 20 (phase 4, by hand: the recorder is gone): SQL Server ends a `--` comment at a lone \\r too (`SELECT 1 AS a -- x\\r, 2 AS b` gives two columns), which the phase 4 security probe measured after `SELECT 1 -- x\\rDELETE …` passed the read-only check and committed through the MCP server",
+      "diff": ["$: false → true"]
+    },
+    {
+      "name": "params: fix10:duckdb-cr-param values 0 [mssql]",
+      "fixes": [20],
+      "case": "params.json: fix10:duckdb-cr-param values 0",
+      "engine": "mssql",
+      "reason": "fix 20 (phase 4, by hand: the recorder is gone): SQL Server ends a `--` comment at a lone \\r too (`SELECT 1 AS a -- x\\r, 2 AS b` gives two columns), which the phase 4 security probe measured after `SELECT 1 -- x\\rDELETE …` passed the read-only check and committed through the MCP server",
+      "diff": ["$.sql: \"SELECT N'x' -- note\\r, {{a}}\" → \"SELECT N'x' -- note\\r, N'x'\""]
+    },
+    {
+      "name": "params: fix10:duckdb-cr-param values 0 inline [mssql]",
+      "fixes": [20],
+      "case": "params.json: fix10:duckdb-cr-param values 0 inline",
+      "engine": "mssql",
+      "reason": "fix 20 (phase 4, by hand: the recorder is gone): SQL Server ends a `--` comment at a lone \\r too (`SELECT 1 AS a -- x\\r, 2 AS b` gives two columns), which the phase 4 security probe measured after `SELECT 1 -- x\\rDELETE …` passed the read-only check and committed through the MCP server",
+      "diff": ["$.sql: \"SELECT N'x' -- note\\r, {{a}}\" → \"SELECT N'x' -- note\\r, N'x'\""]
     }
   ]
 }

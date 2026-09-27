@@ -26,6 +26,7 @@ Works with 6 database engines. No account required. Open source, free for person
 - **Inline result editing** — INSERT, UPDATE, and DELETE rows directly from the results table
 - **Visual query builder** — Drag-and-drop canvas for building queries without SQL
 - **AI assistant** — Get help writing and understanding SQL queries
+- **MCP server** — Let Claude Desktop, Claude Code or another MCP host read your schemas and run read-only queries (desktop)
 - **SQL learning sandbox** — Interactive challenges to practice SQL
 
 ### Explore & Visualize
@@ -492,6 +493,92 @@ docker volume rm seaquel-airgap-data
 SQLite and DuckDB are desktop-only. The self-hosted web app runs on a
 server, where a SQLite or DuckDB "connection" would be a file on that
 server, so it doesn't offer them.
+
+## MCP server
+
+The desktop app ships a command line tool, `seaquel-cli`, whose `mcp`
+subcommand runs an [MCP](https://modelcontextprotocol.io) server over stdio.
+An MCP host such as Claude Desktop or Claude Code can then list the
+connections you pick, read their schemas, run read-only queries and saved
+queries, and EXPLAIN a query. It uses your saved connections, passwords and
+SSH settings from the app, so there is nothing to configure twice. The app
+doesn't need to be running.
+
+### Setup
+
+Open **Settings → MCP** in the app. Check the connections, or whole projects,
+the server may use, then copy one of the snippets it builds:
+
+- **Claude Desktop:** add the JSON to `claude_desktop_config.json` (Settings →
+  Developer → Edit Config in Claude Desktop), merging it into `mcpServers` if
+  the file already has one, and restart Claude Desktop.
+- **Claude Code:** run the `claude mcp add seaquel -- …` line in a terminal.
+
+On macOS the snippets point at the tool inside the app,
+`/Applications/Seaquel.app/Contents/MacOS/seaquel-cli`. deb and rpm installs
+put it in `/usr/bin/seaquel-cli`. On Windows the panel shows its full path in
+the install folder; the installer doesn't add it to `PATH`. To type
+`seaquel-cli` in a terminal on macOS or in the Linux AppImage, use **Install
+Command Line Tool…** in the app menu (or the button in the panel). It links
+`/usr/local/bin/seaquel-cli` on macOS (asking for your password if needed) and
+`~/.local/bin/seaquel-cli` for the AppImage.
+
+Open the app once after installing or updating it before you start the
+server. The server never changes the app's data file, so if a new version has
+an update to make, it refuses with "Open the Seaquel app once to update your
+data".
+
+### What the server can see
+
+Only the connections named on its command line:
+
+```bash
+seaquel-cli mcp --connection <id or name> --connection <id or name>
+seaquel-cli mcp --project <id or name>
+```
+
+Both flags can be repeated, and names must match exactly. The list is read
+when the server starts, so a connection added to an exposed project shows up
+after the MCP host restarts the server. With neither flag the server starts
+with no connections. The settings panel names connections and
+projects by id, since names can change.
+
+The AI sharing settings apply here too, per connection or from Settings → AI:
+with schema sharing off the server won't describe that connection, and with
+"Allow AI to run read-only queries" off it won't run queries on it. Data
+sharing is off by default, so turn it on for each connection you want
+queried. Sharing changes apply to the next tool call, without a restart.
+
+### Read-only
+
+The server never writes. Queries go through the same read-only check as the
+in-app AI and then run in the database's read-only mode (on SQL Server,
+inside a transaction that is always rolled back; a read-only login is the
+only full guarantee there). EXPLAIN never runs ANALYZE. Results are capped
+at 1,000 rows (100 unless the host asks for more), 64 KB per cell and about
+4 MB per result, and each call is cancelled on the database after 60 seconds.
+
+### DuckDB
+
+DuckDB connections open locked down: the server can read the tables and
+views in the database file and nothing else. Reading other files (`read_csv`,
+`read_parquet`, a path used as a table, `glob`), `COPY`, `ATTACH`, and
+installing or loading extensions are refused, so a view over a CSV or Parquet
+file fails too. JSON functions work. There is no time zone support, so
+functions that need a time zone and arithmetic on `TIMESTAMPTZ` values fail.
+
+### Passwords and the macOS keychain
+
+The server reads saved passwords from the same keychain entries as the app.
+On macOS the first query on a connection with a saved password (or SSH
+password or key passphrase) shows a prompt asking whether `seaquel-cli` may use
+it. Choose **Always Allow** and it won't ask again for that item. The call
+waits while the prompt is open. If you choose Deny, the call fails with a
+message naming the connection. A connection without a saved password can't
+be used: save it in the app first.
+
+SSH tunnels work for hosts the app already trusts. The server never adds a
+host key, so for a new bastion, connect once in the app and accept its key.
 
 ## Community
 

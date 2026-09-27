@@ -7,9 +7,9 @@ use std::time::Duration;
 use futures::StreamExt;
 use seaquel_core::{Core, QueryOptions, StreamEvent};
 use seaquel_engine::{
-    BoxStream, CancellationToken, CastMap, ConnectConfig, DatabaseStatistics, DbError, Dialect,
-    Driver, Engine, ExecuteResult, ExplainResult, QueryResult, RowValues, SchemaColumn,
-    SchemaIndex, SchemaTable, SqlWithBindings, StreamBatch, Value,
+    BoxStream, CancellationToken, CappedResult, CastMap, ConnectConfig, DatabaseStatistics,
+    DbError, Dialect, Driver, Engine, ExecuteResult, ExplainResult, QueryResult, ReadOnlyOptions,
+    RowValues, SchemaColumn, SchemaIndex, SchemaTable, SqlWithBindings, StreamBatch, Value,
 };
 use seaquel_types::{ColumnTypeInfo, CreateTableDefinition};
 use serde_json::json;
@@ -64,6 +64,7 @@ fn batch(n: i64) -> StreamBatch {
         columns: Some(vec!["n".into()]),
         rows: vec![vec![Value::Int(n)]],
         is_final: false,
+        truncated: false,
     }
 }
 
@@ -92,6 +93,7 @@ impl Driver for MockDriver {
                         columns: Some(result.columns),
                         rows: result.rows,
                         is_final: true,
+                        truncated: false,
                     };
                 })
             }
@@ -589,6 +591,14 @@ async fn introspection_reports_the_drivers_not_supported_and_unknown_connections
 /// `query_stream` panic, so a read-only stream that fell back to them fails.
 struct ReadOnlyDriver {
     calls: StdMutex<Vec<(String, usize)>>,
+    /// Each call's `max_rows`.
+    max_rows: StdMutex<Vec<Option<usize>>>,
+    /// Each `query_read_only_with` call's timeout.
+    timeouts: StdMutex<Vec<Option<Duration>>>,
+    /// Each `query_read_only_with` call's `max_bytes`.
+    max_bytes: StdMutex<Vec<Option<usize>>>,
+    /// Each `explain_read_only` call's SQL and timeout.
+    explains: StdMutex<Vec<(String, Option<Duration>)>>,
     /// `query_read_only` never returns, holding its "connection" until the
     /// future is dropped. `close()` waits for that, like `pool.close()`.
     hangs: bool,
@@ -600,6 +610,10 @@ impl ReadOnlyDriver {
     fn new(hangs: bool) -> Arc<Self> {
         Arc::new(Self {
             calls: StdMutex::default(),
+            max_rows: StdMutex::default(),
+            timeouts: StdMutex::default(),
+            max_bytes: StdMutex::default(),
+            explains: StdMutex::default(),
             hangs,
             released: AtomicBool::new(false),
             release: Notify::new(),
@@ -639,11 +653,18 @@ impl Driver for ReadOnlyDriver {
         panic!("a read-only stream must not call query_stream()")
     }
 
-    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+    /// Two rows, cut to `max_rows` like an engine would.
+    async fn query_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         self.calls
             .lock()
             .unwrap()
             .push((sql.to_string(), params.len()));
+        self.max_rows.lock().unwrap().push(max_rows);
         if sql.contains("refuse me") {
             return Err(DbError::read_only(
                 "cannot execute INSERT in a read-only transaction",
@@ -653,10 +674,43 @@ impl Driver for ReadOnlyDriver {
             let _checkout = ReadOnlyCheckout(self);
             futures::future::pending::<()>().await;
         }
-        Ok(QueryResult {
+        let mut rows = vec![vec![Value::Int(1)], vec![Value::Int(2)]];
+        let truncated = max_rows.is_some_and(|n| rows.len() > n);
+        rows.truncate(max_rows.unwrap_or(usize::MAX));
+        Ok(CappedResult {
             columns: vec!["n".into()],
-            rows: vec![vec![Value::Int(1)], vec![Value::Int(2)]],
+            rows,
+            truncated,
         })
+    }
+
+    async fn query_read_only_with(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        options: ReadOnlyOptions,
+    ) -> Result<CappedResult, DbError> {
+        self.timeouts.lock().unwrap().push(options.timeout);
+        self.max_bytes.lock().unwrap().push(options.max_bytes);
+        self.query_read_only(sql, params, options.max_rows).await
+    }
+
+    async fn explain_read_only(
+        &self,
+        sql: &str,
+        _params: Vec<Value>,
+        timeout: Option<Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        self.explains
+            .lock()
+            .unwrap()
+            .push((sql.to_string(), timeout));
+        Ok(serde_json::from_value(json!({
+            "plan": { "id": "0", "nodeType": "Result", "children": [] },
+            "planningTime": 0.0,
+            "isAnalyze": false
+        }))
+        .unwrap())
     }
 
     async fn close(&self) -> Result<(), DbError> {
@@ -730,6 +784,196 @@ fn query_options_default_to_read_write() {
     assert!(!QueryOptions::default().read_only);
     assert!(read_only().read_only);
     assert!(!read_only().with_read_only(false).read_only);
+    assert_eq!(QueryOptions::default().max_rows, None);
+    assert_eq!(read_only().with_max_rows(Some(3)).max_rows, Some(3));
+}
+
+/// The final batch of a read-only query run with `max_rows`, and what the
+/// driver was asked for.
+async fn read_only_batch(max_rows: Option<usize>) -> (StreamBatch, Vec<Option<usize>>) {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let options = read_only().with_max_rows(max_rows);
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q1".into(), id, "SELECT n FROM t".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    let StreamEvent::Batch(batch) = events.into_iter().next().unwrap() else {
+        unreachable!()
+    };
+    assert!(batch.is_final);
+    let asked = driver.max_rows.lock().unwrap().clone();
+    (batch, asked)
+}
+
+#[tokio::test]
+async fn read_only_max_rows_reaches_the_driver_and_marks_the_batch() {
+    let (batch, asked) = read_only_batch(Some(1)).await;
+    assert_eq!(asked, vec![Some(1)]);
+    assert_eq!(batch.rows, vec![vec![Value::Int(1)]]);
+    assert!(batch.truncated);
+
+    let (batch, asked) = read_only_batch(Some(5)).await;
+    assert_eq!(asked, vec![Some(5)]);
+    assert_eq!(batch.rows.len(), 2);
+    assert!(!batch.truncated);
+
+    // Without it the driver keeps its all-or-nothing cap.
+    let (batch, asked) = read_only_batch(None).await;
+    assert_eq!(asked, vec![None]);
+    assert_eq!(batch.rows.len(), 2);
+    assert!(!batch.truncated);
+}
+
+/// `max_rows` without `read_only` is refused before anything runs: the
+/// read-write stream has no row limit, and ignoring it would send every
+/// row to a caller that asked for a sample.
+#[tokio::test]
+async fn max_rows_without_read_only_is_invalid() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let options = QueryOptions::default().with_max_rows(Some(10));
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q1".into(), id, "SELECT 1".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_error(
+        &events[0],
+        "INVALID_OPTIONS",
+        "max_rows is only supported on read-only queries",
+    );
+    // `ReadOnlyDriver::query_stream` panics, so nothing ran.
+    assert!(driver.calls().is_empty());
+    assert_eq!(core.running_stream_count(), 0);
+}
+
+/// The timeout reaches the driver's read-only path, and like `max_rows` is
+/// refused without `read_only`.
+#[tokio::test]
+async fn read_only_timeout_reaches_the_driver() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    let t = Some(Duration::from_millis(1500));
+    assert_eq!(QueryOptions::default().timeout, None);
+    let options = read_only().with_timeout(t);
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q1".into(), id.clone(), "SELECT 1".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    assert_eq!(driver.timeouts.lock().unwrap().clone(), vec![t]);
+
+    let options = QueryOptions::default().with_timeout(t);
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q2".into(), id, "SELECT 1".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_error(
+        &events[0],
+        "INVALID_OPTIONS",
+        "timeout is only supported on read-only queries",
+    );
+    assert_eq!(driver.timeouts.lock().unwrap().len(), 1);
+}
+
+/// The byte budget reaches the driver's read-only path, and like `max_rows`
+/// is refused without `read_only`.
+#[tokio::test]
+async fn read_only_max_bytes_reaches_the_driver() {
+    let (core, id, driver) = connect_read_only("postgres", false).await;
+    assert_eq!(QueryOptions::default().max_bytes, None);
+    let options = read_only()
+        .with_max_rows(Some(10))
+        .with_max_bytes(Some(8 << 20));
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q1".into(), id.clone(), "SELECT 1".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary(&events), vec!["batch", "done"]);
+    assert_eq!(
+        driver.max_bytes.lock().unwrap().clone(),
+        vec![Some(8 << 20)]
+    );
+    assert_eq!(driver.max_rows.lock().unwrap().clone(), vec![Some(10)]);
+
+    let options = QueryOptions::default().with_max_bytes(Some(1));
+    let events = timeout(
+        LIMIT,
+        core.query_stream("q2".into(), id, "SELECT 1".into(), vec![], options)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_error(
+        &events[0],
+        "INVALID_OPTIONS",
+        "max_bytes is only supported on read-only queries",
+    );
+    assert_eq!(driver.max_bytes.lock().unwrap().len(), 1);
+}
+
+/// `explain_read_only` runs the token check and refuses a second statement
+/// before the driver sees anything, then passes the SQL and the timeout on.
+#[tokio::test]
+async fn explain_read_only_checks_before_the_driver() {
+    let (core, id, driver) = connect_read_only("duckdb", false).await;
+    let t = Some(Duration::from_secs(2));
+
+    let err = core
+        .explain_read_only(&id, "DELETE FROM t", vec![], t)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "READ_ONLY");
+    assert_eq!(err.message, seaquel_core::sql::read_only::READ_ONLY_MESSAGE);
+
+    for sql in ["SELECT 1; SELECT 2", "SELECT 1; COMMIT; SELECT 2"] {
+        let err = core
+            .explain_read_only(&id, sql, vec![], t)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "READ_ONLY", "{sql}");
+    }
+    let err = core
+        .explain_read_only(&id, "SELECT 1; SELECT 2", vec![], t)
+        .await
+        .unwrap_err();
+    assert_eq!(err.message, seaquel_engine::EXPLAIN_ONE_STATEMENT);
+    assert!(driver.explains.lock().unwrap().is_empty());
+
+    // A trailing `;` and a `;` inside a string are one statement.
+    for sql in ["SELECT 1;", "SELECT ';' AS s"] {
+        core.explain_read_only(&id, sql, vec![], t).await.unwrap();
+    }
+    assert_eq!(
+        driver.explains.lock().unwrap().clone(),
+        vec![
+            ("SELECT 1;".to_string(), t),
+            ("SELECT ';' AS s".to_string(), t)
+        ]
+    );
+    assert_eq!(
+        core.explain_read_only("nope", "SELECT 1", vec![], t)
+            .await
+            .unwrap_err()
+            .code,
+        "CONNECTION_NOT_FOUND"
+    );
 }
 
 #[tokio::test]

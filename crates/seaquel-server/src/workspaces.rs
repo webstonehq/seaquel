@@ -45,6 +45,7 @@ pub fn user_storage_options() -> StorageOptions {
     StorageOptions {
         max_connections: 2,
         idle_timeout: Some(Duration::from_secs(60)),
+        read_only: false,
     }
 }
 

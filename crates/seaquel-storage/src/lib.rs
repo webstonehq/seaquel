@@ -16,6 +16,7 @@ pub use data_dir::{data_dir, DATA_DIR_ENV};
 pub use data_steps::DATA_STEPS_TABLE;
 pub use error::{
     StorageError, LEGACY_JSON_FILES, LEGACY_STORAGE, NO_DATA_DIR, STORAGE_CORRUPT, STORAGE_ERROR,
+    STORAGE_NEEDS_UPGRADE, STORAGE_NOT_FOUND,
 };
 pub use open::{Storage, StorageOptions};
 

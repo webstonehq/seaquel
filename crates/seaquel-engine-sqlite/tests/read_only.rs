@@ -344,7 +344,11 @@ async fn dropped_query_releases_its_locks(config: ConnectConfig, setup: &[&str])
     for sql in setup.iter().chain(SETUP) {
         driver.execute(sql, vec![]).await.expect(sql);
     }
-    let slow = tokio::time::timeout(CANCEL_AFTER, driver.query_read_only(SLOW_QUERY, vec![])).await;
+    let slow = tokio::time::timeout(
+        CANCEL_AFTER,
+        driver.query_read_only(SLOW_QUERY, vec![], None),
+    )
+    .await;
     assert!(slow.is_err(), "the slow query finished: {slow:?}");
     let write = tokio::time::timeout(
         Duration::from_secs(2),
@@ -379,11 +383,11 @@ async fn in_memory_databases_stay_apart() {
         .await
         .unwrap();
     assert!(a
-        .query_read_only("SELECT COUNT(*) FROM only_a", vec![])
+        .query_read_only("SELECT COUNT(*) FROM only_a", vec![], None)
         .await
         .is_ok());
     let err = b
-        .query_read_only("SELECT COUNT(*) FROM only_a", vec![])
+        .query_read_only("SELECT COUNT(*) FROM only_a", vec![], None)
         .await
         .expect_err("b sees a's table");
     assert!(err.message.contains("no such table"), "{err:?}");
@@ -423,10 +427,12 @@ async fn nul_bytes_are_refused_on_every_path() {
         check("query", r.map(|r| r.map(drop)));
         let r = tokio::time::timeout(within, driver.execute(SQL, vec![])).await;
         check("execute", r.map(|r| r.map(drop)));
-        let r = tokio::time::timeout(within, driver.query_read_only(SQL, vec![])).await;
+        let r = tokio::time::timeout(within, driver.query_read_only(SQL, vec![], None)).await;
         check("query_read_only", r.map(|r| r.map(drop)));
         let r = tokio::time::timeout(within, driver.explain(SQL, vec![], true)).await;
         check("explain", r.map(|r| r.map(drop)));
+        let r = tokio::time::timeout(within, driver.explain_read_only(SQL, vec![], None)).await;
+        check("explain_read_only", r.map(|r| r.map(drop)));
         let statement = |sql: &str| BatchStatement {
             sql: sql.to_string(),
             params: vec![],

@@ -413,15 +413,32 @@ export class ConnectionManager {
           connectionId,
         );
 
-      // Inject password into connection string if provided separately
+      // Inject password into connection string if provided separately.
+      // Encoded first: the URL setter leaves `%`, `+`, `&`, `$` and `,` as
+      // they are, so `50%off` would reach the driver as an invalid escape.
+      // `seaquel-workspace`'s `reinject_password` does the same.
       let effectiveConnectionString = rawConnectionString;
       if (effectiveConnectionString && connection.password) {
+        let url: URL | undefined;
         try {
-          const url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
-          url.password = connection.password;
-          effectiveConnectionString = url.toString();
+          url = new URL(effectiveConnectionString.replace("postgresql://", "postgres://"));
         } catch {
           // Not a URL-based connection string (e.g., file path), skip
+        }
+        if (url) {
+          // Fail closed: a password `encodeURIComponent` refuses (an unpaired
+          // UTF-16 surrogate) must not turn into a password-less connect.
+          let encoded: string;
+          try {
+            encoded = encodeURIComponent(connection.password);
+          } catch {
+            await this.dropTunnel(connectionId);
+            throw new Error(
+              "The password can't be encoded into the connection string: it contains an unpaired UTF-16 surrogate.",
+            );
+          }
+          url.password = encoded;
+          effectiveConnectionString = url.toString();
         }
       }
 
@@ -547,6 +564,9 @@ export class ConnectionManager {
       savePassword: connection.savePassword,
       saveSshPassword: connection.saveSshPassword,
       saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
+      // undefined means "follow the global AI setting", so copy it as is.
+      aiShareSchema: connection.aiShareSchema,
+      aiShareData: connection.aiShareData,
     };
 
     // Replace the connection in the array

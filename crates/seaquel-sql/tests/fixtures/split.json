@@ -28489,6 +28489,12 @@
             "index": 0,
             "startOffset": 0,
             "endOffset": 8
+          },
+          {
+            "sql": "SELECT 2",
+            "index": 1,
+            "startOffset": 19,
+            "endOffset": 27
           }
         ],
         "duckdb": [
@@ -28508,6 +28514,7 @@
       },
       "fixes": {
         "postgres": [10],
+        "mssql": [20],
         "duckdb": [10]
       }
     },

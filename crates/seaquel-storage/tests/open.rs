@@ -1,5 +1,6 @@
 //! `Storage::open`: new files, version rows, the legacy JSON refusal, files
-//! that aren't SQLite, a baseline that fails, and the connection pragmas.
+//! that aren't SQLite, a baseline that fails, the connection pragmas, the
+//! read-only open and the migration lock.
 
 mod common;
 
@@ -8,8 +9,8 @@ use std::time::Duration;
 
 use common::*;
 use seaquel_storage::{
-    Storage, StorageError, StorageOptions, LEGACY_JSON_FILES, LEGACY_STORAGE, STORAGE_CORRUPT,
-    STORAGE_ERROR,
+    Storage, StorageError, StorageOptions, DATA_STEPS_TABLE, LEGACY_JSON_FILES, LEGACY_STORAGE,
+    STORAGE_CORRUPT, STORAGE_ERROR, STORAGE_NEEDS_UPGRADE, STORAGE_NOT_FOUND,
 };
 use sqlx::Connection;
 
@@ -280,6 +281,7 @@ async fn every_connection_gets_the_pragmas() {
         StorageOptions {
             max_connections: 3,
             idle_timeout: Some(Duration::from_secs(60)),
+            ..StorageOptions::default()
         },
     )
     .await
@@ -367,4 +369,419 @@ async fn a_file_with_a_newer_builds_migration_still_opens() {
     expected.push(9999);
     assert_eq!(versions, expected);
     storage.close().await;
+}
+
+// ── Read-only opens ──
+
+fn read_only() -> StorageOptions {
+    StorageOptions {
+        read_only: true,
+        ..StorageOptions::default()
+    }
+}
+
+async fn open_read_only(path: &Path) -> Result<Storage, StorageError> {
+    Storage::open(path, read_only()).await
+}
+
+/// The migrations in `tests/test_migrations`: one table that fails if it's
+/// created twice, and enough rows to keep its migrator busy for a moment.
+async fn test_migrator() -> sqlx::migrate::Migrator {
+    sqlx::migrate::Migrator::new(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/test_migrations"),
+    )
+    .await
+    .unwrap()
+}
+
+/// The file's bytes and the directory's entries, to show a refused
+/// read-only open changed nothing (no `-wal` or `-shm` either).
+fn disk_state(path: &Path) -> (Vec<u8>, Vec<String>) {
+    (
+        std::fs::read(path).unwrap(),
+        entries(path.parent().unwrap()),
+    )
+}
+
+/// A file the app has opened and closed: up to date, in WAL mode, with no
+/// `-wal` or `-shm` left.
+async fn current_file(dir: &Path) -> std::path::PathBuf {
+    let path = dir.join("seaquel.db");
+    // One connection: when several close at once, each can see another
+    // still open and leave the `-wal` and `-shm` behind.
+    let storage = Storage::open(
+        &path,
+        StorageOptions {
+            max_connections: 1,
+            ..StorageOptions::default()
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('k', 'v')")
+        .execute(storage.pool())
+        .await
+        .unwrap();
+    storage.close().await;
+    // sqlx's workers finish closing just after `close` returns, and the
+    // last one removes the `-wal` and `-shm`.
+    for _ in 0..100 {
+        if entries(dir) == ["seaquel.db"] {
+            return path;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the app's -wal and -shm stayed: {:?}", entries(dir));
+}
+
+fn assert_needs_upgrade(err: &StorageError, reason: &str) {
+    assert_eq!(err.code(), STORAGE_NEEDS_UPGRADE, "{err}");
+    let message = err.to_string();
+    assert!(
+        message.ends_with("Open the Seaquel app once to update your data."),
+        "{message}"
+    );
+    assert!(
+        message.contains(reason),
+        "{message} should mention {reason}"
+    );
+}
+
+#[tokio::test]
+async fn a_read_only_open_of_a_current_file_reads_and_cant_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    let before = std::fs::read(&path).unwrap();
+
+    let storage = open_read_only(&path).await.unwrap();
+    let value: String = sqlx::query_scalar("SELECT value FROM app_state WHERE key = 'k'")
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+    assert_eq!(value, "v");
+
+    for sql in [
+        "INSERT INTO app_state (key, value) VALUES ('k2', 'v2')",
+        "UPDATE app_state SET value = 'x'",
+        "CREATE TABLE sneaky (x)",
+    ] {
+        let err = sqlx::query(sql)
+            .execute(storage.pool())
+            .await
+            .expect_err(sql);
+        let sqlx::Error::Database(db) = &err else {
+            panic!("{sql}: {err:?}");
+        };
+        // SQLITE_READONLY
+        assert_eq!(db.code().as_deref(), Some("8"), "{sql}: {err}");
+    }
+    // The journal mode is the file's own, left as the app set it.
+    let journal: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+    assert_eq!(journal, "wal");
+    storage.close().await;
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// The desktop app has the file open and is writing: the read-only pool
+/// still reads, and sees only what's committed.
+#[tokio::test]
+async fn a_read_only_open_reads_while_another_pool_holds_a_write_transaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    let app = open(&path).await.unwrap();
+    let mut tx = app.pool().begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("UPDATE app_state SET value = 'uncommitted' WHERE key = 'k'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let reader = tokio::time::timeout(Duration::from_secs(2), open_read_only(&path))
+        .await
+        .expect("the read-only open doesn't wait for the writer")
+        .unwrap();
+    let value: String = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar("SELECT value FROM app_state WHERE key = 'k'").fetch_one(reader.pool()),
+    )
+    .await
+    .expect("the read doesn't wait for the writer")
+    .unwrap();
+    assert_eq!(value, "v");
+
+    tx.commit().await.unwrap();
+    let value: String = sqlx::query_scalar("SELECT value FROM app_state WHERE key = 'k'")
+        .fetch_one(reader.pool())
+        .await
+        .unwrap();
+    assert_eq!(value, "uncommitted");
+    reader.close().await;
+    app.close().await;
+}
+
+#[tokio::test]
+async fn a_read_only_open_of_a_pre_baseline_file_needs_an_upgrade() {
+    for fixture in ["schemas/v2026.4.5-beta.1.sql", "schemas/v2026.4.5.sql"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seaquel.db");
+        load_fixture(&path, fixture).await;
+        let before = disk_state(&path);
+
+        let err = open_read_only(&path).await.unwrap_err();
+        assert_needs_upgrade(&err, "schema");
+        assert_eq!(disk_state(&path), before, "{fixture}");
+    }
+}
+
+/// The baseline has run on this file, but something it would change again
+/// is back: each one alone makes the file need the app.
+#[tokio::test]
+async fn a_read_only_open_needs_an_upgrade_when_the_baseline_would_change_anything() {
+    let cases = [
+        "ALTER TABLE connections DROP COLUMN active_ai_model",
+        "DROP INDEX idx_ai_messages_chat",
+        "DROP TABLE user_themes",
+        "DELETE FROM schema_version",
+        "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p', 'P', 'x', 'x');
+         INSERT INTO project_state (project_id, active_view) VALUES ('p', 'canvas')",
+        "ALTER TABLE saved_queries ADD COLUMN connection_id TEXT",
+        "ALTER TABLE project_state RENAME COLUMN active_workflow_tab_id TO active_canvas_tab_id",
+    ];
+    for sql in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let path = current_file(dir.path()).await;
+        exec_file(&path, sql).await;
+        let before = disk_state(&path);
+
+        let err = open_read_only(&path).await.unwrap_err();
+        assert_needs_upgrade(&err, "schema");
+        assert_eq!(disk_state(&path), before, "{sql}");
+    }
+}
+
+#[tokio::test]
+async fn a_read_only_open_with_an_unapplied_migration_needs_an_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    let before = disk_state(&path);
+
+    let err = Storage::open_with_migrator(&path, read_only(), test_migrator().await)
+        .await
+        .unwrap_err();
+    assert_needs_upgrade(&err, "migration 1");
+    assert_eq!(disk_state(&path), before);
+}
+
+#[tokio::test]
+async fn a_read_only_open_with_a_pending_data_step_needs_an_upgrade() {
+    for sql in [
+        format!("DELETE FROM {DATA_STEPS_TABLE}"),
+        format!("DROP TABLE {DATA_STEPS_TABLE}"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = current_file(dir.path()).await;
+        exec_file(&path, &sql).await;
+        let before = disk_state(&path);
+
+        let err = open_read_only(&path).await.unwrap_err();
+        assert_eq!(err.code(), STORAGE_NEEDS_UPGRADE, "{err}");
+        assert!(
+            matches!(&err, StorageError::DataStepPending { step, .. }
+                if step == "strip_connection_string_passwords"),
+            "{err:?}"
+        );
+        // It can't only say "open the app": the app may have, and failed.
+        let message = err.to_string();
+        assert!(
+            message.contains("open it once to update your data"),
+            "{message}"
+        );
+        assert!(
+            message.contains(
+                "check the app's log for \"data step strip_connection_string_passwords failed\""
+            ),
+            "{message}"
+        );
+        assert_eq!(disk_state(&path), before, "{sql}");
+    }
+}
+
+#[tokio::test]
+async fn a_read_only_open_of_an_empty_file_needs_an_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seaquel.db");
+    std::fs::write(&path, b"").unwrap();
+    let err = open_read_only(&path).await.unwrap_err();
+    assert_needs_upgrade(&err, "empty");
+    assert_eq!(disk_state(&path), (Vec::new(), vec!["seaquel.db".into()]));
+}
+
+#[tokio::test]
+async fn a_read_only_open_never_creates_the_file_or_its_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("users/u1/seaquel.db");
+    let err = open_read_only(&path).await.unwrap_err();
+    assert_eq!(err.code(), STORAGE_NOT_FOUND, "{err}");
+    let message = err.to_string();
+    assert!(message.contains(&path.display().to_string()), "{message}");
+    assert!(message.contains("Open the Seaquel app once"), "{message}");
+    assert_eq!(entries(dir.path()), Vec::<String>::new());
+
+    let path = dir.path().join("seaquel.db");
+    assert_eq!(
+        open_read_only(&path).await.unwrap_err().code(),
+        STORAGE_NOT_FOUND
+    );
+    assert_eq!(entries(dir.path()), Vec::<String>::new());
+
+    // Legacy JSON still says what it is.
+    std::fs::write(dir.path().join("projects.json"), b"{}").unwrap();
+    let err = open_read_only(&path).await.unwrap_err();
+    assert_eq!(err.code(), LEGACY_STORAGE, "{err}");
+    assert_eq!(entries(dir.path()), vec!["projects.json"]);
+}
+
+#[tokio::test]
+async fn a_read_only_open_of_a_corrupt_file_is_corrupt_and_untouched() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("seaquel.db");
+    let mut bytes = b"SQLite format 3\0".to_vec();
+    bytes.extend((0..4096u32).map(|i| (i * 31 % 251) as u8));
+    std::fs::write(&path, &bytes).unwrap();
+    let err = open_read_only(&path).await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            StorageError::Corrupt {
+                untouched: true,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+    assert_eq!(disk_state(&path), (bytes, vec!["seaquel.db".into()]));
+}
+
+// ── The migration lock ──
+
+/// Two pools open one file with a migration pending (the web server's
+/// evicted workspace next to a fresh one, or the app next to a second
+/// process). The migrator is serialised: exactly one applies it, and both
+/// opens succeed. Without the lock the loser ran it again and failed on
+/// `CREATE TABLE race_marker`.
+#[tokio::test]
+async fn two_pools_racing_a_pending_migration_both_open_and_apply_it_once() {
+    for round in 0..8 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = current_file(dir.path()).await;
+
+        // Both opens are polled together; each pool's SQLite work runs on
+        // its own sqlx worker threads, so they really do overlap.
+        let (a, b) = (test_migrator().await, test_migrator().await);
+        let (a, b) = tokio::join!(
+            Storage::open_with_migrator(&path, StorageOptions::default(), a),
+            Storage::open_with_migrator(&path, StorageOptions::default(), b),
+        );
+        let opened: Vec<Storage> = [a, b]
+            .into_iter()
+            .map(|r| r.unwrap_or_else(|e| panic!("round {round}: {} {e}", e.code())))
+            .collect();
+
+        let pool = opened[0].pool();
+        let applied: Vec<(i64, bool)> =
+            sqlx::query_as("SELECT version, success FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(pool)
+                .await
+                .unwrap();
+        assert_eq!(applied, vec![(1, true)], "round {round}");
+        let markers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM race_marker")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let filler: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM race_filler")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!((markers, filler), (1, 200_000), "round {round}");
+        for storage in opened {
+            storage.close().await;
+        }
+
+        // And the file now opens read-only with that migrator.
+        Storage::open_with_migrator(&path, read_only(), test_migrator().await)
+            .await
+            .unwrap()
+            .close()
+            .await;
+    }
+}
+
+/// The baseline renames `active_canvas_tab_id` only when
+/// `active_workflow_tab_id` is missing, so a file with both is current.
+#[tokio::test]
+async fn a_leftover_canvas_column_next_to_the_workflow_one_is_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    exec_file(
+        &path,
+        "ALTER TABLE project_state ADD COLUMN active_canvas_tab_id TEXT",
+    )
+    .await;
+    open_read_only(&path).await.unwrap().close().await;
+
+    // And the baseline agrees: it changes nothing on that file.
+    let before = snapshot(&path).await;
+    let mut conn = raw_connect(&path).await;
+    let mut tx = conn.begin().await.unwrap();
+    seaquel_storage::schema::baseline(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
+    conn.close().await.unwrap();
+    assert_eq!(snapshot(&path).await, before);
+}
+
+/// Under the lock, a failing migration takes the ones this open applied
+/// before it down too: 0001 succeeds, 0002 fails, and neither leaves a
+/// table or a `_sqlx_migrations` row. The next open works.
+#[tokio::test]
+async fn a_failed_migration_rolls_back_everything_under_the_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    let migrator = sqlx::migrate::Migrator::new(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/test_migrations_failing"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(migrator.iter().count(), 2);
+
+    let err = Storage::open_with_migrator(&path, StorageOptions::default(), migrator)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), STORAGE_ERROR, "{err}");
+    assert!(err.to_string().contains("migration 2"), "{err}");
+
+    let mut conn = raw_connect(&path).await;
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE name IN ('fail_first', 'fail_second')",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .unwrap();
+    assert!(tables.is_empty(), "{tables:?}");
+    let recorded: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(recorded, 0);
+    conn.close().await.unwrap();
+
+    let storage = open(&path).await.unwrap();
+    let value: String = sqlx::query_scalar("SELECT value FROM app_state WHERE key = 'k'")
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+    assert_eq!(value, "v");
+    storage.close().await;
+    open_read_only(&path).await.unwrap().close().await;
 }

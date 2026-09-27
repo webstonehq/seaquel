@@ -2,7 +2,11 @@
 import type { DriverType } from "./DriverType";
 
 /**
- * Connection configuration — superset of all driver needs
+ * Connection configuration — superset of all driver needs.
+ *
+ * It carries a password, so its `Debug` hides it: `password` shows as
+ * `<redacted>`, and `connection_string` as the URL without its password (or
+ * `<redacted>` when it can't safely tell where the password is).
  */
 export type ConnectConfig = { driver: DriverType, 
 /**
@@ -22,4 +26,15 @@ path?: string,
  * exist. Off by default so a mistyped path fails instead of silently
  * opening a new, empty database.
  */
-create_if_missing?: boolean, };
+create_if_missing?: boolean, 
+/**
+ * DuckDB only: lock the database instance down. It opens with
+ * `enable_external_access`, `autoinstall_known_extensions` and
+ * `autoload_known_extensions` off and `lock_configuration` on, so a
+ * query can read only the database itself: no other files, no URLs, no
+ * `ATTACH`, no extension installs or loads, and no global `SET` to
+ * undo it.
+ * Off by default; the MCP server turns it on for the instances it opens.
+ * Other engines ignore it.
+ */
+restricted?: boolean, };

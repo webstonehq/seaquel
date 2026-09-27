@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "wasm:build": "node scripts/build-wasm.mjs",
+    "cli:build": "node scripts/build-cli.mjs",
     "predev": "npm run wasm:build",
     "dev": "vite dev",
     "predev:demo": "npm run wasm:build",
@@ -37,8 +38,8 @@
     "test": "vitest run",
     "pretest:watch": "npm run wasm:build",
     "test:watch": "vitest",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev --config '{\"identifier\":\"app.seaquel.desktop.dev\"}'",
+    "tauri": "node scripts/tauri.mjs",
+    "tauri:dev": "node scripts/tauri.mjs dev --config '{\"identifier\":\"app.seaquel.desktop.dev\"}'",
     "e2e:db:seed": "node e2e/test-databases/seed.mjs",
     "e2e:db:up": "docker compose -f e2e/test-databases/docker-compose.yml up",
     "e2e:db:down": "docker compose -f e2e/test-databases/docker-compose.yml down",

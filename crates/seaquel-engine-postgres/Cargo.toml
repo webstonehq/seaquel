@@ -13,6 +13,9 @@ rust_decimal = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
+# `Handle::spawn` for the read-only path's cancel request (sqlx already
+# runs on tokio).
+tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }

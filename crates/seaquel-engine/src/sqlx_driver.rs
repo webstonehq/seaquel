@@ -20,13 +20,17 @@
 /// The expansion also defines, next to the impl:
 ///
 /// - `bind_params(query, &values)`: binds every value, non-persistent.
-/// - `pub(crate) async fn fetch_capped(executor, sql, &params)`: runs one
-///   query on any sqlx executor (the pool, or `&mut *conn` for one
-///   connection) and collects its rows under [`max_query_rows`], failing
-///   with `RESULT_TOO_LARGE` past it. `query()` is `fetch_capped(&self.pool,
-///   …)`; a `read_only` implementation calls it on the connection it set up.
+/// - `pub(crate) async fn fetch_capped(executor, sql, &params, cap)`: runs
+///   one query on any sqlx executor (the pool, or `&mut *conn` for one
+///   connection) and collects its rows under a [`RowCap`]: failing with
+///   `RESULT_TOO_LARGE` past it, or stopping after the row past it (or the
+///   first row after its byte budget is spent) and returning the rest as
+///   `truncated`. `query()` is
+///   `fetch_capped(&self.pool, …, RowCap::fail(max_query_rows()))`; a
+///   `read_only` implementation calls it on the connection it set up, with
+///   `RowCap::read_only(max_rows, max_bytes)`.
 ///
-/// [`max_query_rows`]: crate::max_query_rows
+/// [`RowCap`]: crate::RowCap
 ///
 /// Native only. Expand it in a module that defines `$driver_name` with a
 /// `pool: sqlx::Pool<$db>` field. The calling crate must depend on `sqlx`:
@@ -63,17 +67,22 @@ macro_rules! impl_sqlx_driver {
             Ok(query)
         }
 
-        /// Runs `sql` with `params` on `executor` and collects the rows,
-        /// failing with `RESULT_TOO_LARGE` past `max_query_rows()`.
+        /// Runs `sql` with `params` on `executor` and collects the rows
+        /// under `cap`: past it, `RESULT_TOO_LARGE` (`RowCap::fail`) or the
+        /// rows so far with `truncated` set (`RowCap::truncate`, or the
+        /// byte budget: each kept row's decoded size is summed).
         ///
-        /// Rows are streamed (rather than `fetch_all`) so it bails out as
-        /// soon as the cap is hit. Without this, a `SELECT * FROM
+        /// Rows are streamed (rather than `fetch_all`) so it stops as soon
+        /// as the row past the cap arrives. Without this, a `SELECT * FROM
         /// big_table` loads everything into RAM before it can be rejected.
+        /// On either stop the rest of the result is left unread; the
+        /// read-only paths close their connection afterwards.
         pub(crate) async fn fetch_capped<'q, 'c, E>(
             executor: E,
             sql: &'q str,
             params: &'q [$crate::Value],
-        ) -> Result<$crate::QueryResult, $crate::DbError>
+            cap: $crate::RowCap,
+        ) -> Result<$crate::CappedResult, $crate::DbError>
         where
             E: sqlx::Executor<'c, Database = $db>,
         {
@@ -83,11 +92,12 @@ macro_rules! impl_sqlx_driver {
             let query = sqlx::query(sql);
             let query = bind_params(query, params)?;
 
-            let cap = $crate::max_query_rows();
             let mut stream = query.fetch(executor);
 
             let mut columns: Vec<String> = Vec::new();
             let mut result_rows: Vec<Vec<$crate::Value>> = Vec::new();
+            let mut truncated = false;
+            let mut kept_bytes = 0usize;
 
             while let Some(row_result) = stream.next().await {
                 let row = row_result.map_err($crate::DbError::query_error)?;
@@ -95,8 +105,9 @@ macro_rules! impl_sqlx_driver {
                 if columns.is_empty() {
                     columns = row.columns().iter().map(|c| c.name().to_string()).collect();
                 }
-                if result_rows.len() >= cap {
-                    return Err($crate::DbError::result_too_large(cap));
+                if !cap.admit(result_rows.len(), kept_bytes)? {
+                    truncated = true;
+                    break;
                 }
                 let mut values = Vec::with_capacity(columns.len());
                 for i in 0..row.columns().len() {
@@ -105,12 +116,16 @@ macro_rules! impl_sqlx_driver {
                         $decode_fn(v).map_err(|e| $crate::__private::in_column(e, row.columns()[i].name()))?,
                     );
                 }
+                if cap.max_bytes().is_some() {
+                    kept_bytes = kept_bytes.saturating_add($crate::row_bytes(&values));
+                }
                 result_rows.push(values);
             }
 
-            Ok($crate::QueryResult {
+            Ok($crate::CappedResult {
                 columns,
                 rows: result_rows,
+                truncated,
             })
         }
 
@@ -121,7 +136,9 @@ macro_rules! impl_sqlx_driver {
                 sql: &str,
                 params: Vec<$crate::Value>,
             ) -> Result<$crate::QueryResult, $crate::DbError> {
-                fetch_capped(&self.pool, sql, &params).await
+                fetch_capped(&self.pool, sql, &params, $crate::RowCap::fail($crate::max_query_rows()))
+                    .await
+                    .map(Into::into)
             }
 
             fn query_stream<'a>(
@@ -175,6 +192,7 @@ macro_rules! impl_sqlx_driver {
                                 columns: batch_cols,
                                 rows: std::mem::take(&mut buffer),
                                 is_final: false,
+                                truncated: false,
                             };
                         }
                     }
@@ -190,6 +208,7 @@ macro_rules! impl_sqlx_driver {
                         columns: final_cols,
                         rows: buffer,
                         is_final: true,
+                        truncated: false,
                     };
                 })
             }

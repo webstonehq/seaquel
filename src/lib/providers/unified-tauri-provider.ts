@@ -5,7 +5,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
+import type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
 import type {
   DbConnectResult,
   DbExecuteResult,
@@ -87,9 +87,10 @@ export class UnifiedTauriProvider implements DatabaseProvider {
     connectionId: string,
     sql: string,
     signal?: AbortSignal,
-  ): Promise<Record<string, unknown>[]> {
+    maxRows?: number,
+  ): Promise<ReadOnlyRows> {
     return collectReadOnly(
-      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true),
+      (onBatch) => this.stream(connectionId, sql, undefined, onBatch, signal, true, maxRows),
       signal,
     );
   }
@@ -105,6 +106,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
     onBatch: (batch: StreamBatch) => boolean | Promise<boolean>,
     signal: AbortSignal | undefined,
     readOnly: boolean,
+    maxRows?: number,
   ): Promise<StreamOutcome> {
     // If the caller hands us an already-aborted signal, short-circuit
     // entirely. The previous behavior was to still fire the invoke and
@@ -140,6 +142,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       columns: string[] | null;
       rows: unknown[][];
       is_final: boolean;
+      truncated?: boolean;
     }) => {
       if (cancelled) return;
 
@@ -151,6 +154,7 @@ export class UnifiedTauriProvider implements DatabaseProvider {
         columns: event.columns,
         rows: decodeRows(event.rows),
         isFinal: event.is_final,
+        truncated: event.truncated,
       });
 
       if (!keepGoing || signal?.aborted) {
@@ -214,6 +218,8 @@ export class UnifiedTauriProvider implements DatabaseProvider {
       sql,
       values: encodeParams(params),
       readOnly,
+      // Only from `selectReadOnly`; undefined is left out, which is None.
+      maxRows,
       onEvent: channel,
     }).catch((error) => {
       finish({

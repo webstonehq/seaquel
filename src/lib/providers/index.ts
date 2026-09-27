@@ -11,7 +11,7 @@
 import type { DatabaseProvider } from "./types";
 import { isTauri, isWeb } from "$lib/utils/environment";
 
-export type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
+export type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
 
 let provider: DatabaseProvider | null = null;
 let duckdbProvider: DatabaseProvider | null = null;

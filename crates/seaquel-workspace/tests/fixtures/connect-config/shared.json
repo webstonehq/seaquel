@@ -1,0 +1,218 @@
+[
+  {
+    "name": "shared/pg-imported",
+    "notes": "Shape importSharedConnections writes: no string, empty username, flags off.",
+    "row": {
+      "id": "conn-shared-pg-imported",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": false,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "PG",
+      "type": "postgres",
+      "host": "db.example.com",
+      "port": 5432,
+      "databaseName": "app",
+      "username": "",
+      "sslMode": "require",
+      "sharedConnectionId": "shared-pg-1"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": false,
+      "skipped": "no password available"
+    },
+    "reconnectTab": {
+      "secretsRead": [],
+      "hasAllCredentials": false,
+      "autoConnected": false
+    },
+    "gui": "form"
+  },
+  {
+    "name": "shared/pg-imported-ssh",
+    "row": {
+      "id": "conn-shared-pg-imported-ssh",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": false,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "PG",
+      "type": "postgres",
+      "host": "db.internal",
+      "port": 5432,
+      "databaseName": "app",
+      "username": "",
+      "sslMode": "require",
+      "sharedConnectionId": "shared-pg-2",
+      "sshTunnel": {
+        "enabled": true,
+        "host": "bastion.example.com",
+        "port": 22,
+        "username": "",
+        "authMethod": "key"
+      }
+    },
+    "secrets": {},
+    "tunnelPort": 50022,
+    "load": {
+      "secretsRead": [],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": false,
+      "skipped": "no password available"
+    },
+    "reconnectTab": {
+      "secretsRead": [],
+      "hasAllCredentials": false,
+      "autoConnected": false
+    },
+    "gui": "form"
+  },
+  {
+    "name": "shared/mssql-imported",
+    "row": {
+      "id": "conn-shared-mssql-imported",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": false,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "MSSQL",
+      "type": "mssql",
+      "host": "sql.example.com",
+      "port": 1433,
+      "databaseName": "sales",
+      "username": "",
+      "sharedConnectionId": "shared-ms-1"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": false,
+      "skipped": "no password available"
+    },
+    "reconnectTab": {
+      "secretsRead": [],
+      "hasAllCredentials": false,
+      "autoConnected": false
+    },
+    "gui": "form"
+  },
+  {
+    "name": "shared/sqlite-imported",
+    "row": {
+      "id": "conn-shared-sqlite-imported",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": false,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "SQLite",
+      "type": "sqlite",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "/Users/me/app.db",
+      "username": "",
+      "sharedConnectionId": "shared-lite-1"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": false,
+      "config": {
+        "driver": "sqlite",
+        "create_if_missing": false
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for SQLite"
+    },
+    "reconnectTab": {
+      "secretsRead": [],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "sqlite",
+        "connection_string": "sqlite:///Users/me/app.db",
+        "create_if_missing": false
+      }
+    },
+    "gui": "reconnectTab"
+  },
+  {
+    "name": "shared/pg-imported-then-saved",
+    "notes": "A shared row whose flag was turned on later without a connect rewriting its string.",
+    "row": {
+      "id": "conn-shared-pg-imported-then-saved",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "PG",
+      "type": "postgres",
+      "host": "db.example.com",
+      "port": 5432,
+      "databaseName": "app",
+      "username": "",
+      "sslMode": "require",
+      "sharedConnectionId": "shared-pg-3"
+    },
+    "secrets": {
+      "db:conn-shared-pg-imported-then-saved": "pw"
+    },
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-shared-pg-imported-then-saved"
+      ],
+      "username": "",
+      "passwordFromKeychain": true
+    },
+    "autoReconnect": {
+      "secretsRead": [
+        "db:conn-shared-pg-imported-then-saved"
+      ],
+      "connected": false,
+      "config": {
+        "driver": "postgres"
+      },
+      "error": "CONNECTION_ERROR: Failed to connect: connection_string is required for PostgreSQL"
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-shared-pg-imported-then-saved"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "postgres",
+        "connection_string": "postgres://:pw@db.example.com/app?sslmode=require"
+      }
+    },
+    "gui": "reconnectTab"
+  }
+]

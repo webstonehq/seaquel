@@ -507,7 +507,10 @@ describe("QueryCrudManager.executeReadOnly", () => {
     } as unknown as DatabaseState;
     const provider = {
       select: vi.fn(async () => [{ written: true }]),
-      selectReadOnly: vi.fn(async (..._args: unknown[]) => [{ n: 1 }]),
+      selectReadOnly: vi.fn(async (..._args: unknown[]) => ({
+        rows: [{ n: 1 }],
+        truncated: false,
+      })),
     };
     const getForType = vi.fn(async (_type: string) => provider);
     const providers = { getForType } as unknown as ProviderRegistry;
@@ -527,9 +530,17 @@ describe("QueryCrudManager.executeReadOnly", () => {
     const { manager, provider, getForType } = readOnlySetup([local, other]);
     const signal = new AbortController().signal;
 
-    expect(await manager.executeReadOnly("conn-1", "SELECT 1 AS n", signal)).toEqual([{ n: 1 }]);
+    expect(await manager.executeReadOnly("conn-1", "SELECT 1 AS n", signal)).toEqual({
+      rows: [{ n: 1 }],
+      truncated: false,
+    });
     expect(getForType).toHaveBeenCalledWith("postgres");
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", "SELECT 1 AS n", signal);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith(
+      "pc-1",
+      "SELECT 1 AS n",
+      signal,
+      undefined,
+    );
     expect(provider.select).not.toHaveBeenCalled();
   });
 
@@ -539,7 +550,7 @@ describe("QueryCrudManager.executeReadOnly", () => {
     state.connections = [{ ...local, providerConnectionId: "pc-9" } as never, other as never];
 
     await manager.executeReadOnly("conn-1", "SELECT 1");
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined, undefined);
   });
 
   it("reads the provider connection id after getting the provider", async () => {
@@ -550,7 +561,7 @@ describe("QueryCrudManager.executeReadOnly", () => {
       return provider;
     });
     await manager.executeReadOnly("conn-1", "SELECT 1");
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", undefined, undefined);
   });
 
   it("refuses a connection disconnected while the provider was fetched", async () => {
@@ -601,7 +612,7 @@ describe("QueryCrudManager.executeReadOnly", () => {
     );
     expect(provider.selectReadOnly).not.toHaveBeenCalled();
     await manager.executeReadOnly("conn-2", sql);
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-2", sql, undefined);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-2", sql, undefined, undefined);
   });
 
   it("rejects with the provider's error", async () => {

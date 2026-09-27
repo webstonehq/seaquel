@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SendAIMessageParams } from "./index";
+import type { ReadOnlyRows } from "$lib/providers";
 
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -11,7 +12,12 @@ const REFUSAL = "Only read-only SELECT queries are permitted";
 const LOCAL = { id: "conn-1", type: "postgres", name: "Local" } as const;
 
 function params(overrides: Partial<SendAIMessageParams> = {}) {
-  const runQuery = vi.fn(async (_sql: string, _signal?: AbortSignal) => [{ n: 1 }]);
+  const runQuery = vi.fn(
+    async (_sql: string, _signal?: AbortSignal, _maxRows?: number): Promise<ReadOnlyRows> => ({
+      rows: [{ n: 1 }],
+      truncated: false,
+    }),
+  );
   const onApprovalRequired = vi.fn<SendAIMessageParams["onApprovalRequired"]>((_q, _c, approve) =>
     approve(),
   );
@@ -39,8 +45,30 @@ describe("run_query", () => {
     const out = await handleToolCall("run_query", { query: "SELECT 1 AS n" }, p);
     expect(onApprovalRequired).toHaveBeenCalledOnce();
     expect(onApprovalRequired.mock.calls[0][1]).toEqual(LOCAL);
-    expect(runQuery).toHaveBeenCalledWith("SELECT 1 AS n", undefined);
+    expect(runQuery).toHaveBeenCalledWith("SELECT 1 AS n", undefined, 1000);
     expect(out).toContain("| n |");
+  });
+
+  it("fetches at most 1,000 rows and says nothing when the result is whole", async () => {
+    const { p, runQuery } = params({ aiAllowAllQueries: true });
+    const out = await handleToolCall("run_query", { query: "SELECT n FROM t" }, p);
+    expect(runQuery.mock.calls[0][2]).toBe(1000);
+    expect(out).not.toContain("truncated");
+    expect(out.startsWith("Sample data:")).toBe(true);
+  });
+
+  it("tells the model when the rows were truncated", async () => {
+    const { p, runQuery } = params({ aiAllowAllQueries: true });
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ n: i + 1 }));
+    runQuery.mockResolvedValueOnce({ rows, truncated: true });
+    const out = await handleToolCall("run_query", { query: "SELECT n FROM big" }, p);
+    expect(out).toContain(
+      "The result was truncated: the query returned more than 1000 rows, and only the first 1000 were fetched.",
+    );
+    expect(out).toContain("COUNT(*)");
+    // Still the sample after the note.
+    expect(out).toContain("| n |");
+    expect(out).toContain("| 1 |");
   });
 
   it("refuses a write even with allow-all on", async () => {
@@ -75,7 +103,7 @@ describe("run_query", () => {
     const controller = new AbortController();
     const { p, runQuery } = params({ aiAllowAllQueries: true, signal: controller.signal });
     await handleToolCall("run_query", { query: "SELECT 1" }, p);
-    expect(runQuery).toHaveBeenCalledWith("SELECT 1", controller.signal);
+    expect(runQuery).toHaveBeenCalledWith("SELECT 1", controller.signal, 1000);
   });
 
   it("returns the runner's refusal as the tool result", async () => {

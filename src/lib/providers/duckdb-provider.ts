@@ -3,7 +3,7 @@
  * Runs an in-browser DuckDB instance for the web demo.
  */
 
-import type { DatabaseProvider, ConnectionConfig, ExecuteResult } from "./types";
+import type { DatabaseProvider, ConnectionConfig, ExecuteResult, ReadOnlyRows } from "./types";
 import { dedupeColumnNames } from "$lib/utils/row-access";
 import { queryCancelled } from "./wire";
 import { absoluteUrl, duckdbBundles, startWithin } from "./duckdb-bundles";
@@ -80,7 +80,8 @@ function readOnlyError(error: unknown): Error {
  * The demo's read-only query (the AI's `run_query` and dashboard widgets),
  * the same mechanism as native DuckDB: a fresh connection, a read-only
  * transaction, and the SQL bound as the one parameter of
- * `SELECT * FROM query(?)`. `query()` parses with DuckDB's own parser and
+ * `SELECT * FROM query(?)`, with `LIMIT limit` when given (a number the
+ * caller chose, never user SQL). `query()` parses with DuckDB's own parser and
  * runs exactly one SELECT (also `WITH`, `FROM t`, `VALUES`, `DESCRIBE`,
  * `SHOW`); anything else, and any second statement, is refused. That also
  * stops `COMMIT; INSERT …` from ending the transaction, and the `COPY`,
@@ -103,14 +104,20 @@ export async function selectReadOnlyOn(
   db: AsyncDuckDB,
   sql: string,
   signal?: AbortSignal,
+  limit?: number,
 ): Promise<Record<string, unknown>[]> {
   if (signal?.aborted) throw queryCancelled();
+  if (limit !== undefined && !(Number.isSafeInteger(limit) && limit >= 0)) {
+    throw new Error(`QUERY_ERROR: invalid row limit ${limit}`);
+  }
+  const wrapper =
+    limit === undefined ? "SELECT * FROM query(?)" : `SELECT * FROM query(?) LIMIT ${limit}`;
   const run = (async () => {
     const conn = await db.connect();
     try {
       await conn.query("BEGIN TRANSACTION READ ONLY");
       try {
-        const statement = await conn.prepare("SELECT * FROM query(?)");
+        const statement = await conn.prepare(wrapper);
         try {
           return tableRows(await statement.query(sql));
         } finally {
@@ -274,16 +281,29 @@ export class DuckDBProvider implements DatabaseProvider {
     }
   }
 
-  /** See {@link selectReadOnlyOn}; `connectionId` must be open. */
+  /**
+   * See {@link selectReadOnlyOn}; `connectionId` must be open. With
+   * `maxRows`, it fetches one row more (`LIMIT maxRows + 1`) to tell a
+   * truncated result, as native DuckDB does. The demo has no row cap
+   * without it.
+   */
   async selectReadOnly(
     connectionId: string,
     sql: string,
     signal?: AbortSignal,
-  ): Promise<Record<string, unknown>[]> {
+    maxRows?: number,
+  ): Promise<ReadOnlyRows> {
     if (!this.connections.has(connectionId) || !this.db) {
       throw new Error(`Connection not found: ${connectionId}`);
     }
-    return selectReadOnlyOn(this.db, sql, signal);
+    if (maxRows === undefined) {
+      return { rows: await selectReadOnlyOn(this.db, sql, signal), truncated: false };
+    }
+    if (!(Number.isSafeInteger(maxRows) && maxRows >= 0)) {
+      throw new Error(`QUERY_ERROR: invalid row limit ${maxRows}`);
+    }
+    const rows = await selectReadOnlyOn(this.db, sql, signal, maxRows + 1);
+    return { rows: rows.slice(0, maxRows), truncated: rows.length > maxRows };
   }
 
   async execute(connectionId: string, sql: string, _params?: unknown[]): Promise<ExecuteResult> {

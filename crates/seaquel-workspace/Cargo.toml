@@ -1,0 +1,16 @@
+[package]
+name = "seaquel-workspace"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel workspace domain: turns a saved connection and its secrets into a ConnectConfig, and later holds the services behind every interface."
+
+[dependencies]
+seaquel-types = { path = "../seaquel-types" }
+serde_json = { workspace = true }
+# The WHATWG URL parser, as the TypeScript's `new URL` (password
+# reinjection, the SSH host and port rewrite, the URL-username fallback).
+url = "2"
+percent-encoding = "2"
+
+[dev-dependencies]
+futures = { workspace = true }

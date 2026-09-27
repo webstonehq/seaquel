@@ -1,0 +1,368 @@
+[
+  {
+    "name": "duckdb/absolute-path",
+    "row": {
+      "id": "conn-duckdb-absolute-path",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "/Users/me/analytics.duckdb",
+      "username": "",
+      "connectionString": "duckdb:///Users/me/analytics.duckdb"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-absolute-path"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-absolute-path"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/memory",
+    "row": {
+      "id": "conn-duckdb-memory",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": ":memory:",
+      "username": "",
+      "connectionString": "duckdb://:memory:"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-memory"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-memory"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/empty-string-path",
+    "row": {
+      "id": "conn-duckdb-empty-string-path",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "",
+      "username": "",
+      "connectionString": "duckdb://"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-empty-string-path"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-empty-string-path"
+      ],
+      "hasAllCredentials": false,
+      "autoConnected": false
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/no-string",
+    "row": {
+      "id": "conn-duckdb-no-string",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "/Users/me/analytics.duckdb",
+      "username": ""
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-no-string"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-no-string"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/no-string-no-name",
+    "row": {
+      "id": "conn-duckdb-no-string-no-name",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "",
+      "username": ""
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-no-string-no-name"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": ":memory:"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-no-string-no-name"
+      ],
+      "hasAllCredentials": false,
+      "autoConnected": false
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/no-slashes",
+    "row": {
+      "id": "conn-duckdb-no-slashes",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "relative.duckdb",
+      "username": "",
+      "connectionString": "duckdb:relative.duckdb"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-no-slashes"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "relative.duckdb"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-no-slashes"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "relative.duckdb"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/windows-path",
+    "row": {
+      "id": "conn-duckdb-windows-path",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "C:\\data\\x.duckdb",
+      "username": "",
+      "connectionString": "duckdb://C:\\data\\x.duckdb"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-windows-path"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "C:\\data\\x.duckdb"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-windows-path"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "C:\\data\\x.duckdb"
+      }
+    },
+    "gui": "autoReconnect"
+  },
+  {
+    "name": "duckdb/query-params",
+    "row": {
+      "id": "conn-duckdb-query-params",
+      "projectId": "default-seaquel",
+      "labelIds": [],
+      "savePassword": true,
+      "saveSshPassword": false,
+      "saveSshKeyPassphrase": false,
+      "name": "DuckDB",
+      "type": "duckdb",
+      "host": "localhost",
+      "port": 0,
+      "databaseName": "/Users/me/analytics.duckdb",
+      "username": "",
+      "connectionString": "duckdb:///Users/me/analytics.duckdb?access_mode=read_only"
+    },
+    "secrets": {},
+    "tunnelPort": null,
+    "load": {
+      "secretsRead": [
+        "db:conn-duckdb-query-params"
+      ],
+      "username": "",
+      "passwordFromKeychain": false
+    },
+    "autoReconnect": {
+      "secretsRead": [],
+      "connected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb?access_mode=read_only"
+      }
+    },
+    "reconnectTab": {
+      "secretsRead": [
+        "db:conn-duckdb-query-params"
+      ],
+      "hasAllCredentials": true,
+      "autoConnected": true,
+      "config": {
+        "driver": "duckdb",
+        "path": "/Users/me/analytics.duckdb"
+      }
+    },
+    "gui": "autoReconnect"
+  }
+]

@@ -39,6 +39,17 @@ export interface ExecuteResult {
   lastInsertId?: number;
 }
 
+/** What `DatabaseProvider.selectReadOnly` resolves with. */
+export interface ReadOnlyRows {
+  /** Row objects, column names deduped as `select` does (`id`, `id_2`). */
+  rows: Record<string, unknown>[];
+  /**
+   * The query had more rows than the `maxRows` it was run with, and only
+   * the first `maxRows` came back. Always false without `maxRows`.
+   */
+  truncated: boolean;
+}
+
 /**
  * Unified interface for database operations.
  * Implementations handle the specifics of each backend (Tauri, DuckDB-WASM).
@@ -128,8 +139,10 @@ export interface DatabaseProvider {
    * @param sql One read-only statement. No bind parameters.
    * @param signal Aborting it cancels the query (the stream is cancelled by
    *   query id, or its WebSocket closed) and rejects the promise.
-   * @returns Row objects, column names deduped as `select` does
-   *   (`id`, `id_2`).
+   * @param maxRows Return at most this many rows, with `truncated` set when
+   *   the query had more (Core's `max_rows`). Without it, a result past the
+   *   engine's row cap fails with `RESULT_TOO_LARGE`.
+   * @returns The rows, and whether `maxRows` cut them short.
    * @throws Error with the stream's error message, e.g. the database's
    *   read-only refusal (code `READ_ONLY`).
    */
@@ -137,7 +150,8 @@ export interface DatabaseProvider {
     connectionId: string,
     sql: string,
     signal?: AbortSignal,
-  ): Promise<Record<string, unknown>[]>;
+    maxRows?: number,
+  ): Promise<ReadOnlyRows>;
 
   /**
    * Execute a write query (INSERT, UPDATE, DELETE).

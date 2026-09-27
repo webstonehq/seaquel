@@ -280,7 +280,7 @@ fn still_refuses(write: String) -> Check {
         move |driver| {
             let write = write.clone();
             async move {
-                match driver.query_read_only(&write, vec![]).await {
+                match driver.query_read_only(&write, vec![], None).await {
                     Err(e) if e.code == "READ_ONLY" => Ok(()),
                     other => Err(format!("{write}: expected READ_ONLY, got {other:?}")),
                 }
@@ -307,12 +307,14 @@ async fn over_the_row_cap_fails_fast() {
     let sql = format!("SELECT generate_series(1, {}) AS n", cap * 200);
     let started = tokio::time::Instant::now();
     let err = driver
-        .query_read_only(&sql, vec![])
+        .query_read_only(&sql, vec![], None)
         .await
         .expect_err("past the row cap");
     let elapsed = started.elapsed();
     // Still usable afterwards.
-    let one = driver.query_read_only("SELECT 1 AS one", vec![]).await;
+    let one = driver
+        .query_read_only("SELECT 1 AS one", vec![], None)
+        .await;
     driver.close().await.expect("close");
     assert_eq!(err.code, "RESULT_TOO_LARGE", "{err:?}");
     assert!(

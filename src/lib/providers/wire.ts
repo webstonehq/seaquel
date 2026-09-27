@@ -8,7 +8,7 @@
 
 import type { ConnectConfig } from "$lib/types/generated/ConnectConfig";
 import type { DbError } from "$lib/types/generated/DbError";
-import type { ConnectionConfig } from "./types";
+import type { ConnectionConfig, ReadOnlyRows } from "./types";
 import { dedupeColumnNames } from "$lib/utils/row-access";
 
 // -------- Wire types --------
@@ -93,6 +93,11 @@ export interface StreamBatch {
   columns: string[] | null;
   rows: unknown[][];
   isFinal: boolean;
+  /**
+   * Only on the final batch of a read-only query run with `maxRows`: it had
+   * more rows than that. Absent everywhere else.
+   */
+  truncated?: boolean;
 }
 
 /** What a provider's stream resolves with: `selectStream`'s result. */
@@ -109,29 +114,41 @@ export function queryCancelled(): DOMException {
 /**
  * `selectReadOnly` for the Rust transports (Tauri channel, WebSocket):
  * `run` starts the read-only stream with this `onBatch` and the caller's
- * signal, and this collects its batches into row objects. Rejects with the
- * stream's error (`"READ_ONLY: …"`), or with an `AbortError` when the
- * signal cancelled it.
+ * signal, and this collects its batches into row objects, with the final
+ * batch's `truncated`. Rejects with the stream's error (`"READ_ONLY: …"`),
+ * or with an `AbortError` when the signal cancelled it.
  */
 export async function collectReadOnly(
   run: (onBatch: (batch: StreamBatch) => boolean) => Promise<StreamOutcome>,
   signal?: AbortSignal,
-): Promise<Record<string, unknown>[]> {
+): Promise<ReadOnlyRows> {
   if (signal?.aborted) throw queryCancelled();
   let columns: string[] | null = null;
   const rows: unknown[][] = [];
+  let truncated = false;
   const outcome = await run((batch) => {
     columns ??= batch.columns;
     // Not `push(...batch.rows)`: a 100,000-row batch overflows the stack.
     for (const row of batch.rows) rows.push(row);
+    if (batch.isFinal) truncated = batch.truncated === true;
     return true;
   });
   if (outcome.error !== undefined) throw new Error(outcome.error);
   if (outcome.aborted || signal?.aborted) throw queryCancelled();
-  return toRowObjects(columns ?? [], rows);
+  return { rows: toRowObjects(columns ?? [], rows), truncated };
 }
 
 // -------- ConnectionConfig → Rust ConnectConfig translation --------
+
+/**
+ * Whether an MSSQL connection accepts any server certificate: only for
+ * `disable`, `allow`, `prefer` and no mode. `require`, `verify-ca`,
+ * `verify-full` (and anything else) verify it. Same rule as
+ * `seaquel-workspace`'s `mssql_trusts_any_cert`.
+ */
+export function mssqlTrustsAnyCert(sslMode: string | undefined): boolean {
+  return !sslMode || sslMode === "disable" || sslMode === "allow" || sslMode === "prefer";
+}
 
 /**
  * Translate the frontend's `ConnectionConfig` into the shape the Rust
@@ -148,7 +165,7 @@ export function toRustConfig(config: ConnectionConfig): ConnectConfig {
       username: config.username,
       password: config.password,
       encrypt: config.sslMode !== "disable",
-      trust_cert: config.sslMode !== "require",
+      trust_cert: mssqlTrustsAnyCert(config.sslMode),
     };
   }
 

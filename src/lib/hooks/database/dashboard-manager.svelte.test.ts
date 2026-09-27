@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard, DashboardWidget } from "$lib/types";
-import type { ProviderRegistry } from "$lib/providers";
+import type { ProviderRegistry, ReadOnlyRows } from "$lib/providers";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 
@@ -77,11 +77,11 @@ function setup(
     // Honours the signal, as the real providers do: an abort rejects it.
     selectReadOnly: vi.fn(
       (_id: string, _sql: string, signal?: AbortSignal) =>
-        new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        new Promise<ReadOnlyRows>((resolve, reject) => {
           const abort = () => reject(new DOMException("Aborted", "AbortError"));
           if (signal?.aborted) return abort();
           signal?.addEventListener("abort", abort, { once: true });
-          if (!opts.hold) resolve([{ n: 1 }]);
+          if (!opts.hold) resolve({ rows: [{ n: 1 }], truncated: false });
         }),
     ),
   };
@@ -91,7 +91,8 @@ function setup(
   } as unknown as PendingChangesManager);
   const manager = new DashboardManager(
     state,
-    (connectionId, sql, signal) => crud.executeReadOnly(connectionId, sql, signal),
+    async (connectionId, sql, signal) =>
+      (await crud.executeReadOnly(connectionId, sql, signal)).rows,
     () => {},
   );
   const current = () => manager.getDashboard("d-1")!.widgets[0];
@@ -106,6 +107,7 @@ describe("DashboardManager.executeWidget", () => {
       "pc-1",
       "SELECT 1 AS n",
       expect.any(AbortSignal),
+      undefined,
     );
     expect(provider.select).not.toHaveBeenCalled();
     expect(current().result).toEqual([{ n: 1 }]);
@@ -119,6 +121,7 @@ describe("DashboardManager.executeWidget", () => {
       "pc-1",
       "SELECT count(*) AS n FROM saved",
       expect.any(AbortSignal),
+      undefined,
     );
   });
 
@@ -132,6 +135,7 @@ describe("DashboardManager.executeWidget", () => {
       "pc-1",
       "SELECT 1 AS n WHERE d BETWEEN '2026-01-01' AND '2026-02-01'",
       expect.any(AbortSignal),
+      undefined,
     );
   });
 
@@ -162,7 +166,12 @@ describe("DashboardManager.executeWidget", () => {
   it("runs editor previews and version diffs read-only too", async () => {
     const { manager, provider } = setup(widget());
     expect(await manager.runWidgetQuery("SELECT 2 AS n")).toEqual([{ n: 1 }]);
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", "SELECT 2 AS n", undefined);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith(
+      "pc-1",
+      "SELECT 2 AS n",
+      undefined,
+      undefined,
+    );
     await expect(manager.runWidgetQuery("DROP TABLE t")).rejects.toThrow(
       "Only read-only SELECT queries are permitted",
     );
@@ -231,7 +240,10 @@ describe("widget runs: overlap, close and remove", () => {
     const { manager, provider, current } = setup(widget(), { hold: true });
     const first = manager.executeWidget("d-1", "w-1");
     await vi.waitFor(() => expect(provider.selectReadOnly).toHaveBeenCalledOnce());
-    provider.selectReadOnly.mockImplementationOnce(async () => [{ n: 2 }]);
+    provider.selectReadOnly.mockImplementationOnce(async () => ({
+      rows: [{ n: 2 }],
+      truncated: false,
+    }));
     await manager.executeWidget("d-1", "w-1");
     await first;
     expect(signalOf(provider, 0).aborted).toBe(true);

@@ -18,7 +18,8 @@
 //!   and MariaDB a plain digit run that runs into a word character is a name
 //!   (`2fa_codes`), a digit-led run after a `.` is a name (`db.2fa_codes`),
 //!   and `@` is a word character only at the start of a word.
-//! - Fix 10: a Postgres/DuckDB `--` comment ends at `\r` as well as `\n`; a
+//! - Fix 10: a Postgres/DuckDB `--` comment ends at `\r` as well as `\n`
+//!   (and a SQL Server one, phase 4: the security probe measured it); a
 //!   MySQL/MariaDB `--` starts a comment only before ASCII space, a control
 //!   character or the end; a `$tag$` may be any length.
 //! - Fix 19: word characters follow each engine's identifier rule. Postgres,
@@ -99,6 +100,12 @@ pub struct ScanOptions {
     /// UTF-16 unit), and a `$tag$` takes `\p{L}` only. The read-only check
     /// reads every input with both rules.
     pub ts_words: bool,
+    /// A lone `\r` ends every line comment (`--`, and `#` on MySQL/MariaDB),
+    /// whatever the engine does. Postgres, DuckDB and SQL Server end them
+    /// there anyway; MySQL, MariaDB and SQLite don't. The read-only check
+    /// reads every input this way too, so a reading that hides code after a
+    /// `\r` in a comment can't be the only one.
+    pub cr_ends_comments: bool,
 }
 
 /// A statement from [`split_statements`], in the TS splitter's shape.
@@ -131,6 +138,8 @@ struct Scanner<'a> {
     ansi: bool,
     pg_like: bool,
     nested_comments: bool,
+    /// A lone `\r` ends a line comment.
+    cr_ends_comments: bool,
     options: ScanOptions,
     comments: bool,
     tokens: Vec<Token>,
@@ -152,6 +161,7 @@ impl<'a> Scanner<'a> {
             ansi: mysql && options.ansi_mysql,
             pg_like,
             nested_comments: pg_like || engine == SqlEngine::Mssql,
+            cr_ends_comments: pg_like || engine == SqlEngine::Mssql || options.cr_ends_comments,
             options,
             comments,
             tokens: Vec::new(),
@@ -262,10 +272,12 @@ impl<'a> Scanner<'a> {
     }
 
     /// The end of the line comment at `i`: after its `\n` (or `\r` on
-    /// Postgres and DuckDB, fix 10), or the end of the input.
+    /// Postgres and DuckDB, fix 10, and SQL Server, phase 4; or on every
+    /// engine with [`ScanOptions::cr_ends_comments`]), or the end of the
+    /// input.
     fn line_comment_end(&self) -> usize {
         let rest = &self.b[self.i..];
-        let eol = if self.pg_like {
+        let eol = if self.cr_ends_comments {
             rest.iter().position(|&c| c == b'\n' || c == b'\r')
         } else {
             rest.iter().position(|&c| c == b'\n')
@@ -395,20 +407,14 @@ impl<'a> Scanner<'a> {
                 // The end of an executable comment.
                 in_exec = false;
                 self.push(TokenKind::Comment, i + 2, depth);
-            } else if c == b'-'
+            } else if (c == b'-'
                 && next == Some(b'-')
                 // Fix 10: MySQL/MariaDB start a `--` comment only before ASCII
                 // space or a control character (`--` + NBSP is minus minus).
-                && (!self.mysql || i + 2 >= n || matches!(self.b[i + 2], 0..=0x20 | 0x7F))
+                && (!self.mysql || i + 2 >= n || matches!(self.b[i + 2], 0..=0x20 | 0x7F)))
+                || (c == b'#' && self.mysql)
             {
                 let end = self.line_comment_end();
-                self.push(TokenKind::Comment, end, depth);
-            } else if c == b'#' && self.mysql {
-                let rest = &self.b[i..];
-                let end = rest
-                    .iter()
-                    .position(|&c| c == b'\n')
-                    .map_or(n, |k| i + k + 1);
                 self.push(TokenKind::Comment, end, depth);
             } else if c == b'/' && next == Some(b'*') {
                 // `/*M!` is MariaDB's; MySQL reads it as a plain comment.

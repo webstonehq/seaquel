@@ -58,8 +58,9 @@ function setup() {
   const providers = {
     getForType: async () => ({ connect, disconnect }),
   } as unknown as ProviderRegistry;
+  const persistConnection = vi.fn(async (..._args: unknown[]) => {});
   const persistence = {
-    persistConnection: vi.fn(async () => {}),
+    persistConnection,
     scheduleProject: vi.fn(),
   } as unknown as PersistenceManager;
   const restoration = {
@@ -76,7 +77,7 @@ function setup() {
     async () => {},
     () => {},
   );
-  return { state, manager };
+  return { state, manager, persistConnection };
 }
 
 const input = {
@@ -156,6 +157,45 @@ describe("reconnect", () => {
     const conn = state.connections.find((c: DatabaseConnection) => c.id === id);
     expect(conn?.providerConnectionId).toBeUndefined();
   });
+
+  it.each([
+    ["50%off", "50%25off"],
+    ["a+b&c=d e", "a%2Bb%26c%3Dd%20e"],
+    ["p@ss:w/rd#?%$,", "p%40ss%3Aw%2Frd%23%3F%25%24%2C"],
+    ["pässwörd✓", "p%C3%A4ssw%C3%B6rd%E2%9C%93"],
+  ])("percent-encodes the password %s it puts into the URL", async (password, encoded) => {
+    const { manager, id } = await connected();
+    connect.mockClear();
+    await manager.reconnect(id, {
+      ...input,
+      sshTunnel: undefined,
+      password,
+      connectionString: "postgresql://me@db.internal:5432/app",
+    });
+    const config = (connect.mock.calls[0] as unknown[])[0] as { connectionString: string };
+    expect(config.connectionString).toBe(`postgres://me:${encoded}@db.internal:5432/app`);
+    expect(decodeURIComponent(new URL(config.connectionString).password)).toBe(password);
+  });
+
+  it("refuses a password it can't encode instead of connecting without it", async () => {
+    const { manager, id } = await connected();
+    connect.mockClear();
+    await expect(
+      manager.reconnect(id, {
+        ...input,
+        password: "pw\uD800",
+        connectionString: "postgresql://me@db.internal:5432/app",
+      }),
+    ).rejects.toThrow("The password can't be encoded");
+    expect(connect).not.toHaveBeenCalled();
+    // The tunnel opened for the attempt is closed again.
+    expect(calls).toEqual([
+      "disconnect pc-new",
+      "close tunnel-1",
+      "open tunnel-2",
+      "close tunnel-2",
+    ]);
+  });
 });
 
 describe("toggle", () => {
@@ -165,5 +205,52 @@ describe("toggle", () => {
     calls.length = 0;
     await manager.toggle(id);
     await vi.waitFor(() => expect(calls).toEqual(["disconnect pc-new", "close tunnel-1"]));
+  });
+});
+
+describe("update", () => {
+  const saved = {
+    id: "conn-1",
+    name: "Local",
+    type: "postgres",
+    host: "localhost",
+    port: 5432,
+    databaseName: "app",
+    username: "me",
+    password: "",
+    projectId: "p1",
+    labelIds: [],
+    isLocalOnly: true,
+    aiShareSchema: undefined,
+    aiShareData: undefined,
+  } as unknown as DatabaseConnection;
+
+  it("saves the AI sharing overrides from the edit form", async () => {
+    const { state, manager, persistConnection } = setup();
+    state.connections = [saved];
+
+    await manager.update("conn-1", {
+      ...saved,
+      aiShareSchema: false,
+      aiShareData: true,
+    } as unknown as Parameters<InstanceType<typeof ConnectionManager>["update"]>[1]);
+
+    expect(state.connections[0]).toMatchObject({ aiShareSchema: false, aiShareData: true });
+    expect(persistConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "conn-1", aiShareSchema: false, aiShareData: true }),
+      expect.anything(),
+    );
+  });
+
+  it("clears an override back to the global setting", async () => {
+    const { state, manager } = setup();
+    state.connections = [{ ...saved, aiShareData: true } as DatabaseConnection];
+
+    await manager.update("conn-1", {
+      ...saved,
+      aiShareData: undefined,
+    } as unknown as Parameters<InstanceType<typeof ConnectionManager>["update"]>[1]);
+
+    expect(state.connections[0].aiShareData).toBeUndefined();
   });
 });

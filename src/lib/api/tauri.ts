@@ -65,6 +65,33 @@ export async function getUsername(): Promise<string> {
   return invoke<string>("get_username");
 }
 
+// === Command line tool (MCP settings) ===
+
+/** The bundled `seaquel-cli` (`src-tauri/src/cli_info.rs`). */
+export interface CliInfo {
+  /** The sidecar next to the app's executable. */
+  sidecarPath: string;
+  sidecarExists: boolean;
+  /** The path an MCP host should run (an AppImage's stable copy, else the sidecar). */
+  commandPath: string;
+  /** Whether `seaquel-cli` typed in a terminal runs this app's tool. */
+  pathStatus: "installed" | "outdated" | "other" | "missing";
+  /** What `seaquel-cli` resolves to, when found. */
+  foundPath: string | null;
+  /** Whether the install button is offered (macOS, Linux AppImage). */
+  canInstall: boolean;
+  appImage: boolean;
+}
+
+export async function getCliInfo(): Promise<CliInfo> {
+  return invoke<CliInfo>("cli_info");
+}
+
+/** The menu's "Install Command Line Tool…": shows its own dialogs, resolves when done. */
+export async function installCli(): Promise<void> {
+  await invoke("install_cli");
+}
+
 // === License Commands ===
 
 /**

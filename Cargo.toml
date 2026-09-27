@@ -20,6 +20,9 @@ members = [
     "crates/seaquel-ssh",
     "crates/seaquel-git",
     "crates/seaquel-license",
+    "crates/seaquel-workspace",
+    "crates/seaquel-mcp",
+    "crates/seaquel-cli",
     "src-tauri",
 ]
 resolver = "2"
@@ -49,7 +52,12 @@ wasm-bindgen = "=0.2.128"
 
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "sqlite", "json", "time", "rust_decimal", "ipnetwork", "mac_address", "bit-vec"] }
 tiberius = { version = "0.12", default-features = false, features = ["tokio", "chrono", "tds73", "rustls"] }
-duckdb = { version = "1.1", features = ["bundled"] }
+# `json` links DuckDB's json extension in statically, so the MCP server's
+# restricted instance (no autoinstall or autoload) has `json_extract` and
+# friends. `icu` (time zones, TIMESTAMPTZ arithmetic) can't be linked from
+# the crates.io package: it needs `bundled-cmake`, which panics without the
+# `duckdb-sources` checkout the package excludes.
+duckdb = { version = "1.1", features = ["bundled", "json"] }
 rust_decimal = "1"
 time = { version = "0.3", features = ["formatting"] }
 
@@ -75,6 +83,16 @@ axum = { version = "0.8", features = ["ws", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
 http-body-util = "0.1"
+
+# The MCP server and the CLI (phase 4). rmcp 3.4.1 was the current release on
+# crates.io when phase 4 began; seaquel-mcp's tests add `client` and
+# `transport-child-process`.
+rmcp = { version = "3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
+clap = { version = "4", features = ["derive"] }
+schemars = "1"
+# The CLI's stderr logging: `fmt` for the output, `tracing-log` so `log`
+# records (Core, sqlx) reach it, and the `Targets` filter (`registry` + `std`).
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "tracing-log"] }
 
 # The WebAssembly module (seaquel-wasm):
 #   cargo build --profile wasm-release --target wasm32-unknown-unknown -p seaquel-wasm

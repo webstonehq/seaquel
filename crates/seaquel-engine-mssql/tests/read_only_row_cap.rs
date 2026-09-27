@@ -29,14 +29,18 @@ async fn an_escape_past_the_row_cap_is_still_reported() {
 
         // Nothing escaped: RESULT_TOO_LARGE as usual.
         let err = driver
-            .query_read_only(TEN, vec![])
+            .query_read_only(TEN, vec![], None)
             .await
             .expect_err("over the cap");
         assert_eq!(err.code, "RESULT_TOO_LARGE", "{err:?}");
 
         // Rolled back past the cap too.
         let err = driver
-            .query_read_only(&format!("DELETE FROM {table} WHERE id = 2; {TEN}"), vec![])
+            .query_read_only(
+                &format!("DELETE FROM {table} WHERE id = 2; {TEN}"),
+                vec![],
+                None,
+            )
             .await
             .expect_err("over the cap");
         assert_eq!(err.code, "RESULT_TOO_LARGE", "{err:?}");
@@ -47,6 +51,7 @@ async fn an_escape_past_the_row_cap_is_still_reported() {
             .query_read_only(
                 &format!("DELETE FROM {table} WHERE id = 1; COMMIT; COMMIT; {TEN}"),
                 vec![],
+                None,
             )
             .await
             .expect_err("an escape");
@@ -60,7 +65,7 @@ async fn an_escape_past_the_row_cap_is_still_reported() {
         assert_eq!(ids(driver, &table).await, ints(&[2]), "the documented gap");
 
         let r = driver
-            .query_read_only("SELECT 1 AS a", vec![])
+            .query_read_only("SELECT 1 AS a", vec![], None)
             .await
             .expect("the next call");
         assert_eq!(r.rows, vec![vec![Value::Int(1)]]);

@@ -1409,7 +1409,7 @@ async fn run_attack(driver: &std::sync::Arc<dyn Driver>, attack: &Attack) -> Vec
     }
     let result = tokio::time::timeout(
         ATTACK_TIMEOUT,
-        driver.query_read_only(&attack.sql, attack.params.clone()),
+        driver.query_read_only(&attack.sql, attack.params.clone(), None),
     )
     .await;
     let mut problems = Vec::new();
@@ -1473,7 +1473,12 @@ async fn probe_within(
     when: &str,
     within: std::time::Duration,
 ) -> Option<String> {
-    match tokio::time::timeout(within, driver.query_read_only(READ_ONLY_PROBE, vec![])).await {
+    match tokio::time::timeout(
+        within,
+        driver.query_read_only(READ_ONLY_PROBE, vec![], None),
+    )
+    .await
+    {
         Ok(Ok(r)) if rows_match(&r.rows, &[vec![Value::Int(1)]]) => None,
         Ok(Ok(r)) => Some(format!("{READ_ONLY_PROBE} {when} returned {:?}", r.rows)),
         Ok(Err(e)) => Some(format!("{READ_ONLY_PROBE} {when} failed: {e:?}")),
@@ -1492,7 +1497,11 @@ async fn cancel_check(
     if let Some(problem) = probe(driver, "before slow_query").await {
         return vec![problem];
     }
-    let slow = tokio::time::timeout(CANCEL_AFTER, driver.query_read_only(slow_query, vec![])).await;
+    let slow = tokio::time::timeout(
+        CANCEL_AFTER,
+        driver.query_read_only(slow_query, vec![], None),
+    )
+    .await;
     // `timeout` dropped the future when it elapsed.
     if let Ok(result) = slow {
         return vec![format!(
@@ -1506,4 +1515,220 @@ async fn cancel_check(
         Some(problem) => vec![problem],
         None => vec![],
     }
+}
+
+// ── `max_rows` on read-only queries ──
+
+/// The row cap [`run_max_rows`] runs under. Small, so a result past it is
+/// cheap on every engine, and below [`TEN_THOUSAND_ROWS`].
+pub const MAX_ROWS_TEST_CAP: usize = 1000;
+
+/// Sets `SEAQUEL_MAX_QUERY_ROWS` to [`MAX_ROWS_TEST_CAP`] and checks it took.
+/// `max_query_rows` reads the variable once per process, so call this first
+/// thing in a test binary of its own, from every test in it.
+///
+/// # Panics
+///
+/// If something read the cap before this set it.
+pub fn use_max_rows_test_cap() {
+    std::env::set_var("SEAQUEL_MAX_QUERY_ROWS", MAX_ROWS_TEST_CAP.to_string());
+    assert_eq!(
+        seaquel_engine::max_query_rows(),
+        MAX_ROWS_TEST_CAP,
+        "the row cap was read before use_max_rows_test_cap set it"
+    );
+}
+
+/// What a [`run_max_rows`] case expects: its rows and `truncated`, or an
+/// error code.
+type MaxRowsExpect = Result<(usize, bool), &'static str>;
+
+/// Three rows in one column `n`, in SQL every engine accepts.
+const THREE_ROWS: &str = "SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3";
+
+/// Check `max_rows` on `Driver::query_read_only`, on one driver opened from
+/// `config`, under [`MAX_ROWS_TEST_CAP`] (call [`use_max_rows_test_cap`]
+/// first):
+///
+/// - [`TEN_THOUSAND_ROWS`] with `max_rows` 10 returns 10 rows, `truncated`;
+///   with 0 no rows but the column, `truncated`; with more than the cap, the
+///   cap's worth, `truncated` (the cap still bounds memory); without it,
+///   `RESULT_TOO_LARGE` as before.
+/// - Three rows with `max_rows` 10 or 3 come back whole, not `truncated`;
+///   with 2, two rows, `truncated`.
+/// - After each, [`READ_ONLY_PROBE`] still runs: a truncated query leaves
+///   the driver usable.
+///
+/// Every failure is collected and reported in one panic at the end.
+pub async fn run_max_rows(engine: &dyn Engine, config: &ConnectConfig) {
+    assert_eq!(seaquel_engine::max_query_rows(), MAX_ROWS_TEST_CAP);
+    let driver = engine.open(config).await.expect("open");
+    let cap = MAX_ROWS_TEST_CAP;
+    let cases: [(&str, &str, Option<usize>, MaxRowsExpect); 8] = [
+        (
+            "10,000 rows, max 10",
+            TEN_THOUSAND_ROWS,
+            Some(10),
+            Ok((10, true)),
+        ),
+        (
+            "10,000 rows, max 0",
+            TEN_THOUSAND_ROWS,
+            Some(0),
+            Ok((0, true)),
+        ),
+        (
+            "10,000 rows, max above the cap",
+            TEN_THOUSAND_ROWS,
+            Some(cap * 3),
+            Ok((cap, true)),
+        ),
+        (
+            "10,000 rows, no max",
+            TEN_THOUSAND_ROWS,
+            None,
+            Err("RESULT_TOO_LARGE"),
+        ),
+        ("3 rows, max 10", THREE_ROWS, Some(10), Ok((3, false))),
+        ("3 rows, max 3", THREE_ROWS, Some(3), Ok((3, false))),
+        ("3 rows, max 2", THREE_ROWS, Some(2), Ok((2, true))),
+        ("3 rows, no max", THREE_ROWS, None, Ok((3, false))),
+    ];
+    let mut problems = Vec::new();
+    for (name, sql, max_rows, expected) in cases {
+        let got = tokio::time::timeout(
+            ATTACK_TIMEOUT,
+            driver.query_read_only(sql, vec![], max_rows),
+        )
+        .await;
+        match (got, expected) {
+            (Err(_), _) => {
+                problems.push(format!("{name}: didn't finish within {ATTACK_TIMEOUT:?}"))
+            }
+            (Ok(Ok(r)), Ok((rows, truncated))) => {
+                if r.rows.len() != rows || r.truncated != truncated {
+                    problems.push(format!(
+                        "{name}: expected {rows} rows, truncated {truncated}; got {} rows, truncated {}",
+                        r.rows.len(),
+                        r.truncated
+                    ));
+                }
+                if r.columns.len() != 1 || !r.columns[0].eq_ignore_ascii_case("n") {
+                    problems.push(format!(
+                        "{name}: expected the column n, got {:?}",
+                        r.columns
+                    ));
+                }
+                if r.rows.iter().any(|row| row.len() != 1) {
+                    problems.push(format!("{name}: a row isn't one cell"));
+                }
+            }
+            (Ok(Err(e)), Err(code)) if e.code == code => {}
+            (Ok(got), expected) => {
+                let got = got.map(|r| (r.rows.len(), r.truncated));
+                problems.push(format!("{name}: expected {expected:?}, got {got:?}"));
+            }
+        }
+        if let Some(problem) = probe(&driver, &format!("after {name}")).await {
+            problems.push(problem);
+        }
+    }
+    driver.close().await.expect("close");
+    assert!(
+        problems.is_empty(),
+        "max_rows on query_read_only:\n  {}",
+        problems.join("\n  ")
+    );
+}
+
+// ── `max_bytes` on read-only queries ──
+
+/// How many rows the SQL given to [`run_max_bytes`] returns.
+pub const BIG_CELL_ROWS: usize = 200;
+
+/// How long each cell of that SQL is: text of this many ASCII characters.
+pub const BIG_CELL_LEN: usize = 100_000;
+
+/// Check `max_bytes` on `Driver::query_read_only_with`, on one driver opened
+/// from `config`, under [`MAX_ROWS_TEST_CAP`] (call
+/// [`use_max_rows_test_cap`] first). `big_cells` is SQL returning
+/// [`BIG_CELL_ROWS`] rows of one column `n`, each a text of
+/// [`BIG_CELL_LEN`] characters (about 20 MB in all):
+///
+/// - with a 1 MB budget (and with it plus `max_rows` 1,000) the driver
+///   stops at the first row that reaches the budget: exactly as many rows
+///   as it takes, `truncated`;
+/// - with `max_rows` 5 as well, the row limit comes first: 5, `truncated`;
+/// - with a budget above the whole result, every row, not `truncated`;
+/// - a budget smaller than one row still returns that row, `truncated`;
+/// - after each, [`READ_ONLY_PROBE`] still runs.
+///
+/// Every failure is collected and reported in one panic at the end.
+pub async fn run_max_bytes(engine: &dyn Engine, config: &ConnectConfig, big_cells: &str) {
+    use seaquel_engine::{row_bytes, ReadOnlyOptions};
+
+    assert_eq!(seaquel_engine::max_query_rows(), MAX_ROWS_TEST_CAP);
+    let driver = engine.open(config).await.expect("open");
+    let row = row_bytes(&[Value::Text("x".repeat(BIG_CELL_LEN))]);
+    let budget: usize = 1024 * 1024;
+    // Rows are kept until their sum reaches the budget.
+    let to_budget = budget.div_ceil(row);
+    let options = |max_rows: Option<usize>, max_bytes: usize| {
+        ReadOnlyOptions::default()
+            .with_max_rows(max_rows)
+            .with_max_bytes(Some(max_bytes))
+    };
+    let cases: [(&str, ReadOnlyOptions, usize, bool); 5] = [
+        ("1 MB budget", options(None, budget), to_budget, true),
+        (
+            "1 MB budget, max_rows 1,000",
+            options(Some(1000), budget),
+            to_budget,
+            true,
+        ),
+        ("1 MB budget, max_rows 5", options(Some(5), budget), 5, true),
+        (
+            "a budget above the result",
+            options(None, row * BIG_CELL_ROWS * 2),
+            BIG_CELL_ROWS,
+            false,
+        ),
+        ("a 1 byte budget", options(Some(1000), 1), 1, true),
+    ];
+    let mut problems = Vec::new();
+    for (name, options, rows, truncated) in cases {
+        let got = tokio::time::timeout(
+            ATTACK_TIMEOUT,
+            driver.query_read_only_with(big_cells, vec![], options),
+        )
+        .await;
+        match got {
+            Err(_) => problems.push(format!("{name}: didn't finish within {ATTACK_TIMEOUT:?}")),
+            Ok(Err(e)) => problems.push(format!("{name}: {e:?}")),
+            Ok(Ok(r)) => {
+                if r.rows.len() != rows || r.truncated != truncated {
+                    problems.push(format!(
+                        "{name}: expected {rows} rows, truncated {truncated}; got {} rows, truncated {}",
+                        r.rows.len(),
+                        r.truncated
+                    ));
+                }
+                let whole = |row: &Vec<Value>| matches!(row.as_slice(), [Value::Text(t)] if t.len() == BIG_CELL_LEN);
+                if !r.rows.iter().all(whole) {
+                    problems.push(format!(
+                        "{name}: a row isn't one text cell of {BIG_CELL_LEN} characters"
+                    ));
+                }
+            }
+        }
+        if let Some(problem) = probe(&driver, &format!("after {name}")).await {
+            problems.push(problem);
+        }
+    }
+    driver.close().await.expect("close");
+    assert!(
+        problems.is_empty(),
+        "max_bytes on query_read_only_with:\n  {}",
+        problems.join("\n  ")
+    );
 }

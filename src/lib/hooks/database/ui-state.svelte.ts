@@ -5,6 +5,7 @@ import type { AIChatManager } from "./ai-chat-manager.svelte.js";
 import type { DashboardManager } from "./dashboard-manager.svelte.js";
 import type { DashboardTabManager } from "./dashboard-tabs.svelte.js";
 import { sendAIMessage as sendAIMessageService } from "$lib/services/ai";
+import type { ReadOnlyRows } from "$lib/providers";
 import { resolveMentions } from "$lib/services/ai-mentions";
 import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 
@@ -26,7 +27,8 @@ export class UIStateManager {
       sql: string,
       signal?: AbortSignal,
       connectionName?: string,
-    ) => Promise<Record<string, unknown>[]>,
+      maxRows?: number,
+    ) => Promise<ReadOnlyRows>,
     private aiChatManager: AIChatManager,
     private persistAIChatMessages: (chatId: string) => Promise<void>,
     private dashboardManager: DashboardManager,
@@ -337,8 +339,8 @@ export class UIStateManager {
       providerId: activeProviderId,
       model: activeModel,
       connection: aiConnection,
-      runQuery: (sql, querySignal) =>
-        this.runReadOnly(aiConnection.id, sql, querySignal, aiConnection.name),
+      runQuery: (sql, querySignal, maxRows) =>
+        this.runReadOnly(aiConnection.id, sql, querySignal, aiConnection.name, maxRows),
       activeConnection: () => {
         const active = this.state.activeConnection;
         return active ? { id: active.id, name: active.name } : null;

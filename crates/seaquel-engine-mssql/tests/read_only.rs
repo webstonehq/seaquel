@@ -471,7 +471,7 @@ async fn known_gaps_behave_as_documented() {
         // `NEXT VALUE FOR` in a SELECT advances the sequence for good: a
         // sequence isn't transactional.
         let r = driver
-            .query_read_only(&format!("SELECT NEXT VALUE FOR {s}.seq AS n"), vec![])
+            .query_read_only(&format!("SELECT NEXT VALUE FOR {s}.seq AS n"), vec![], None)
             .await
             .expect("NEXT VALUE FOR");
         assert_eq!(r.rows, vec![vec![Value::Int(1)]]);
@@ -544,7 +544,7 @@ async fn known_gaps_behave_as_documented() {
             },
         ];
         for gap in gaps {
-            let result = driver.query_read_only(&gap.sql, vec![]).await;
+            let result = driver.query_read_only(&gap.sql, vec![], None).await;
             match (&gap.expect, &result) {
                 (Ok(()), Ok(_)) => {}
                 (Err((code, text)), Err(DbError { code: c, message })) => {
@@ -593,7 +593,7 @@ async fn a_transaction_opened_by_hand_is_left_alone() {
     }
     assert_eq!(common::trancount(&driver).await, 1);
     let r = driver
-        .query_read_only("SELECT @@TRANCOUNT AS n", vec![])
+        .query_read_only("SELECT @@TRANCOUNT AS n", vec![], None)
         .await
         .expect("read-only beside a transaction opened by hand");
     // Its own transaction, two deep; not the user's.
@@ -622,6 +622,7 @@ async fn concurrent_calls_run_side_by_side() {
                 .query_read_only(
                     &format!("WAITFOR DELAY '00:00:01'; SELECT {i} AS i, @@SPID AS spid"),
                     vec![],
+                    None,
                 )
                 .await
         }
@@ -682,6 +683,7 @@ async fn a_dropped_call_rolls_back_its_write() {
             driver.query_read_only(
                 &format!("DELETE FROM {table}; WAITFOR DELAY '00:00:10'"),
                 vec![],
+                None,
             ),
         )
         .await;
@@ -726,7 +728,7 @@ async fn calls_blocked_on_a_lock_time_out_and_free_their_slots() {
             }
             let select = format!("SELECT label FROM {table}");
             let started = tokio::time::Instant::now();
-            let blocked = (0..5).map(|_| driver.query_read_only(&select, vec![]));
+            let blocked = (0..5).map(|_| driver.query_read_only(&select, vec![], None));
             let results = futures::future::join_all(blocked).await;
             for r in results {
                 let err = r.expect_err("blocked on the lock");
@@ -738,7 +740,7 @@ async fn calls_blocked_on_a_lock_time_out_and_free_their_slots() {
             assert!(elapsed < Duration::from_secs(30), "{elapsed:?}");
             let r = tokio::time::timeout(
                 Duration::from_secs(5),
-                driver.query_read_only("SELECT 1 AS a", vec![]),
+                driver.query_read_only("SELECT 1 AS a", vec![], None),
             )
             .await
             .expect("a slot is free")

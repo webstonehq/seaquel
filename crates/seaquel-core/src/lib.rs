@@ -10,13 +10,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::time::Duration;
 
 use futures::StreamExt;
 use log::{debug, info};
 use seaquel_engine::{
     not_supported, BatchStatement, BoxStream, CancellationToken, ConnectConfig, ConnectResult,
     DatabaseStatistics, DbError, Dialect, Driver, Engine, EngineRegistry, ExecuteResult,
-    ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
+    ExplainResult, QueryResult, ReadOnlyOptions, SchemaColumn, SchemaIndex, SchemaTable,
 };
 use seaquel_sql::read_only::read_only_error;
 use seaquel_sql::SqlEngine;
@@ -38,6 +39,7 @@ pub use seaquel_types::{StreamEvent, Value};
         feature = "git",
         feature = "license-desktop",
         feature = "license-server",
+        feature = "workspace",
     )
 ))]
 compile_error!(
@@ -46,6 +48,13 @@ compile_error!(
 );
 
 mod workspace;
+#[cfg(all(
+    feature = "storage",
+    feature = "secrets",
+    feature = "ssh",
+    feature = "workspace"
+))]
+pub use workspace::{ConnectSavedOptions, HostKeyPolicy, SAVED_CONNECTION_NOT_FOUND};
 pub use workspace::{CoreError, Workspace, WorkspaceSpec, DESKTOP_STORAGE_FILE};
 
 /// The metadata storage (`seaquel-storage`), for interfaces and
@@ -57,6 +66,17 @@ pub use seaquel_storage as storage;
 /// which may not depend on them directly.
 #[cfg(feature = "secrets")]
 pub use seaquel_secrets as secrets;
+
+/// Pure SQL text work (`seaquel-sql`: `{{param}}` substitution, the
+/// read-only check), for interfaces, which may not depend on it directly.
+/// The MCP server's saved queries use it.
+pub use seaquel_sql as sql;
+
+/// The workspace domain (`seaquel-workspace`), for interfaces, which may not
+/// depend on it directly. Named `domain` because `workspace` is Core's own
+/// [`Workspace`] module.
+#[cfg(feature = "workspace")]
+pub use seaquel_workspace as domain;
 
 /// Git for shared projects (`seaquel-git`).
 #[cfg(feature = "git")]
@@ -173,7 +193,7 @@ fn compiled_engines() -> Vec<Arc<dyn Engine>> {
 
 /// How [`Core::query_stream`] runs a query. Build it from
 /// `QueryOptions::default()` and the `with_*` methods, so adding an option
-/// later (a row limit) doesn't touch every caller.
+/// later doesn't touch every caller.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct QueryOptions {
@@ -181,6 +201,33 @@ pub struct QueryOptions {
     /// [`Driver::query_read_only`], which the database enforces: the AI's
     /// `run_query` tool and dashboard widgets. Off by default (the editor).
     pub read_only: bool,
+    /// Only with [`QueryOptions::read_only`]: return at most this many rows
+    /// and mark the final batch `truncated` when the query had more, instead
+    /// of failing with `RESULT_TOO_LARGE` past the driver's row cap (which
+    /// still bounds it). `None` (the default) keeps that failure.
+    ///
+    /// Set without `read_only` it is a caller's mistake, and the stream ends
+    /// with an `INVALID_OPTIONS` error before anything runs: the editor's
+    /// streaming path has no row limit, and silently ignoring it would hand
+    /// a caller that asked for a sample the whole table.
+    pub max_rows: Option<usize>,
+    /// Only with [`QueryOptions::read_only`]: a limit the database itself
+    /// enforces on the statement ([`ReadOnlyOptions::timeout`]), so a query
+    /// the caller gives up on doesn't keep running on the server. Past it
+    /// the stream ends with a `TIMEOUT` error. It is a backstop for the
+    /// caller's own deadline (dropping or cancelling the stream), which it
+    /// doesn't replace. `None` (the default) sets none; set without
+    /// `read_only` it ends the stream with `INVALID_OPTIONS`, like
+    /// `max_rows`.
+    pub timeout: Option<Duration>,
+    /// Only with [`QueryOptions::read_only`]: a byte budget for the rows
+    /// the driver keeps ([`ReadOnlyOptions::max_bytes`]). Once the decoded
+    /// cells add up to it the driver stops fetching and the final batch is
+    /// marked `truncated`, as at `max_rows`. One cell can't be split, so a
+    /// single row can still bring a cell as large as the database allows.
+    /// `None` (the default) sets none; set without `read_only` it ends the
+    /// stream with `INVALID_OPTIONS`, like `max_rows`.
+    pub max_bytes: Option<usize>,
 }
 
 impl QueryOptions {
@@ -188,6 +235,53 @@ impl QueryOptions {
     pub fn with_read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
         self
+    }
+
+    /// See [`QueryOptions::max_rows`]; valid only with `read_only`.
+    #[must_use]
+    pub fn with_max_rows(mut self, max_rows: Option<usize>) -> Self {
+        self.max_rows = max_rows;
+        self
+    }
+
+    /// See [`QueryOptions::timeout`]; valid only with `read_only`.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// See [`QueryOptions::max_bytes`]; valid only with `read_only`.
+    #[must_use]
+    pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// `INVALID_OPTIONS` for options that can't be combined.
+    fn check(self) -> Result<(), DbError> {
+        let invalid = |option: &str| DbError {
+            message: format!("{option} is only supported on read-only queries"),
+            code: "INVALID_OPTIONS".to_string(),
+        };
+        if self.max_rows.is_some() && !self.read_only {
+            return Err(invalid("max_rows"));
+        }
+        if self.timeout.is_some() && !self.read_only {
+            return Err(invalid("timeout"));
+        }
+        if self.max_bytes.is_some() && !self.read_only {
+            return Err(invalid("max_bytes"));
+        }
+        Ok(())
+    }
+
+    /// What the driver's read-only path gets.
+    fn read_only_options(self) -> ReadOnlyOptions {
+        ReadOnlyOptions::default()
+            .with_max_rows(self.max_rows)
+            .with_timeout(self.timeout)
+            .with_max_bytes(self.max_bytes)
     }
 }
 
@@ -216,6 +310,21 @@ fn check_read_only(sql: &str, engine_id: &str) -> Result<(), DbError> {
     refusal.map_or(Ok(()), |message| Err(DbError::read_only(message)))
 }
 
+/// [`seaquel_engine::EXPLAIN_ONE_STATEMENT`] as `READ_ONLY` when `sql` holds
+/// more than one statement, split on `;` under the engine's quoting. Only
+/// called after [`check_read_only`], which refuses an engine without rules.
+fn check_one_statement(sql: &str, engine_id: &str) -> Result<(), DbError> {
+    let Some(engine) = sql_engine(engine_id) else {
+        return Err(DbError::read_only(
+            seaquel_sql::read_only::READ_ONLY_MESSAGE,
+        ));
+    };
+    if seaquel_sql::scan::split_statements(sql, engine).len() > 1 {
+        return Err(DbError::read_only(seaquel_engine::EXPLAIN_ONE_STATEMENT));
+    }
+    Ok(())
+}
+
 /// The terminal event of a stream whose connection `disconnect` closed.
 fn connection_closed() -> StreamEvent {
     StreamEvent::Error {
@@ -238,7 +347,8 @@ impl Core {
     /// new, independent workspace; the caller keeps it.
     ///
     /// Storage failures keep their codes (`LEGACY_STORAGE`,
-    /// `STORAGE_CORRUPT`, `NO_DATA_DIR`, `STORAGE_ERROR`).
+    /// `STORAGE_CORRUPT`, `NO_DATA_DIR`, `STORAGE_ERROR`, and for a
+    /// read-only spec `STORAGE_NEEDS_UPGRADE` and `STORAGE_NOT_FOUND`).
     pub async fn open_workspace(&self, spec: WorkspaceSpec) -> Result<Arc<Workspace>, CoreError> {
         info!(activity = "workspace.open"; "Opening workspace");
         let workspace = Workspace::open(spec).await?;
@@ -276,7 +386,9 @@ impl Core {
         driver.close().await
     }
 
-    /// Close a connection. Idempotent: an unknown id succeeds.
+    /// Close a connection. Idempotent: an unknown id succeeds. A connection
+    /// `Workspace::connect_saved` opened through an SSH tunnel has that
+    /// tunnel closed too.
     ///
     /// Cancels the connection's running streams first, since the driver's
     /// `close()` waits for them to hand back their pooled connections. Each
@@ -295,13 +407,28 @@ impl Core {
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(connection_id);
-        if let Some(Connection { driver, .. }) = connection {
-            self.cancel_streams_of(connection_id);
-            // Waits for in-flight queries to return their pooled connections.
-            // Cancelled streams return theirs as soon as they are polled.
-            driver.close().await?;
+        // Out of the ownership map before anything is awaited: if this future
+        // is dropped, the guard still closes the tunnel.
+        #[cfg(feature = "ssh")]
+        let tunnel = self.take_tunnel_of(connection_id);
+        let closed = match connection {
+            Some(Connection { driver, .. }) => {
+                self.cancel_streams_of(connection_id);
+                // Waits for in-flight queries to return their pooled
+                // connections. Cancelled streams return theirs as soon as
+                // they are polled.
+                driver.close().await
+            }
+            None => Ok(()),
+        };
+        // The SSH tunnel `Workspace::connect_saved` opened for it, after the
+        // driver (closing it cuts whatever still runs through it), and even
+        // when closing the driver failed.
+        #[cfg(feature = "ssh")]
+        if let Some(tunnel) = tunnel {
+            tunnel.close().await;
         }
-        Ok(())
+        closed
     }
 
     pub fn connection_count(&self) -> usize {
@@ -423,6 +550,37 @@ impl Core {
             .await
     }
 
+    /// A plain EXPLAIN (no ANALYZE) of one statement that must not change
+    /// anything: the MCP server's `explain_query`. The SQL first goes
+    /// through the same token check as a read-only query
+    /// ([`QueryOptions::read_only`]), then must be a single statement (split
+    /// on `;` under the engine's quoting; SQL Server, which needs no `;`
+    /// between statements, is checked again from its plan), and then runs
+    /// through [`Driver::explain_read_only`]: in the read-only transaction
+    /// or session of the engine's read-only queries where planning can run
+    /// user code (Postgres, MySQL/MariaDB), and as a plain EXPLAIN where it
+    /// only compiles. Refusals are `READ_ONLY`.
+    ///
+    /// `timeout` is as [`QueryOptions::timeout`]; past it the call fails
+    /// with `TIMEOUT`. Dropping the returned future cancels the EXPLAIN.
+    pub async fn explain_read_only(
+        &self,
+        connection_id: &str,
+        sql: &str,
+        params: Vec<Value>,
+        timeout: Option<Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        let keyword = sql_keyword(sql);
+        debug!(activity = "db.explain_read_only", connection_id = connection_id, keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), timeout_ms = timeout.map(|t| t.as_millis() as u64); "Read-only explain");
+        let connection = self.connection(connection_id)?;
+        check_read_only(sql, connection.engine.id())?;
+        check_one_statement(sql, connection.engine.id())?;
+        connection
+            .driver
+            .explain_read_only(sql, params, timeout)
+            .await
+    }
+
     /// Run a query and deliver its results as client events: zero or more
     /// `Batch` events, then exactly one `Done` or `Error`.
     ///
@@ -437,7 +595,10 @@ impl Core {
     /// token check for the connection's engine; a refusal ends the stream
     /// with `READ_ONLY` and never reaches the driver. Then the driver's
     /// [`Driver::query_read_only`] runs, under the same cancellation, and
-    /// its result is one final `Batch` and `Done`.
+    /// its result is one final `Batch` and `Done`. With
+    /// [`QueryOptions::max_rows`] that batch holds at most that many rows
+    /// and is `truncated` when the query had more; without `read_only`,
+    /// `max_rows` ends the stream with `INVALID_OPTIONS`.
     pub fn query_stream(
         &self,
         query_id: String,
@@ -447,7 +608,7 @@ impl Core {
         options: QueryOptions,
     ) -> BoxStream<'_, StreamEvent> {
         let keyword = sql_keyword(&sql);
-        debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), read_only = options.read_only; "Query stream");
+        debug!(activity = "db.query_stream", query_id = query_id.as_str(), connection_id = connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), read_only = options.read_only, max_rows = options.max_rows, max_bytes = options.max_bytes, timeout_ms = options.timeout.map(|t| t.as_millis() as u64); "Query stream");
 
         // Registered now, not on first poll, so a cancel that arrives before
         // the stream starts still counts.
@@ -459,6 +620,10 @@ impl Core {
                 if closed.load(Ordering::SeqCst) {
                     yield connection_closed();
                 }
+                return;
+            }
+            if let Err(e) = options.check() {
+                yield StreamEvent::from(e);
                 return;
             }
             let connection = match self.connection(&connection_id) {
@@ -478,7 +643,9 @@ impl Core {
                 // cancelled: `take_until` drops it on cancel or disconnect,
                 // and dropping this stream drops it too.
                 let mut result = std::pin::pin!(futures::stream::once(
-                    connection.driver.query_read_only(&sql, params)
+                    connection
+                        .driver
+                        .query_read_only_with(&sql, params, options.read_only_options())
                 )
                 .take_until(token.cancelled()));
                 match result.next().await {
@@ -492,6 +659,7 @@ impl Core {
                             columns: Some(result.columns),
                             rows: result.rows,
                             is_final: true,
+                            truncated: result.truncated,
                         });
                         yield StreamEvent::Done;
                     }

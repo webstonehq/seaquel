@@ -12549,7 +12549,7 @@
           "bindValues": ["x"]
         },
         "mssql": {
-          "sql": "SELECT N'x' -- note\r, {{a}}",
+          "sql": "SELECT N'x' -- note\r, N'x'",
           "bindValues": []
         },
         "duckdb": {
@@ -12559,6 +12559,7 @@
       },
       "fixes": {
         "sqlite": [13],
+        "mssql": [20],
         "duckdb": [10]
       }
     },
@@ -12593,7 +12594,7 @@
           "bindValues": []
         },
         "mssql": {
-          "sql": "SELECT N'x' -- note\r, {{a}}",
+          "sql": "SELECT N'x' -- note\r, N'x'",
           "bindValues": []
         },
         "duckdb": {
@@ -12605,6 +12606,7 @@
         "mysql": [13],
         "mariadb": [13],
         "sqlite": [13],
+        "mssql": [20],
         "duckdb": [10]
       }
     },

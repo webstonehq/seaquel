@@ -41,8 +41,19 @@ function streamCall() {
   return call.args;
 }
 
-const batch = (columns: string[] | null, rows: unknown[][], isFinal: boolean): DbStreamEvent =>
-  ({ type: "batch", columns, rows, is_final: isFinal }) as DbStreamEvent;
+const batch = (
+  columns: string[] | null,
+  rows: unknown[][],
+  isFinal: boolean,
+  truncated?: boolean,
+): DbStreamEvent =>
+  ({
+    type: "batch",
+    columns,
+    rows,
+    is_final: isFinal,
+    ...(truncated === undefined ? {} : { truncated }),
+  }) as DbStreamEvent;
 
 beforeEach(() => {
   tauri.events = null;
@@ -52,8 +63,8 @@ beforeEach(() => {
 describe("UnifiedTauriProvider.selectReadOnly", () => {
   it("streams with readOnly: true and returns row objects", async () => {
     tauri.events = [batch(["n", "s"], [[1, "a"]], true), { type: "done" }];
-    const rows = await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT 1");
-    expect(rows).toEqual([{ n: 1, s: "a" }]);
+    const result = await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT 1");
+    expect(result).toEqual({ rows: [{ n: 1, s: "a" }], truncated: false });
     const args = streamCall();
     expect(args).toMatchObject({
       connectionId: "pc-1",
@@ -61,7 +72,26 @@ describe("UnifiedTauriProvider.selectReadOnly", () => {
       values: [],
       readOnly: true,
     });
+    expect(args.maxRows).toBeUndefined();
     expect(typeof args.queryId).toBe("string");
+  });
+
+  it("sends maxRows and reports the final batch's truncated", async () => {
+    tauri.events = [batch(["n"], [[1], [2]], true, true), { type: "done" }];
+    const result = await new UnifiedTauriProvider().selectReadOnly(
+      "pc-1",
+      "SELECT n FROM t",
+      undefined,
+      2,
+    );
+    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: true });
+    expect(streamCall()).toMatchObject({ readOnly: true, maxRows: 2 });
+  });
+
+  it("isn't truncated when the final batch doesn't say so", async () => {
+    tauri.events = [batch(["n"], [[1]], false, true), batch(null, [[2]], true), { type: "done" }];
+    const result = await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT", undefined, 5);
+    expect(result).toEqual({ rows: [{ n: 1 }, { n: 2 }], truncated: false });
   });
 
   it("keeps selectStream read-write", async () => {
@@ -72,7 +102,7 @@ describe("UnifiedTauriProvider.selectReadOnly", () => {
 
   it("dedupes duplicate column names as select does", async () => {
     tauri.events = [batch(["id", "id", "id_2"], [[1, 2, 3]], true), { type: "done" }];
-    expect(await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).toEqual([
+    expect((await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([
       { id: 1, id_3: 2, id_2: 3 },
     ]);
   });
@@ -83,7 +113,7 @@ describe("UnifiedTauriProvider.selectReadOnly", () => {
       batch(null, [[2]], true),
       { type: "done" },
     ];
-    expect(await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).toEqual([
+    expect((await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([
       { n: 9007199254740993n },
       { n: 2 },
     ]);
@@ -91,7 +121,10 @@ describe("UnifiedTauriProvider.selectReadOnly", () => {
 
   it("returns [] for a result with no rows", async () => {
     tauri.events = [batch([], [], true), { type: "done" }];
-    expect(await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).toEqual([]);
+    expect(await new UnifiedTauriProvider().selectReadOnly("pc-1", "SELECT")).toEqual({
+      rows: [],
+      truncated: false,
+    });
   });
 
   it("rejects with the error frame's message", async () => {
@@ -187,7 +220,10 @@ describe("HttpProvider.selectReadOnly", () => {
 
   it("sends read_only: true in the first frame and returns row objects", async () => {
     FakeWebSocket.reply = [batch(["n"], [[1]], true), { type: "done" }];
-    expect(await provider().selectReadOnly("pc-1", "SELECT 1")).toEqual([{ n: 1 }]);
+    expect(await provider().selectReadOnly("pc-1", "SELECT 1")).toEqual({
+      rows: [{ n: 1 }],
+      truncated: false,
+    });
     const ws = FakeWebSocket.instances[0];
     expect(ws.url).toBe("ws://seaquel.test/api/db/stream");
     expect(ws.firstFrame()).toMatchObject({
@@ -195,6 +231,19 @@ describe("HttpProvider.selectReadOnly", () => {
       sql: "SELECT 1",
       values: [],
       read_only: true,
+    });
+    expect("max_rows" in ws.firstFrame()).toBe(false);
+  });
+
+  it("sends max_rows and reports the final batch's truncated", async () => {
+    FakeWebSocket.reply = [batch(["n"], [[1]], true, true), { type: "done" }];
+    expect(await provider().selectReadOnly("pc-1", "SELECT n FROM t", undefined, 1)).toEqual({
+      rows: [{ n: 1 }],
+      truncated: true,
+    });
+    expect(FakeWebSocket.instances[0].firstFrame()).toMatchObject({
+      read_only: true,
+      max_rows: 1,
     });
   });
 
@@ -206,7 +255,7 @@ describe("HttpProvider.selectReadOnly", () => {
 
   it("dedupes duplicate column names as select does", async () => {
     FakeWebSocket.reply = [batch(["a", "a"], [[1, 2]], true), { type: "done" }];
-    expect(await provider().selectReadOnly("pc-1", "SELECT")).toEqual([{ a: 1, a_2: 2 }]);
+    expect((await provider().selectReadOnly("pc-1", "SELECT")).rows).toEqual([{ a: 1, a_2: 2 }]);
   });
 
   it("rejects with the error frame's message", async () => {

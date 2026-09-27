@@ -637,6 +637,92 @@ pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Whether [`baseline`] would change nothing on the file behind `conn`. It
+/// only reads, so a read-only open can ask it.
+///
+/// It tests each step's own condition, not a full schema comparison: a
+/// file the baseline leaves as it is counts as current even where it
+/// differs from a fresh one (a `v2026.4.5-beta.1` file's nullable
+/// `project_id`s), because the app couldn't change that either. Step by
+/// step:
+/// 1. every table of `DDL_STATEMENTS` exists;
+/// 2. every column of `COLUMN_UPGRADES` exists;
+/// 3. `saved_queries` and `dashboards` have no `connection_id`,
+///    `project_state` doesn't have `active_canvas_tab_id` without
+///    `active_workflow_tab_id` (the only case the rename runs), and no
+///    row's `active_view` is `canvas`;
+/// 4. every index of `DDL_STATEMENTS` exists (the tables already do);
+/// 5. the highest `schema_version` is at least [`CURRENT_STORAGE_VERSION`].
+pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error> {
+    // 1.
+    let tables = table_names(conn).await?;
+    if DDL_STATEMENTS.iter().any(|d| !tables.contains(d.table)) {
+        return Ok(false);
+    }
+    // 2.
+    let mut read: Vec<(&str, HashSet<String>)> = Vec::new();
+    for table in COLUMN_UPGRADES.iter().map(|u| u.table).chain([
+        "saved_queries",
+        "dashboards",
+        "project_state",
+    ]) {
+        if !read.iter().any(|(t, _)| *t == table) {
+            let cols = column_names(conn, table).await?;
+            read.push((table, cols));
+        }
+    }
+    let has = |table: &str, column: &str| {
+        read.iter()
+            .any(|(t, cols)| *t == table && cols.contains(column))
+    };
+    if COLUMN_UPGRADES.iter().any(|u| !has(u.table, u.column)) {
+        return Ok(false);
+    }
+    // 3.
+    if has("saved_queries", "connection_id")
+        || has("dashboards", "connection_id")
+        || (has("project_state", "active_canvas_tab_id")
+            && !has("project_state", "active_workflow_tab_id"))
+    {
+        return Ok(false);
+    }
+    let canvas: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM project_state WHERE active_view = 'canvas')",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if canvas {
+        return Ok(false);
+    }
+    // 4.
+    let indexes: HashSet<String> =
+        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .fetch_all(&mut *conn)
+            .await?
+            .into_iter()
+            .collect();
+    if DDL_STATEMENTS
+        .iter()
+        .filter_map(|d| index_name(d.sql))
+        .any(|name| !indexes.contains(name))
+    {
+        return Ok(false);
+    }
+    // 5.
+    let latest: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(latest.is_some_and(|v| v >= CURRENT_STORAGE_VERSION))
+}
+
+/// The index a `CREATE INDEX IF NOT EXISTS <name> ON …` statement makes, or
+/// `None` for a table.
+fn index_name(sql: &str) -> Option<&str> {
+    sql.strip_prefix("CREATE INDEX IF NOT EXISTS ")?
+        .split_whitespace()
+        .next()
+}
+
 async fn execute(conn: &mut SqliteConnection, sql: &'static str) -> Result<(), sqlx::Error> {
     sqlx::query(sql).execute(conn).await.map(drop)
 }
@@ -680,6 +766,17 @@ mod tests {
                 other => panic!("unexpected statement kind {other}"),
             }
         }
+    }
+
+    #[test]
+    fn every_index_statement_has_a_name() {
+        let names: Vec<&str> = DDL_STATEMENTS
+            .iter()
+            .filter_map(|d| index_name(d.sql))
+            .collect();
+        assert_eq!(names.len(), 9);
+        assert!(names.contains(&"idx_ai_messages_chat"));
+        assert!(names.iter().all(|n| n.starts_with("idx_")));
     }
 
     #[test]

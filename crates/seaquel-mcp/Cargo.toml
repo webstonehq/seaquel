@@ -1,0 +1,29 @@
+[package]
+name = "seaquel-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel's MCP server: the rmcp ServerHandler and tool set behind `seaquel-cli mcp`."
+
+[dependencies]
+seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace"] }
+# `#[seaquel_runtime::async_trait]`, for the `SecretStore` wrapper that times
+# keychain reads (secret_wait.rs).
+seaquel-runtime = { path = "../seaquel-runtime" }
+seaquel-types = { path = "../seaquel-types" }
+rmcp = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+# JavaScript's `Number.prototype.toString`, for the `cellText` port (format.rs).
+ryu-js = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "io-std"] }
+
+[dev-dependencies]
+# The in-process client over `tokio::io::duplex` (tests/tools.rs). The
+# child-process client is in seaquel-cli's tests/stdio.rs, which owns the
+# binary.
+rmcp = { workspace = true, features = ["client"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", "time"] }

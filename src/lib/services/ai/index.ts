@@ -9,6 +9,7 @@ import {
   buildSystemPrompt,
   readOnlyError,
   runAndFormat,
+  type RunQuery,
 } from "./context.js";
 import { RUN_QUERY_TOOL, DASHBOARD_TOOLS, DASHBOARD_TOOL_NAMES } from "./tool-definitions.js";
 import { handleDashboardToolCall } from "./dashboard-tools.js";
@@ -47,9 +48,10 @@ export interface SendAIMessageParams {
   /**
    * Runs one read-only query on `connection` (`executeReadOnly` bound to its
    * id), which refuses when it was removed or is disconnected. The only way
-   * the model's SQL runs.
+   * the model's SQL runs. `run_query` passes `maxRows`
+   * (`RUN_QUERY_MAX_ROWS` in `./context.ts`).
    */
-  runQuery: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>;
+  runQuery: RunQuery;
   /**
    * The active connection, read when a dashboard tool changes a widget: a
    * widget renders against the active connection, so `add_widget` and

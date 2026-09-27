@@ -116,7 +116,7 @@ fn session_is_default() -> Check {
             .await
             .map_err(|e| format!("{e:?}"))?;
         let ro = driver
-            .query_read_only(SETTINGS, vec![])
+            .query_read_only(SETTINGS, vec![], None)
             .await
             .map_err(|e| format!("{e:?}"))?;
         if main.rows == ro.rows {
@@ -154,7 +154,13 @@ fn count_on_both(sql: &'static str, n: i64) -> Check {
         move |driver| async move {
             for (which, r) in [
                 ("main", driver.query(sql, vec![]).await),
-                ("read-only", driver.query_read_only(sql, vec![]).await),
+                (
+                    "read-only",
+                    driver
+                        .query_read_only(sql, vec![], None)
+                        .await
+                        .map(Into::into),
+                ),
             ] {
                 let r = r.map_err(|e| format!("{which}: {e:?}"))?;
                 let got = r
@@ -209,7 +215,7 @@ fn profiling_ended(path: String) -> Check {
         async move {
             let _ = std::fs::remove_file(&path);
             driver
-                .query_read_only("SELECT 42 AS answer", vec![])
+                .query_read_only("SELECT 42 AS answer", vec![], None)
                 .await
                 .map_err(|e| format!("{e:?}"))?;
             if path.exists() {
@@ -319,8 +325,9 @@ fn spec(dir: &Scratch, wal: Option<PathBuf>) -> ReadOnlySpec {
         refused("INSTALL", "INSTALL httpfs".into()).trace(no_extension_file(&ext_dir, "httpfs")),
         refused("FORCE INSTALL", "FORCE INSTALL json".into())
             .trace(no_extension_file(&ext_dir, "json")),
-        refused("LOAD", "LOAD json".into()).trace(Check::count(
-            "SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'json' AND loaded",
+        // Not json: it is linked in statically and loaded from the start.
+        refused("LOAD", "LOAD parquet".into()).trace(Check::count(
+            "SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'parquet' AND loaded",
             0,
         )),
         refused("ATTACH in memory", "ATTACH ':memory:' AS ro_m".into()).trace(no_database("ro_m")),
@@ -347,7 +354,7 @@ fn spec(dir: &Scratch, wal: Option<PathBuf>) -> ReadOnlySpec {
             "the variable isn't set",
             |driver| async move {
                 let r = driver
-                    .query_read_only("SELECT getvariable('ro_v') IS NULL", vec![])
+                    .query_read_only("SELECT getvariable('ro_v') IS NULL", vec![], None)
                     .await
                     .map_err(|e| format!("{e:?}"))?;
                 match r.rows.first().and_then(|r| r.first()) {
@@ -587,14 +594,14 @@ async fn the_users_transaction_is_untouched() {
         .unwrap();
 
     let count = format!("SELECT count(*) FROM {t}");
-    let ro = driver.query_read_only(&count, vec![]).await.unwrap();
+    let ro = driver.query_read_only(&count, vec![], None).await.unwrap();
     assert_eq!(
         ro.rows,
         vec![vec![Value::Int(0)]],
         "the AI sees committed rows only"
     );
     let e = driver
-        .query_read_only(&format!("INSERT INTO {t} VALUES (2)"), vec![])
+        .query_read_only(&format!("INSERT INTO {t} VALUES (2)"), vec![], None)
         .await
         .unwrap_err();
     assert_eq!(e.code, "READ_ONLY", "{e:?}");
@@ -634,6 +641,7 @@ async fn cancel_interrupts_only_the_read_only_connection() {
             driver.query_read_only(
                 "SELECT sum(a.range * b.range) FROM range(300000) a, range(300000) b",
                 vec![],
+                None,
             ),
         )
         .await;
@@ -650,7 +658,10 @@ async fn cancel_interrupts_only_the_read_only_connection() {
         r.is_ok(),
         "the main connection's query was interrupted: {r:?}"
     );
-    let r = driver.query_read_only("SELECT 1", vec![]).await.unwrap();
+    let r = driver
+        .query_read_only("SELECT 1", vec![], None)
+        .await
+        .unwrap();
     assert_eq!(r.rows, vec![vec![Value::Int(1)]]);
 }
 
@@ -666,7 +677,10 @@ async fn typed_cells_decode_the_same() {
             driver.execute(sql, vec![]).await.unwrap();
         }
         let main = driver.query(&case.select, vec![]).await;
-        let ro = driver.query_read_only(&case.select, vec![]).await;
+        let ro = driver
+            .query_read_only(&case.select, vec![], None)
+            .await
+            .map(seaquel_engine::QueryResult::from);
         match (main, ro) {
             (Ok(main), Ok(ro)) => {
                 let cell = |r: &seaquel_engine::QueryResult| r.rows[0][0].clone();
@@ -700,7 +714,7 @@ async fn typed_cells_decode_the_same() {
 async fn duplicate_column_names() {
     let driver = open(&memory()).await;
     let r = driver
-        .query_read_only("SELECT 1 AS a, 2 AS a", vec![])
+        .query_read_only("SELECT 1 AS a, 2 AS a", vec![], None)
         .await
         .unwrap();
     assert_eq!(r.columns, vec!["a", "a_1"]);
@@ -776,7 +790,7 @@ async fn a_huge_result_fails_fast() {
     let driver = open(&memory()).await;
     let started = tokio::time::Instant::now();
     let e = driver
-        .query_read_only("SELECT * FROM range(2000000000)", vec![])
+        .query_read_only("SELECT * FROM range(2000000000)", vec![], None)
         .await
         .unwrap_err();
     assert_eq!(e.code, "RESULT_TOO_LARGE", "{e:?}");

@@ -10,7 +10,7 @@ use tokio::net::TcpStream;
 use tokio::sync::MutexGuard;
 use tokio_util::compat::Compat;
 
-use seaquel_engine::{DbError, Value};
+use seaquel_engine::{Admit, DbError, RowCap, Value};
 
 use crate::bind::{bind_mssql_param, inline_nulls};
 use crate::decode::row_to_values;
@@ -154,22 +154,29 @@ async fn guarded<T>(fut: impl Future<Output = Result<T, Failure>>) -> Result<T, 
 }
 
 /// Reads the whole response, keeping the result sets `keep` asks for and at
-/// most `cap` rows in all. Going over the cap returns early, leaving the
-/// rest of the response unread (the connection is then dirty), unless
-/// `drain`: then the rest is read and dropped, and `TooLargeDrained` comes
-/// back once the response has ended (a server error in it wins).
+/// most `cap`'s limit of rows in all. Going over a `RowCap::fail` limit
+/// returns early, leaving the rest of the response unread (the connection is
+/// then dirty), unless `drain`: then the rest is read and dropped, and
+/// `TooLargeDrained` comes back once the response has ended (a server error
+/// in it wins). Going over a `RowCap::truncate` limit, or past the cap's
+/// byte budget (the kept rows' decoded sizes), always reads the rest and
+/// drops it, keeping the rows so far; the `bool` says it happened, and a
+/// server error in the rest still wins. Dropped rows are decoded by
+/// tiberius as they arrive and freed at once, one row at a time.
 async fn read_results(
     mut stream: QueryStream<'_>,
     keep: Keep,
-    cap: usize,
+    cap: RowCap,
     drain: bool,
-) -> Result<Vec<ResultSet>, Failure> {
+) -> Result<(Vec<ResultSet>, bool), Failure> {
     let mut sets: Vec<ResultSet> = Vec::new();
     let mut keeping = false;
     let mut total = 0usize;
+    let mut kept_bytes = 0usize;
     let mut over = false;
+    let mut truncated = false;
     while let Some(item) = stream.try_next().await.map_err(Failure::Server)? {
-        if over {
+        if over || truncated {
             continue;
         }
         match item {
@@ -198,25 +205,36 @@ async fn read_results(
                 if !keeping {
                     continue;
                 }
-                if total >= cap {
-                    if !drain {
-                        return Err(Failure::TooLarge(cap));
+                match cap.check(total, kept_bytes) {
+                    Admit::Keep => {}
+                    Admit::Truncate => {
+                        truncated = true;
+                        continue;
                     }
-                    over = true;
-                    sets.clear();
-                    continue;
+                    Admit::TooLarge(cap) => {
+                        if !drain {
+                            return Err(Failure::TooLarge(cap));
+                        }
+                        over = true;
+                        sets.clear();
+                        continue;
+                    }
                 }
                 total += 1;
+                let values = row_to_values(&row);
+                if cap.max_bytes().is_some() {
+                    kept_bytes = kept_bytes.saturating_add(seaquel_engine::row_bytes(&values));
+                }
                 if let Some(set) = sets.last_mut() {
-                    set.rows.push(row_to_values(&row));
+                    set.rows.push(values);
                 }
             }
         }
     }
     if over {
-        return Err(Failure::TooLargeDrained(cap));
+        return Err(Failure::TooLargeDrained(cap.limit()));
     }
-    Ok(sets)
+    Ok((sets, truncated))
 }
 
 /// Exclusive use of a clean connection, from `MssqlDriver::session`.
@@ -352,27 +370,31 @@ impl<'a> Session<'a> {
         query: Query<'_>,
         keep: Keep,
     ) -> Result<Vec<ResultSet>, Failure> {
-        self.run_query_with(query, keep, false).await
+        let cap = RowCap::fail(seaquel_engine::max_query_rows());
+        let (sets, _) = self.run_query_with(query, keep, cap, false).await?;
+        Ok(sets)
     }
 
-    /// [`Session::run_query`], but over the row cap the rest of the
-    /// response is read and dropped (`TooLargeDrained`), so the connection
+    /// [`Session::run_query`] under `cap`, but past it the rest of the
+    /// response is always read and dropped (`TooLargeDrained`, or the rows
+    /// so far with `true` for a truncating cap), so the connection
     /// stays usable for another request.
     pub(crate) async fn run_query_drained(
         &mut self,
         query: Query<'_>,
         keep: Keep,
-    ) -> Result<Vec<ResultSet>, Failure> {
-        self.run_query_with(query, keep, true).await
+        cap: RowCap,
+    ) -> Result<(Vec<ResultSet>, bool), Failure> {
+        self.run_query_with(query, keep, cap, true).await
     }
 
     async fn run_query_with(
         &mut self,
         query: Query<'_>,
         keep: Keep,
+        cap: RowCap,
         drain: bool,
-    ) -> Result<Vec<ResultSet>, Failure> {
-        let cap = seaquel_engine::max_query_rows();
+    ) -> Result<(Vec<ResultSet>, bool), Failure> {
         let client = self.start_io();
         let result = guarded(async move {
             let stream = query.query(client).await.map_err(Failure::Server)?;
@@ -397,11 +419,13 @@ impl<'a> Session<'a> {
         sql: &str,
         keep: Keep,
     ) -> Result<Vec<ResultSet>, Failure> {
-        let cap = seaquel_engine::max_query_rows();
+        let cap = RowCap::fail(seaquel_engine::max_query_rows());
         let client = self.start_io();
         let result = guarded(async move {
             let stream = client.simple_query(sql).await.map_err(Failure::Server)?;
-            read_results(stream, keep, cap, false).await
+            read_results(stream, keep, cap, false)
+                .await
+                .map(|(sets, _)| sets)
         })
         .await;
         self.finish_io(result)

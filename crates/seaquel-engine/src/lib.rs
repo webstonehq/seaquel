@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub use seaquel_runtime::{BoxStream, MaybeSend, MaybeSync};
 pub use seaquel_types::{
@@ -56,6 +57,243 @@ pub fn max_query_rows() -> usize {
             .unwrap_or(100_000)
     })
 }
+
+/// How many rows (and, optionally, bytes) a query may collect, and what
+/// happens past that. Build it with [`RowCap::fail`], [`RowCap::truncate`]
+/// or [`RowCap::read_only`], then feed each row's size to
+/// [`RowCap::check`] (or [`RowCap::admit`]) before keeping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowCap {
+    rows: usize,
+    truncate: bool,
+    max_bytes: Option<usize>,
+}
+
+/// What [`RowCap::check`] says about one more row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admit {
+    /// Keep it.
+    Keep,
+    /// Stop here and return the rows so far, `truncated`.
+    Truncate,
+    /// Stop with `RESULT_TOO_LARGE`: more rows than this.
+    TooLarge(usize),
+}
+
+impl RowCap {
+    /// Past `rows` rows the query fails with `RESULT_TOO_LARGE`.
+    pub const fn fail(rows: usize) -> Self {
+        RowCap {
+            rows,
+            truncate: false,
+            max_bytes: None,
+        }
+    }
+
+    /// The first `rows` rows come back, with `truncated` set when the query
+    /// had more.
+    pub const fn truncate(rows: usize) -> Self {
+        RowCap {
+            rows,
+            truncate: true,
+            max_bytes: None,
+        }
+    }
+
+    /// Also stop, `truncated`, once the rows kept so far hold `max_bytes`
+    /// (by [`row_bytes`]), whatever the row limit's mode. The row that
+    /// crosses the budget is kept, so a result always has its first row
+    /// and holds at most `max_bytes` plus one row. `None` sets no budget.
+    #[must_use]
+    pub const fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// The cap for [`Driver::query_read_only`] with its `max_rows`: without
+    /// it, fail past [`max_query_rows`]; with it, truncate at `max_rows`, but
+    /// never past [`max_query_rows`] (the cap guards memory, and a
+    /// `max_rows` above it truncates there). `max_bytes` is
+    /// [`ReadOnlyOptions::max_bytes`] (see [`RowCap::with_max_bytes`]).
+    pub fn read_only(max_rows: Option<usize>, max_bytes: Option<usize>) -> Self {
+        match max_rows {
+            None => RowCap::fail(max_query_rows()),
+            Some(n) => RowCap::truncate(n.min(max_query_rows())),
+        }
+        .with_max_bytes(max_bytes)
+    }
+
+    /// The most rows a result may hold.
+    pub fn limit(self) -> usize {
+        self.rows
+    }
+
+    /// The byte budget, if any.
+    pub fn max_bytes(self) -> Option<usize> {
+        self.max_bytes
+    }
+
+    /// What to do with one more row when `kept` rows holding `kept_bytes`
+    /// (the sum of their [`row_bytes`]) are already in. The row limit comes
+    /// first, so a query past both fails under [`RowCap::fail`].
+    pub fn check(self, kept: usize, kept_bytes: usize) -> Admit {
+        if kept >= self.rows {
+            if self.truncate {
+                Admit::Truncate
+            } else {
+                Admit::TooLarge(self.rows)
+            }
+        } else if self.max_bytes.is_some_and(|max| kept_bytes >= max) {
+            Admit::Truncate
+        } else {
+            Admit::Keep
+        }
+    }
+
+    /// [`RowCap::check`] as a `Result`: `Ok(true)` keeps the row,
+    /// `Ok(false)` stops (the result is truncated), and `Err` is
+    /// `RESULT_TOO_LARGE`.
+    pub fn admit(self, kept: usize, kept_bytes: usize) -> Result<bool, DbError> {
+        match self.check(kept, kept_bytes) {
+            Admit::Keep => Ok(true),
+            Admit::Truncate => Ok(false),
+            Admit::TooLarge(n) => Err(DbError::result_too_large(n)),
+        }
+    }
+}
+
+/// Roughly how much memory a decoded cell holds: the `Value` itself plus
+/// what it owns on the heap (text, bytes, JSON strings, array items). An
+/// estimate for [`RowCap`]'s byte budget, not an exact allocation size.
+pub fn cell_bytes(value: &Value) -> usize {
+    const SLOT: usize = std::mem::size_of::<Value>();
+    SLOT + match value {
+        Value::Null | Value::Bool(_) | Value::Int(_) | Value::Float(_) => 0,
+        Value::Decimal(s) | Value::Text(s) => s.len(),
+        Value::Bytes(b) => b.len(),
+        Value::Json(j) => json_bytes(j),
+        Value::Array(items) => items.iter().map(cell_bytes).sum(),
+    }
+}
+
+/// [`cell_bytes`] for a JSON value: its strings and keys, plus a slot per
+/// node.
+fn json_bytes(value: &serde_json::Value) -> usize {
+    const SLOT: usize = std::mem::size_of::<serde_json::Value>();
+    SLOT + match value {
+        serde_json::Value::String(s) => s.len(),
+        serde_json::Value::Array(items) => items.iter().map(json_bytes).sum(),
+        serde_json::Value::Object(map) => map.iter().map(|(k, v)| k.len() + json_bytes(v)).sum(),
+        _ => 0,
+    }
+}
+
+/// The sum of a row's [`cell_bytes`].
+pub fn row_bytes(row: &[Value]) -> usize {
+    row.iter().map(cell_bytes).sum()
+}
+
+/// A result collected under a [`RowCap`]: what [`Driver::query_read_only`]
+/// returns.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CappedResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Value>>,
+    /// The query had more rows than the [`RowCap`] let through: past a
+    /// [`RowCap::truncate`] limit, or past its byte budget. Never set for a
+    /// [`RowCap::fail`] limit alone.
+    pub truncated: bool,
+}
+
+/// A result that nothing cut short.
+impl From<QueryResult> for CappedResult {
+    fn from(r: QueryResult) -> Self {
+        CappedResult {
+            columns: r.columns,
+            rows: r.rows,
+            truncated: false,
+        }
+    }
+}
+
+impl From<CappedResult> for QueryResult {
+    fn from(r: CappedResult) -> Self {
+        QueryResult {
+            columns: r.columns,
+            rows: r.rows,
+        }
+    }
+}
+
+/// How [`Driver::query_read_only_with`] runs a query. Build it from
+/// `ReadOnlyOptions::default()` and the `with_*` methods.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ReadOnlyOptions {
+    /// See [`Driver::query_read_only`]'s `max_rows`.
+    pub max_rows: Option<usize>,
+    /// A byte budget for the rows kept: once the cells decoded so far add
+    /// up to this many bytes (by [`cell_bytes`]), the driver stops fetching
+    /// and returns what it has with [`CappedResult::truncated`] set, as it
+    /// does at `max_rows`. The row that crosses the budget is kept. A
+    /// single cell can't be split, so one row can still bring a cell as
+    /// large as the database allows (up to 1 GB on Postgres, `max_allowed_packet`
+    /// on MySQL, `SQLITE_MAX_LENGTH` on SQLite, 2 GB on SQL Server). `None`
+    /// sets none. The MCP server passes about 8 MB, above its 4 MB output
+    /// cap; the in-app AI passes none.
+    pub max_bytes: Option<usize>,
+    /// A limit the database itself enforces on the statement, so a query
+    /// the caller gave up on stops on the server too: Postgres's `SET LOCAL
+    /// statement_timeout`, MySQL's `max_execution_time`, MariaDB's
+    /// `max_statement_time`. Past it the call fails with [`TIMEOUT`].
+    ///
+    /// It doesn't replace the caller's own deadline: a query waiting on
+    /// something the server doesn't count (a lock on MySQL, the network)
+    /// can outlive it. Engines whose query stops when the call's future is
+    /// dropped may ignore it, since dropping the call is the caller's
+    /// deadline (SQLite, DuckDB). `None` sets no limit.
+    pub timeout: Option<Duration>,
+}
+
+impl ReadOnlyOptions {
+    #[must_use]
+    pub fn with_max_rows(mut self, max_rows: Option<usize>) -> Self {
+        self.max_rows = max_rows;
+        self
+    }
+
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    #[must_use]
+    pub fn with_max_bytes(mut self, max_bytes: Option<usize>) -> Self {
+        self.max_bytes = max_bytes;
+        self
+    }
+
+    /// The [`RowCap`] these options ask for: [`RowCap::read_only`].
+    pub fn row_cap(&self) -> RowCap {
+        RowCap::read_only(self.max_rows, self.max_bytes)
+    }
+}
+
+/// The code of a statement the database stopped at
+/// [`ReadOnlyOptions::timeout`].
+pub const TIMEOUT: &str = "TIMEOUT";
+
+/// A statement the database stopped at its timeout, with its message.
+pub fn timeout_error(message: impl std::fmt::Display) -> DbError {
+    DbError {
+        message: message.to_string(),
+        code: TIMEOUT.to_string(),
+    }
+}
+
+/// The refusal for more than one statement in a read-only EXPLAIN.
+pub const EXPLAIN_ONE_STATEMENT: &str = "EXPLAIN runs on one statement at a time";
 
 /// The error an engine returns for an operation it hasn't implemented yet.
 pub fn not_supported(what: &str) -> DbError {
@@ -110,6 +348,7 @@ pub trait Driver: MaybeSend + MaybeSync {
                 columns: Some(result.columns),
                 rows: result.rows,
                 is_final: true,
+                truncated: false,
             };
         })
     }
@@ -147,8 +386,20 @@ pub trait Driver: MaybeSend + MaybeSync {
     ///   the driver's own, e.g. "one statement at a time") comes back as
     ///   [`DbError::read_only`] with the database's message. Other errors
     ///   keep their usual codes.
-    /// - **Rows are capped** like [`Driver::query`]: past
-    ///   [`max_query_rows`] it fails with `RESULT_TOO_LARGE`.
+    /// - **Rows are capped** by [`RowCap::read_only`]`(max_rows)`. Without
+    ///   `max_rows`, like [`Driver::query`]: past [`max_query_rows`] it
+    ///   fails with `RESULT_TOO_LARGE`. With it, the engine stops once it
+    ///   has seen `max_rows + 1` rows, returns the first `max_rows` and sets
+    ///   [`CappedResult::truncated`]. Stopping early never skips a check the
+    ///   engine makes after the query (SQL Server reads the rest of the
+    ///   response and still checks the transaction).
+    /// - **Bytes are capped too** when [`query_read_only_with`] gets
+    ///   [`ReadOnlyOptions::max_bytes`]: the engine sums [`row_bytes`] of the
+    ///   rows it keeps and stops the same way once they reach it. This
+    ///   method has no byte budget; the drivers that honour one override
+    ///   `query_read_only_with`.
+    ///
+    /// [`query_read_only_with`]: Driver::query_read_only_with
     ///
     /// Core runs the AI's token check (`seaquel_sql::read_only`) before
     /// calling this. Drivers must not rely on it: the testkit's read-only
@@ -157,8 +408,53 @@ pub trait Driver: MaybeSend + MaybeSync {
         &self,
         _sql: &str,
         _params: Vec<Value>,
-    ) -> Result<QueryResult, DbError> {
+        _max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         Err(not_supported("Running read-only queries"))
+    }
+
+    /// [`Driver::query_read_only`] with [`ReadOnlyOptions`], which is what
+    /// Core calls. The default runs `query_read_only` with the options'
+    /// `max_rows` and ignores their `max_bytes` (every engine in this repo
+    /// overrides it) and their `timeout`, which is right only for an
+    /// engine whose query stops when its future is dropped (see
+    /// [`ReadOnlyOptions::timeout`]). An engine where the server keeps
+    /// running a dropped query (Postgres, MySQL) overrides this and sets the
+    /// timeout on the server.
+    async fn query_read_only_with(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        options: ReadOnlyOptions,
+    ) -> Result<CappedResult, DbError> {
+        self.query_read_only(sql, params, options.max_rows).await
+    }
+
+    /// A plain EXPLAIN (never ANALYZE) of one statement that must not change
+    /// anything: the MCP server's `explain_query`. The default fails with
+    /// `NOT_SUPPORTED`, so an engine that doesn't implement it fails closed.
+    /// Never implement it by calling [`Driver::explain`] where planning can
+    /// run user code (Postgres folds immutable functions, MariaDB evaluates
+    /// constant subqueries, `nextval` included). The contract:
+    ///
+    /// - **Exactly one statement.** More than one is refused with
+    ///   [`DbError::read_only`] (e.g. [`EXPLAIN_ONE_STATEMENT`]) before
+    ///   anything runs, or by the database as a whole. Today's `explain`
+    ///   on SQLite runs every statement, and DuckDB's runs all but the first
+    ///   for real.
+    /// - **Whatever planning runs is read-only**, in the same read-only
+    ///   transaction or session as [`Driver::query_read_only`] where the
+    ///   engine plans by running code; an engine whose EXPLAIN only compiles
+    ///   (SQL Server's SHOWPLAN) may keep its EXPLAIN.
+    /// - **Nothing outlives the call and dropping it cancels it**, as for
+    ///   `query_read_only`, and `timeout` is [`ReadOnlyOptions::timeout`].
+    async fn explain_read_only(
+        &self,
+        _sql: &str,
+        _params: Vec<Value>,
+        _timeout: Option<Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        Err(not_supported("Read-only EXPLAIN"))
     }
 
     async fn close(&self) -> Result<(), DbError>;
@@ -374,13 +670,93 @@ mod tests {
     /// `query_read_only` must not run read-only queries through `query`.
     #[test]
     fn read_only_queries_are_not_supported_by_default() {
-        let err = block_on(FakeDriver.query_read_only("SELECT 1", vec![]))
+        let err = block_on(FakeDriver.query_read_only("SELECT 1", vec![], None))
             .err()
             .unwrap();
         assert_eq!(err.code, "NOT_SUPPORTED");
         assert_eq!(
             err.message,
             "Running read-only queries is not supported by this engine yet"
+        );
+        let err = block_on(FakeDriver.query_read_only_with(
+            "SELECT 1",
+            vec![],
+            ReadOnlyOptions::default().with_timeout(Some(Duration::from_secs(1))),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(err.code, "NOT_SUPPORTED");
+        let err = block_on(FakeDriver.explain_read_only("SELECT 1", vec![], None))
+            .err()
+            .unwrap();
+        assert_eq!(err.code, "NOT_SUPPORTED");
+        assert_eq!(
+            err.message,
+            "Read-only EXPLAIN is not supported by this engine yet"
+        );
+    }
+
+    #[test]
+    fn row_caps_fail_or_truncate() {
+        let max = max_query_rows();
+        assert_eq!(RowCap::read_only(None, None), RowCap::fail(max));
+        assert_eq!(RowCap::read_only(Some(10), None), RowCap::truncate(10));
+        assert_eq!(
+            RowCap::read_only(Some(usize::MAX), None),
+            RowCap::truncate(max)
+        );
+        assert!(RowCap::truncate(2).admit(1, 0).unwrap());
+        assert!(!RowCap::truncate(2).admit(2, 0).unwrap());
+        assert!(!RowCap::truncate(0).admit(0, 0).unwrap());
+        assert!(RowCap::fail(2).admit(1, usize::MAX).unwrap());
+        assert_eq!(
+            RowCap::fail(2).admit(2, 0).unwrap_err().code,
+            "RESULT_TOO_LARGE"
+        );
+    }
+
+    #[test]
+    fn a_byte_budget_truncates_under_either_row_mode() {
+        let cap = RowCap::read_only(None, Some(100));
+        assert_eq!(
+            cap,
+            RowCap::fail(max_query_rows()).with_max_bytes(Some(100))
+        );
+        assert_eq!(cap.check(0, 0), Admit::Keep);
+        assert_eq!(cap.check(3, 99), Admit::Keep);
+        // The row that crossed it was kept; the next one stops.
+        assert_eq!(cap.check(4, 100), Admit::Truncate);
+        assert_eq!(cap.check(4, 5_000), Admit::Truncate);
+        // The row limit comes first.
+        let cap = RowCap::fail(2).with_max_bytes(Some(100));
+        assert_eq!(cap.check(2, 1_000), Admit::TooLarge(2));
+        let cap = RowCap::read_only(Some(10), Some(100));
+        assert_eq!(cap.check(10, 0), Admit::Truncate);
+        assert_eq!(cap.check(1, 100), Admit::Truncate);
+        assert_eq!(
+            ReadOnlyOptions::default()
+                .with_max_rows(Some(10))
+                .with_max_bytes(Some(100))
+                .row_cap(),
+            RowCap::truncate(10).with_max_bytes(Some(100))
+        );
+    }
+
+    #[test]
+    fn cell_sizes_count_what_a_cell_holds() {
+        let slot = std::mem::size_of::<Value>();
+        assert_eq!(cell_bytes(&Value::Int(1)), slot);
+        assert_eq!(cell_bytes(&Value::Text("x".repeat(1000))), slot + 1000);
+        assert_eq!(cell_bytes(&Value::Bytes(vec![0; 64])), slot + 64);
+        assert_eq!(
+            cell_bytes(&Value::Array(vec![Value::Text("ab".into()), Value::Null])),
+            slot + (slot + 2) + slot
+        );
+        let json = cell_bytes(&Value::Json(serde_json::json!({ "key": "x".repeat(500) })));
+        assert!(json > 503, "{json}");
+        assert_eq!(
+            row_bytes(&[Value::Int(1), Value::Text("abc".into())]),
+            2 * slot + 3
         );
     }
 

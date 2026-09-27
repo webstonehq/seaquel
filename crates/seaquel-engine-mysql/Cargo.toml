@@ -12,6 +12,9 @@ futures = { workspace = true }
 rust_decimal = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+# `Handle::spawn` for the read-only path's KILL QUERY (sqlx already runs
+# on tokio).
+tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 seaquel-engine-testkit = { path = "../seaquel-engine-testkit" }

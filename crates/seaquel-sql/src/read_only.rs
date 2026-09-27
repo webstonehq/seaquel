@@ -103,6 +103,8 @@ const BLOCKED_FUNCTIONS: &[&str] = &[
     "pg_create_restore_point",
     // Sleeping and locks
     "pg_sleep",
+    "pg_sleep_for",
+    "pg_sleep_until",
     "sleep",
     "benchmark",
     "get_lock",
@@ -266,7 +268,8 @@ fn refused(sql: &str, toks: Vec<Token>, engine: SqlEngine, ansi_mysql: bool) -> 
 /// - MySQL/MariaDB: any executable comment is refused, and the input is read
 ///   with the default sql_mode and with `NO_BACKSLASH_ESCAPES` +
 ///   `ANSI_QUOTES`; Postgres with `standard_conforming_strings` on and off.
-///   Every reading is scanned with fix 19's word rule and the TS's. Any
+///   Every reading is scanned with and without a lone `\r` ending line
+///   comments (phase 4), and with fix 19's word rule and the TS's. Any
 ///   reading refused refuses.
 pub fn read_only_error(sql: &str, engine: SqlEngine) -> Option<&'static str> {
     if engine.is_mysql() && (sql.contains("/*!") || sql.contains("/*M!")) {
@@ -288,10 +291,23 @@ pub fn read_only_error(sql: &str, engine: SqlEngine) -> Option<&'static str> {
             ..base
         });
     }
-    // Fix 19: every reading also with the TS word rule, so a mark glued to a
-    // keyword (`INTÓ` on SQL Server) can't hide it from both word rules.
+    // Phase 4: every reading also with a lone `\r` ending line comments. SQL
+    // Server ends `--` there, which the scanner missed until the security
+    // probe committed `SELECT 1 -- x\rDELETE …` through the MCP server; this
+    // keeps the next engine we're wrong about from hiding code the same way.
+    // Fix 19: and with the TS word rule, so a mark glued to a keyword (`INTÓ`
+    // on SQL Server) can't hide it from both word rules.
     readings
         .into_iter()
+        .flat_map(|r| {
+            [
+                r,
+                ScanOptions {
+                    cr_ends_comments: true,
+                    ..r
+                },
+            ]
+        })
         .flat_map(|r| {
             [
                 r,
@@ -362,6 +378,70 @@ mod tests {
             read_only_error(my, SqlEngine::Mysql),
             Some(READ_ONLY_MESSAGE)
         );
+    }
+
+    /// Phase 4 security probe: SQL Server ends a `--` comment at a lone `\r`,
+    /// so `SELECT 1 AS a -- x\rDELETE …` ran the DELETE through the MCP
+    /// server. Every engine refuses code after a `\r` in a line comment, also
+    /// where the engine itself keeps the comment going (MySQL, MariaDB,
+    /// SQLite), and a `\r\n` or a comment with nothing after it still passes.
+    #[test]
+    fn cr_ends_line_comments() {
+        for e in SqlEngine::ALL {
+            for sql in [
+                "SELECT 1 AS a -- x\rDELETE FROM t WHERE id = 2",
+                "SELECT 1 AS a -- x\rDELETE FROM mcp_probe_t WHERE id = 2 COMMIT COMMIT",
+                "SELECT 1 AS a -- x\rEXEC proc",
+                "SELECT 1 AS a -- x\r; DROP TABLE t",
+                "SELECT 1 AS a --\rUPDATE t SET a = 1",
+                "SELECT 1 AS a -- x\r\rINSERT INTO t VALUES (1)",
+                "WITH a AS (SELECT 1 -- x\r) DELETE FROM t RETURNING *) SELECT 1",
+            ] {
+                assert_eq!(
+                    read_only_error(sql, e),
+                    Some(READ_ONLY_MESSAGE),
+                    "{e}: {sql:?}"
+                );
+            }
+            for sql in [
+                "SELECT 1 AS a -- x\r\n, 2 AS b",
+                "SELECT 1 AS a -- x\r, 2 AS b",
+                "SELECT 1 AS a -- DELETE FROM t\n",
+                "SELECT 1 AS a -- x\r",
+            ] {
+                assert_eq!(read_only_error(sql, e), None, "{e}: {sql:?}");
+            }
+        }
+        // MySQL/MariaDB `#` comments too.
+        for e in [SqlEngine::Mysql, SqlEngine::Mariadb] {
+            assert_eq!(
+                read_only_error("SELECT 1 # x\rDELETE FROM t", e),
+                Some(READ_ONLY_MESSAGE),
+                "{e}"
+            );
+            assert_eq!(read_only_error("SELECT 1 # x\r, 2", e), None, "{e}");
+        }
+        // The MSSQL scanner itself ends the comment there: the transaction
+        // words after it are code, and the DELETE is its own statement.
+        let sql = "SELECT 1 -- x\rDELETE FROM t COMMIT";
+        let words: Vec<&str> = significant(sql, SqlEngine::Mssql, ScanOptions::default())
+            .iter()
+            .map(|t| t.text(sql))
+            .collect();
+        assert_eq!(words, ["SELECT", "1", "DELETE", "FROM", "t", "COMMIT"]);
+    }
+
+    #[test]
+    fn postgres_sleep_functions() {
+        for sql in [
+            "SELECT pg_sleep_for('5 minutes')",
+            "SELECT pg_catalog.pg_sleep_until(now() + interval '1 hour')",
+            "SELECT \"pg_sleep_for\"('1 second')",
+            "SELECT PG_SLEEP_UNTIL('tomorrow')",
+        ] {
+            assert_eq!(read_only_error(sql, PG), Some(READ_ONLY_MESSAGE), "{sql}");
+        }
+        assert_eq!(read_only_error("SELECT pg_sleep_for FROM t", PG), None);
     }
 
     #[test]

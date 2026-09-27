@@ -6,6 +6,7 @@
     "src/lib/wasm/pkg",
     "crates/seaquel-engine-postgres/tests/fixtures",
     "crates/seaquel-sql/tests/fixtures",
-    "crates/seaquel-storage/tests/fixtures"
+    "crates/seaquel-storage/tests/fixtures",
+    "crates/seaquel-workspace/tests/fixtures"
   ]
 }

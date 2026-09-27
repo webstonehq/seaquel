@@ -4,11 +4,14 @@
 //! Protocol:
 //!   1. Client opens WS.
 //!   2. Client sends one Text frame:
-//!      `{"query_id","connection_id","sql","values","read_only"}`.
-//!      `values` and `read_only` are optional (`[]` and `false`). With
-//!      `"read_only": true` Core runs the AI's token check and then the
-//!      engine's read-only query (the AI's `run_query` and dashboard widgets);
-//!      that result arrives as one final batch.
+//!      `{"query_id","connection_id","sql","values","read_only","max_rows"}`.
+//!      `values`, `read_only` and `max_rows` are optional (`[]`, `false`
+//!      and none). With `"read_only": true` Core runs the AI's token check
+//!      and then the engine's read-only query (the AI's `run_query` and
+//!      dashboard widgets); that result arrives as one final batch. With
+//!      `max_rows` too, it holds at most that many rows and has
+//!      `"truncated": true` when there were more; `max_rows` without
+//!      `read_only` ends the stream with `INVALID_OPTIONS`.
 //!   3. Server sends `StreamEvent` frames: `{"type":"batch", ...StreamBatch fields}`
 //!      (the last one has `"is_final": true`), then a terminal `{"type":"done"}`
 //!      or `{"type":"error","message","code"}`.
@@ -45,6 +48,9 @@ struct StreamRequest {
     /// Missing means read-write: only `selectReadOnly` sets it.
     #[serde(default)]
     read_only: bool,
+    /// Only with `read_only`: see `QueryOptions::max_rows`.
+    #[serde(default)]
+    max_rows: Option<usize>,
 }
 
 pub async fn stream(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -86,7 +92,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         req.connection_id,
         req.sql,
         req.values,
-        QueryOptions::default().with_read_only(req.read_only),
+        QueryOptions::default()
+            .with_read_only(req.read_only)
+            .with_max_rows(req.max_rows),
     );
     loop {
         let event = tokio::select! {
@@ -147,6 +155,29 @@ mod tests {
             ))
             .unwrap();
             assert_eq!(req.read_only, flag);
+        }
+    }
+
+    #[test]
+    fn max_rows_is_optional_and_parsed() {
+        let req: StreamRequest =
+            serde_json::from_str(r#"{"query_id":"q","connection_id":"c","sql":"SELECT 1"}"#)
+                .unwrap();
+        assert_eq!(req.max_rows, None);
+        let req: StreamRequest = serde_json::from_str(
+            r#"{"query_id":"q","connection_id":"c","sql":"SELECT 1","read_only":true,"max_rows":1000}"#,
+        )
+        .unwrap();
+        assert_eq!(req.max_rows, Some(1000));
+        // Not a count: refused rather than guessed at.
+        for bad in [r#"-1"#, r#""10""#, r#"1.5"#] {
+            assert!(
+                serde_json::from_str::<StreamRequest>(&format!(
+                    r#"{{"query_id":"q","connection_id":"c","sql":"SELECT 1","read_only":true,"max_rows":{bad}}}"#
+                ))
+                .is_err(),
+                "{bad}"
+            );
         }
     }
 

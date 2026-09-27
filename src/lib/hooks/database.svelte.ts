@@ -139,7 +139,8 @@ class UseDatabase {
     );
     this.dashboards = new DashboardManager(
       this.state,
-      (connectionId, sql, signal) => this.queries.executeReadOnly(connectionId, sql, signal),
+      async (connectionId, sql, signal) =>
+        (await this.queries.executeReadOnly(connectionId, sql, signal)).rows,
       scheduleProjectPersistence,
       this.persistence,
     );
@@ -149,8 +150,8 @@ class UseDatabase {
     this.ui = new UIStateManager(
       this.state,
       scheduleProjectPersistence,
-      (connectionId, sql, signal, connectionName) =>
-        this.queries.executeReadOnly(connectionId, sql, signal, connectionName),
+      (connectionId, sql, signal, connectionName, maxRows) =>
+        this.queries.executeReadOnly(connectionId, sql, signal, connectionName, maxRows),
       this.aiChats,
       (chatId) => this.persistence.persistAIChatMessages(chatId),
       this.dashboards,

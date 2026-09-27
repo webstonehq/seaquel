@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use sqlx::{
     migrate::MigrateDatabase,
@@ -10,9 +11,9 @@ use sqlx::{
 };
 
 use seaquel_engine::{
-    BatchStatement, BoxStream, CancellationToken, ConnectConfig, DatabaseStatistics, DbError,
-    Driver, ExecuteResult, ExplainResult, QueryResult, SchemaColumn, SchemaIndex, SchemaTable,
-    StreamBatch, Value,
+    BatchStatement, BoxStream, CancellationToken, CappedResult, ConnectConfig, DatabaseStatistics,
+    DbError, Driver, ExecuteResult, ExplainResult, QueryResult, ReadOnlyOptions, RowCap,
+    SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, Value,
 };
 
 use crate::{introspect, read_only};
@@ -119,9 +120,38 @@ impl Driver for SqliteDriver {
         }
     }
 
-    async fn query_read_only(&self, sql: &str, params: Vec<Value>) -> Result<QueryResult, DbError> {
+    async fn query_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         refuse_nul(sql)?;
-        self.inner.query_read_only(sql, params).await
+        self.inner.query_read_only(sql, params, max_rows).await
+    }
+
+    /// With `max_bytes`; the timeout is ignored as in `query_read_only`
+    /// (dropping the call interrupts the statement).
+    async fn query_read_only_with(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        options: ReadOnlyOptions,
+    ) -> Result<CappedResult, DbError> {
+        refuse_nul(sql)?;
+        self.inner.query_read_only_with(sql, params, options).await
+    }
+
+    /// No timeout: dropping the call interrupts the statement (the progress
+    /// handler), so the caller's deadline is the timeout.
+    async fn explain_read_only(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+        timeout: Option<Duration>,
+    ) -> Result<ExplainResult, DbError> {
+        refuse_nul(sql)?;
+        self.inner.explain_read_only(sql, params, timeout).await
     }
 
     async fn close(&self) -> Result<(), DbError> {
@@ -322,8 +352,38 @@ seaquel_engine::impl_sqlx_driver!(
             &self,
             sql: &str,
             params: Vec<Value>,
-        ) -> Result<QueryResult, DbError> {
-            query_read_only(&self.pool, sql, &params).await
+            max_rows: Option<usize>,
+        ) -> Result<CappedResult, DbError> {
+            query_read_only(&self.pool, sql, &params, RowCap::read_only(max_rows, None)).await
+        }
+
+        /// [`query_read_only`] with the options' `max_rows` and
+        /// `max_bytes`. No timeout: dropping the call interrupts the
+        /// statement (the progress handler).
+        async fn query_read_only_with(
+            &self,
+            sql: &str,
+            params: Vec<Value>,
+            options: ReadOnlyOptions,
+        ) -> Result<CappedResult, DbError> {
+            query_read_only(&self.pool, sql, &params, options.row_cap()).await
+        }
+
+        /// `EXPLAIN QUERY PLAN` through [`query_read_only`]'s connection and
+        /// gate, so it is one statement: `explain` runs every statement in
+        /// the string (sqlx does), the second one for real. Planning runs
+        /// no user code SQLite could write through, but the gate is what
+        /// keeps a second statement out.
+        async fn explain_read_only(
+            &self,
+            sql: &str,
+            params: Vec<Value>,
+            _timeout: Option<Duration>,
+        ) -> Result<ExplainResult, DbError> {
+            let cap = RowCap::fail(seaquel_engine::max_query_rows());
+            let r =
+                query_read_only(&self.pool, &introspect::explain_sql(sql), &params, cap).await?;
+            Ok(introspect::parse_explain(&r.into(), false))
         }
     }
 );
@@ -347,8 +407,8 @@ seaquel_engine::impl_sqlx_driver!(
 ///    for it. sqlx would otherwise run every statement in the string
 ///    (`PRAGMA query_only = OFF; INSERT …`), and neither the flag nor the
 ///    pragma stops `VACUUM INTO 'file'`.
-/// 5. The SQL through `fetch_capped` on that connection, which is then
-///    closed.
+/// 5. The SQL through `fetch_capped` on that connection, under `cap`,
+///    which is then closed (also after a truncated result's unread rest).
 ///
 /// A progress handler interrupts the statement once the call's future is
 /// dropped (a cancel), so it stops holding its locks at once. Without it,
@@ -357,12 +417,13 @@ async fn query_read_only(
     pool: &Pool<Sqlite>,
     sql: &str,
     params: &[Value],
-) -> Result<QueryResult, DbError> {
+    cap: RowCap,
+) -> Result<CappedResult, DbError> {
     let options = (*pool.connect_options()).clone().read_only(true);
     let mut conn = SqliteConnection::connect_with(&options)
         .await
         .map_err(DbError::connection_error)?;
-    let result = run_read_only(&mut conn, sql, params).await;
+    let result = run_read_only(&mut conn, sql, params, cap).await;
     if let Err(e) = conn.close().await {
         log::warn!(activity = "db.query_read_only"; "Closing the read-only connection failed: {e}");
     }
@@ -374,7 +435,8 @@ async fn run_read_only(
     conn: &mut SqliteConnection,
     sql: &str,
     params: &[Value],
-) -> Result<QueryResult, DbError> {
+    cap: RowCap,
+) -> Result<CappedResult, DbError> {
     sqlx::Executor::execute(&mut *conn, "PRAGMA query_only = ON")
         .await
         .map_err(DbError::query_error)?;
@@ -391,7 +453,7 @@ async fn run_read_only(
         read_only::deny_settings(&mut handle);
         read_only::check(&mut handle, sql)?;
     }
-    fetch_capped(&mut *conn, sql, params)
+    fetch_capped(&mut *conn, sql, params, cap)
         .await
         .map_err(read_only::map_read_only_error)
 }
@@ -503,7 +565,7 @@ mod tests {
         let committed = AtomicBool::new(false);
         let read = async {
             let result = driver
-                .query_read_only("SELECT n FROM t ORDER BY n", vec![])
+                .query_read_only("SELECT n FROM t ORDER BY n", vec![], None)
                 .await;
             (committed.load(Ordering::SeqCst), result)
         };

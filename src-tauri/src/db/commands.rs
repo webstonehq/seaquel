@@ -33,6 +33,11 @@ pub async fn db_query(
 /// token check and then the engine's read-only query: the AI's `run_query`
 /// and dashboard widgets, through `selectReadOnly`. Its result arrives as
 /// one final batch; `db_cancel_stream` with the same `query_id` cancels it.
+/// `max_rows` (`maxRows`, only with `readOnly`) returns at most that many
+/// rows, with `truncated` on that batch when there were more.
+// Tauri maps each key of the JS call to an argument, so they can't be grouped
+// without changing what `selectStream` and `selectReadOnly` send.
+#[allow(clippy::too_many_arguments)]
 #[command]
 pub async fn db_query_stream(
     query_id: String,
@@ -40,6 +45,7 @@ pub async fn db_query_stream(
     sql: String,
     values: Vec<Value>,
     read_only: Option<bool>,
+    max_rows: Option<usize>,
     on_event: Channel<StreamEvent>,
     core: State<'_, Core>,
 ) -> Result<(), DbError> {
@@ -48,7 +54,9 @@ pub async fn db_query_stream(
         connection_id,
         sql,
         values,
-        QueryOptions::default().with_read_only(read_only.unwrap_or(false)),
+        QueryOptions::default()
+            .with_read_only(read_only.unwrap_or(false))
+            .with_max_rows(max_rows),
     );
     while let Some(event) = events.next().await {
         // Err means the webview dropped the channel. Stop; dropping `events`

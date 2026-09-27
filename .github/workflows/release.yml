@@ -109,9 +109,20 @@ jobs:
           Set-Content $configPath $config
           Write-Host "Transformed version for Windows build"
 
+      # The seaquel-cli sidecar (bundle.externalBin). Built here, in its own
+      # step, so a failure shows up as this step; beforeBuildCommand would build
+      # it again, and SEAQUEL_CLI_PREBUILT=1 below makes it reuse this one. The
+      # bundler signs it with the app: codesign with the hardened runtime and
+      # the app's entitlements on macOS (inside the notarized .app), and
+      # bundle.windows.signCommand on Windows.
+      - name: Build seaquel-cli sidecar
+        shell: bash
+        run: node scripts/build-cli.mjs --release --target ${{ matrix.target }}
+
       - name: build and publish
         uses: tauri-apps/tauri-action@v0
         env:
+          SEAQUEL_CLI_PREBUILT: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}

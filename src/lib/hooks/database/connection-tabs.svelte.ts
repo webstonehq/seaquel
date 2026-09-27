@@ -30,6 +30,9 @@ export interface ConnectionTabPrefill {
   savePassword?: boolean;
   saveSshPassword?: boolean;
   saveSshKeyPassphrase?: boolean;
+  /** AI privacy overrides; undefined means the connection follows the global setting. */
+  aiShareSchema?: boolean;
+  aiShareData?: boolean;
 }
 
 export const defaultFormData: ConnectionFormData = {
@@ -123,6 +126,8 @@ export class ConnectionTabManager extends BaseTabManager<ConnectionTab> {
         savePassword: prefill.savePassword ?? true,
         saveSshPassword: prefill.saveSshPassword ?? true,
         saveSshKeyPassphrase: prefill.saveSshKeyPassphrase ?? true,
+        aiShareSchema: prefill.aiShareSchema,
+        aiShareData: prefill.aiShareData,
       };
       connectionId = prefill.id || null;
     } else {

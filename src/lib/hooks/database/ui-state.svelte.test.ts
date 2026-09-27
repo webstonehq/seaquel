@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import type { AIMessage } from "$lib/types";
-import type { ProviderRegistry } from "$lib/providers";
+import type { ProviderRegistry, ReadOnlyRows } from "$lib/providers";
 import type { SendAIMessageParams } from "$lib/services/ai";
 import type { DatabaseState } from "./state.svelte.js";
 import type { AIChatManager } from "./ai-chat-manager.svelte.js";
@@ -117,11 +117,11 @@ function setup({ hold = false, orphan = false } = {}) {
     // Honours the signal, as the real providers do: an abort rejects it.
     selectReadOnly: vi.fn(
       (_id: string, _sql: string, signal?: AbortSignal) =>
-        new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        new Promise<ReadOnlyRows>((resolve, reject) => {
           const abort = () => reject(new DOMException("Aborted", "AbortError"));
           if (signal?.aborted) return abort();
           signal?.addEventListener("abort", abort, { once: true });
-          if (!hold) resolve([{ n: 1 }]);
+          if (!hold) resolve({ rows: [{ n: 1 }], truncated: false });
         }),
     ),
   };
@@ -131,7 +131,7 @@ function setup({ hold = false, orphan = false } = {}) {
   } as unknown as PendingChangesManager);
   const dashboards = new DashboardManager(
     s,
-    (id, sql, signal) => crud.executeReadOnly(id, sql, signal),
+    async (id, sql, signal) => (await crud.executeReadOnly(id, sql, signal)).rows,
     () => {},
   );
   const chats = {
@@ -142,7 +142,7 @@ function setup({ hold = false, orphan = false } = {}) {
   const ui = new UIStateManager(
     s,
     () => {},
-    (id, sql, signal, name) => crud.executeReadOnly(id, sql, signal, name),
+    (id, sql, signal, name, maxRows) => crud.executeReadOnly(id, sql, signal, name, maxRows),
     chats,
     async () => {},
     dashboards,
@@ -175,7 +175,7 @@ describe("the chat's connection binding", () => {
       { ...params, aiAllowAllQueries: true },
     );
     expect(out).toContain("| n |");
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", sql, params.signal);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", sql, params.signal, 1000);
     expect(provider.select).not.toHaveBeenCalled();
   });
 
@@ -213,7 +213,7 @@ describe("the chat's connection binding", () => {
       { query: "SELECT 1" },
       { ...params, aiAllowAllQueries: true },
     );
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", params.signal);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-9", "SELECT 1", params.signal, 1000);
   });
 
   it("runs an approval given after a switch on the chat's connection", async () => {
@@ -225,7 +225,12 @@ describe("the chat's connection binding", () => {
     switchTo(other);
     pending.approve();
     expect(await out).toContain("| n |");
-    expect(provider.selectReadOnly).toHaveBeenCalledWith("pc-1", "SELECT 1 AS n", params.signal);
+    expect(provider.selectReadOnly).toHaveBeenCalledWith(
+      "pc-1",
+      "SELECT 1 AS n",
+      params.signal,
+      1000,
+    );
   });
 
   it("Stop during an approval resolves the tool call and clears the card", async () => {
@@ -259,6 +264,8 @@ describe("dashboard tools and the chat's connection", () => {
       "pc-1",
       "SELECT 1 AS n",
       expect.any(AbortSignal),
+      // A widget runs whole (no max_rows), as it always did.
+      undefined,
     );
     expect(provider.select).not.toHaveBeenCalled();
     expect(dashboards.getDashboard("d-1")!.widgets[0].result).toEqual([{ n: 1 }]);

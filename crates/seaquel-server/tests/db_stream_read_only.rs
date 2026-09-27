@@ -13,7 +13,9 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use common::post_json;
 use futures::{SinkExt, StreamExt};
-use seaquel_engine::{ConnectConfig, DbError, Driver, Engine, ExecuteResult, QueryResult};
+use seaquel_engine::{
+    CappedResult, ConnectConfig, DbError, Driver, Engine, ExecuteResult, QueryResult,
+};
 use seaquel_server::{build_router, AppState};
 use seaquel_types::Value;
 use serde_json::{json, Value as Json};
@@ -25,6 +27,8 @@ struct Calls {
     read_only: AtomicUsize,
     /// Set when a hanging read-only query's future is dropped.
     dropped: AtomicBool,
+    /// Each read-only call's `max_rows`.
+    max_rows: std::sync::Mutex<Vec<Option<usize>>>,
 }
 
 /// Sets `dropped` when the future holding it is dropped.
@@ -61,8 +65,10 @@ impl Driver for FakeDriver {
         &self,
         sql: &str,
         _params: Vec<Value>,
-    ) -> Result<QueryResult, DbError> {
+        max_rows: Option<usize>,
+    ) -> Result<CappedResult, DbError> {
         self.0.read_only.fetch_add(1, Ordering::SeqCst);
+        self.0.max_rows.lock().unwrap().push(max_rows);
         if sql.contains("hang") {
             let _flag = DropFlag(self.0.clone());
             std::future::pending::<()>().await;
@@ -72,7 +78,16 @@ impl Driver for FakeDriver {
                 "cannot execute INSERT in a read-only transaction",
             ));
         }
-        Ok(one_cell("mode", "read_only"))
+        if sql.contains("three") {
+            // Three rows, cut to `max_rows` like an engine would.
+            let n = max_rows.unwrap_or(3).min(3);
+            return Ok(CappedResult {
+                columns: vec!["n".into()],
+                rows: (1..=n as i64).map(|i| vec![Value::Int(i)]).collect(),
+                truncated: n < 3,
+            });
+        }
+        Ok(one_cell("mode", "read_only").into())
     }
 }
 
@@ -159,6 +174,54 @@ async fn read_only_frame_runs_the_read_only_query() {
         ]
     );
     assert_eq!(calls.read_only.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.query.load(Ordering::SeqCst), 0);
+}
+
+/// `max_rows` reaches the driver, and a cut result says so on its batch.
+#[tokio::test]
+async fn read_only_frame_with_max_rows_marks_a_truncated_batch() {
+    let (addr, id, calls) = fake_server().await;
+    let mut frame = request(&id, "SELECT three()", Some(true));
+    frame["max_rows"] = json!(2);
+    let got = frames(open(addr, frame).await).await;
+    assert_eq!(
+        got,
+        vec![
+            json!({ "type": "batch", "columns": ["n"], "rows": [[1], [2]], "is_final": true, "truncated": true }),
+            json!({ "type": "done" }),
+        ]
+    );
+    let mut frame = request(&id, "SELECT three()", Some(true));
+    frame["max_rows"] = json!(5);
+    let got = frames(open(addr, frame).await).await;
+    assert_eq!(
+        got[0],
+        json!({ "type": "batch", "columns": ["n"], "rows": [[1], [2], [3]], "is_final": true })
+    );
+    // The frames before it had none.
+    let _ = frames(open(addr, request(&id, "SELECT three()", Some(true))).await).await;
+    assert_eq!(
+        *calls.max_rows.lock().unwrap(),
+        vec![Some(2), Some(5), None]
+    );
+}
+
+/// `max_rows` on a read-write stream is refused, not ignored.
+#[tokio::test]
+async fn max_rows_without_read_only_is_refused() {
+    let (addr, id, calls) = fake_server().await;
+    let mut frame = request(&id, "SELECT 1", None);
+    frame["max_rows"] = json!(2);
+    let got = frames(open(addr, frame).await).await;
+    assert_eq!(
+        got,
+        vec![json!({
+            "type": "error",
+            "code": "INVALID_OPTIONS",
+            "message": "max_rows is only supported on read-only queries",
+        })]
+    );
+    assert_eq!(calls.read_only.load(Ordering::SeqCst), 0);
     assert_eq!(calls.query.load(Ordering::SeqCst), 0);
 }
 

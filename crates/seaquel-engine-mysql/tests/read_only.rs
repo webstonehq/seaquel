@@ -379,7 +379,7 @@ fn still_refuses(write: String) -> Check {
         move |driver| {
             let write = write.clone();
             async move {
-                match driver.query_read_only(&write, vec![]).await {
+                match driver.query_read_only(&write, vec![], None).await {
                     Err(e) if e.code == "READ_ONLY" => Ok(()),
                     other => Err(format!("{write}: expected READ_ONLY, got {other:?}")),
                 }

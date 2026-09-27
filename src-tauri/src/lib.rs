@@ -12,12 +12,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::ipc::InvokeBody;
-use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::OnceCell;
 
+mod cli_info;
+mod cli_install;
 mod db;
 mod logging;
 
@@ -490,25 +492,43 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
 
+    // "Install Command Line Tool…" puts seaquel-cli on PATH: macOS, and Linux
+    // only as an AppImage (cli_install.rs).
+    let install_cli = if cli_install::available() {
+        Some(
+            MenuItemBuilder::new(cli_install::MENU_LABEL)
+                .id(cli_install::MENU_ID)
+                .build(app)?,
+        )
+    } else {
+        None
+    };
+
     // App menu (macOS)
-    let app_menu = Submenu::with_items(
-        app,
-        "Seaquel",
-        true,
-        &[
-            &PredefinedMenuItem::about(app, Some("About Seaquel"), Some(about_metadata))?,
-            &PredefinedMenuItem::separator(app)?,
-            &settings,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::services(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::hide(app, None)?,
-            &PredefinedMenuItem::hide_others(app, None)?,
-            &PredefinedMenuItem::show_all(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, None)?,
-        ],
-    )?;
+    let about = PredefinedMenuItem::about(app, Some("About Seaquel"), Some(about_metadata))?;
+    let separators = (0..4)
+        .map(|_| PredefinedMenuItem::separator(app))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let services = PredefinedMenuItem::services(app, None)?;
+    let hide = PredefinedMenuItem::hide(app, None)?;
+    let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+    let show_all = PredefinedMenuItem::show_all(app, None)?;
+    let quit = PredefinedMenuItem::quit(app, None)?;
+    let mut app_items: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![&about, &separators[0], &settings];
+    if let Some(item) = &install_cli {
+        app_items.push(item);
+    }
+    app_items.extend([
+        &separators[1] as &dyn IsMenuItem<tauri::Wry>,
+        &services,
+        &separators[2],
+        &hide,
+        &hide_others,
+        &show_all,
+        &separators[3],
+        &quit,
+    ]);
+    let app_menu = Submenu::with_items(app, "Seaquel", true, &app_items)?;
 
     // File menu - Custom "Close Tab" instead of "Close Window" for Cmd+W
     let close_tab = MenuItemBuilder::new("Close Tab")
@@ -587,6 +607,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             core_call,
+            cli_info::cli_info,
+            cli_info::install_cli,
             copy_image_to_clipboard,
             open_path,
             get_data_dir,
@@ -672,6 +694,8 @@ pub fn run() {
                     }
                 } else if event.id().as_ref() == "settings" {
                     let _ = app.emit("menu-settings", ());
+                } else if event.id().as_ref() == cli_install::MENU_ID {
+                    cli_install::install_from_menu(app);
                 }
             });
 
