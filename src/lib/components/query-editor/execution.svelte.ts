@@ -24,6 +24,17 @@ export function createExecution(
   let showDestructiveConfirm = $state(false);
   let destructiveStatements = $state<DestructiveStatement[]>([]);
   let pendingDestructiveAction = $state<(() => void) | null>(null);
+  /** The run waiting on the parameter dialog was confirmed first. */
+  let paramRunConfirmed = false;
+
+  /**
+   * A run Core refused with `CONFIRM_REQUIRED` (a rerun, a file drop, or a
+   * statement the editor's own check didn't flag), for the active tab only.
+   */
+  function corePending() {
+    const pending = db.queries.pendingConfirm;
+    return pending && pending.tabId === ctx.getActiveTabId() ? pending : null;
+  }
 
   /**
    * The statement split or a check failed (the SQL module threw), so the
@@ -34,13 +45,14 @@ export function createExecution(
     errorToast(m.destructive_check_failed({ error: extractErrorMessage(error) }));
   }
 
-  function proceedWithExecute(query: string, tabId: string) {
+  function proceedWithExecute(query: string, tabId: string, confirmed: boolean) {
     if (hasParameters(query)) {
       paramDialog.params = paramDialog.getParameterDefinitions(query);
       paramDialog.action = "query";
+      paramRunConfirmed = confirmed;
       paramDialog.show = true;
     } else {
-      void db.queries.execute(tabId);
+      void db.queries.execute(tabId, { confirmed });
     }
   }
 
@@ -48,13 +60,15 @@ export function createExecution(
     currentStatement: ParsedStatement | null,
     tabId: string,
     cursorOffset: number,
+    confirmed: boolean,
   ) {
     if (currentStatement && hasParameters(currentStatement.sql)) {
       paramDialog.params = paramDialog.getParameterDefinitions(currentStatement.sql);
       paramDialog.action = { type: "query-current", cursorOffset };
+      paramRunConfirmed = confirmed;
       paramDialog.show = true;
     } else {
-      void db.queries.executeCurrent(tabId, cursorOffset);
+      void db.queries.executeCurrent(tabId, cursorOffset, { confirmed });
     }
   }
 
@@ -80,12 +94,12 @@ export function createExecution(
 
     if (dangerous.length > 0) {
       destructiveStatements = dangerous;
-      pendingDestructiveAction = () => proceedWithExecute(query, activeTabId);
+      pendingDestructiveAction = () => proceedWithExecute(query, activeTabId, true);
       showDestructiveConfirm = true;
       return;
     }
 
-    proceedWithExecute(query, activeTabId);
+    proceedWithExecute(query, activeTabId, false);
   }
 
   function handleExecuteCurrent() {
@@ -115,20 +129,27 @@ export function createExecution(
         ];
         const statement = currentStatement;
         pendingDestructiveAction = () =>
-          proceedWithExecuteCurrent(statement, activeTabId, cursorOffset);
+          proceedWithExecuteCurrent(statement, activeTabId, cursorOffset, true);
         showDestructiveConfirm = true;
         return;
       }
     }
 
-    proceedWithExecuteCurrent(currentStatement, activeTabId, cursorOffset);
+    proceedWithExecuteCurrent(currentStatement, activeTabId, cursorOffset, false);
   }
 
   function handleDestructiveConfirm() {
+    const action = pendingDestructiveAction;
     showDestructiveConfirm = false;
-    pendingDestructiveAction?.();
     pendingDestructiveAction = null;
     destructiveStatements = [];
+    if (action) {
+      action();
+      return;
+    }
+    // Core asked: run it again, confirmed.
+    const pending = corePending();
+    if (pending) void db.queries.confirmPending(pending.tabId);
   }
 
   function handleParamExecute(values: ParameterValue[]) {
@@ -139,9 +160,14 @@ export function createExecution(
     const action = paramDialog.action;
 
     if (action === "query") {
-      void db.queries.executeWithParams(activeTabId, values);
+      void db.queries.execute(activeTabId, { params: values, confirmed: paramRunConfirmed });
+      paramRunConfirmed = false;
     } else if (action && typeof action === "object" && action.type === "query-current") {
-      void db.queries.executeCurrentWithParams(activeTabId, action.cursorOffset, values);
+      void db.queries.executeCurrent(activeTabId, action.cursorOffset, {
+        params: values,
+        confirmed: paramRunConfirmed,
+      });
+      paramRunConfirmed = false;
     } else if (action && typeof action === "object" && action.type === "explain") {
       void db.explainTabs.executeEmbeddedWithParams(
         activeTabId,
@@ -169,17 +195,30 @@ export function createExecution(
 
   function handleParamCancel() {
     paramDialog.action = null;
+    paramRunConfirmed = false;
   }
 
   return {
+    /** The editor's own prompt, or a run Core refused on the active tab. */
     get showDestructiveConfirm() {
-      return showDestructiveConfirm;
+      return showDestructiveConfirm || corePending() !== null;
     },
     set showDestructiveConfirm(v: boolean) {
       showDestructiveConfirm = v;
+      if (!v) {
+        // Cancelled: nothing runs.
+        pendingDestructiveAction = null;
+        if (corePending()) db.queries.clearPendingConfirm();
+      }
     },
     get destructiveStatements() {
-      return destructiveStatements;
+      return showDestructiveConfirm ? destructiveStatements : (corePending()?.statements ?? []);
+    },
+    /** How many destructive statements there are; Core lists only the first. */
+    get destructiveTotal() {
+      if (showDestructiveConfirm) return destructiveStatements.length;
+      const pending = corePending();
+      return pending ? (pending.total ?? pending.statements.length) : 0;
     },
 
     handleExecute,

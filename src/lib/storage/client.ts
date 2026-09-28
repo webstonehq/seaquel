@@ -87,6 +87,13 @@ export interface TutorialProgressRow {
   state: string | null;
 }
 
+/**
+ * How many of a connection's newest history rows `queryHistory.append`
+ * keeps, favourites counted; favourites past them stay too
+ * (`seaquel_storage::query_history::HISTORY_KEEP`).
+ */
+export const HISTORY_KEEP = 500;
+
 export interface StorageClient {
   projects: {
     loadAll(): Promise<PersistedProject[]>;
@@ -131,7 +138,13 @@ export interface StorageClient {
   };
   queryHistory: {
     loadByConnection(connectionId: string): Promise<PersistedQueryHistoryItem[]>;
-    replaceAll(connectionId: string, items: PersistedQueryHistoryItem[]): Promise<void>;
+    /**
+     * Adds one row, then removes the connection's non-favourite rows past
+     * the newest 500 (`HISTORY_KEEP`). Nothing replaces a whole list.
+     */
+    append(item: PersistedQueryHistoryItem): Promise<void>;
+    /** Sets (not toggles) the flag, so writes queued in either order agree. */
+    setFavorite(id: string, favorite: boolean): Promise<void>;
     removeByConnection(connectionId: string): Promise<void>;
   };
   sharedRepos: {

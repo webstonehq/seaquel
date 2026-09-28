@@ -40,7 +40,6 @@ export type LoadKey =
   | "sharedRepos"
   | `projectState:${string}`
   | `savedQueries:${string}`
-  | `history:${string}`
   | `aiMessages:${string}`;
 
 /**
@@ -53,11 +52,9 @@ export class PersistenceManager {
   // Keyed per project/connection: a single shared timer meant scheduling a save
   // for one project cancelled another project's pending write, losing it.
   private projectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private connectionDataTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sharedReposTimer: ReturnType<typeof setTimeout> | null = null;
   private aiChatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly PERSISTENCE_DEBOUNCE_MS = 500;
-  readonly MAX_HISTORY_ITEMS = 500;
 
   /**
    * Collections whose last load failed or is still running. Their in-memory copy is empty or
@@ -119,27 +116,18 @@ export class PersistenceManager {
   cancelPendingPersistence(): void {
     for (const timer of this.projectTimers.values()) clearTimeout(timer);
     this.projectTimers.clear();
-    for (const timer of this.connectionDataTimers.values()) clearTimeout(timer);
-    this.connectionDataTimers.clear();
   }
 
   /**
-   * Cancel pending writes for one project (and optionally some of its
-   * connections), leaving other projects' pending writes alone. Used when
-   * deleting a project, where a queued write would recreate its rows.
+   * Cancel pending writes for one project, leaving other projects' pending
+   * writes alone. Used when deleting a project, where a queued write would
+   * recreate its rows.
    */
-  cancelPendingPersistenceFor(projectId: string, connectionIds: string[] = []): void {
+  cancelPendingPersistenceFor(projectId: string): void {
     const projectTimer = this.projectTimers.get(projectId);
     if (projectTimer) {
       clearTimeout(projectTimer);
       this.projectTimers.delete(projectId);
-    }
-    for (const connectionId of connectionIds) {
-      const timer = this.connectionDataTimers.get(connectionId);
-      if (timer) {
-        clearTimeout(timer);
-        this.connectionDataTimers.delete(connectionId);
-      }
     }
   }
 
@@ -156,23 +144,6 @@ export class PersistenceManager {
       setTimeout(() => {
         this.projectTimers.delete(projectId);
         void this.persistProjectState(projectId);
-      }, this.PERSISTENCE_DEBOUNCE_MS),
-    );
-  }
-
-  /**
-   * Schedule connection data persistence (history, saved queries).
-   */
-  scheduleConnectionData(connectionId: string | null): void {
-    if (!connectionId) return;
-
-    const existing = this.connectionDataTimers.get(connectionId);
-    if (existing) clearTimeout(existing);
-    this.connectionDataTimers.set(
-      connectionId,
-      setTimeout(() => {
-        this.connectionDataTimers.delete(connectionId);
-        void this.persistConnectionData(connectionId);
       }, this.PERSISTENCE_DEBOUNCE_MS),
     );
   }
@@ -196,8 +167,6 @@ export class PersistenceManager {
   async flush(): Promise<void> {
     for (const timer of this.projectTimers.values()) clearTimeout(timer);
     this.projectTimers.clear();
-    for (const timer of this.connectionDataTimers.values()) clearTimeout(timer);
-    this.connectionDataTimers.clear();
     if (this.sharedReposTimer) {
       clearTimeout(this.sharedReposTimer);
       this.sharedReposTimer = null;
@@ -209,10 +178,6 @@ export class PersistenceManager {
     // Persist all projects that have data
     for (const projectId of Object.keys(this.state.queryTabsByProject)) {
       await this.persistProjectState(projectId);
-    }
-    // Persist all connection data
-    for (const connectionId of Object.keys(this.state.queryHistoryByConnection)) {
-      await this.persistConnectionData(connectionId);
     }
     // Persist shared repos
     if (this.state.sharedRepos.length > 0) {
@@ -375,29 +340,6 @@ export class PersistenceManager {
     }));
   }
 
-  serializeQueryHistory(connectionId: string): PersistedQueryHistoryItem[] {
-    const history = this.state.queryHistoryByConnection[connectionId] ?? [];
-    // Favorites are user-curated, so they survive the cap; only unfavorited
-    // entries past MAX_HISTORY_ITEMS are dropped.
-    const kept = history.slice(0, this.MAX_HISTORY_ITEMS);
-    const keptIds = new Set(kept.map((h) => h.id));
-    const favoritesBeyondCap = history
-      .slice(this.MAX_HISTORY_ITEMS)
-      .filter((h) => h.favorite && !keptIds.has(h.id));
-
-    return [...kept, ...favoritesBeyondCap].map((h) => ({
-      id: h.id,
-      query: h.query,
-      timestamp: h.timestamp.toISOString(),
-      executionTime: h.executionTime,
-      rowCount: h.rowCount,
-      connectionId: h.connectionId,
-      favorite: h.favorite,
-      connectionLabelsSnapshot: h.connectionLabelsSnapshot,
-      connectionNameSnapshot: h.connectionNameSnapshot,
-    }));
-  }
-
   // === PROJECT PERSISTENCE ===
 
   async persistProjects(): Promise<void> {
@@ -554,37 +496,20 @@ export class PersistenceManager {
     }
   }
 
-  // === CONNECTION DATA PERSISTENCE (history, saved queries) ===
-
-  async persistConnectionData(connectionId: string): Promise<void> {
-    void log.debug(`Persisting connection data: ${connectionId}`);
-    // Saving replaces the connection's whole history.
-    if (this.loadFailed(`history:${connectionId}`)) {
-      this.refuse(`the query history of connection ${connectionId}`, `history:${connectionId}`);
-      return;
-    }
-    try {
-      await getStorage().queryHistory.replaceAll(
-        connectionId,
-        this.serializeQueryHistory(connectionId),
-      );
-    } catch (error) {
-      void log.error(`Persistence failed: ${connectionId}`);
-      void log.error(`Failed to persist data for connection ${connectionId}:`, error);
-    }
-  }
+  // === CONNECTION DATA (history) ===
+  // History is written by targeted calls in `QueryHistoryManager` (append,
+  // set favourite), never by replacing the list, so a failed load has no
+  // save to block: the cache stays empty and appends still reach the file.
 
   async loadConnectionData(connectionId: string): Promise<{
     queryHistory: PersistedQueryHistoryItem[];
   }> {
-    return {
-      queryHistory: await this.load(
-        `history:${connectionId}`,
-        `data for connection ${connectionId}`,
-        () => getStorage().queryHistory.loadByConnection(connectionId),
-        [],
-      ),
-    };
+    try {
+      return { queryHistory: await getStorage().queryHistory.loadByConnection(connectionId) };
+    } catch (error) {
+      void log.error(`Failed to load data for connection ${connectionId}:`, error);
+      return { queryHistory: [] };
+    }
   }
 
   async loadProjectSavedQueries(projectId: string): Promise<PersistedSavedQuery[]> {

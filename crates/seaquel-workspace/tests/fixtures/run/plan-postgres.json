@@ -1,0 +1,1721 @@
+[
+  {
+    "name": "pg/run-all-select-insert-error",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT 1 AS a;\nINSERT INTO t2 VALUES (1);\nSELECT nope;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 1 AS a"
+      },
+      {
+        "index": 1,
+        "sql": "INSERT INTO t2 VALUES (1)"
+      },
+      {
+        "index": 2,
+        "sql": "SELECT nope"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "write",
+        "sql": "INSERT INTO t2 VALUES (1)",
+        "params": [],
+        "answer": {
+          "rowsAffected": 1
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT nope",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "column \"nope\" does not exist"
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "INSERT INTO t2 VALUES (1)",
+        "source": {
+          "sql": "INSERT INTO t2 VALUES (1)",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "insert",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "1 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 1,
+        "lastInsertId": null
+      },
+      {
+        "index": 2,
+        "shown": true,
+        "sql": "SELECT nope",
+        "source": null,
+        "kind": "page",
+        "queryType": null,
+        "columns": [
+          "Error"
+        ],
+        "rows": [
+          [
+            "QUERY_ERROR: column \"nope\" does not exist"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: column \"nope\" does not exist",
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT 1 AS a;\nINSERT INTO t2 VALUES (1);\nSELECT nope;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/params-bound-run-all",
+    "engine": "postgres",
+    "notes": "`{{a}}` in a comment and in a string stays as typed; the same name binds once per statement",
+    "input": {
+      "text": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} -- {{a}}\n;\nSELECT '{{a}}' AS s, {{a}} AS a, {{b}} AS b;",
+      "target": {
+        "type": "all"
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": 5
+        },
+        {
+          "name": "b",
+          "value": "x"
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} -- {{a}}"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT '{{a}}' AS s, {{a}} AS a, {{b}} AS b"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT * FROM t WHERE a = $1 AND b = $2 -- {{a}}",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          5,
+          "x"
+        ],
+        "answer": {
+          "columns": [
+            "a",
+            "b"
+          ],
+          "rows": [
+            [
+              5,
+              "x"
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT '' || $1 || '' AS s, $1 AS a, $2 AS b",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          5,
+          "x"
+        ],
+        "answer": {
+          "columns": [
+            "s",
+            "a",
+            "b"
+          ],
+          "rows": [
+            [
+              "{{a}}",
+              5,
+              "x"
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} -- {{a}}",
+        "source": {
+          "sql": "SELECT * FROM t WHERE a = $1 AND b = $2 -- {{a}}",
+          "params": [
+            5,
+            "x"
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a",
+          "b"
+        ],
+        "rows": [
+          [
+            5,
+            "x"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT '{{a}}' AS s, {{a}} AS a, {{b}} AS b",
+        "source": {
+          "sql": "SELECT '' || $1 || '' AS s, $1 AS a, $2 AS b",
+          "params": [
+            5,
+            "x"
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "s",
+          "a",
+          "b"
+        ],
+        "rows": [
+          [
+            "{{a}}",
+            5,
+            "x"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} -- {{a}}\n;\nSELECT '{{a}}' AS s, {{a}} AS a, {{b}} AS b;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/params-bound-current",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT 1;\nSELECT * FROM t WHERE a = {{a}} AND c = {{c}};",
+      "target": {
+        "type": "current",
+        "cursor": 13
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": {
+            "$sq": "bigint",
+            "v": "9007199254740993"
+          }
+        },
+        {
+          "name": "c",
+          "value": null
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 1,
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND c = {{c}}"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT * FROM t WHERE a = $1 AND c = $2",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          {
+            "$sq": "bigint",
+            "v": "9007199254740993"
+          },
+          null
+        ],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t WHERE a = {{a}} AND c = {{c}}",
+        "source": {
+          "sql": "SELECT * FROM t WHERE a = $1 AND c = $2",
+          "params": [
+            {
+              "$sq": "bigint",
+              "v": "9007199254740993"
+            },
+            null
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t WHERE a = {{a}} AND c = {{c}}",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/substitution-error-current",
+    "engine": "postgres",
+    "notes": "A binary value can't be substituted: a toast, nothing runs (INVALID_PARAMETERS in Core)",
+    "input": {
+      "text": "SELECT {{a}} AS a",
+      "target": {
+        "type": "current",
+        "cursor": 0
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": {
+            "$sq": "bytes",
+            "v": "AQ=="
+          }
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT {{a}} AS a"
+      }
+    ],
+    "destructive": [],
+    "driver": [],
+    "results": [],
+    "deferred": [],
+    "history": null,
+    "toasts": [
+      {
+        "kind": "error",
+        "message": "The value for {{a}} is binary, JSON or an array; only text, numbers, booleans and NULL can be substituted"
+      }
+    ]
+  },
+  {
+    "name": "pg/substitution-error-run-all",
+    "engine": "postgres",
+    "notes": "In run all the failure is that statement's error result, and the run goes on",
+    "input": {
+      "text": "SELECT 1 AS one;\nSELECT {{a}} AS a;\nSELECT 2 AS two;",
+      "target": {
+        "type": "all"
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": {
+            "$sq": "bytes",
+            "v": "AQ=="
+          }
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 1 AS one"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT {{a}} AS a"
+      },
+      {
+        "index": 2,
+        "sql": "SELECT 2 AS two"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS one",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "one"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 2 AS two",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "two"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 1 AS one",
+        "source": {
+          "sql": "SELECT 1 AS one",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "one"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT {{a}} AS a",
+        "source": null,
+        "kind": null,
+        "queryType": null,
+        "columns": [
+          "Error"
+        ],
+        "rows": [
+          [
+            "The value for {{a}} is binary, JSON or an array; only text, numbers, booleans and NULL can be substituted"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "The value for {{a}} is binary, JSON or an array; only text, numbers, booleans and NULL can be substituted",
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 2,
+        "shown": true,
+        "sql": "SELECT 2 AS two",
+        "source": {
+          "sql": "SELECT 2 AS two",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "two"
+        ],
+        "rows": [
+          [
+            2
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT 1 AS one;\nSELECT {{a}} AS a;\nSELECT 2 AS two;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/dollar-quoted-body",
+    "engine": "postgres",
+    "input": {
+      "text": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\nSELECT f() AS f;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT f() AS f"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT f() AS f",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "f"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql",
+        "source": {
+          "sql": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT f() AS f",
+        "source": {
+          "sql": "SELECT f() AS f",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "f"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\nSELECT f() AS f;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/utility-hidden",
+    "engine": "postgres",
+    "notes": "A utility result is hidden when another result shows",
+    "input": {
+      "text": "SET search_path TO public;\nSELECT 1 AS a;\nCREATE TABLE x (id int);",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SET search_path TO public"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT 1 AS a"
+      },
+      {
+        "index": 2,
+        "sql": "CREATE TABLE x (id int)"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "SET search_path TO public",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "CREATE TABLE x (id int)",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "SET search_path TO public",
+        "source": {
+          "sql": "SET search_path TO public",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 2,
+        "shown": false,
+        "sql": "CREATE TABLE x (id int)",
+        "source": {
+          "sql": "CREATE TABLE x (id int)",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SET search_path TO public;\nSELECT 1 AS a;\nCREATE TABLE x (id int);",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/all-utility-shown",
+    "engine": "postgres",
+    "notes": "Every result is a utility result, so all of them show",
+    "input": {
+      "text": "CREATE TABLE x (id int);\nSET search_path TO public;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "CREATE TABLE x (id int)"
+      },
+      {
+        "index": 1,
+        "sql": "SET search_path TO public"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "CREATE TABLE x (id int)",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "SET search_path TO public",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "CREATE TABLE x (id int)",
+        "source": {
+          "sql": "CREATE TABLE x (id int)",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SET search_path TO public",
+        "source": {
+          "sql": "SET search_path TO public",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "CREATE TABLE x (id int);\nSET search_path TO public;",
+      "rowCount": 0
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/destructive-confirmed",
+    "engine": "postgres",
+    "notes": "The editor's prompt lists only the DROP: the DELETE has a WHERE (checked before substitution). The recorder confirms",
+    "input": {
+      "text": "DROP TABLE t2;\nSELECT 1 AS a;\nDELETE FROM t3 WHERE {{w}};",
+      "target": {
+        "type": "all"
+      },
+      "params": [
+        {
+          "name": "w",
+          "value": true
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": true,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "DROP TABLE t2"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT 1 AS a"
+      },
+      {
+        "index": 2,
+        "sql": "DELETE FROM t3 WHERE {{w}}"
+      }
+    ],
+    "destructive": [
+      {
+        "index": 0,
+        "sql": "DROP TABLE t2",
+        "reason": "drop_table"
+      }
+    ],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "DROP TABLE t2",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "write",
+        "sql": "DELETE FROM t3 WHERE $1",
+        "params": [
+          true
+        ],
+        "answer": {
+          "rowsAffected": 4
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "DROP TABLE t2",
+        "source": {
+          "sql": "DROP TABLE t2",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 2,
+        "shown": true,
+        "sql": "DELETE FROM t3 WHERE {{w}}",
+        "source": {
+          "sql": "DELETE FROM t3 WHERE $1",
+          "params": [
+            true
+          ]
+        },
+        "kind": "write",
+        "queryType": "delete",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "4 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 4,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "DROP TABLE t2;\nSELECT 1 AS a;\nDELETE FROM t3 WHERE {{w}};",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/destructive-current",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT 1;\nTRUNCATE t2;",
+      "target": {
+        "type": "current",
+        "cursor": 10
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": true,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 1,
+        "sql": "TRUNCATE t2"
+      }
+    ],
+    "destructive": [
+      {
+        "index": 1,
+        "sql": "TRUNCATE t2",
+        "reason": "truncate"
+      }
+    ],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "TRUNCATE t2",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "TRUNCATE t2",
+        "source": {
+          "sql": "TRUNCATE t2",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "TRUNCATE t2",
+      "rowCount": 0
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/duplicate-column-names",
+    "engine": "postgres",
+    "notes": "The grid's names are deduped (`id_2`); the driver's are not",
+    "input": {
+      "text": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "id"
+          ],
+          "rows": [
+            [
+              1,
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+        "source": {
+          "sql": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "id",
+          "id_2"
+        ],
+        "rows": [
+          [
+            1,
+            2
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "a"
+        },
+        "columnRefs": [
+          {
+            "table": "a",
+            "column": "id"
+          },
+          {
+            "table": "b",
+            "column": "id"
+          }
+        ]
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/rerun-raw-params",
+    "engine": "postgres",
+    "notes": "The reruns send no values, so `{{a}}` goes to the database as typed (Decision 1)",
+    "input": {
+      "text": "SELECT * FROM t WHERE a = {{a}}",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "rerun"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t WHERE a = {{a}}"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT * FROM t WHERE a = {{a}}",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "syntax error at or near \"{\""
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t WHERE a = {{a}}",
+        "source": null,
+        "kind": "page",
+        "queryType": null,
+        "columns": [
+          "Error"
+        ],
+        "rows": [
+          [
+            "QUERY_ERROR: syntax error at or near \"{\""
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: syntax error at or near \"{\"",
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t WHERE a = {{a}}",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/with-returns-rows",
+    "engine": "postgres",
+    "notes": "`WITH …` is query type `other`: today it runs as a utility statement and its rows are dropped (Decision 18 shows them)",
+    "input": {
+      "text": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ],
+            [
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+        "source": {
+          "sql": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+      "rowCount": 0
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/set-no-columns-hidden",
+    "engine": "postgres",
+    "notes": "An `other` statement answered with no columns stays a hidden utility result under Decision 18 too",
+    "input": {
+      "text": "SET statement_timeout = 0;\nSELECT 1 AS a;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SET statement_timeout = 0"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT 1 AS a"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "SET statement_timeout = 0",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "SET statement_timeout = 0",
+        "source": {
+          "sql": "SET statement_timeout = 0",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SET statement_timeout = 0;\nSELECT 1 AS a;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "pg/table-and-column-refs",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "total",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "9.50",
+              "ann"
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+        "source": {
+          "sql": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "id",
+          "total",
+          "name"
+        ],
+        "rows": [
+          [
+            1,
+            "9.50",
+            "ann"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "schema": "public",
+          "table": "orders"
+        },
+        "columnRefs": [
+          {
+            "schema": "public",
+            "table": "orders",
+            "column": "id"
+          },
+          {
+            "schema": "public",
+            "table": "orders",
+            "column": "total"
+          },
+          {
+            "table": "customers",
+            "column": "name"
+          }
+        ]
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+      "rowCount": 1
+    },
+    "toasts": []
+  }
+]

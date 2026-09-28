@@ -301,8 +301,11 @@ storage_methods! {
     // query_history
     QueryHistoryLoadByConnection = "queryHistoryLoadByConnection" [{ connection_id: String }]
         -> [Vec<PersistedQueryHistoryItem>],
-    QueryHistoryReplaceAll = "queryHistoryReplaceAll"
-        [{ connection_id: String, items: Vec<PersistedQueryHistoryItem> }] -> [()],
+    /// Adds one row and applies the cap (`query_history::append`).
+    QueryHistoryAppend = "queryHistoryAppend" [{ item: PersistedQueryHistoryItem }] -> [()],
+    /// Sets, not toggles, so writes queued in either order agree.
+    QueryHistorySetFavorite = "queryHistorySetFavorite" [{ id: String, favorite: bool }]
+        -> [()],
     QueryHistoryRemoveByConnection = "queryHistoryRemoveByConnection"
         [{ connection_id: String }] -> [()],
 
@@ -736,11 +739,11 @@ async fn storage_call(
         Q::QueryHistoryLoadByConnection { connection_id } => R::QueryHistoryLoadByConnection(
             query_history::load_by_connection(st, &connection_id).await?,
         ),
-        Q::QueryHistoryReplaceAll {
-            connection_id,
-            items,
-        } => {
-            R::QueryHistoryReplaceAll(query_history::replace_all(st, &connection_id, &items).await?)
+        Q::QueryHistoryAppend { item } => {
+            R::QueryHistoryAppend(query_history::append(st, &item).await?)
+        }
+        Q::QueryHistorySetFavorite { id, favorite } => {
+            R::QueryHistorySetFavorite(query_history::set_favorite(st, &id, favorite).await?)
         }
         Q::QueryHistoryRemoveByConnection { connection_id } => R::QueryHistoryRemoveByConnection(
             query_history::remove_by_connection(st, &connection_id).await?,

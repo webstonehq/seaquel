@@ -245,8 +245,29 @@ macro_rules! impl_sqlx_driver {
 
                     // Terminal batch — empty buffer is fine, but still needs to carry
                     // the columns if no row ever arrived (empty result set).
+                    // (With Postgres `statement-cache-capacity=0` the prepare
+                    // isn't cached, a round trip, as sqlx's own fetch is then.)
+                    // Rows carry the column names; without one they come
+                    // from the statement sqlx prepared for the fetch. It's
+                    // in the connection's statement cache, so this is no
+                    // extra round trip (SQLite prepares locally anyway).
                     let final_cols = if first_batch {
-                        Some(captured_columns.unwrap_or_default())
+                        let columns = match captured_columns {
+                            Some(columns) => columns,
+                            None if !cancel.is_cancelled() => {
+                                use sqlx::{Executor as _, Statement as _};
+                                match (&mut **running).prepare(&sql).await {
+                                    Ok(statement) => statement
+                                        .columns()
+                                        .iter()
+                                        .map(|c| c.name().to_string())
+                                        .collect(),
+                                    Err(_) => Vec::new(),
+                                }
+                            }
+                            None => Vec::new(),
+                        };
+                        Some(columns)
                     } else {
                         None
                     };

@@ -106,10 +106,6 @@ class UseDatabase {
       this.persistence.scheduleProject(projectId);
     };
 
-    const scheduleConnectionDataPersistence = (connectionId: string | null) => {
-      this.persistence.scheduleConnectionData(connectionId);
-    };
-
     const setActiveView = (view: ActiveViewType) => {
       this.ui.setActiveView(view);
     };
@@ -246,7 +242,6 @@ class UseDatabase {
     // Query-related
     this.history = new QueryHistoryManager(
       this.state,
-      scheduleConnectionDataPersistence,
       (connectionId) => this.labels.getConnectionLabelsById(connectionId),
       (connectionId) => this.state.connections.find((c) => c.id === connectionId)?.name || "",
     );
@@ -263,6 +258,15 @@ class UseDatabase {
       providers,
       this.pendingChanges,
     );
+    this.queryTabs.setLifecycleListener({
+      removed: (id) => this.queries.forgetTab(id),
+      activated: (id) => this.queries.activeTabChanged(id),
+    });
+    this.projects.setLifecycleListener({
+      removed: (id) => this.queries.forgetProject(id),
+      activated: () => this.queries.activeTabChanged(null),
+      reloading: (id) => this.queries.cancelProject(id),
+    });
     this.dataTabs = new DataTabManager(
       this.state,
       this.tabs,

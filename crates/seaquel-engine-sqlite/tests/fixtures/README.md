@@ -37,3 +37,11 @@ Set to default assigns the column's default expression). A case with
 Not replayed here: SQLite's EXPLAIN ANALYZE runs the statement and times it in
 the driver (`tests/smoke.rs` checks the root's actual rows and the execution
 time), since the recorded `EXPLAIN QUERY PLAN` is the same with or without it.
+
+## Changes
+
+- **Phase 5b, Task 4 review (`paginate.json`, every case):** the limit now
+  goes on its own line (`…\nLIMIT n OFFSET m`). A trailing `--` comment
+  swallowed the LIMIT: `SELECT * FROM big -- note` paged as
+  `… -- note LIMIT 101 OFFSET 0`, which fetched the whole table. Only the
+  whitespace before `LIMIT` changed.

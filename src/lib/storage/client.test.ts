@@ -19,7 +19,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { PersistedDashboardVersion, PersistedQueryVersion } from "$lib/types";
+import type {
+  PersistedDashboardVersion,
+  PersistedQueryHistoryItem,
+  PersistedQueryVersion,
+} from "$lib/types";
 import { fromStorable, toStorable } from "$lib/values";
 import type { StorageClient } from "./client";
 import {
@@ -64,6 +68,54 @@ const cases: Case[] = readdirSync(FIXTURES)
   .flatMap((f) => (JSON.parse(readFileSync(join(FIXTURES, f), "utf8")) as { cases: Case[] }).cases);
 
 const isCall = (s: Step): s is CallStep => "call" in s;
+
+/**
+ * Calls the frozen fixtures make that the app's clients no longer have.
+ * `queryHistoryRepo.replaceAll` went in phase 5b (history is appended, never
+ * replaced); Rust keeps the function for `repos.rs`. Here the Rust client
+ * skips it, and the demo's database gets its rows by plain SQL, so the loads
+ * and rows after it are still checked.
+ */
+const RETIRED = new Set(["queryHistoryRepo.replaceAll"]);
+
+/** What `replaceAll` did, as plain SQL, for the demo's replay. */
+async function seedHistory(db: WebSqliteDatabase, step: CallStep): Promise<void> {
+  const [connectionId, items] = step.args as [string, PersistedQueryHistoryItem[]];
+  const cols = [
+    "id",
+    "query",
+    "timestamp",
+    "execution_time",
+    "row_count",
+    "connection_id",
+    "favorite",
+    "connection_labels_snapshot",
+    "connection_name_snapshot",
+  ];
+  const statements = [
+    {
+      sql: "DELETE FROM query_history WHERE connection_id = ?",
+      params: [connectionId] as unknown[],
+    },
+    ...items.map((h) => ({
+      sql: `INSERT INTO query_history (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+      params: [
+        h.id,
+        h.query,
+        h.timestamp,
+        h.executionTime,
+        h.rowCount,
+        h.connectionId,
+        h.favorite ? 1 : 0,
+        h.connectionLabelsSnapshot == null ? null : JSON.stringify(h.connectionLabelsSnapshot),
+        h.connectionNameSnapshot,
+      ],
+    })),
+  ];
+  const run = db.transaction(statements);
+  if (step.error) await expect(run, step.call).rejects.toThrow();
+  else await run;
+}
 
 /** Fixture repo name → `StorageClient` property and wire method prefix. */
 const REPOS: Record<string, keyof StorageClient> = {
@@ -110,7 +162,6 @@ const PARAMS: Partial<Record<StorageMethod, string[]>> = {
   queryVersionsLoadByProject: ["projectId"],
   queryVersionsInsert: ["version"],
   queryHistoryLoadByConnection: ["connectionId"],
-  queryHistoryReplaceAll: ["connectionId", "items"],
   queryHistoryRemoveByConnection: ["connectionId"],
   sharedReposSaveAll: ["repos", "activeRepoId"],
   themesSavePreferences: ["lightThemeId", "darkThemeId"],
@@ -429,6 +480,7 @@ describe("RustStorageClient replays the fixtures", () => {
       const client = new RustStorageClient(replay.transport);
       for (const [i, step] of c.steps.entries()) {
         if (!isCall(step)) continue; // raw SQL only set up rows for the recorder
+        if (RETIRED.has(step.call)) continue;
         replay.begin(step, i);
         await runCall(client, step);
       }
@@ -441,7 +493,8 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
     it(c.name, async () => {
       const { db, client } = await freshSqljs();
       for (const step of c.steps) {
-        if (isCall(step)) await runCall(client, step);
+        if (isCall(step) && RETIRED.has(step.call)) await seedHistory(db, step);
+        else if (isCall(step)) await runCall(client, step);
         else await db.execute(step.sql, step.params);
       }
       for (const [table, expected] of Object.entries(c.rows ?? {})) {
@@ -460,9 +513,7 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
       customLabels: [],
     });
     // Without its row, the history and chat writes fail the foreign key.
-    await expect(
-      client.queryHistory.replaceAll("demo-connection", [historyItem("h0")]),
-    ).rejects.toThrow(/FOREIGN KEY/);
+    await expect(client.queryHistory.append(historyItem("h0"))).rejects.toThrow(/FOREIGN KEY/);
     // What `addDemoConnection` saves, twice, as two page loads would.
     for (let i = 0; i < 2; i++) {
       await client.connections.save({
@@ -478,7 +529,7 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
         lastConnected: new Date("2026-01-02T00:00:00.000Z"),
       });
     }
-    await client.queryHistory.replaceAll("demo-connection", [historyItem("h1")]);
+    await client.queryHistory.append(historyItem("h1"));
     await client.aiChats.saveChat({
       id: "chat-1",
       connectionId: "demo-connection",
@@ -522,6 +573,92 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
   });
 });
 
+describe("SqljsStorageClient (the demo) history", () => {
+  async function withConnection() {
+    const fresh = await freshSqljs();
+    await fresh.client.projects.save({
+      id: "p",
+      name: "P",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      customLabels: [],
+    });
+    await fresh.client.connections.save({
+      id: "demo-connection",
+      projectId: "p",
+      name: "Demo Database",
+      type: "duckdb",
+      host: "browser",
+      port: 0,
+      databaseName: "demo",
+      username: "",
+      labelIds: [],
+    });
+    return fresh;
+  }
+  const at = (n: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
+
+  it("append over the cap keeps favourites", async () => {
+    const { client } = await withConnection();
+    // The two oldest are favourites.
+    for (let n = 0; n < 505; n++) {
+      await client.queryHistory.append({
+        ...historyItem(`h${n}`),
+        timestamp: at(n),
+        favorite: n < 2,
+      });
+    }
+    const ids = (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.id);
+    expect(ids).toHaveLength(502);
+    expect(ids.slice(0, 500)).toEqual(Array.from({ length: 500 }, (_, i) => `h${504 - i}`));
+    expect(ids.slice(500).sort()).toEqual(["h0", "h1"]);
+  });
+
+  it("ranks equal timestamps by insertion, like the Rust cap", async () => {
+    const { client } = await withConnection();
+    for (let n = 0; n < 501; n++) {
+      await client.queryHistory.append({ ...historyItem(`h${n}`), timestamp: at(0) });
+    }
+    const ids = new Set(
+      (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.id),
+    );
+    expect(ids.size).toBe(500);
+    expect(ids.has("h0")).toBe(false);
+    expect(ids.has("h500")).toBe(true);
+  });
+
+  it("loads ties newest-appended first, the order the cap ranks by", async () => {
+    const { client } = await withConnection();
+    for (const id of ["a", "b", "c"]) {
+      await client.queryHistory.append({ ...historyItem(id), timestamp: at(5) });
+    }
+    await client.queryHistory.append({ ...historyItem("older"), timestamp: at(1) });
+    expect(
+      (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.id),
+    ).toEqual(["c", "b", "a", "older"]);
+  });
+
+  it("setFavorite sets and clears, and ignores an unknown id", async () => {
+    const { client } = await withConnection();
+    await client.queryHistory.append(historyItem("h1"));
+    await client.queryHistory.setFavorite("h1", true);
+    await client.queryHistory.setFavorite("h1", true);
+    await client.queryHistory.setFavorite("nope", true);
+    expect(
+      (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.favorite),
+    ).toEqual([true]);
+    await client.queryHistory.setFavorite("h1", false);
+    expect(
+      (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.favorite),
+    ).toEqual([false]);
+  });
+
+  it("has no whole-list replace", () => {
+    const client = createSqljsStorageClient({} as never);
+    expect("replaceAll" in client.queryHistory).toBe(false);
+  });
+});
+
 // -------- The Rust client's plumbing --------
 
 function recordingTransport(respond: (method: string, params: unknown) => unknown = () => null): {
@@ -538,6 +675,21 @@ function recordingTransport(respond: (method: string, params: unknown) => unknow
 }
 
 describe("RustStorageClient", () => {
+  it("sends history appends and favourites as targeted writes, in order", async () => {
+    const { transport, sent } = recordingTransport();
+    const client = new RustStorageClient(transport);
+    const item = historyItem("h1");
+    await Promise.all([
+      client.queryHistory.append(item),
+      client.queryHistory.setFavorite("h1", true),
+    ]);
+    expect(sent.map((s) => [s.method, s.params])).toEqual([
+      ["queryHistoryAppend", { item }],
+      ["queryHistorySetFavorite", { id: "h1", favorite: true }],
+    ]);
+    expect("replaceAll" in client.queryHistory).toBe(false);
+  });
+
   it("lands writes in the order they were issued", async () => {
     const order: string[] = [];
     let releaseFirst!: () => void;

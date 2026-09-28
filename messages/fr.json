@@ -1123,6 +1123,7 @@
   "destructive_query_confirm_title": "Requête destructive détectée",
   "destructive_query_confirm_description": "Les instructions suivantes peuvent entraîner des modifications irréversibles :",
   "destructive_query_confirm_button": "Exécuter quand même",
+  "destructive_query_confirm_more": "…et {count} de plus",
   "destructive_reason_drop_table": "Supprime une table",
   "destructive_reason_drop_index": "Supprime un index",
   "destructive_reason_drop_view": "Supprime une vue",
@@ -1177,5 +1178,7 @@
   "storage_error_details": "Détails",
   "storage_error_no_data_dir_title": "Seaquel n'a aucun endroit où conserver ses données",
   "storage_error_no_data_dir_description": "Ce système ne signale aucun dossier de données pour Seaquel. Définissez la variable d'environnement SEAQUEL_DATA_DIR sur un dossier dans lequel Seaquel peut écrire, puis relancez Seaquel.",
-  "storage_save_refused": "Certaines de vos données enregistrées n'ont pas pu être chargées, Seaquel n'enregistre donc pas les modifications qui leur sont apportées : les enregistrer maintenant écraserait ce qui est stocké. Redémarrez Seaquel (ou rechargez la page) pour réessayer de les charger."
+  "storage_save_refused": "Certaines de vos données enregistrées n'ont pas pu être chargées, Seaquel n'enregistre donc pas les modifications qui leur sont apportées : les enregistrer maintenant écraserait ce qui est stocké. Redémarrez Seaquel (ou rechargez la page) pour réessayer de les charger.",
+  "query_statement_cancelled": "Annulée avant la fin de son exécution.",
+  "query_confirm_connection_changed": "La connexion a changé depuis que la question vous a été posée, donc rien n'a été exécuté. Relancez la requête."
 }

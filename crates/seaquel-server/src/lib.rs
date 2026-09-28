@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
-use seaquel_core::{ConnectPolicy, ConnectionLimits, Core};
+use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, RunLimits};
 use std::sync::Arc;
 
 mod error;
@@ -67,14 +67,30 @@ pub const WEB_CONNECTION_LIMITS: ConnectionLimits = ConnectionLimits {
     max_pool_size: Some(6),
 };
 
+/// What one run on the web may carry (owner, 2026-10-02: web only). Frames
+/// are 8 MiB, and planning one statement that long took ~560 MB and ~0.5 s
+/// of a worker (phase 5b probe, I1); at 2 MiB the worst is ~140 MB and
+/// ~150 ms. 10,000 statements bound the results and round trips of one run.
+/// 1,000 parameter values and 1 MiB of them bound what planning looks up
+/// (phase 5b review, C1); the dialog sends one per `{{name}}` in the text.
+pub const WEB_RUN_LIMITS: RunLimits = RunLimits {
+    max_text_bytes: Some(2 * 1024 * 1024),
+    max_statements: Some(10_000),
+    max_param_values: Some(1_000),
+    max_param_bytes: Some(1024 * 1024),
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
-/// others, under [`web_connect_policy`] and [`WEB_CONNECTION_LIMITS`]. Core refuses any other driver on
+/// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`] and
+/// [`WEB_RUN_LIMITS`]. Core refuses any other driver on
 /// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
 /// Cargo unified into this build.
 pub fn web_core() -> Core {
     seaquel_core::with_plugins(|id| WEB_ENGINES.contains(&id))
         .connect_policy(web_connect_policy())
         .connection_limits(WEB_CONNECTION_LIMITS)
+        .run_limits(WEB_RUN_LIMITS)
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build()
 }
 

@@ -1123,6 +1123,7 @@
   "destructive_query_confirm_title": "위험한 쿼리 감지됨",
   "destructive_query_confirm_description": "다음 구문은 되돌릴 수 없는 변경을 일으킬 수 있습니다:",
   "destructive_query_confirm_button": "그래도 실행",
+  "destructive_query_confirm_more": "…외 {count}개",
   "destructive_reason_drop_table": "테이블을 삭제합니다",
   "destructive_reason_drop_index": "인덱스를 삭제합니다",
   "destructive_reason_drop_view": "뷰를 삭제합니다",
@@ -1177,5 +1178,7 @@
   "storage_error_details": "세부 정보",
   "storage_error_no_data_dir_title": "Seaquel이 데이터를 저장할 위치가 없습니다",
   "storage_error_no_data_dir_description": "이 시스템에서 Seaquel의 데이터 폴더를 확인할 수 없습니다. SEAQUEL_DATA_DIR 환경 변수를 Seaquel이 쓸 수 있는 폴더로 설정한 다음 Seaquel을 다시 시작하세요.",
-  "storage_save_refused": "저장된 데이터 중 일부를 불러올 수 없어 Seaquel이 변경 사항을 저장하지 않습니다. 지금 저장하면 저장되어 있는 내용을 덮어쓰게 됩니다. Seaquel을 다시 시작하거나(또는 페이지를 새로고침하여) 다시 불러오세요."
+  "storage_save_refused": "저장된 데이터 중 일부를 불러올 수 없어 Seaquel이 변경 사항을 저장하지 않습니다. 지금 저장하면 저장되어 있는 내용을 덮어쓰게 됩니다. Seaquel을 다시 시작하거나(또는 페이지를 새로고침하여) 다시 불러오세요.",
+  "query_statement_cancelled": "완료되기 전에 취소되었습니다.",
+  "query_confirm_connection_changed": "확인을 요청받은 후 연결이 변경되어 아무것도 실행되지 않았습니다. 쿼리를 다시 실행하세요."
 }

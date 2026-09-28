@@ -1123,6 +1123,7 @@
   "destructive_query_confirm_title": "Consulta destructiva detectada",
   "destructive_query_confirm_description": "Las siguientes instrucciones pueden causar cambios irreversibles:",
   "destructive_query_confirm_button": "Ejecutar de todas formas",
+  "destructive_query_confirm_more": "…y {count} más",
   "destructive_reason_drop_table": "Elimina una tabla",
   "destructive_reason_drop_index": "Elimina un índice",
   "destructive_reason_drop_view": "Elimina una vista",
@@ -1177,5 +1178,7 @@
   "storage_error_details": "Detalles",
   "storage_error_no_data_dir_title": "Seaquel no tiene dónde guardar sus datos",
   "storage_error_no_data_dir_description": "Este sistema no indica ninguna carpeta de datos para Seaquel. Define la variable de entorno SEAQUEL_DATA_DIR con una carpeta en la que Seaquel pueda escribir y vuelve a iniciar Seaquel.",
-  "storage_save_refused": "Algunos de tus datos guardados no se pudieron cargar, así que Seaquel no está guardando los cambios en ellos: guardarlos ahora sobrescribiría lo que hay almacenado. Reinicia Seaquel (o recarga la página) para intentar cargarlos de nuevo."
+  "storage_save_refused": "Algunos de tus datos guardados no se pudieron cargar, así que Seaquel no está guardando los cambios en ellos: guardarlos ahora sobrescribiría lo que hay almacenado. Reinicia Seaquel (o recarga la página) para intentar cargarlos de nuevo.",
+  "query_statement_cancelled": "Cancelada antes de que terminara.",
+  "query_confirm_connection_changed": "La conexión cambió desde que se te preguntó, así que no se ejecutó nada. Vuelve a ejecutar la consulta."
 }

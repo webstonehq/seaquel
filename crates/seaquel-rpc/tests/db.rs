@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use seaquel_core::domain::run::RunEvent;
 use seaquel_core::{with_plugins, ConnectPolicy, Core, Workspace, WorkspaceSpec};
 use seaquel_rpc::{
     dispatch_stream, dispatch_workspace, parse_request, workspace_events, CoreEvent, DbRequest,
@@ -49,6 +50,7 @@ async fn env() -> Env {
     env_with(
         with_plugins(|id| id == "sqlite")
             .connect_policy(ConnectPolicy::Unrestricted)
+            .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build(),
     )
     .await
@@ -93,12 +95,30 @@ impl Env {
         id
     }
 
-    fn stream(
-        &self,
-        ws: &Workspace,
+    fn stream<'a>(
+        &'a self,
+        ws: &'a Workspace,
         params: Json,
-    ) -> Result<seaquel_engine::BoxStream<'_, CoreEvent>, RpcError> {
+    ) -> Result<seaquel_engine::BoxStream<'a, CoreEvent>, RpcError> {
         dispatch_stream(&self.core, ws, parse(&db("queryStream", params)))
+    }
+
+    /// A `db.run` or `db.page` stream on `ws`.
+    fn run<'a>(
+        &'a self,
+        ws: &'a Workspace,
+        method: &str,
+        params: Json,
+    ) -> Result<seaquel_engine::BoxStream<'a, CoreEvent>, RpcError> {
+        dispatch_stream(&self.core, ws, parse(&db(method, params)))
+    }
+
+    /// A `db.run` or `db.page` to its end: its events as JSON.
+    async fn run_all(&self, ws: &Workspace, method: &str, params: Json) -> Vec<Json> {
+        let events = self.run(ws, method, params).unwrap();
+        tokio::time::timeout(Duration::from_secs(30), events.map(|e| wire(&e)).collect())
+            .await
+            .expect("the run ends")
     }
 }
 
@@ -825,4 +845,362 @@ async fn postgres_live() {
     e.call(&e.a, "disconnect", json!({"connectionId": id}))
         .await
         .unwrap();
+}
+
+// ── db.run and db.page ──
+
+/// Each run and page request parses from its wire JSON and serializes back
+/// to it, `method` before `params`, absent optionals left out; the run
+/// events go out as `{"type":"run","streamId",…,"event":{…}}`.
+#[test]
+fn run_and_page_wire_shapes() {
+    let cases = [
+        r#"{"method":"db","params":{"method":"run","params":{"connectionId":"c1","streamId":"r1","text":"SELECT 1; SELECT 2","target":{"type":"all"},"pageSize":100,"confirmed":false,"deferWrites":false}}}"#,
+        r#"{"method":"db","params":{"method":"run","params":{"connectionId":"c1","streamId":"r2","text":"SELECT {{a}}","target":{"type":"current","cursor":3},"params":[{"name":"a","value":{"$sq":"bigint","v":"9007199254740993"}}],"pageSize":0,"confirmed":true,"deferWrites":true,"history":{"connectionId":"saved-1","connectionName":"Prod","connectionLabels":[{"id":"l1","name":"prod","color":"red"}]}}}}"#,
+        r#"{"method":"db","params":{"method":"page","params":{"connectionId":"c1","streamId":"p1","source":{"sql":"SELECT $1","params":[1]},"page":2,"pageSize":100}}}"#,
+    ];
+    for case in cases {
+        let req = parse_request(case.as_bytes()).unwrap_or_else(|e| panic!("{case}: {e}"));
+        assert_eq!(serde_json::to_string(&req).unwrap(), case);
+    }
+    // Defaults: confirmed and deferWrites may be left out.
+    let req = parse(&db(
+        "run",
+        json!({"connectionId": "c", "streamId": "r", "text": "x", "target": {"type": "all"}, "pageSize": 1}),
+    ));
+    assert_eq!(req.method(), "run");
+    assert_eq!(
+        serde_json::to_value(&req).unwrap()["params"]["params"],
+        json!({"connectionId": "c", "streamId": "r", "text": "x", "target": {"type": "all"},
+               "pageSize": 1, "confirmed": false, "deferWrites": false})
+    );
+    // `params` before `method` is refused for run and page too.
+    for body in [
+        r#"{"method":"db","params":{"params":{"connectionId":"c","streamId":"r","text":"x","target":{"type":"all"},"pageSize":1},"method":"run"}}"#,
+        r#"{"params":{"method":"page","params":{}},"method":"db"}"#,
+    ] {
+        let err = parse_request(body.as_bytes()).unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT", "{body}");
+    }
+    // History labels must be an array.
+    let err = parse_request(
+        db(
+            "run",
+            json!({"connectionId": "c", "streamId": "r", "text": "x", "target": {"type": "all"},
+                   "pageSize": 1, "history": {"connectionId": "s", "connectionName": "n",
+                   "connectionLabels": {"not": "an array"}}}),
+        )
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap_err();
+    assert_eq!(err.code, "INVALID_ARGUMENT");
+
+    let run = |event| CoreEvent::Run {
+        stream_id: "r1".into(),
+        event,
+    };
+    let cases: Vec<(CoreEvent, &str)> = vec![
+        (
+            run(RunEvent::Batch(seaquel_types::StreamBatch {
+                columns: Some(vec!["a".into()]),
+                rows: vec![vec![seaquel_types::Value::Int(1)]],
+                is_final: true,
+                truncated: false,
+            })),
+            r#"{"type":"run","streamId":"r1","event":{"type":"batch","columns":["a"],"rows":[[1]],"is_final":true}}"#,
+        ),
+        (
+            run(RunEvent::StatementDone {
+                index: 0,
+                elapsed_ms: 1.5,
+                total_rows: 1,
+                total_pages: 1,
+                count_estimated: false,
+                rows_affected: None,
+                last_insert_id: None,
+            }),
+            r#"{"type":"run","streamId":"r1","event":{"type":"statementDone","index":0,"elapsedMs":1.5,"totalRows":1,"totalPages":1,"countEstimated":false}}"#,
+        ),
+        (
+            run(RunEvent::Done {
+                statements: 0,
+                succeeded: false,
+                history: None,
+            }),
+            r#"{"type":"run","streamId":"r1","event":{"type":"done","statements":0,"succeeded":false}}"#,
+        ),
+        (
+            run(RunEvent::error("CONFIRM_REQUIRED", "m")),
+            r#"{"type":"run","streamId":"r1","event":{"type":"error","code":"CONFIRM_REQUIRED","message":"m"}}"#,
+        ),
+    ];
+    for (event, expected) in cases {
+        assert_eq!(serde_json::to_string(&event).unwrap(), expected);
+        assert_eq!(
+            event.is_terminal(),
+            expected.contains(r#""event":{"type":"done""#)
+                || expected.contains(r#""event":{"type":"error""#)
+        );
+        assert_eq!(event.stream_id(), Some("r1"));
+    }
+}
+
+/// `db.run` and `db.page` are streams: `dispatch_workspace` refuses them.
+#[tokio::test]
+async fn run_is_stream_only() {
+    let e = env().await;
+    for (method, params) in [
+        (
+            "run",
+            json!({"connectionId": "c", "streamId": "r", "text": "SELECT 1", "target": {"type": "all"}, "pageSize": 10}),
+        ),
+        (
+            "page",
+            json!({"connectionId": "c", "streamId": "p", "source": {"sql": "SELECT 1", "params": []}, "page": 1, "pageSize": 10}),
+        ),
+    ] {
+        let err = dispatch_workspace(&e.core, &e.a, parse(&db(method, params)))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT", "{method}: {err}");
+    }
+}
+
+/// Every event of a run or a page is a `run` event with its `streamId`,
+/// and the stream ends with exactly one terminal event.
+#[tokio::test]
+async fn run_events_carry_the_stream_id() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "r").await;
+    let events = e
+        .run_all(
+            &e.a,
+            "run",
+            json!({"connectionId": id, "streamId": "r1", "pageSize": 100,
+                   "text": "SELECT 1 AS a; SELECT x FROM t WHERE x <= 3; SELECT nope",
+                   "target": {"type": "all"}}),
+        )
+        .await;
+    for event in &events {
+        assert_eq!(event["type"], "run", "{event}");
+        assert_eq!(event["streamId"], "r1", "{event}");
+    }
+    let types: Vec<&str> = events
+        .iter()
+        .map(|e| e["event"]["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        [
+            "statementStart",
+            "batch",
+            "statementDone",
+            "statementStart",
+            "batch",
+            "statementDone",
+            "statementStart",
+            "statementError",
+            "done"
+        ],
+        "{events:?}"
+    );
+    assert_eq!(events[4]["event"]["rows"], json!([[1], [2], [3]]));
+    assert_eq!(events[8]["event"]["succeeded"], false);
+
+    // Page 2 of the source the run sent.
+    let source = events[3]["event"]["source"].clone();
+    let events = e
+        .run_all(
+            &e.a,
+            "page",
+            json!({"connectionId": id, "streamId": "p1", "source": source,
+                   "page": 2, "pageSize": 2}),
+        )
+        .await;
+    assert!(events
+        .iter()
+        .all(|e| e["type"] == "run" && e["streamId"] == "p1"));
+    let batch = events
+        .iter()
+        .find(|e| e["event"]["type"] == "batch")
+        .unwrap();
+    assert_eq!(batch["event"]["rows"], json!([[3]]));
+    let done = events
+        .iter()
+        .find(|e| e["event"]["type"] == "statementDone")
+        .unwrap();
+    assert_eq!(done["event"]["totalRows"], 3);
+    assert_eq!(done["event"]["totalPages"], 2);
+    assert_eq!(events.last().unwrap()["event"]["type"], "done");
+
+    // A refused page is one terminal error.
+    let events = e
+        .run_all(
+            &e.a,
+            "page",
+            json!({"connectionId": id, "streamId": "p2", "source": {"sql": "DELETE FROM t", "params": []},
+                   "page": 1, "pageSize": 2}),
+        )
+        .await;
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["event"]["code"], "INVALID_ARGUMENT");
+    // And the table is untouched.
+    let res = e
+        .call(
+            &e.a,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT count(*) AS n FROM t"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res["rows"], json!([[200000]]));
+}
+
+/// A destructive run without `confirmed` is one `CONFIRM_REQUIRED` error
+/// listing the statements, and runs nothing.
+#[tokio::test]
+async fn an_unconfirmed_destructive_run_runs_nothing() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "d").await;
+    let run = |confirmed: bool| {
+        json!({"connectionId": id, "streamId": format!("d-{confirmed}"), "pageSize": 100,
+               "text": "SELECT 1; DELETE FROM t", "target": {"type": "all"}, "confirmed": confirmed})
+    };
+    let events = e.run_all(&e.a, "run", run(false)).await;
+    assert_eq!(events.len(), 1, "{events:?}");
+    let error = &events[0]["event"];
+    assert_eq!(error["type"], "error");
+    assert_eq!(error["code"], "CONFIRM_REQUIRED");
+    assert_eq!(error["destructive"][0]["index"], 1);
+    assert_eq!(error["destructive"][0]["sql"], "DELETE FROM t");
+    let count = || async {
+        e.call(
+            &e.a,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT count(*) FROM t"}),
+        )
+        .await
+        .unwrap()["rows"][0][0]
+            .clone()
+    };
+    assert_eq!(count().await, 200000);
+    let events = e.run_all(&e.a, "run", run(true)).await;
+    assert_eq!(events.last().unwrap()["event"]["succeeded"], true);
+    assert_eq!(count().await, 0);
+}
+
+/// `Debug` of a run or page request shows no text, SQL, parameter value or
+/// history context.
+#[test]
+fn run_params_debug_shows_no_text_or_values() {
+    let run = parse(&db(
+        "run",
+        json!({"connectionId": "c", "streamId": "r", "text": "SELECT 'canary-text' WHERE {{p}}",
+               "target": {"type": "current", "cursor": 4},
+               "params": [{"name": "p", "value": "canary-value"}], "pageSize": 10,
+               "history": {"connectionId": "s", "connectionName": "canary-name",
+                           "connectionLabels": [{"name": "canary-label"}]}}),
+    ));
+    let page = parse(&db(
+        "page",
+        json!({"connectionId": "c", "streamId": "p", "source": {"sql": "SELECT 'canary-sql'", "params": ["canary-bind"]},
+               "page": 1, "pageSize": 10}),
+    ));
+    for req in [run, page] {
+        let debug = format!("{req:?} {req:#?}");
+        assert!(!debug.contains("canary"), "{debug}");
+    }
+    let event = CoreEvent::Run {
+        stream_id: "r".into(),
+        event: RunEvent::StatementError {
+            index: 0,
+            code: "C".into(),
+            message: "m".into(),
+            elapsed_ms: 0.0,
+            sql: Some("SELECT 'canary-sql'".into()),
+        },
+    };
+    let debug = format!("{event:?}");
+    assert!(!debug.contains("canary"), "{debug}");
+}
+
+/// B can't run or page on A's connection, and B's `db.cancel` with A's run
+/// id doesn't stop it; A's does, with no terminal event after it.
+#[tokio::test]
+async fn a_foreign_connection_is_not_found_through_dispatch() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "f").await;
+    for (method, params) in [
+        (
+            "run",
+            json!({"connectionId": id, "streamId": "x", "text": "SELECT 1", "target": {"type": "all"}, "pageSize": 10}),
+        ),
+        (
+            "page",
+            json!({"connectionId": id, "streamId": "y", "source": {"sql": "SELECT 1", "params": []}, "page": 1, "pageSize": 10}),
+        ),
+    ] {
+        let events = e.run_all(&e.b, method, params).await;
+        assert_eq!(events.len(), 1, "{method}: {events:?}");
+        assert_eq!(events[0]["type"], "run");
+        assert_eq!(events[0]["event"]["type"], "error");
+        assert_eq!(events[0]["event"]["code"], "CONNECTION_NOT_FOUND");
+    }
+
+    // A long run of A's, streamed (page size 0).
+    let mut run = e
+        .run(
+            &e.a,
+            "run",
+            json!({"connectionId": id, "streamId": "long", "pageSize": 0,
+                   "text": format!("{MANY_ROWS}; SELECT 42"), "target": {"type": "all"}}),
+        )
+        .unwrap();
+    assert_eq!(
+        wire(&run.next().await.unwrap())["event"]["type"],
+        "statementStart"
+    );
+    assert_eq!(wire(&run.next().await.unwrap())["event"]["type"], "batch");
+    e.call(&e.b, "cancel", json!({"streamId": "long"}))
+        .await
+        .unwrap();
+    assert_eq!(e.a.stream_count(&e.core), 1);
+    assert_eq!(wire(&run.next().await.unwrap())["event"]["type"], "batch");
+
+    e.call(&e.a, "cancel", json!({"streamId": "long"}))
+        .await
+        .unwrap();
+    let rest: Vec<Json> = tokio::time::timeout(
+        Duration::from_secs(30),
+        run.map(|event| wire(&event)).collect(),
+    )
+    .await
+    .expect("the cancelled run ends");
+    assert!(
+        rest.iter().all(|e| e["event"]["type"] == "batch"),
+        "{rest:?}"
+    );
+    assert_eq!(e.a.stream_count(&e.core), 0);
+}
+
+/// A Core with no executor can't run: one `NOT_SUPPORTED` error event.
+#[tokio::test]
+async fn without_an_executor_run_is_not_supported() {
+    let e = env_with(
+        with_plugins(|id| id == "sqlite")
+            .connect_policy(ConnectPolicy::Unrestricted)
+            .build(),
+    )
+    .await;
+    let id = e.sqlite(&e.a, "n").await;
+    let events = e
+        .run_all(
+            &e.a,
+            "run",
+            json!({"connectionId": id, "streamId": "r", "text": "SELECT 1", "target": {"type": "all"}, "pageSize": 10}),
+        )
+        .await;
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["event"]["code"], "NOT_SUPPORTED");
 }

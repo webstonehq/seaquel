@@ -1118,6 +1118,7 @@
   "destructive_query_confirm_title": "Destructive Query Detected",
   "destructive_query_confirm_description": "The following statements may cause irreversible changes:",
   "destructive_query_confirm_button": "Execute Anyway",
+  "destructive_query_confirm_more": "…and {count} more",
   "destructive_reason_drop_table": "Drops a table",
   "destructive_reason_drop_index": "Drops an index",
   "destructive_reason_drop_view": "Drops a view",
@@ -1172,5 +1173,7 @@
   "storage_error_details": "Details",
   "storage_error_no_data_dir_title": "Seaquel has nowhere to keep its data",
   "storage_error_no_data_dir_description": "This system doesn't report a data folder for Seaquel. Set the SEAQUEL_DATA_DIR environment variable to a folder Seaquel can write to, then start Seaquel again.",
-  "storage_save_refused": "Some of your saved data couldn't be loaded, so Seaquel isn't saving changes to it: saving now would overwrite what's stored. Restart Seaquel (or reload the page) to try loading it again."
+  "storage_save_refused": "Some of your saved data couldn't be loaded, so Seaquel isn't saving changes to it: saving now would overwrite what's stored. Restart Seaquel (or reload the page) to try loading it again.",
+  "query_statement_cancelled": "Cancelled before it finished.",
+  "query_confirm_connection_changed": "The connection changed since you were asked, so nothing was run. Run the query again."
 }

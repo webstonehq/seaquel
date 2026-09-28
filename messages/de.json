@@ -1123,6 +1123,7 @@
   "destructive_query_confirm_title": "Destruktive Abfrage erkannt",
   "destructive_query_confirm_description": "Die folgenden Anweisungen können irreversible Änderungen verursachen:",
   "destructive_query_confirm_button": "Trotzdem ausführen",
+  "destructive_query_confirm_more": "…und {count} weitere",
   "destructive_reason_drop_table": "Löscht eine Tabelle",
   "destructive_reason_drop_index": "Löscht einen Index",
   "destructive_reason_drop_view": "Löscht eine Ansicht",
@@ -1177,5 +1178,7 @@
   "storage_error_details": "Details",
   "storage_error_no_data_dir_title": "Seaquel hat keinen Ort, um seine Daten zu speichern",
   "storage_error_no_data_dir_description": "Dieses System meldet keinen Datenordner für Seaquel. Legen Sie die Umgebungsvariable SEAQUEL_DATA_DIR auf einen Ordner fest, in den Seaquel schreiben kann, und starten Sie Seaquel dann erneut.",
-  "storage_save_refused": "Einige Ihrer gespeicherten Daten konnten nicht geladen werden, daher speichert Seaquel keine Änderungen daran: Ein Speichern würde jetzt überschreiben, was gespeichert ist. Starten Sie Seaquel neu (oder laden Sie die Seite neu), um das Laden erneut zu versuchen."
+  "storage_save_refused": "Einige Ihrer gespeicherten Daten konnten nicht geladen werden, daher speichert Seaquel keine Änderungen daran: Ein Speichern würde jetzt überschreiben, was gespeichert ist. Starten Sie Seaquel neu (oder laden Sie die Seite neu), um das Laden erneut zu versuchen.",
+  "query_statement_cancelled": "Abgebrochen, bevor die Ausführung abgeschlossen war.",
+  "query_confirm_connection_changed": "Die Verbindung hat sich geändert, seit Sie gefragt wurden, daher wurde nichts ausgeführt. Führen Sie die Abfrage erneut aus."
 }

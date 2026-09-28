@@ -296,6 +296,7 @@ where
         string_passwords,
         name: d.name,
         driver: d.kind.driver(),
+        sql_engine: d.kind.sql_engine(),
         secrets,
         tunnel,
         endpoint,
@@ -309,6 +310,9 @@ pub struct Plan {
     /// Passwords the stored or typed string holds itself, for redaction.
     string_passwords: Vec<String>,
     driver: DriverType,
+    /// The database type's SQL rules: MariaDB's own, though it connects
+    /// with the MySQL driver.
+    sql_engine: seaquel_sql::SqlEngine,
     secrets: Secrets,
     tunnel: Option<TunnelConfig>,
     endpoint: Endpoint,
@@ -336,6 +340,13 @@ impl Plan {
     /// The connection's name (a form's may be empty).
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The engine whose quoting and statement rules apply to the connection,
+    /// from its database type: `Mariadb` for MariaDB, which connects with
+    /// the `mysql` driver but scans `/*M! … */` as code.
+    pub fn sql_engine(&self) -> seaquel_sql::SqlEngine {
+        self.sql_engine
     }
 
     /// The secrets it uses, and the store reads that failed.
@@ -514,6 +525,18 @@ impl Kind {
     /// Connects with a URL string (sqlx).
     fn is_url(self) -> bool {
         matches!(self, Kind::Postgres | Kind::Mysql | Kind::Mariadb)
+    }
+
+    fn sql_engine(self) -> seaquel_sql::SqlEngine {
+        use seaquel_sql::SqlEngine;
+        match self {
+            Kind::Postgres => SqlEngine::Postgres,
+            Kind::Mysql => SqlEngine::Mysql,
+            Kind::Mariadb => SqlEngine::Mariadb,
+            Kind::Sqlite => SqlEngine::Sqlite,
+            Kind::Duckdb => SqlEngine::Duckdb,
+            Kind::Mssql => SqlEngine::Mssql,
+        }
     }
 
     fn driver(self) -> DriverType {

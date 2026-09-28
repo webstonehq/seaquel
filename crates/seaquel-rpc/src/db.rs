@@ -22,9 +22,14 @@
 //! workspace doesn't own is `CONNECTION_NOT_FOUND`, the same as one that
 //! doesn't exist.
 //!
-//! `queryStream` isn't a request/response call: [`dispatch_stream`] serves
-//! it as a stream of [`CoreEvent`]s (the desktop's `core_stream`, the web's
-//! `/rpc/stream`), and [`crate::dispatch_workspace`] refuses it.
+//! `queryStream`, `run` and `page` aren't request/response calls:
+//! [`dispatch_stream`] serves them as streams of [`CoreEvent`]s (the
+//! desktop's `core_stream`, the web's `/rpc/stream`), and
+//! [`crate::dispatch_workspace`] refuses them. `run` is the editor's run
+//! (`Workspace::run`, phase 5b) and `page` re-pages one of its statements;
+//! their events are [`CoreEvent::Run`]s. Their types live in
+//! `seaquel_core::domain::run` and exist in every build; without the
+//! `workspace` feature (the browser build) both answer `NOT_SUPPORTED`.
 //!
 //! Whether `connect` and `test` may connect at all, and to what, is Core's
 //! `ConnectPolicy`: a Core built without one answers `NOT_SUPPORTED`. Without
@@ -32,6 +37,7 @@
 //! `NOT_SUPPORTED` too.
 
 use futures::StreamExt;
+use seaquel_core::domain::run::{PageParams, RunEvent, RunParams};
 use seaquel_core::{Core, QueryOptions, Workspace, WorkspaceEvent};
 use seaquel_engine::BoxStream;
 use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
@@ -97,6 +103,14 @@ pub enum DbRequest {
     },
     /// Only through [`dispatch_stream`].
     QueryStream(QueryStreamParams),
+    /// The editor's run: the text, a target, parameter values and the page
+    /// size. Only through [`dispatch_stream`]. `Debug` shows no text, value
+    /// or history context.
+    Run(RunParams),
+    /// One statement of a run again, from the `source` its `statementStart`
+    /// carried: another page, or the whole result at page size 0. Only
+    /// through [`dispatch_stream`]. `Debug` shows no SQL or values.
+    Page(PageParams),
 }
 
 impl DbRequest {
@@ -112,7 +126,26 @@ impl DbRequest {
             DbRequest::Engine { .. } => "engine",
             DbRequest::Cancel { .. } => "cancel",
             DbRequest::QueryStream(_) => "queryStream",
+            DbRequest::Run(_) => "run",
+            DbRequest::Page(_) => "page",
         }
+    }
+
+    /// The `streamId` of a stream request (`queryStream`, `run`, `page`):
+    /// what its events carry and `cancel` takes. `None` for the rest.
+    pub fn stream_id(&self) -> Option<&str> {
+        match self {
+            DbRequest::QueryStream(params) => Some(&params.stream_id),
+            DbRequest::Run(params) => Some(&params.stream_id),
+            DbRequest::Page(params) => Some(&params.stream_id),
+            _ => None,
+        }
+    }
+
+    /// Whether its events are [`CoreEvent::Run`]s (`run`, `page`) rather
+    /// than [`CoreEvent::Stream`]s.
+    pub fn is_run(&self) -> bool {
+        matches!(self, DbRequest::Run(_) | DbRequest::Page(_))
     }
 }
 
@@ -229,8 +262,12 @@ pub struct Connected {
 // ── Events ──
 
 /// What a stream transport pushes to a GUI: `{"type":"stream",…}` for a
-/// query stream's events, `{"type":"connectionClosed",…}` when a connection
-/// went away without the GUI asking.
+/// query stream's events, `{"type":"run",…}` for a run's or a page's, and
+/// `{"type":"connectionClosed",…}` when a connection went away without the
+/// GUI asking.
+///
+/// `Debug` shows no rows or SQL for a run event (`RunEvent`'s is by hand);
+/// transports still never log events.
 #[derive(Debug, Clone, Serialize)]
 #[serde(
     tag = "type",
@@ -253,9 +290,58 @@ pub enum CoreEvent {
         code: String,
         message: String,
     },
+    /// One event of run or page `streamId`: per statement a
+    /// `statementStart`, its `batch`es (`StreamBatch` flattened, snake_case,
+    /// as in `stream`) and `statementDone`/`statementError`, then one `done`
+    /// or `error` (nothing more after a cancel).
+    Run { stream_id: String, event: RunEvent },
 }
 
 impl CoreEvent {
+    /// The stream or run it belongs to; `None` for `connectionClosed`.
+    pub fn stream_id(&self) -> Option<&str> {
+        match self {
+            CoreEvent::Stream { stream_id, .. } | CoreEvent::Run { stream_id, .. } => {
+                Some(stream_id)
+            }
+            CoreEvent::ConnectionClosed { .. } => None,
+        }
+    }
+
+    /// A stream's or run's `done` or `error`: nothing more comes for its
+    /// `streamId`.
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            CoreEvent::Stream { event, .. } => {
+                matches!(event, StreamEvent::Done | StreamEvent::Error { .. })
+            }
+            CoreEvent::Run { event, .. } => event.is_terminal(),
+            CoreEvent::ConnectionClosed { .. } => false,
+        }
+    }
+
+    /// A terminal `error` for stream `stream_id`, shaped for the request it
+    /// answers: a `run` event when `run` (`db.run`/`db.page`), else a
+    /// `stream` event. The transports use it for a request they can't
+    /// serve, and the web for a stream that ended without a terminal event.
+    pub fn error(stream_id: &str, run: bool, code: &str, message: impl Into<String>) -> Self {
+        let stream_id = stream_id.to_string();
+        if run {
+            CoreEvent::Run {
+                stream_id,
+                event: RunEvent::error(code, message),
+            }
+        } else {
+            CoreEvent::Stream {
+                stream_id,
+                event: StreamEvent::Error {
+                    message: message.into(),
+                    code: code.to_string(),
+                },
+            }
+        }
+    }
+
     /// The wire event for a workspace event, if it has one.
     fn from_workspace(event: WorkspaceEvent) -> Option<Self> {
         match event {
@@ -276,7 +362,7 @@ impl CoreEvent {
 
 // ── Dispatch ──
 
-/// Serve a `db` call (not `queryStream`) through `ws`.
+/// Serve a `db` call (not a stream) through `ws`.
 pub(crate) async fn db(
     core: &Core,
     ws: &Workspace,
@@ -321,11 +407,12 @@ pub(crate) async fn db(
             ws.cancel(core, &stream_id);
             DbResponse::Cancel(())
         }
-        DbRequest::QueryStream(_) => {
-            return Err(RpcError::invalid_argument(
-                "db.queryStream is served by the stream transport (core_stream, /rpc/stream), \
+        req @ (DbRequest::QueryStream(_) | DbRequest::Run(_) | DbRequest::Page(_)) => {
+            return Err(RpcError::invalid_argument(format!(
+                "db.{} is served by the stream transport (core_stream, /rpc/stream), \
                  not as a single call",
-            ))
+                req.method()
+            )))
         }
     })
 }
@@ -367,26 +454,38 @@ async fn test(_: &Core, _: &Workspace, _: ConnectParams) -> Result<(), RpcError>
     Err(RpcError::not_supported("Connecting"))
 }
 
-/// Start a `db.queryStream` request on `ws`: its events as
-/// [`CoreEvent::Stream`]s tagged with its `streamId`, ending after `done` or
-/// `error` (or with nothing more after a cancel). A connection `ws` doesn't
-/// own gives one `CONNECTION_NOT_FOUND` error event.
+/// Start a stream request on `ws`, its events tagged with its `streamId`:
 ///
-/// Anything but `db.queryStream` is `INVALID_ARGUMENT`. The desktop's
-/// `core_stream` and the web's `/rpc/stream` call it with a request parsed
-/// by [`crate::parse_request`]. Logs the method name only.
+/// - `db.queryStream`: [`CoreEvent::Stream`]s, ending after `done` or
+///   `error`;
+/// - `db.run` and `db.page`: [`CoreEvent::Run`]s, ending after the run's
+///   `done` or `error`.
+///
+/// Either ends with nothing more after a cancel. A connection `ws` doesn't
+/// own gives one `CONNECTION_NOT_FOUND` error event. The stream borrows `ws`
+/// (a run appends its history row through it).
+///
+/// Anything else is `INVALID_ARGUMENT`; `run` and `page` without the
+/// `workspace` feature are `NOT_SUPPORTED`. The desktop's `core_stream` and
+/// the web's `/rpc/stream` call it with a request parsed by
+/// [`crate::parse_request`]. Logs the method name only.
 pub fn dispatch_stream<'a>(
     core: &'a Core,
-    ws: &Workspace,
+    ws: &'a Workspace,
     req: crate::Request,
 ) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
     let (group, method) = (req.group(), req.method());
     log::debug!(activity = "rpc.stream", group = group, method = method; "Workspace stream");
-    let crate::Request::Db(DbRequest::QueryStream(params)) = req else {
-        log::debug!(activity = "rpc.stream", group = group, method = method, code = crate::INVALID_ARGUMENT; "Workspace stream refused");
-        return Err(RpcError::invalid_argument(format!(
-            "{group}.{method} isn't a stream; only db.queryStream is"
-        )));
+    let params = match req {
+        crate::Request::Db(DbRequest::QueryStream(params)) => params,
+        crate::Request::Db(DbRequest::Run(params)) => return run(core, ws, params),
+        crate::Request::Db(DbRequest::Page(params)) => return page(core, ws, params),
+        _ => {
+            log::debug!(activity = "rpc.stream", group = group, method = method, code = crate::INVALID_ARGUMENT; "Workspace stream refused");
+            return Err(RpcError::invalid_argument(format!(
+                "{group}.{method} isn't a stream; only db.queryStream, db.run and db.page are"
+            )));
+        }
     };
     let options = params.options();
     let stream_id = params.stream_id.clone();
@@ -402,6 +501,52 @@ pub fn dispatch_stream<'a>(
         stream_id: stream_id.clone(),
         event,
     })))
+}
+
+#[cfg(feature = "workspace")]
+fn tag_run<'a>(stream_id: String, events: BoxStream<'a, RunEvent>) -> BoxStream<'a, CoreEvent> {
+    Box::pin(events.map(move |event| CoreEvent::Run {
+        stream_id: stream_id.clone(),
+        event,
+    }))
+}
+
+#[cfg(feature = "workspace")]
+fn run<'a>(
+    core: &'a Core,
+    ws: &'a Workspace,
+    params: RunParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    let stream_id = params.stream_id.clone();
+    Ok(tag_run(stream_id, ws.run(core, params)))
+}
+
+#[cfg(feature = "workspace")]
+fn page<'a>(
+    core: &'a Core,
+    ws: &'a Workspace,
+    params: PageParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    let stream_id = params.stream_id.clone();
+    Ok(tag_run(stream_id, ws.page(core, params)))
+}
+
+#[cfg(not(feature = "workspace"))]
+fn run<'a>(
+    _: &'a Core,
+    _: &'a Workspace,
+    _: RunParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    Err(RpcError::not_supported("Running queries"))
+}
+
+#[cfg(not(feature = "workspace"))]
+fn page<'a>(
+    _: &'a Core,
+    _: &'a Workspace,
+    _: PageParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    Err(RpcError::not_supported("Running queries"))
 }
 
 /// `ws`'s [`CoreEvent::ConnectionClosed`] events from now on (see

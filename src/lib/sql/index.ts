@@ -28,6 +28,7 @@ import type {
   DatabaseType,
   ParameterValue,
   SchemaTable,
+  SourceTableInfo,
 } from "$lib/types";
 import type { ColumnRef } from "$lib/types/generated/ColumnRef";
 import type { DestructiveReason } from "$lib/types/generated/DestructiveReason";
@@ -491,6 +492,59 @@ function findTable(schemas: SchemaTable[], name: string, schema?: string): Schem
 }
 
 /**
+ * Each output column's base-table column, as the query names it (the
+ * module's `column_refs`): the TS runner's `columnRefs` in `statementStart`,
+ * which Core computes itself. `null` when the columns can't be mapped
+ * confidently (see `resolveColumnSources`), and if the module fails (logged).
+ */
+export function columnRefs(query: string, dbType: DatabaseType): (ColumnRef | null)[] | null {
+  return orFallback("columnRefs", null, () =>
+    call<(ColumnRef | null)[] | null>((m) => m.column_refs(query, dbType)),
+  );
+}
+
+/**
+ * Column references (from Core's `statementStart`, or `columnRefs`) resolved
+ * against the cached schemas: each entry's table and its primary key. An
+ * entry is `undefined` where the column isn't a base-table column or its
+ * table isn't in `schemas` or has no primary key; `undefined` for no refs.
+ * A lookup only: no SQL is read here.
+ */
+export function columnSourcesFromRefs(
+  refs: readonly (ColumnRef | null)[] | null | undefined,
+  schemas: SchemaTable[],
+): (ColumnSourceInfo | undefined)[] | undefined {
+  if (!refs) return undefined;
+  return refs.map((ref) => {
+    if (!ref) return undefined;
+    const table = findTable(schemas, ref.table, ref.schema);
+    if (!table) return undefined;
+    const primaryKeys = table.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+    // A source with no PKs can't support row-bound edits anyway.
+    if (primaryKeys.length === 0) return undefined;
+    return { schema: table.schema, table: table.name, primaryKeys, column: ref.column };
+  });
+}
+
+/**
+ * A SELECT's source table (from Core's `statementStart`, or
+ * `extractTableFromSelect`) resolved against the cached schemas, for inline
+ * editing: `undefined` when the table isn't cached or has no primary key.
+ * Without a schema the first cached table of that name wins.
+ */
+export function sourceTableFromRef(
+  ref: TableRef | null | undefined,
+  schemas: SchemaTable[],
+): SourceTableInfo | undefined {
+  if (!ref) return undefined;
+  const table = findTable(schemas, ref.table, ref.schema);
+  if (!table) return undefined;
+  const primaryKeys = table.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+  if (primaryKeys.length === 0) return undefined;
+  return { schema: table.schema, name: table.name, primaryKeys };
+}
+
+/**
  * Resolve per-column source info for a SELECT query, for inline editing.
  *
  * Returns `undefined` when the columns can't be mapped confidently:
@@ -502,6 +556,9 @@ function findTable(schemas: SchemaTable[], name: string, schema?: string): Schem
  *
  * The module resolves the column references; the table and primary-key
  * lookup stays here, so the schema cache never crosses into it.
+ *
+ * Since phase 5b the app resolves Core's refs with `columnSourcesFromRefs`;
+ * this stays for the parity tests and the run-fixture recorder.
  */
 export function resolveColumnSources(
   query: string,
@@ -511,14 +568,5 @@ export function resolveColumnSources(
   const refs = orFallback("resolveColumnSources", null, () =>
     call<(ColumnRef | null)[] | null>((m) => m.column_refs(query, dbType)),
   );
-  if (!refs) return undefined;
-  return refs.map((ref) => {
-    if (!ref) return undefined;
-    const table = findTable(schemas, ref.table, ref.schema);
-    if (!table) return undefined;
-    const primaryKeys = table.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
-    // A source with no PKs can't support row-bound edits anyway.
-    if (primaryKeys.length === 0) return undefined;
-    return { schema: table.schema, table: table.name, primaryKeys, column: ref.column };
-  });
+  return columnSourcesFromRefs(refs, schemas);
 }

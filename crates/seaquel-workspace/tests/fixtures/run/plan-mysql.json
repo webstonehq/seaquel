@@ -1,0 +1,733 @@
+[
+  {
+    "name": "mysql/params-bound",
+    "engine": "mysql",
+    "input": {
+      "text": "SELECT * FROM `t;x` WHERE a = {{a}} # {{a}}\n AND b = {{b}}",
+      "target": {
+        "type": "all"
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": 1
+        },
+        {
+          "name": "b",
+          "value": "o'k"
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM `t;x` WHERE a = {{a}} # {{a}}\n AND b = {{b}}"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT * FROM `t;x` WHERE a = ? # {{a}}\n AND b = ?",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          1,
+          "o'k"
+        ],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM `t;x` WHERE a = {{a}} # {{a}}\n AND b = {{b}}",
+        "source": {
+          "sql": "SELECT * FROM `t;x` WHERE a = ? # {{a}}\n AND b = ?",
+          "params": [
+            1,
+            "o'k"
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "t;x"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM `t;x` WHERE a = {{a}} # {{a}}\n AND b = {{b}}",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/write-last-insert-id",
+    "engine": "mysql",
+    "input": {
+      "text": "INSERT INTO t (v) VALUES ('a');\nUPDATE t SET v = 'b' WHERE id = 1;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "INSERT INTO t (v) VALUES ('a')"
+      },
+      {
+        "index": 1,
+        "sql": "UPDATE t SET v = 'b' WHERE id = 1"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "write",
+        "sql": "INSERT INTO t (v) VALUES ('a')",
+        "params": [],
+        "answer": {
+          "rowsAffected": 1,
+          "lastInsertId": 42
+        }
+      },
+      {
+        "op": "write",
+        "sql": "UPDATE t SET v = 'b' WHERE id = 1",
+        "params": [],
+        "answer": {
+          "rowsAffected": 0
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "INSERT INTO t (v) VALUES ('a')",
+        "source": {
+          "sql": "INSERT INTO t (v) VALUES ('a')",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "insert",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "1 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 1,
+        "lastInsertId": 42
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "UPDATE t SET v = 'b' WHERE id = 1",
+        "source": {
+          "sql": "UPDATE t SET v = 'b' WHERE id = 1",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "update",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "0 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 0,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "INSERT INTO t (v) VALUES ('a');\nUPDATE t SET v = 'b' WHERE id = 1;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/row-limited-streams",
+    "engine": "mysql",
+    "input": {
+      "text": "SELECT * FROM t LIMIT 5",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t LIMIT 5"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "stream",
+        "sql": "SELECT * FROM t LIMIT 5",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id"
+          ],
+          "rows": [
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ],
+            [
+              4
+            ],
+            [
+              5
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t LIMIT 5",
+        "source": {
+          "sql": "SELECT * FROM t LIMIT 5",
+          "params": []
+        },
+        "kind": "stream",
+        "queryType": "select",
+        "columns": [
+          "id"
+        ],
+        "rows": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ]
+        ],
+        "rowCount": 5,
+        "totalRows": 5,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t LIMIT 5",
+      "rowCount": 5
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/destructive-and-backslash-string",
+    "engine": "mysql",
+    "input": {
+      "text": "SELECT 'a\\';b' AS s;\nTRUNCATE TABLE t;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": true,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 'a\\';b' AS s"
+      },
+      {
+        "index": 1,
+        "sql": "TRUNCATE TABLE t"
+      }
+    ],
+    "destructive": [
+      {
+        "index": 1,
+        "sql": "TRUNCATE TABLE t",
+        "reason": "truncate"
+      }
+    ],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 'a\\';b' AS s",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "s"
+          ],
+          "rows": [
+            [
+              "a';b"
+            ]
+          ]
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "TRUNCATE TABLE t",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 'a\\';b' AS s",
+        "source": {
+          "sql": "SELECT 'a\\';b' AS s",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "s"
+        ],
+        "rows": [
+          [
+            "a';b"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": false,
+        "sql": "TRUNCATE TABLE t",
+        "source": {
+          "sql": "TRUNCATE TABLE t",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT 'a\\';b' AS s;\nTRUNCATE TABLE t;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/show-tables-returns-rows",
+    "engine": "mysql",
+    "notes": "SHOW is `other`: today its rows are dropped (Decision 18 shows them)",
+    "input": {
+      "text": "SHOW TABLES",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SHOW TABLES"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "SHOW TABLES",
+        "params": [],
+        "answer": {
+          "columns": [
+            "Tables_in_db"
+          ],
+          "rows": [
+            [
+              "t"
+            ],
+            [
+              "u"
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SHOW TABLES",
+        "source": {
+          "sql": "SHOW TABLES",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SHOW TABLES",
+      "rowCount": 0
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/mariadb-comment-is-a-comment",
+    "engine": "mysql",
+    "notes": "The contrast to `mariadb/executable-comment-run-all`: to MySQL `/*M! … */` is a plain comment, so this is two statements",
+    "input": {
+      "text": "SELECT 1 AS a /*M! ; DELETE FROM t */;\nSELECT 2 AS b;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 1 AS a /*M! ; DELETE FROM t */"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT 2 AS b"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a /*M! ; DELETE FROM t */",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 2 AS b",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "b"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 1 AS a /*M! ; DELETE FROM t */",
+        "source": {
+          "sql": "SELECT 1 AS a /*M! ; DELETE FROM t */",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT 2 AS b",
+        "source": {
+          "sql": "SELECT 2 AS b",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "b"
+        ],
+        "rows": [
+          [
+            2
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT 1 AS a /*M! ; DELETE FROM t */;\nSELECT 2 AS b;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "mysql/utility-show",
+    "engine": "mysql",
+    "input": {
+      "text": "SHOW TABLES;\nUSE other;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SHOW TABLES"
+      },
+      {
+        "index": 1,
+        "sql": "USE other"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "SHOW TABLES",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "USE other",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SHOW TABLES",
+        "source": {
+          "sql": "SHOW TABLES",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "USE other",
+        "source": {
+          "sql": "USE other",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SHOW TABLES;\nUSE other;",
+      "rowCount": 0
+    },
+    "toasts": []
+  }
+]

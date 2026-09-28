@@ -43,11 +43,27 @@ export class ProjectManager {
   private sharedQueryManager: SharedQueryManager | null = null;
   private sharedDashboardManager: SharedDashboardManager | null = null;
 
+  /** Told when a project is deleted (its tabs' runs are cancelled) and when the active one changes. */
+  private lifecycle: {
+    removed?: (id: string) => void;
+    activated?: (id: string | null) => void;
+    reloading?: (id: string) => void;
+  } = {};
+
   constructor(
     private state: DatabaseState,
     private persistence: PersistenceManager,
     private stateRestoration: StateRestorationManager,
   ) {}
+
+  setLifecycleListener(listener: {
+    removed?: (id: string) => void;
+    activated?: (id: string | null) => void;
+    /** A project's tabs are about to be replaced from storage: cancel their runs. */
+    reloading?: (id: string) => void;
+  }): void {
+    this.lifecycle = listener;
+  }
 
   /**
    * Set the shared repo manager reference.
@@ -366,7 +382,7 @@ export class ProjectManager {
         // Cancel any debounced persistence scheduled by removeConnection
         // (e.g. via setActiveForProject) before the next iteration's await
         // gives the timer a chance to fire against the soon-to-be-deleted project
-        this.persistence.cancelPendingPersistenceFor(id, [connection.id]);
+        this.persistence.cancelPendingPersistenceFor(id);
       }
     }
 
@@ -376,6 +392,7 @@ export class ProjectManager {
 
     // Remove from in-memory state
     this.state.projects = this.state.projects.filter((p) => p.id !== id);
+    this.lifecycle.removed?.(id);
 
     // Switch active project if needed
     if (this.state.activeProjectId === id) {
@@ -408,6 +425,7 @@ export class ProjectManager {
     }
 
     this.state.activeProjectId = id;
+    this.lifecycle.activated?.(id);
     await this.persistence.persistAppState();
 
     // Load new project state
@@ -696,6 +714,9 @@ export class ProjectManager {
   }
 
   private async loadProjectState(projectId: string): Promise<void> {
+    // Its tabs are replaced below: a run still going on one of them would
+    // lose its results, so cancel it cleanly first.
+    this.lifecycle.reloading?.(projectId);
     // Load saved queries and dashboards FIRST, before any state assignments
     // that trigger UI re-renders via $derived. This ensures queriesByProject
     // is populated when projectQueries recomputes after activeProjectId changes.

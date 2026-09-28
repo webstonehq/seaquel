@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use serde_json::{json, Value};
 
 mod common;
-use common::{next, open_stream, pg_form, quiet, send, start, until_end, Env};
+use common::{next, open_stream, pg_form, quiet, send, start, start_run, until_end, Env};
 
 fn evicted(connection_id: &str) -> Value {
     json!({"type": "connectionClosed", "connectionId": connection_id,
@@ -183,4 +183,45 @@ async fn the_cap_is_hard() {
     }
     assert_eq!(env.calls.closed.load(Ordering::SeqCst), 4);
     assert_eq!(env.state.core.connection_count(), 2);
+}
+
+/// Evicting a user ends their running run: the statement in flight is
+/// dropped, the later ones never run, and the run ends with an error
+/// (`CANCELLED` or `CONNECTION_CLOSED`, whichever of `close_all`'s cancel
+/// and disconnect wins), never `done`.
+#[tokio::test]
+async fn eviction_ends_a_run() {
+    let env = Env::new(2);
+    let addr = env.serve().await;
+    let c = env.connect("u1", pg_form()).await;
+    let mut socket = open_stream(addr, "u1").await;
+    send(
+        &mut socket,
+        &start_run("r1", &c, "SELECT hang(); INSERT INTO t VALUES (1)", 100),
+    )
+    .await;
+    env.calls
+        .wait("u1's run", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+
+    let _ = env.connect("u2", pg_form()).await;
+    let _ = env.connect("u3", pg_form()).await;
+    wait_evicted(&env, 1).await;
+    env.calls
+        .wait("the run's statement to be dropped", |c| {
+            c.dropped.load(Ordering::SeqCst) == 1
+        })
+        .await;
+
+    let mut run = Vec::new();
+    let got = until_end(&mut socket, "r1", &mut Vec::new()).await;
+    run.extend(got);
+    assert_eq!(run[0]["event"]["type"], "statementStart", "{run:?}");
+    let last = run.last().unwrap();
+    assert_eq!(last["type"], "run", "{last}");
+    assert_eq!(last["event"]["type"], "error", "{last}");
+    let code = last["event"]["code"].as_str().unwrap();
+    assert!(code == "CANCELLED" || code == "CONNECTION_CLOSED", "{last}");
+    assert_eq!(env.calls.execute.load(Ordering::SeqCst), 0);
+    assert_eq!(env.state.core.running_stream_count(), 0);
 }

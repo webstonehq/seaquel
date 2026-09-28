@@ -37,7 +37,8 @@ path). Only connections named on its command line are exposed. Core gained
 row, byte and time limits on read-only queries and a read-only EXPLAIN. The
 GUI still connects through TypeScript, and nothing writes storage from a
 second process yet. Its measured cost is in "Phase 4 cost" below.
-Phase 5a: implemented (see 2026-10-01-rust-core-phase-5a-plan.md). The
+Phase 5a: implemented, manual checks passed (see
+2026-10-01-rust-core-phase-5a-plan.md). The
 desktop and web GUIs connect, test, query and disconnect through Core's
 workspace (`Workspace::connect`/`test` with a saved id or a form, and the
 `db` RPC group), over `core_call`/`core_stream`/`core_events` on desktop and
@@ -48,6 +49,20 @@ refuses the rest. `/api/db/*` and the `db_*` commands are gone. The recorded
 connect quirks are fixed (the v2 fixtures), web connections are capped per
 user, and a stopped stream stops on the server. The demo is unchanged. Its
 measured cost is in "Phase 5a cost" below.
+Phase 5b: implemented, manual checks pending (see
+2026-10-02-rust-core-phase-5b-plan.md). On desktop and web, running SQL
+from the editor is one Core stream, `db.run`, and paging is `db.page`. Core
+splits the text, finds the statement at the cursor, substitutes
+`{{param}}`s, refuses unconfirmed destructive runs (`CONFIRM_REQUIRED`),
+pages with the count probe, streams, times each statement with the
+`Executor`'s clock and appends the history row. History is written only by
+targeted calls (`append` with the 500-row cap, `setFavorite`), never by
+replacing the list. Statements such as `WITH`, `SHOW` and `EXPLAIN` show
+their rows. The GUI's runner is a view model over run events; the demo
+keeps the TypeScript runner behind a `QueryRunner` seam. The web server
+bounds a run's text, statement count and parameter values, Core bounds
+what substitution may add everywhere, and the Node proxy applies
+backpressure. Its measured cost is in "Phase 5b cost" below.
 
 ## Problem
 
@@ -2194,6 +2209,187 @@ stream and a `pg_sleep` cancel worked through the new client on the first run.
 - **Estimating.** First passes ran at 56–76% of their estimates again. Keep
   the probe and its separate fix budget, and expect a multi-user feature's
   review to find lifecycle and limits issues the plan didn't list.
+
+## Phase 5b cost
+
+Source: `2026-10-02-phase-5b-effort.md` and the phase 5b plan's execution
+notes, plus line counts measured against the phase 5a commit (`cf2085d`);
+phase 5b is in the working tree on top of it. Times are agent wall time as
+logged, review and probe fixes included, but not the plan, the review passes
+themselves or the owner's decisions. Tasks 2 and 3 ran in parallel. The
+probe run has no entry in the effort log; its scratch files span 13:02 to
+13:15, so it's counted at ~0.25 h with its setup. The whole phase, reviews
+and owner decisions included, ran from 09:48 to about 16:45 on one day,
+about seven hours of calendar time.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Paging with parameters (TS) | 0.5–0.75 h | ~0.1 h | — | ~0.1 h |
+| 2. Run parity fixtures | 1.5–2.5 h | ~0.2 h | ~0.1 h | ~0.3 h |
+| 3. History storage calls, TS off `replaceAll` | 1.5–2.5 h | ~0.25 h | ~0.15 h | ~0.4 h |
+| 4. Core run service | 4.5–6 h | ~0.6 h | ~0.4 h | ~1 h |
+| 5. `seaquel-rpc` and both transports | 2–3 h | ~0.4 h | — | ~0.4 h |
+| 6. GUI onto `db.run`/`db.page` | 4–5.5 h | ~0.45 h | ~0.3 h | ~0.75 h |
+| 7. Probe | 0.75–1 h | ~0.25 h | ~2.35 h | ~2.6 h |
+| 8. Docs, measure, checks | 0.75–1 h | ~0.5 h | — | ~0.5 h |
+| Probe fixes (the plan's row) | 2.25–3 h | | | |
+| Review fixes (the plan's row) | 5–7 h | | | |
+| **Total** | **~23–32 h** | **~2.7 h** | **~3.3 h** | **~6 h** |
+
+Task 2's fixes are its review round, which also wrote the owner's Decision
+18 into the plan and added 14 cases. Task 6's are a review round and an
+approval round. Task 7's are the probe's fixes (~0.9 h), the owner's change
+to make the run caps web-only (~0.35 h), their review round (~0.85 h) and
+the approval items (~0.25 h).
+
+The plan expected **17–25 h logged**. It came in at ~6 h, a quarter to a
+third of that and a fifth of the plan's 23–32 h. First passes took ~2.7 h
+against 15.5–22.25 h, 12–17% of their estimates; phase 5a's ran at 56–76%.
+Fixes took ~3.3 h, 55% of the logged time: review fixes ~0.95 h against
+5–7 h, and probe fixes ~2.35 h against 2.25–3 h. So the probe's fixes landed
+inside their budget while everything else ran far under, and the probe and
+its fixes were ~40% of the phase. The estimates were scaled from 5a's rates;
+5b's work was more contained (one service, pinned by recorded fixtures
+before any code), and the per-task estimates didn't reflect that.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~2,690 | ~260 |
+| Rust, tests (test files, inline `#[cfg(test)]`) | ~6,050 | ~130 |
+| Fixtures (95 recorded run cases, 4 `paginate.json` files) | ~17,990 | ~20 |
+| TypeScript/Svelte/JS, production | ~2,060 | ~1,200 |
+| TypeScript/JS, tests | ~3,270 | ~170 |
+| Generated TS types | ~215 | ~6 |
+
+Measured with `git diff -U0` against `cf2085d` plus the untracked files,
+with `Cargo.lock`, config files, the docs and the message files left out;
+inline test modules counted from their `#[cfg(test)]` line. The recorder in
+`docs/plans/artifacts` (~1,575 lines) isn't counted.
+
+Where the production Rust went: `seaquel-workspace` ~1,020 (the run's wire
+types, `plan`, `history_item`, `RunLimits` and the budgets), Core ~770
+(`Workspace::run`/`page`, the per-kind execution, the executor, `sql_engine`),
+`seaquel-server` ~300 (run frames, `streamId` checks, the logger's
+key-values, `WEB_RUN_LIMITS`), `seaquel-sql` ~250 (`offsets` moved from
+`seaquel-wasm`, `SizeBound`, `Values`, the `column_refs` cutoff),
+`seaquel-rpc` ~180, `seaquel-storage` ~70 (`append`, `set_favorite`) and
+~50 in `seaquel-runtime` (`monotonic`). The engines changed by a few lines
+each (`paginate`, empty-result columns). On the TS side the runner's
+planning and execution (~370 lines) moved into `ts-runner.ts` for the demo,
+and `query-execution.svelte.ts` went from 1,333 to 962 lines as a view
+model; TS production grew by ~860 lines net, most of it the demo's runner,
+which phase 8 deletes.
+
+### Bugs found
+
+By who found them first, counted from the effort log (a review finding that
+bundles several small ones counts once per item). The bracketed number is
+how many were older than phase 5b. The plan's survey found three before any
+code (the paging bug, reruns and file drops skipping the destructive prompt,
+Core scanning MariaDB as MySQL), all older; they aren't in the table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Run semantics (history, rows, pages, counts) | 3 [3] | 3 [1] | — |
+| Engines (empty columns, DuckDB status, MySQL `BEGIN`) | 3 [2] | 1 | — |
+| Core API, wire and features | 2 | 3 | — |
+| History storage and cache | — | 3 | — |
+| GUI view model and confirm | — | 7 | — |
+| Server limits and planning cost | — | 1 | 2 [1] |
+| Web proxy | — | 3 | 2 [1] |
+| Logs | 1 | 3 | 2 [2] |
+| **Total** | **9 [5]** | **24 [1]** | **6 [4]** |
+
+The probe column includes the re-probe, which caught the first backpressure
+fix closing the socket on the frame right behind a wide row.
+
+The serious ones:
+
+- **Parameter values multiplied without limit** (probe, N3). `{{p}}` is
+  copied once per use on SQL Server and DuckDB and bound once per use on
+  MySQL and MariaDB, so one 1 MiB value used 300,000 times would have grown
+  to ~300 GB before anything ran. The TS runner did the same on the
+  desktop. Core now refuses a run whose values would add more than 32 MiB.
+  Its review found the first bound cost a value on every use and wrote out
+  decimal exponents, so 1,000 statements × 100 `1e1048575` values took
+  4.1 s; `SizeBound` costs each value once and a decimal by arithmetic.
+- **Planning a large script on the server** (probe, I1). `column_refs`
+  parsed an 8 MiB page in ~4 GB, and `plan` took 563 MB on one 8 MiB
+  statement. `column_refs` skips statements over 64 KiB everywhere, and the
+  web caps a run at 2 MiB and 10,000 statements (the owner kept the desktop
+  unlimited).
+- **No backpressure in the Node proxy** (probe, I2; older, from 5a). A slow
+  browser let Node buffer a whole stream in memory. The proxy now pauses
+  the side it reads; the first hard cap closed the socket on a legitimate
+  wide row, and the review and re-probe moved it to bytes arriving after a
+  pause.
+- **Log lines forgeable from the browser** (review of the probe fixes). The
+  server's new key-value logging wrote browser-supplied stream and
+  connection ids as they came; ids are now checked on `/rpc/stream`, and
+  values are escaped, quoted and cut at 128 bytes.
+- **History recorded failed runs** (recorder, older). Run all recorded a
+  history row after a failed write, utility statement, substitution or
+  page (six cases); only a failed stream skipped it. Core records only runs
+  where nothing failed.
+- **Rows thrown away** (recorder, older). `WITH`, `SHOW`, `EXPLAIN`,
+  `PRAGMA` and DuckDB `FROM …` ran as utility statements and their rows
+  were discarded. The owner's Decision 18 shows them; the implementer then
+  found DuckDB answers every statement without rows with a `Success` or
+  `Count` column, which would have shown an empty grid for each `SET`.
+- **A trailing `--` swallowed the page's `LIMIT`** (Task 4 review, older).
+  The dialects appended `LIMIT` on the same line, so a paged query ending in
+  a line comment fetched every row. `LIMIT` is now on its own line, and a
+  page stops reading at the row past the page whatever the SQL made of it.
+- **Paging could cancel a run** (Task 6 review). A page request on a tab
+  whose run was still going replaced it; paging is now refused while a run
+  is going, and a superseded or refused run no longer leaves a spinner.
+
+### What was harder than expected
+
+- **Bounding work on a shared server.** Moving planning into the web
+  server turned every step that was cheap in one browser tab into a
+  server-side cost: parsing column references, scanning a large script,
+  filling in parameters, buffering frames. None of it was in the plan. The
+  probe found it, and its fixes and their review took as long as all the
+  first passes together.
+- **Engines disagree on what "no result" looks like.** The sqlx engines
+  give no column names without a row; DuckDB answers statements that return
+  nothing with a status column. Decision 18 and the empty-result rule each
+  needed an engine-specific reading, found by live tests, not the fixtures.
+- **Logs from a browser's input.** Once the server logged key-values, ids
+  that come from the browser before Core checks them reached the log. It
+  took a validation rule on `/rpc/stream`, escaping, quoting and a length
+  cap, over two review rounds.
+- **Feature unification again.** The browser line builds `seaquel-rpc`
+  without `workspace`, where `seaquel_core::domain` didn't exist, so the
+  run types couldn't be named. The domain crate is now always a Core
+  dependency; only connecting and running are gated.
+
+What went to plan: the recorded fixtures, which the Rust replay matched on
+all 95 cases with exactly the 14 listed changes; the transports, which
+changed only where they named `queryStream`; the AI's read-only path and
+MCP, which needed no change beyond `sql_engine`; and the history switch,
+which removed every whole-list write without touching a stored row.
+
+### What this means for the next slice
+
+- **Pending changes, CRUD, the data tab and workflows** are next (the
+  plan's Follow-ups), with the owner's rule that a DML-only batch applies in
+  one transaction. They build on `db.run`'s planning and events; `deferWrites`
+  already hands Core's statements to the TS queue.
+- **Size every server-side step up front.** Anything Core parses or
+  expands for a web user needs a limit in the plan, on the `RunLimits`
+  pattern: set per interface, none on the desktop unless measured.
+- **The row-returning statement kind** is the high-priority follow-up:
+  Decision 18 shows the rows but can't page or stream them.
+- **Estimating.** 5b's first passes ran at 12–17% of estimates scaled from
+  5a. Estimate the next slice from 5b's per-task times, and keep the probe's
+  fix budget in proportion to the first passes (here about equal to them)
+  rather than to the probe.
 
 ## Risks
 

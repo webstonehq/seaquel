@@ -14,28 +14,137 @@ struct StderrLogger;
 /// sqlx's statement log target.
 const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
+/// Whether the server's logger writes a record with this metadata (see
+/// [`init_logging`]). Public so tests can check what reaches the log.
+pub fn logs(metadata: &log::Metadata) -> bool {
+    if metadata.target() == SQLX_QUERY_TARGET {
+        return false;
+    }
+    let floor = if metadata.target().starts_with("seaquel") {
+        log::Level::Info
+    } else {
+        log::Level::Warn
+    };
+    metadata.level() <= floor
+}
+
+/// One log line: `[seaquel-server] LEVEL target: message key=value …`.
+/// The key-values are the record's structured fields (`activity`, `code`,
+/// ids, counts); nothing logged as one holds SQL or values. Some come from
+/// the browser (a stream or connection id, before Core checks it), so
+/// (phase 5b review, I1):
+/// - each value is cut at [`MAX_LOG_VALUE_BYTES`] while it is written, never
+///   formatted whole;
+/// - a value holding a space, `=`, `"`, `\` or a control character is
+///   quoted, logfmt style, with `"` and `\` escaped, so it can't forge a
+///   field;
+/// - control characters are escaped everywhere, so a record is one line.
+///
+/// Public so tests can check what reaches the log.
+pub fn format_record(record: &log::Record) -> String {
+    struct Pairs(String);
+    impl<'kvs> log::kv::VisitSource<'kvs> for Pairs {
+        fn visit_pair(
+            &mut self,
+            key: log::kv::Key<'kvs>,
+            value: log::kv::Value<'kvs>,
+        ) -> Result<(), log::kv::Error> {
+            self.0.push(' ');
+            push_value(&mut self.0, format_args!("{}", key.as_str()));
+            self.0.push('=');
+            push_value(&mut self.0, format_args!("{value}"));
+            Ok(())
+        }
+    }
+    let mut line = format!("[seaquel-server] {} {}: ", record.level(), record.target());
+    let (message, cut) = capped(*record.args(), MAX_LOG_MESSAGE_BYTES);
+    push_escaped(&mut line, &message, false);
+    if cut {
+        line.push('…');
+    }
+    let mut pairs = Pairs(String::new());
+    let _ = record.key_values().visit(&mut pairs);
+    line.push_str(&pairs.0);
+    line
+}
+
+/// The longest key-value [`format_record`] writes, in bytes (before
+/// escaping); longer ones end in `…`.
+pub const MAX_LOG_VALUE_BYTES: usize = 128;
+
+/// The longest message [`format_record`] writes, in bytes.
+const MAX_LOG_MESSAGE_BYTES: usize = 1024;
+
+/// `args` formatted into at most `max` bytes (cut on a char boundary), and
+/// whether it was cut. Formatting stops at the cap: a long value is never
+/// formatted whole.
+fn capped(args: std::fmt::Arguments<'_>, max: usize) -> (String, bool) {
+    struct Capped {
+        out: String,
+        max: usize,
+        cut: bool,
+    }
+    impl std::fmt::Write for Capped {
+        fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            for c in s.chars() {
+                if self.out.len() + c.len_utf8() > self.max {
+                    self.cut = true;
+                    // Stops the formatting.
+                    return Err(std::fmt::Error);
+                }
+                self.out.push(c);
+            }
+            Ok(())
+        }
+    }
+    let mut w = Capped {
+        out: String::new(),
+        max,
+        cut: false,
+    };
+    let _ = std::fmt::Write::write_fmt(&mut w, args);
+    (w.out, w.cut)
+}
+
+/// One key or value, cut at [`MAX_LOG_VALUE_BYTES`], bare or quoted.
+fn push_value(out: &mut String, args: std::fmt::Arguments<'_>) {
+    let (text, cut) = capped(args, MAX_LOG_VALUE_BYTES);
+    let quote = text.is_empty()
+        || text
+            .chars()
+            .any(|c| matches!(c, ' ' | '=' | '"' | '\\') || c.is_control());
+    if quote {
+        out.push('"');
+    }
+    push_escaped(out, &text, quote);
+    if cut {
+        out.push('…');
+    }
+    if quote {
+        out.push('"');
+    }
+}
+
+/// `text` with control characters escaped (`\n`, `\u{1b}`), and in a
+/// quoted value `"` and `\` too.
+fn push_escaped(out: &mut String, text: &str, quoted: bool) {
+    for c in text.chars() {
+        if c.is_control() || (quoted && matches!(c, '"' | '\\')) {
+            out.extend(c.escape_debug());
+        } else {
+            out.push(c);
+        }
+    }
+}
+
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        if metadata.target() == SQLX_QUERY_TARGET {
-            return false;
-        }
-        let floor = if metadata.target().starts_with("seaquel") {
-            log::Level::Info
-        } else {
-            log::Level::Warn
-        };
-        metadata.level() <= floor
+        logs(metadata)
     }
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            let _ = writeln!(
-                std::io::stderr().lock(),
-                "[seaquel-server] {} {}: {}",
-                record.level(),
-                record.target(),
-                record.args()
-            );
+            let _ = writeln!(std::io::stderr().lock(), "{}", format_record(record));
         }
     }
 

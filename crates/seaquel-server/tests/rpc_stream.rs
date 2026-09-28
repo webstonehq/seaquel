@@ -10,7 +10,10 @@ use serde_json::json;
 use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest, Message};
 
 mod common;
-use common::{next, open_stream, pg_form, quiet, send, start, start_with, until_end, Env};
+use common::{
+    event_types, next, open_stream, pg_form, quiet, send, start, start_page, start_run,
+    start_run_with, start_with, until_end, Env,
+};
 
 const MAX_STREAMS: usize = 16;
 
@@ -536,4 +539,375 @@ async fn a_user_has_at_most_eight_sockets() {
         break;
     }
     assert!(ok, "the slot never freed up");
+}
+
+// ── db.run and db.page ──
+
+/// A run's events arrive as `run` frames with its `streamId`, statement by
+/// statement, and end with one `done`; a page likewise.
+#[tokio::test]
+async fn a_run_streams_statements_over_the_socket() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    send(
+        &mut ws,
+        &start_run(
+            "r1",
+            &c,
+            "SELECT 1; INSERT INTO t VALUES (1); SELECT fail()",
+            100,
+        ),
+    )
+    .await;
+    let got = until_end(&mut ws, "r1", &mut Vec::new()).await;
+    assert!(
+        got.iter()
+            .all(|f| f["type"] == "run" && f["streamId"] == "r1"),
+        "{got:?}"
+    );
+    assert_eq!(
+        event_types(&got),
+        [
+            "statementStart",
+            "batch",
+            "statementDone",
+            "statementStart",
+            "statementDone",
+            "statementStart",
+            "statementError",
+            "done"
+        ],
+        "{got:?}"
+    );
+    assert_eq!(got[0]["event"]["sql"], "SELECT 1");
+    assert_eq!(got[0]["event"]["kind"], "page");
+    assert_eq!(got[4]["event"]["rowsAffected"], 3);
+    assert_eq!(got[6]["event"]["code"], "QUERY_ERROR");
+    assert_eq!(got[7]["event"]["succeeded"], false);
+    assert_eq!(env.calls.execute.load(Ordering::SeqCst), 1);
+
+    // A page of a statement the run sent.
+    let source = got[0]["event"]["source"]["sql"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(&mut ws, &start_page("p1", &c, &source, 2, 10)).await;
+    let got = until_end(&mut ws, "p1", &mut Vec::new()).await;
+    assert!(
+        got.iter()
+            .all(|f| f["type"] == "run" && f["streamId"] == "p1"),
+        "{got:?}"
+    );
+    assert_eq!(
+        event_types(&got),
+        ["statementStart", "batch", "statementDone", "done"],
+        "{got:?}"
+    );
+    assert_eq!(got[0]["event"]["page"], 2);
+
+    // A run with nothing to run is a plain done; a destructive one asks.
+    send(&mut ws, &start_run("r2", &c, "-- nothing", 100)).await;
+    let got = until_end(&mut ws, "r2", &mut Vec::new()).await;
+    assert_eq!(
+        got,
+        vec![json!({"type": "run", "streamId": "r2", "event":
+        {"type": "done", "statements": 0, "succeeded": false}})]
+    );
+    send(&mut ws, &start_run("r3", &c, "DELETE FROM t", 100)).await;
+    let got = until_end(&mut ws, "r3", &mut Vec::new()).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["event"]["code"], "CONFIRM_REQUIRED");
+    assert_eq!(env.calls.execute.load(Ordering::SeqCst), 1);
+}
+
+/// A run's batch too big for one frame arrives as several `run` batch
+/// frames, in order, columns on the first and `is_final` on the last only,
+/// between the statement's start and its done.
+#[tokio::test]
+async fn a_run_batch_over_4_mib_is_split_by_rows() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    // Streamed (page size 0), then paged: both kinds carry the big batch.
+    for (id, page_size) in [("r0", 0), ("r1", 100)] {
+        send(&mut ws, &start_run(id, &c, "SELECT big()", page_size)).await;
+        let mut frames = Vec::new();
+        loop {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let Message::Text(text) = msg else { continue };
+            assert!(text.len() <= 6 * 1024 * 1024, "{}", text.len());
+            let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(frame["type"], "run");
+            assert_eq!(frame["streamId"], id);
+            let end = frame["event"]["type"] == "done" || frame["event"]["type"] == "error";
+            frames.push(frame);
+            if end {
+                break;
+            }
+        }
+        let types = event_types(&frames);
+        assert_eq!(types[0], "statementStart", "{types:?}");
+        assert_eq!(
+            &types[types.len() - 2..],
+            ["statementDone", "done"],
+            "{types:?}"
+        );
+        let batches = &frames[1..frames.len() - 2];
+        assert!(batches.len() >= 3, "{types:?}");
+        for (i, frame) in batches.iter().enumerate() {
+            assert_eq!(frame["event"]["type"], "batch");
+            assert_eq!(frame["event"]["is_final"], i == batches.len() - 1, "{i}");
+            assert_eq!(frame["event"]["columns"].is_array(), i == 0, "{i}");
+        }
+        let ns: Vec<i64> = batches
+            .iter()
+            .flat_map(|f| f["event"]["rows"].as_array().unwrap().clone())
+            .map(|row| row[0].as_i64().unwrap())
+            .collect();
+        assert_eq!(ns, (0..10).collect::<Vec<_>>(), "{id}");
+        assert_eq!(frames[frames.len() - 2]["event"]["totalRows"], 10);
+    }
+}
+
+/// A run takes one of the socket's 16 slots however many statements it
+/// has, and a refused run start answers with a `run` error.
+#[tokio::test]
+async fn a_run_counts_as_one_of_16_streams() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    for i in 0..MAX_STREAMS - 1 {
+        send(&mut ws, &start(&format!("s{i}"), &c, "SELECT hang()")).await;
+    }
+    send(
+        &mut ws,
+        &start_run("run", &c, "SELECT hang(); SELECT 1; SELECT 2", 100),
+    )
+    .await;
+    env.calls
+        .wait("16 queries", |c| {
+            c.hanging.load(Ordering::SeqCst) == MAX_STREAMS
+        })
+        .await;
+    assert_eq!(next(&mut ws).await["event"]["type"], "statementStart");
+
+    for frame in [
+        start_run("extra-run", &c, "SELECT 1", 100),
+        start_page("extra-page", &c, "SELECT 1", 1, 100),
+    ] {
+        send(&mut ws, &frame).await;
+        let got = next(&mut ws).await;
+        assert_eq!(got["type"], "run", "{got}");
+        assert_eq!(got["streamId"], frame["streamId"], "{got}");
+        assert_eq!(got["event"]["type"], "error", "{got}");
+        assert_eq!(got["event"]["code"], "TOO_MANY_STREAMS", "{got}");
+    }
+    send(&mut ws, &start("extra", &c, "SELECT 1")).await;
+    let got = next(&mut ws).await;
+    assert_eq!(got["type"], "stream", "{got}");
+    assert_eq!(got["event"]["code"], "TOO_MANY_STREAMS", "{got}");
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), MAX_STREAMS);
+
+    // Cancelling the run frees its slot, and its later statements never run.
+    send(&mut ws, &json!({"op": "cancel", "streamId": "run"})).await;
+    env.calls
+        .wait("the run's statement to be dropped", |c| {
+            c.dropped.load(Ordering::SeqCst) == 1
+        })
+        .await;
+    let mut done = false;
+    for _ in 0..50 {
+        send(&mut ws, &start_run("extra-run", &c, "SELECT 1", 100)).await;
+        let got = until_end(&mut ws, "extra-run", &mut Vec::new()).await;
+        if got.last().unwrap()["event"]["type"] == "done" {
+            done = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(done, "the freed slot was never reused");
+    // 16 hanging, then the one "SELECT 1" that got through.
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), MAX_STREAMS + 1);
+}
+
+/// A run or page start whose request's `streamId` isn't the frame's is
+/// refused with a `run` error under the frame's id, and nothing runs.
+#[tokio::test]
+async fn the_start_frame_stream_id_must_match_a_runs() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    let mut run = start_run("x1", &c, "SELECT 1", 100);
+    run["request"]["params"]["params"]["streamId"] = json!("other");
+    let mut page = start_page("x2", &c, "SELECT 1", 1, 100);
+    page["request"]["params"]["params"]["streamId"] = json!("other");
+    // A run request that doesn't parse (no target) is refused as a run too.
+    let mut bad = start_run("x3", &c, "SELECT 1", 100);
+    bad["request"]["params"]["params"]
+        .as_object_mut()
+        .unwrap()
+        .remove("target");
+    for frame in [run, page, bad] {
+        send(&mut ws, &frame).await;
+        let got = next(&mut ws).await;
+        assert_eq!(got["type"], "run", "{got}");
+        assert_eq!(got["streamId"], frame["streamId"], "{got}");
+        assert_eq!(got["event"]["type"], "error", "{got}");
+        assert_eq!(got["event"]["code"], "INVALID_ARGUMENT", "{got}");
+    }
+    quiet(&mut ws, 100).await;
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), 0);
+}
+
+/// A cancel frame stops a run: the statement in flight is dropped, the rest
+/// never run, and nothing more arrives for it.
+#[tokio::test]
+async fn a_cancel_frame_stops_a_run() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    send(
+        &mut ws,
+        &start_run_with(
+            "r1",
+            json!({"connectionId": c, "text": "SELECT hang(); INSERT INTO t VALUES (1)",
+                   "target": {"type": "all"}, "pageSize": 100}),
+        ),
+    )
+    .await;
+    assert_eq!(next(&mut ws).await["event"]["type"], "statementStart");
+    env.calls
+        .wait("the statement", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    send(&mut ws, &json!({"op": "cancel", "streamId": "r1"})).await;
+    env.calls
+        .wait("the drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
+        .await;
+    quiet(&mut ws, 200).await;
+    assert_eq!(env.calls.execute.load(Ordering::SeqCst), 0);
+    assert_eq!(env.state.core.running_stream_count(), 0);
+}
+
+/// A run stopped by something other than this socket (`db.cancel` on
+/// `/rpc`) ends with a `run` `CANCELLED` error.
+#[tokio::test]
+async fn a_run_stopped_elsewhere_ends_with_cancelled() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    send(&mut ws, &start_run("r1", &c, "SELECT hang(); SELECT 2", 0)).await;
+    env.calls
+        .wait("the statement", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    let (status, body) = env.db("alice", "cancel", json!({"streamId": "r1"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let got = until_end(&mut ws, "r1", &mut Vec::new()).await;
+    assert_eq!(
+        got.last().unwrap(),
+        &json!({"type": "run", "streamId": "r1", "event":
+                {"type": "error", "code": "CANCELLED", "message": "The query was stopped."}})
+    );
+    assert_eq!(event_types(&got), ["statementStart", "error"]);
+}
+
+/// Closing or losing the socket cancels its runs.
+#[tokio::test]
+async fn closing_the_socket_cancels_a_run() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+
+    let mut ws = open_stream(addr, "alice").await;
+    send(
+        &mut ws,
+        &start_run("r1", &c, "SELECT hang(); INSERT INTO t VALUES (1)", 100),
+    )
+    .await;
+    env.calls
+        .wait("the statement", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    ws.close(None).await.unwrap();
+    env.calls
+        .wait("the drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
+        .await;
+
+    let mut ws = open_stream(addr, "alice").await;
+    send(&mut ws, &start_page("p1", &c, "SELECT hang()", 1, 100)).await;
+    env.calls
+        .wait("the page", |c| c.hanging.load(Ordering::SeqCst) == 2)
+        .await;
+    drop(ws);
+    env.calls
+        .wait("the page's drop", |c| c.dropped.load(Ordering::SeqCst) == 2)
+        .await;
+    for _ in 0..100 {
+        if env.state.core.running_stream_count() == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(env.state.core.running_stream_count(), 0);
+    assert_eq!(env.calls.execute.load(Ordering::SeqCst), 0);
+}
+
+/// Bob can't run or page on alice's connection, nor cancel her run from
+/// his socket or `/rpc`, even with the same stream id.
+#[tokio::test]
+async fn another_users_run_is_connection_not_found() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let _bobs = env.connect("bob", pg_form()).await;
+    let mut alice = open_stream(addr, "alice").await;
+    let mut bob = open_stream(addr, "bob").await;
+
+    send(&mut alice, &start_run("r1", &c, "SELECT hang()", 100)).await;
+    env.calls
+        .wait("alice's run", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    assert_eq!(next(&mut alice).await["event"]["type"], "statementStart");
+
+    for frame in [
+        start_run("r1", &c, "SELECT 1", 100),
+        start_page("b2", &c, "SELECT 1", 1, 100),
+    ] {
+        send(&mut bob, &frame).await;
+        let got = until_end(
+            &mut bob,
+            frame["streamId"].as_str().unwrap(),
+            &mut Vec::new(),
+        )
+        .await;
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0]["type"], "run");
+        assert_eq!(got[0]["event"]["code"], "CONNECTION_NOT_FOUND");
+    }
+    send(&mut bob, &json!({"op": "cancel", "streamId": "r1"})).await;
+    let (status, _) = env.db("bob", "cancel", json!({"streamId": "r1"})).await;
+    assert_eq!(status, StatusCode::OK);
+    quiet(&mut alice, 200).await;
+    assert_eq!(env.calls.dropped.load(Ordering::SeqCst), 0);
+    assert_eq!(env.state.core.running_stream_count(), 1);
+
+    send(&mut alice, &json!({"op": "cancel", "streamId": "r1"})).await;
+    env.calls
+        .wait("alice's drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
+        .await;
 }

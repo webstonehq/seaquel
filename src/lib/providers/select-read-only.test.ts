@@ -34,9 +34,10 @@ function fakeClient(events: StreamEvent[] | null = null) {
         cancels.push(id);
         queue.push(cancelledEvent());
       });
-      streams.push({ request, signal: options.signal, queue });
+      // Only `db.queryStream` reaches this client (phase 5b made `stream` generic).
+      streams.push({ request: request as QueryStreamRequest, signal: options.signal, queue });
       if (events) for (const event of events) queue.push(event);
-      return queue;
+      return queue as AsyncIterable<never>;
     },
     events: () => () => {},
   };

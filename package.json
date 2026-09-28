@@ -30,7 +30,7 @@
     "preview": "vite preview",
     "preview:demo": "vite preview --outDir build-demo",
     "preview:web": "vite preview --outDir build-web",
-    "types:gen": "cargo test -p seaquel-types -p seaquel-rpc -p seaquel-sql -p seaquel-wasm --features seaquel-types/ts,seaquel-rpc/ts,seaquel-sql/ts,seaquel-wasm/ts --lib export_bindings --quiet",
+    "types:gen": "cargo test -p seaquel-types -p seaquel-rpc -p seaquel-sql -p seaquel-wasm -p seaquel-workspace --features seaquel-types/ts,seaquel-rpc/ts,seaquel-sql/ts,seaquel-wasm/ts,seaquel-workspace/ts --lib export_bindings --quiet",
     "check": "npm run wasm:build && npm run types:gen && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "crates:check": "node scripts/check-crate-deps.mjs",
     "check:watch": "npm run wasm:build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

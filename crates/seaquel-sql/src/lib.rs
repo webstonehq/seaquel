@@ -7,6 +7,7 @@
 //! - [`statements`]: query type, destructive-statement check, source table for
 //!   inline editing.
 //! - [`read_only`]: the AI's read-only check.
+//! - [`offsets`]: UTF-16 and UTF-8 offsets (the editor's and Core's cursor).
 //! - [`params`]: `{{param}}` extraction and substitution.
 //! - [`create_table`]: `CREATE TABLE` text to a `CreateTableDefinition`.
 //! - [`ast`]: sqlparser-rs, only where an AST is needed (the query builder and
@@ -22,6 +23,7 @@ pub mod create_table;
 mod engine;
 mod js_word;
 mod js_ws;
+pub mod offsets;
 pub mod params;
 pub mod read_only;
 pub mod scan;

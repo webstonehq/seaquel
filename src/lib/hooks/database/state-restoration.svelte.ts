@@ -1,6 +1,5 @@
 import type {
   Query,
-  QueryHistoryItem,
   Dashboard,
   AIChat,
   QueryVersion,
@@ -13,6 +12,7 @@ import type {
   PersistedDashboardVersion,
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
+import { fromPersisted, trimHistory } from "./query-history.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import type { PersistedDashboard } from "$lib/storage";
 
@@ -150,23 +150,19 @@ export class StateRestorationManager {
   }
 
   /**
-   * Restore query history from persisted data.
+   * Restore query history from persisted data. Rows already cached that the
+   * load didn't return (a query run while it was reading) stay on top, and
+   * the list is trimmed like the file.
    */
   restoreQueryHistory(connectionId: string, data: PersistedQueryHistoryItem[]): void {
-    const history: QueryHistoryItem[] = data.map((h) => ({
-      id: h.id,
-      query: h.query,
-      timestamp: new Date(h.timestamp),
-      executionTime: h.executionTime,
-      rowCount: h.rowCount,
-      connectionId: h.connectionId,
-      favorite: h.favorite,
-      connectionLabelsSnapshot: h.connectionLabelsSnapshot || [],
-      connectionNameSnapshot: h.connectionNameSnapshot || "",
-    }));
+    const loaded = data.map(fromPersisted);
+    const ids = new Set(loaded.map((h) => h.id));
+    const newer = (this.state.queryHistoryByConnection[connectionId] ?? []).filter(
+      (h) => !ids.has(h.id),
+    );
     this.state.queryHistoryByConnection = {
       ...this.state.queryHistoryByConnection,
-      [connectionId]: history,
+      [connectionId]: trimHistory([...newer, ...loaded]),
     };
   }
 

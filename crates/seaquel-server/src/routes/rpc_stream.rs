@@ -1,6 +1,7 @@
 //! `GET /rpc/stream`: one WebSocket per browser session, for the user in
 //! `X-Seaquel-User`. It carries that user's query streams, several at once,
-//! and their connection events.
+//! and their connection events, and the editor's runs (`db.run`,
+//! `db.page`), each of which counts as one stream.
 //!
 //! Only Node's `/api/rpc/stream` upgrade reaches it. Node sets the header
 //! from the session and drops any copy the browser sent, and passes frames
@@ -13,14 +14,15 @@
 //! {"op":"cancel","streamId":"s1"}
 //! ```
 //!
-//! - `start` runs `request`, a `CoreRequest` that must be `db.queryStream`
-//!   with the same `streamId`, on the user's workspace (`dispatch_stream`).
+//! - `start` runs `request`, a `CoreRequest` that must be `db.queryStream`,
+//!   `db.run` or `db.page` with the same `streamId`, on the user's
+//!   workspace (`dispatch_stream`).
 //!   `request` is an inline JSON object. It goes to `parse_request` as the
 //!   exact bytes it has in the frame (a borrowed `RawValue`, never a
 //!   `serde_json::Value`), so the `method`-before-`params` rule holds.
-//! - `cancel` cancels a stream this socket started (`Workspace::cancel`).
-//!   Nothing more arrives for it. An id this socket isn't running is
-//!   ignored.
+//! - `cancel` cancels a stream or run this socket started
+//!   (`Workspace::cancel`). Nothing more arrives for it. An id this socket
+//!   isn't running is ignored.
 //!
 //! # Server frames (Text, `CoreEvent` JSON)
 //!
@@ -28,22 +30,30 @@
 //!   one `done` or `error`. A stream that ends without either (another
 //!   request cancelled it, or the workspace was evicted) gets a final
 //!   `error` with code [`CANCELLED`]; one this socket cancelled gets nothing.
+//! - `{"type":"run","streamId":…,"event":…}`: a run's or page's events
+//!   (per statement a `statementStart`, `batch`es and `statementDone` or
+//!   `statementError`), then one `done` or `error`. The `CANCELLED` rule is
+//!   the same, as a run `error`.
 //! - `{"type":"connectionClosed",…}`: one of the user's connections went
 //!   away (`WORKSPACE_EVICTED`), from any of the user's workspaces.
 //!
-//! A frame that can't be served gets a stream `error` event, never a
-//! closed socket: `INVALID_ARGUMENT` (not JSON, binary, a bad `op`, a
-//! missing or mismatched `streamId`, a bad `request`, a stream id already
-//! running on this socket) or [`TOO_MANY_STREAMS`]. Its `streamId` is the
-//! frame's when it has a string one, else `""`.
+//! A frame that can't be served gets an `error` event, never a closed
+//! socket: `INVALID_ARGUMENT` (not JSON, binary, a bad `op`, a missing or
+//! mismatched `streamId`, one longer than [`MAX_STREAM_ID_LEN`] or outside
+//! `[A-Za-z0-9_.:-]`, a bad `request`, a stream id already running on this
+//! socket) or [`TOO_MANY_STREAMS`]. It is a `run` event when the frame's
+//! request names `db.run` or `db.page`, else a `stream` event. Its
+//! `streamId` is the frame's when it has a valid string one, else `""`.
 //!
 //! # Limits
 //!
-//! - At most [`MAX_STREAMS`] streams run per socket, and a user has at
-//!   most [`MAX_LISTENERS_PER_USER`] sockets; one more is closed at once
-//!   with code 1013 and a [`TOO_MANY_SOCKETS`] reason.
-//! - A batch whose frame would pass [`MAX_BATCH_FRAME_BYTES`] is split by
-//!   rows into several `batch` events.
+//! - At most [`MAX_STREAMS`] streams run per socket, a run or page being
+//!   one however many statements it has, and a user has at most
+//!   [`MAX_LISTENERS_PER_USER`] sockets; one more is closed at once with
+//!   code 1013 and a [`TOO_MANY_SOCKETS`] reason.
+//! - A batch (a stream's or a run's) whose frame would pass
+//!   [`MAX_BATCH_FRAME_BYTES`] is split by rows into several `batch`
+//!   events, in order.
 //! - A frame (and a message) is at most [`MAX_FRAME_BYTES`]; a larger one
 //!   closes the socket (WebSocket close code 1009).
 //! - Closing the socket, or losing it, cancels every stream it started.
@@ -61,10 +71,9 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
+use seaquel_core::domain::run::RunEvent;
 use seaquel_core::StreamEvent;
-use seaquel_rpc::{
-    dispatch_stream, parse_request, CoreEvent, DbRequest, Request, RpcError, INVALID_ARGUMENT,
-};
+use seaquel_rpc::{dispatch_stream, parse_request, CoreEvent, Request, RpcError, INVALID_ARGUMENT};
 use seaquel_types::StreamBatch;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -166,14 +175,30 @@ struct Session {
     next_generation: u64,
 }
 
+/// A stream `error` event, for a frame that isn't a run's.
 fn error_event(stream_id: &str, code: &str, message: impl Into<String>) -> CoreEvent {
-    CoreEvent::Stream {
-        stream_id: stream_id.to_string(),
-        event: StreamEvent::Error {
-            message: message.into(),
-            code: code.to_string(),
-        },
+    CoreEvent::error(stream_id, false, code, message)
+}
+
+/// Whether a start frame's `request` names `db.run` or `db.page`, read
+/// leniently (it may not parse as a request at all), so that even its
+/// refusal is a `run` event.
+fn names_a_run(request: &RawValue) -> bool {
+    #[derive(Deserialize)]
+    struct Outer {
+        method: Option<String>,
+        params: Option<Inner>,
     }
+    #[derive(Deserialize)]
+    struct Inner {
+        method: Option<String>,
+    }
+    serde_json::from_str::<Outer>(request.get()).is_ok_and(|o| {
+        o.method.as_deref() == Some("db")
+            && o.params
+                .and_then(|p| p.method)
+                .is_some_and(|m| m == "run" || m == "page")
+    })
 }
 
 /// `event` as JSON text. A batch carries driver data, so this can fail;
@@ -283,6 +308,17 @@ impl Session {
                 ))
             }
         };
+        if !valid_stream_id(&stream_id) {
+            // Not echoed: it may be anything the browser sent.
+            return Some(error_event(
+                "",
+                INVALID_ARGUMENT,
+                format!(
+                    "a streamId is at most {MAX_STREAM_ID_LEN} characters of A-Z, a-z, 0-9, \
+                     '_', '.', ':' and '-'"
+                ),
+            ));
+        }
         match frame.op.as_str() {
             "start" => {
                 let Some(request) = frame.request else {
@@ -292,10 +328,11 @@ impl Session {
                         "a start frame needs a request",
                     ));
                 };
+                let run = names_a_run(request);
                 self.start(stream_id, request, outbox, ended)
                     .await
                     .err()
-                    .map(|(id, e)| error_event(&id, &e.code, e.message))
+                    .map(|(id, e)| CoreEvent::error(&id, run, &e.code, e.message))
             }
             "cancel" => {
                 if let Some(running) = self.running.get(&stream_id) {
@@ -335,27 +372,22 @@ impl Session {
             )));
         }
         let request = parse_request(request.get().as_bytes()).map_err(fail)?;
-        match &request {
-            Request::Db(DbRequest::QueryStream(params)) if params.stream_id != stream_id => {
-                return Err(fail(RpcError::invalid_argument(
-                    "the request's streamId must be the frame's",
-                )));
-            }
-            Request::Db(DbRequest::QueryStream(_)) => {}
-            _ => {
-                return Err(fail(RpcError::invalid_argument(format!(
-                    "{}.{} isn't a stream; only db.queryStream is",
-                    request.group(),
-                    request.method()
-                ))));
-            }
-        }
-        let open = open_workspace(&self.state, &self.user)
-            .await
-            .map_err(|e| {
-                log::warn!(activity = "rpc.stream.error", code = e.code.as_str(); "/rpc/stream failed: {}: {}", e.code, e.message);
-                fail(redact(e, self.state.workspaces.root()))
-            })?;
+        let run = match &request {
+            Request::Db(db) => match db.stream_id() {
+                Some(id) if id != stream_id => {
+                    return Err(fail(RpcError::invalid_argument(
+                        "the request's streamId must be the frame's",
+                    )));
+                }
+                Some(_) => db.is_run(),
+                None => return Err(fail(not_a_stream(&request))),
+            },
+            _ => return Err(fail(not_a_stream(&request))),
+        };
+        let open = open_workspace(&self.state, &self.user).await.map_err(|e| {
+            log::warn!(activity = "rpc.stream.error", code = e.code.as_str(); "/rpc/stream failed");
+            fail(redact(e, self.state.workspaces.root()))
+        })?;
 
         let generation = self.next_generation;
         self.next_generation += 1;
@@ -365,6 +397,7 @@ impl Session {
             Arc::clone(&open),
             request,
             stream_id.clone(),
+            run,
             Arc::clone(&cancelled),
             outbox.clone(),
             ended.clone(),
@@ -383,32 +416,43 @@ impl Session {
     }
 }
 
-/// Run one stream to its end, sending its events to the client.
+fn not_a_stream(request: &Request) -> RpcError {
+    RpcError::invalid_argument(format!(
+        "{}.{} isn't a stream; only db.queryStream, db.run and db.page are",
+        request.group(),
+        request.method()
+    ))
+}
+
+/// Run one stream (a query stream, a run or a page) to its end, sending
+/// its events to the client. `run`: its events are `run` events, and so is
+/// the error this sends when it can't be served or ends without a terminal
+/// event.
 #[allow(clippy::too_many_arguments)]
 async fn run_stream(
     core: Arc<seaquel_core::Core>,
     open: Arc<OpenWorkspace>,
     request: Request,
     stream_id: String,
+    run: bool,
     cancelled: Arc<AtomicBool>,
     outbox: mpsc::Sender<String>,
     ended: mpsc::UnboundedSender<(String, u64)>,
     generation: u64,
 ) {
+    let error = |code: &str, message: String| CoreEvent::error(&stream_id, run, code, message);
     match dispatch_stream(&core, open.workspace(), request) {
         Err(e) => {
-            let _ = send(&outbox, &error_event(&stream_id, &e.code, e.message)).await;
+            let _ = send(&outbox, &error(&e.code, e.message)).await;
         }
         Ok(mut events) => {
             let mut finished = false;
             while let Some(event) = events.next().await {
-                if let CoreEvent::Stream { event: e, .. } = &event {
-                    finished = matches!(e, StreamEvent::Done | StreamEvent::Error { .. });
-                }
+                finished = event.is_terminal();
                 let mut frames = Vec::new();
                 if let Err(message) = encode_split(event, &mut frames) {
-                    // Stop the query and report it.
-                    let _ = send(&outbox, &error_event(&stream_id, "QUERY_ERROR", message)).await;
+                    // Stop the query (or run) and report it.
+                    let _ = send(&outbox, &error("QUERY_ERROR", message)).await;
                     finished = true;
                     break;
                 }
@@ -427,11 +471,7 @@ async fn run_stream(
             }
             drop(events);
             if !finished && !cancelled.load(Ordering::SeqCst) {
-                let _ = send(
-                    &outbox,
-                    &error_event(&stream_id, CANCELLED, "The query was stopped."),
-                )
-                .await;
+                let _ = send(&outbox, &error(CANCELLED, "The query was stopped.".into())).await;
             }
         }
     }
@@ -439,17 +479,23 @@ async fn run_stream(
     let _ = ended.send((stream_id, generation));
 }
 
-/// `event` as JSON frames, a batch split by rows into frames of at most
-/// about [`MAX_BATCH_FRAME_BYTES`]: the first piece keeps `columns`, the
-/// last keeps `is_final` and `truncated`. A single row larger than that is
-/// one frame of its own.
+/// `event` as JSON frames, a batch (a stream's or a run's) split by rows
+/// into frames of at most about [`MAX_BATCH_FRAME_BYTES`], in order: the
+/// first piece keeps `columns`, the last keeps `is_final` and `truncated`.
+/// A single row larger than that is one frame of its own.
 fn encode_split(event: CoreEvent, out: &mut Vec<String>) -> Result<(), String> {
     let text = encode(&event)?;
-    let (stream_id, batch) = match event {
+    let splittable =
+        |batch: &StreamBatch| text.len() > MAX_BATCH_FRAME_BYTES && batch.rows.len() > 1;
+    let (stream_id, batch, run) = match event {
         CoreEvent::Stream {
             stream_id,
             event: StreamEvent::Batch(batch),
-        } if text.len() > MAX_BATCH_FRAME_BYTES && batch.rows.len() > 1 => (stream_id, batch),
+        } if splittable(&batch) => (stream_id, batch, false),
+        CoreEvent::Run {
+            stream_id,
+            event: RunEvent::Batch(batch),
+        } if splittable(&batch) => (stream_id, batch, true),
         _ => {
             out.push(text);
             return Ok(());
@@ -476,13 +522,19 @@ fn encode_split(event: CoreEvent, out: &mut Vec<String>) -> Result<(), String> {
         truncated,
     };
     for batch in [first, second] {
-        encode_split(
+        let stream_id = stream_id.clone();
+        let event = if run {
+            CoreEvent::Run {
+                stream_id,
+                event: RunEvent::Batch(batch),
+            }
+        } else {
             CoreEvent::Stream {
-                stream_id: stream_id.clone(),
+                stream_id,
                 event: StreamEvent::Batch(batch),
-            },
-            out,
-        )?;
+            }
+        };
+        encode_split(event, out)?;
     }
     Ok(())
 }
@@ -493,6 +545,19 @@ async fn send(outbox: &mpsc::Sender<String>, event: &CoreEvent) -> Result<(), ()
         Err(_) => return Ok(()), // only batches can fail, and they don't come here
     };
     outbox.send(text).await.map_err(|_| ())
+}
+
+/// The longest `streamId` a frame may carry. The clients send UUIDs (36).
+pub const MAX_STREAM_ID_LEN: usize = 128;
+
+/// Whether `id` is a `streamId` this socket takes: at most
+/// [`MAX_STREAM_ID_LEN`] of `[A-Za-z0-9_.:-]`. It reaches Core's logs and
+/// every event, so nothing else is let through (phase 5b review, I1).
+fn valid_stream_id(id: &str) -> bool {
+    id.len() <= MAX_STREAM_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// The frame's `streamId`, if it is JSON with a string one, for the error
@@ -506,6 +571,7 @@ fn lenient_stream_id(text: &str) -> String {
     serde_json::from_str::<Id>(text)
         .ok()
         .and_then(|id| id.stream_id)
+        .filter(|id| valid_stream_id(id))
         .unwrap_or_default()
 }
 

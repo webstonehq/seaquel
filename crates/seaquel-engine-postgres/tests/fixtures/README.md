@@ -24,3 +24,11 @@ kept at `docs/plans/artifacts/2026-09-27-recorder-*.txt`.
 
 Change a fixture only when the Rust behaviour is meant to change, and say why
 in the same change.
+
+## Changes
+
+- **Phase 5b, Task 4 review (`paginate.json`, every case):** the limit now
+  goes on its own line (`…\nLIMIT n OFFSET m`). A trailing `--` comment
+  swallowed the LIMIT: `SELECT * FROM big -- note` paged as
+  `… -- note LIMIT 101 OFFSET 0`, which fetched the whole table. Only the
+  whitespace before `LIMIT` changed.

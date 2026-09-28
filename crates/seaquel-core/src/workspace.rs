@@ -573,7 +573,7 @@ impl Workspace {
         let tunnel = open_tunnel(core, &plan, &req).await?;
         let connected = match config(&plan, &req, tunnel.as_ref()) {
             Ok(config) => core
-                .connect_as(&config, Some(self.id))
+                .connect_as(&config, Some(self.id), Some(plan.sql_engine()))
                 .await
                 .map_err(|e| redact(CoreError::new(e.code, e.message), &plan.secret_values())),
             Err(e) => Err(e),

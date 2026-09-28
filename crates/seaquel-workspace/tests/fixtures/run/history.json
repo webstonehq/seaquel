@@ -1,0 +1,1083 @@
+[
+  {
+    "name": "history/current-page-1",
+    "engine": "postgres",
+    "notes": "At the cursor history holds the statement before substitution",
+    "input": {
+      "text": "SELECT 1 AS a;\nSELECT {{b}} AS b;",
+      "target": {
+        "type": "current",
+        "cursor": 22
+      },
+      "params": [
+        {
+          "name": "b",
+          "value": 2
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 1,
+        "sql": "SELECT {{b}} AS b"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT $1 AS b",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          2
+        ],
+        "answer": {
+          "columns": [
+            "b"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT {{b}} AS b",
+        "source": {
+          "sql": "SELECT $1 AS b",
+          "params": [
+            2
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "b"
+        ],
+        "rows": [
+          [
+            2
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT {{b}} AS b",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "history/page-2-none",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT g FROM t",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 1,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT g FROM t"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT g FROM t",
+        "paginate": {
+          "limit": 2,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "g"
+          ],
+          "rows": [
+            [
+              1
+            ],
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) as total FROM (SELECT g FROM t) AS count_query",
+        "params": [],
+        "answer": {
+          "columns": [
+            "total"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT g FROM t",
+        "source": {
+          "sql": "SELECT g FROM t",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "g"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 2,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 2,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": [
+          {
+            "table": "t",
+            "column": "g"
+          }
+        ]
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT g FROM t",
+      "rowCount": 2
+    },
+    "toasts": [],
+    "pages": [
+      {
+        "action": {
+          "type": "goToPage",
+          "page": 2
+        },
+        "driver": [
+          {
+            "op": "page",
+            "sql": "SELECT g FROM t",
+            "paginate": {
+              "limit": 2,
+              "offset": 1
+            },
+            "params": [],
+            "answer": {
+              "columns": [
+                "g"
+              ],
+              "rows": [
+                [
+                  2
+                ]
+              ]
+            }
+          }
+        ],
+        "result": {
+          "index": 0,
+          "shown": true,
+          "sql": "SELECT g FROM t",
+          "source": {
+            "sql": "SELECT g FROM t",
+            "params": []
+          },
+          "kind": "page",
+          "queryType": "select",
+          "columns": [
+            "g"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ],
+          "rowCount": 1,
+          "totalRows": 2,
+          "page": 2,
+          "pageSize": 1,
+          "totalPages": 2,
+          "error": null,
+          "affectedRows": null,
+          "lastInsertId": null,
+          "countEstimated": false,
+          "table": {
+            "table": "t"
+          },
+          "columnRefs": [
+            {
+              "table": "t",
+              "column": "g"
+            }
+          ]
+        },
+        "history": null
+      }
+    ]
+  },
+  {
+    "name": "history/run-all-whole-text",
+    "engine": "postgres",
+    "notes": "Run all records the whole text, with the first shown result's row count",
+    "input": {
+      "text": "-- load\nSET search_path TO public;\nUPDATE t SET v = 1;\nSELECT 1 AS a;\n",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": true,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "-- load\nSET search_path TO public"
+      },
+      {
+        "index": 1,
+        "sql": "UPDATE t SET v = 1"
+      },
+      {
+        "index": 2,
+        "sql": "SELECT 1 AS a"
+      }
+    ],
+    "destructive": [
+      {
+        "index": 1,
+        "sql": "UPDATE t SET v = 1",
+        "reason": "update_no_where"
+      }
+    ],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "-- load\nSET search_path TO public",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "write",
+        "sql": "UPDATE t SET v = 1",
+        "params": [],
+        "answer": {
+          "rowsAffected": 3
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "-- load\nSET search_path TO public",
+        "source": {
+          "sql": "-- load\nSET search_path TO public",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "UPDATE t SET v = 1",
+        "source": {
+          "sql": "UPDATE t SET v = 1",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "update",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "3 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 3,
+        "lastInsertId": null
+      },
+      {
+        "index": 2,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "-- load\nSET search_path TO public;\nUPDATE t SET v = 1;\nSELECT 1 AS a;\n",
+      "rowCount": 3
+    },
+    "toasts": []
+  },
+  {
+    "name": "history/all-utility-uses-first",
+    "engine": "postgres",
+    "input": {
+      "text": "CREATE TABLE x (id int);\nDROP TABLE x;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": true,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "CREATE TABLE x (id int)"
+      },
+      {
+        "index": 1,
+        "sql": "DROP TABLE x"
+      }
+    ],
+    "destructive": [
+      {
+        "index": 1,
+        "sql": "DROP TABLE x",
+        "reason": "drop_table"
+      }
+    ],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "CREATE TABLE x (id int)",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "DROP TABLE x",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "CREATE TABLE x (id int)",
+        "source": {
+          "sql": "CREATE TABLE x (id int)",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "DROP TABLE x",
+        "source": {
+          "sql": "DROP TABLE x",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "CREATE TABLE x (id int);\nDROP TABLE x;",
+      "rowCount": 0
+    },
+    "toasts": []
+  },
+  {
+    "name": "history/failed-stream-none",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT 1 AS a;\nSELECT g FROM t LIMIT 5;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 1 AS a"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT g FROM t LIMIT 5"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "stream",
+        "sql": "SELECT g FROM t LIMIT 5",
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "permission denied for table t"
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT g FROM t LIMIT 5",
+        "source": {
+          "sql": "SELECT g FROM t LIMIT 5",
+          "params": []
+        },
+        "kind": "stream",
+        "queryType": "select",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: permission denied for table t",
+        "affectedRows": null,
+        "lastInsertId": null,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": [
+          {
+            "table": "t",
+            "column": "g"
+          }
+        ]
+      }
+    ],
+    "deferred": [],
+    "history": null,
+    "toasts": []
+  },
+  {
+    "name": "history/failed-stream-current-none",
+    "engine": "mysql",
+    "input": {
+      "text": "SELECT g FROM t LIMIT 5",
+      "target": {
+        "type": "current",
+        "cursor": 0
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT g FROM t LIMIT 5"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "stream",
+        "sql": "SELECT g FROM t LIMIT 5",
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "Table 'db.t' doesn't exist"
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT g FROM t LIMIT 5",
+        "source": {
+          "sql": "SELECT g FROM t LIMIT 5",
+          "params": []
+        },
+        "kind": "stream",
+        "queryType": "select",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: Table 'db.t' doesn't exist",
+        "affectedRows": null,
+        "lastInsertId": null,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": [
+          {
+            "table": "t",
+            "column": "g"
+          }
+        ]
+      }
+    ],
+    "deferred": [],
+    "history": null,
+    "toasts": []
+  },
+  {
+    "name": "history/failed-page-run-all-recorded",
+    "engine": "postgres",
+    "notes": "Today a failed paged statement in run all is still recorded",
+    "input": {
+      "text": "SELECT 1 AS a;\nSELECT nope;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT 1 AS a"
+      },
+      {
+        "index": 1,
+        "sql": "SELECT nope"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT nope",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "column \"nope\" does not exist"
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "SELECT nope",
+        "source": null,
+        "kind": "page",
+        "queryType": null,
+        "columns": [
+          "Error"
+        ],
+        "rows": [
+          [
+            "QUERY_ERROR: column \"nope\" does not exist"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: column \"nope\" does not exist",
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT 1 AS a;\nSELECT nope;",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "history/failed-page-current-none",
+    "engine": "postgres",
+    "input": {
+      "text": "SELECT nope",
+      "target": {
+        "type": "current",
+        "cursor": 0
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT nope"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT nope",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "column \"nope\" does not exist"
+          }
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT nope",
+        "source": null,
+        "kind": "page",
+        "queryType": null,
+        "columns": [
+          "Error"
+        ],
+        "rows": [
+          [
+            "QUERY_ERROR: column \"nope\" does not exist"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": "QUERY_ERROR: column \"nope\" does not exist",
+        "affectedRows": null,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": null,
+    "toasts": []
+  },
+  {
+    "name": "history/write-row-count",
+    "engine": "sqlite",
+    "input": {
+      "text": "DELETE FROM t WHERE id > 3",
+      "target": {
+        "type": "current",
+        "cursor": 0
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "DELETE FROM t WHERE id > 3"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "write",
+        "sql": "DELETE FROM t WHERE id > 3",
+        "params": [],
+        "answer": {
+          "rowsAffected": 5
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "DELETE FROM t WHERE id > 3",
+        "source": {
+          "sql": "DELETE FROM t WHERE id > 3",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "delete",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "5 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 5,
+        "lastInsertId": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "DELETE FROM t WHERE id > 3",
+      "rowCount": 5
+    },
+    "toasts": []
+  },
+  {
+    "name": "history/stream-row-count",
+    "engine": "duckdb",
+    "input": {
+      "text": "SELECT * FROM t LIMIT 4",
+      "target": {
+        "type": "current",
+        "cursor": 0
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t LIMIT 4"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "stream",
+        "sql": "SELECT * FROM t LIMIT 4",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id"
+          ],
+          "rows": [
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ],
+            [
+              4
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t LIMIT 4",
+        "source": {
+          "sql": "SELECT * FROM t LIMIT 4",
+          "params": []
+        },
+        "kind": "stream",
+        "queryType": "select",
+        "columns": [
+          "id"
+        ],
+        "rows": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ]
+        ],
+        "rowCount": 4,
+        "totalRows": 4,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t LIMIT 4",
+      "rowCount": 4
+    },
+    "toasts": []
+  }
+]

@@ -14,6 +14,8 @@ path = "src/main.rs"
 # (decision 14 of the design doc).
 seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
+# `TokioExecutor`, Core's clock (phase 5b).
+seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 clap = { workspace = true }
 rmcp = { workspace = true }
 serde_json = { workspace = true }

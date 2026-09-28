@@ -83,7 +83,7 @@ pub fn run(args: McpArgs) -> ExitCode {
 const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
 /// What `--log-level` lets through: everything at `level`, except
-/// `sqlx::query`, which never passes.
+/// `sqlx::query` and `sqlparser`, which log SQL text and never pass.
 pub(crate) fn log_filter(level: LogLevel) -> Targets {
     let filter = match level {
         LogLevel::Off => LevelFilter::OFF,
@@ -96,6 +96,7 @@ pub(crate) fn log_filter(level: LogLevel) -> Targets {
     Targets::new()
         .with_default(filter)
         .with_target(SQLX_QUERY_TARGET, LevelFilter::OFF)
+        .with_target("sqlparser", LevelFilter::OFF)
 }
 
 fn init_logging(level: LogLevel) {
@@ -146,7 +147,8 @@ async fn serve(args: McpArgs) -> Result<(), String> {
     // The MCP server connects to the user's own saved connections, as the
     // desktop app would.
     let mut builder = seaquel_core::with_default_plugins()
-        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted);
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .executor(Arc::new(seaquel_runtime::TokioExecutor));
     if let Some(path) = test_hook(TEST_KNOWN_HOSTS_ENV) {
         builder = builder.ssh_known_hosts(path);
     }

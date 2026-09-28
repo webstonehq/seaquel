@@ -1,0 +1,1575 @@
+/**
+ * Phase 5b, Task 2: records today's query runner into the run parity
+ * fixtures, `crates/seaquel-workspace/tests/fixtures/run/*.json`.
+ *
+ * This reference copy is `docs/plans/artifacts/2026-10-02-record-run-fixtures.test.ts.txt`.
+ * To run it, copy it into the tree and run it with vitest, then delete the copy:
+ *
+ *   cp docs/plans/artifacts/2026-10-02-record-run-fixtures.test.ts.txt \
+ *      src/lib/hooks/database/record-run.test.ts
+ *   FREEZE_RUN=1 SEAQUEL_WASM_PREBUILT=1 mise exec -- npx vitest run src/lib/hooks/database/record-run.test.ts
+ *   rm src/lib/hooks/database/record-run.test.ts
+ *
+ * Without FREEZE_RUN it records every case and writes nothing. FREEZE_RUN_OUT
+ * points the output at another directory (to check that two runs agree).
+ *
+ * What runs unmodified:
+ * - `QueryExecutionManager` (`query-execution.svelte.ts`), with Task 1's fix;
+ * - `createExecution` (`components/query-editor/execution.svelte.ts`), the
+ *   editor's Run and Run current buttons: the destructive prompt (confirmed by
+ *   the recorder), the parameter dialog (answered with the case's values) and
+ *   the calls into the manager, exactly as the editor makes them;
+ * - `resolve-query.ts`, every `$lib/sql` function (the real seaquel-wasm);
+ * - `CoreProvider` (`providers/core-provider.ts`), the desktop and web
+ *   provider, over a scripted `CoreClient`. So the driver log is the `db`
+ *   calls today's GUI sends Core: `query`, `execute` and `queryStream`.
+ *
+ * What is stubbed:
+ * - the `CoreClient`: it answers each call from the case's `driver` list, in
+ *   order, and fails the case on a call it doesn't expect or an answer left over;
+ * - `getEngineClient(…).paginate`, which returns its arguments in a marker the
+ *   client reads back. The fixtures record `paginate` as `{limit, offset}`, so
+ *   the Rust replay expands them with the connection's `Dialect`;
+ * - toasts and the logger (captured), the history manager's `addToHistory`
+ *   and the pending-changes manager (spied);
+ * - `$lib/sql`'s `countQuery`, `extractTableFromSelect`,
+ *   `resolveColumnSources`, `getStatementAtOffsetOrThrow` and
+ *   `splitSqlStatementsOrThrow` are the real functions, wrapped only to see
+ *   what they returned (the count SQL, the table and column references the
+ *   runner computed, the statement it picked);
+ * - `QueryExecutionManager#filterAndIndexResults`, wrapped to see the results
+ *   before utility results are hidden.
+ *
+ * The fixtures README says what each field means.
+ */
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { DatabaseType, ParameterValue, StatementResult } from "$lib/types";
+import type { DatabaseState } from "./state.svelte.js";
+import type { QueryHistoryManager } from "./query-history.svelte.js";
+import type { PendingChangesManager } from "./pending-changes.svelte.js";
+import type { ProviderRegistry } from "$lib/providers";
+import type { CoreClient } from "$lib/core";
+
+const rec = vi.hoisted(() => ({
+  toasts: [] as { kind: string; message: string }[],
+  counts: new Set<string>(),
+  tables: new Map<string, unknown>(),
+  refs: new Map<string, unknown>(),
+}));
+
+vi.mock("svelte-sonner", () => {
+  const push = (kind: string) => (message: unknown) => {
+    rec.toasts.push({ kind, message: String(message) });
+  };
+  return {
+    toast: { info: push("info"), success: push("success"), warning: push("warning"), error: push("error") },
+  };
+});
+vi.mock("$lib/utils/toast", () => ({
+  errorToast: (message: unknown) => {
+    rec.toasts.push({ kind: "error", message: String(message) });
+  },
+}));
+vi.mock("$lib/utils/logger", () => ({
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
+const PAGE = "\u0001PAGE\u0001";
+vi.mock("$lib/engine", () => ({
+  getEngineClient: () => ({
+    paginate: async (sql: string, limit: number, offset: number) =>
+      `\u0001PAGE\u0001${limit}:${offset}\u0001PAGE\u0001${sql}`,
+  }),
+}));
+vi.mock("$lib/sql", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("$lib/sql")>();
+  const { callWasm } = await import("$lib/wasm");
+  return {
+    ...orig,
+    countQuery: (sql: string, type: DatabaseType) => {
+      const out = orig.countQuery(sql, type);
+      rec.counts.add(out);
+      return out;
+    },
+    extractTableFromSelect: (sql: string, type: DatabaseType) => {
+      const out = orig.extractTableFromSelect(sql, type);
+      rec.tables.set(sql, out);
+      return out;
+    },
+    resolveColumnSources: (sql: string, type: DatabaseType, schemas: never[]) => {
+      // What `resolveColumnSources` asks the module for, before the schema
+      // lookup: Core sends these refs and the GUI resolves them (Decision 9).
+      const env = JSON.parse(callWasm((m) => m.column_refs(sql, type))) as
+        | { ok: unknown }
+        | { error: string };
+      rec.refs.set(sql, "ok" in env ? env.ok : null);
+      return orig.resolveColumnSources(sql, type, schemas);
+    },
+  };
+});
+
+const { QueryExecutionManager } = await import("./query-execution.svelte.js");
+const { createExecution } = await import("$lib/components/query-editor/execution.svelte.js");
+const { CoreProvider } = await import("$lib/providers/core-provider");
+const { CoreCallError } = await import("$lib/storage/rust-client");
+const { decodeCell, encodeParam } = await import("$lib/values");
+const sql = await import("$lib/sql");
+
+// ---------------------------------------------------------------- the corpus
+
+type Wire = unknown;
+type Answer =
+  | { op: "page" | "utility" | "count"; columns?: string[]; rows?: Wire[][]; error?: RpcErr }
+  | { op: "write"; rowsAffected?: number; lastInsertId?: number; error?: RpcErr }
+  | {
+      op: "stream";
+      columns?: string[];
+      rows?: Wire[][];
+      batches?: { columns?: string[]; rows: Wire[][] }[];
+      error?: RpcErr;
+    };
+type RpcErr = { code: string; message: string };
+type Target = { type: "all" } | { type: "current"; cursor: number };
+type Action =
+  | { type: "goToPage"; page: number; resultIndex?: number }
+  | { type: "setPageSize"; pageSize: number; resultIndex?: number };
+
+interface Case {
+  file: string;
+  name: string;
+  engine: DatabaseType;
+  notes?: string;
+  text: string;
+  target: Target;
+  /** The values typed into the parameter dialog, in the wire format. */
+  dialog?: { name: string; value: Wire }[];
+  pageSize?: number;
+  deferWrites?: boolean;
+  /** `rerun`: `db.queries.execute(tabId)` as the file drop and the reruns call it. */
+  via?: "editor" | "rerun";
+  driver: Answer[];
+  pages?: { action: Action; driver: Answer[] }[];
+}
+
+const all: Target = { type: "all" };
+/** The UTF-16 offset of `needle` in `text`, plus `delta`. */
+function at(text: string, needle: string, delta = 0, from = 0): Target {
+  const i = text.indexOf(needle, from);
+  if (i < 0) throw new Error(`no ${needle} in ${text}`);
+  return { type: "current", cursor: i + delta };
+}
+const cur = (cursor: number): Target => ({ type: "current", cursor });
+const rows = (n: number, from = 1): Wire[][] =>
+  Array.from({ length: n }, (_, i) => [from + i]);
+const page = (columns: string[], r: Wire[][]): Answer => ({ op: "page", columns, rows: r });
+const count = (total: Wire): Answer => ({ op: "count", columns: ["total"], rows: [[total]] });
+const util = (): Answer => ({ op: "utility", columns: [], rows: [] });
+const write = (rowsAffected: number, lastInsertId?: number): Answer =>
+  lastInsertId === undefined
+    ? { op: "write", rowsAffected }
+    : { op: "write", rowsAffected, lastInsertId };
+const stream = (columns: string[], r: Wire[][]): Answer => ({ op: "stream", columns, rows: r });
+const fail = (op: Answer["op"], message: string, code = "QUERY_ERROR"): Answer =>
+  ({ op, error: { code, message } }) as Answer;
+const bytes = { $sq: "bytes", v: "AQ==" };
+
+const cases: Case[] = [];
+function add(c: Case) {
+  cases.push(c);
+}
+
+// ---- plan-postgres
+{
+  const file = "plan-postgres";
+  add({
+    file,
+    name: "pg/run-all-select-insert-error",
+    engine: "postgres",
+    text: "SELECT 1 AS a;\nINSERT INTO t2 VALUES (1);\nSELECT nope;",
+    target: all,
+    driver: [
+      page(["a"], [[1]]),
+      write(1),
+      fail("page", 'column "nope" does not exist'),
+    ],
+  });
+  add({
+    file,
+    name: "pg/params-bound-run-all",
+    engine: "postgres",
+    notes: "`{{a}}` in a comment and in a string stays as typed; the same name binds once per statement",
+    text: "SELECT * FROM t WHERE a = {{a}} AND b = {{b}} -- {{a}}\n;\nSELECT '{{a}}' AS s, {{a}} AS a, {{b}} AS b;",
+    target: all,
+    dialog: [
+      { name: "a", value: 5 },
+      { name: "b", value: "x" },
+    ],
+    driver: [page(["a", "b"], [[5, "x"]]), page(["s", "a", "b"], [["{{a}}", 5, "x"]])],
+  });
+  add({
+    file,
+    name: "pg/params-bound-current",
+    engine: "postgres",
+    text: "SELECT 1;\nSELECT * FROM t WHERE a = {{a}} AND c = {{c}};",
+    target: at("SELECT 1;\nSELECT * FROM t WHERE a = {{a}} AND c = {{c}};", "SELECT *", 3),
+    dialog: [
+      { name: "a", value: { $sq: "bigint", v: "9007199254740993" } },
+      { name: "c", value: null },
+    ],
+    driver: [page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "pg/substitution-error-current",
+    engine: "postgres",
+    notes: "A binary value can't be substituted: a toast, nothing runs (INVALID_PARAMETERS in Core)",
+    text: "SELECT {{a}} AS a",
+    target: cur(0),
+    dialog: [{ name: "a", value: bytes }],
+    driver: [],
+  });
+  add({
+    file,
+    name: "pg/substitution-error-run-all",
+    engine: "postgres",
+    notes: "In run all the failure is that statement's error result, and the run goes on",
+    text: "SELECT 1 AS one;\nSELECT {{a}} AS a;\nSELECT 2 AS two;",
+    target: all,
+    dialog: [{ name: "a", value: bytes }],
+    driver: [page(["one"], [[1]]), page(["two"], [[2]])],
+  });
+  add({
+    file,
+    name: "pg/dollar-quoted-body",
+    engine: "postgres",
+    text: "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\nSELECT f() AS f;",
+    target: all,
+    driver: [util(), page(["f"], [[1]])],
+  });
+  add({
+    file,
+    name: "pg/utility-hidden",
+    engine: "postgres",
+    notes: "A utility result is hidden when another result shows",
+    text: "SET search_path TO public;\nSELECT 1 AS a;\nCREATE TABLE x (id int);",
+    target: all,
+    driver: [util(), page(["a"], [[1]]), util()],
+  });
+  add({
+    file,
+    name: "pg/all-utility-shown",
+    engine: "postgres",
+    notes: "Every result is a utility result, so all of them show",
+    text: "CREATE TABLE x (id int);\nSET search_path TO public;",
+    target: all,
+    driver: [util(), util()],
+  });
+  add({
+    file,
+    name: "pg/destructive-confirmed",
+    engine: "postgres",
+    notes: "The editor's prompt lists only the DROP: the DELETE has a WHERE (checked before substitution). The recorder confirms",
+    text: "DROP TABLE t2;\nSELECT 1 AS a;\nDELETE FROM t3 WHERE {{w}};",
+    target: all,
+    dialog: [{ name: "w", value: true }],
+    driver: [util(), page(["a"], [[1]]), write(4)],
+  });
+  add({
+    file,
+    name: "pg/destructive-current",
+    engine: "postgres",
+    text: "SELECT 1;\nTRUNCATE t2;",
+    target: at("SELECT 1;\nTRUNCATE t2;", "TRUNCATE"),
+    driver: [util()],
+  });
+  add({
+    file,
+    name: "pg/duplicate-column-names",
+    engine: "postgres",
+    notes: "The grid's names are deduped (`id_2`); the driver's are not",
+    text: "SELECT a.id, b.id FROM a JOIN b ON a.id = b.id",
+    target: all,
+    driver: [page(["id", "id"], [[1, 2]])],
+  });
+  add({
+    file,
+    name: "pg/rerun-raw-params",
+    engine: "postgres",
+    via: "rerun",
+    notes: "The reruns send no values, so `{{a}}` goes to the database as typed (Decision 1)",
+    text: "SELECT * FROM t WHERE a = {{a}}",
+    target: all,
+    driver: [fail("page", 'syntax error at or near "{"')],
+  });
+  add({
+    file,
+    name: "pg/with-returns-rows",
+    engine: "postgres",
+    notes: "`WITH …` is query type `other`: today it runs as a utility statement and its rows are dropped (Decision 18 shows them)",
+    text: "WITH x AS (SELECT 1 AS a UNION ALL SELECT 2) SELECT a FROM x",
+    target: all,
+    driver: [{ op: "utility", columns: ["a"], rows: [[1], [2]] }],
+  });
+  add({
+    file,
+    name: "pg/set-no-columns-hidden",
+    engine: "postgres",
+    notes: "An `other` statement answered with no columns stays a hidden utility result under Decision 18 too",
+    text: "SET statement_timeout = 0;\nSELECT 1 AS a;",
+    target: all,
+    driver: [util(), page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "pg/table-and-column-refs",
+    engine: "postgres",
+    text: "SELECT o.id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+    target: all,
+    driver: [page(["id", "total", "name"], [[1, "9.50", "ann"]])],
+  });
+}
+
+// ---- plan-mysql
+{
+  const file = "plan-mysql";
+  add({
+    file,
+    name: "mysql/params-bound",
+    engine: "mysql",
+    text: "SELECT * FROM `t;x` WHERE a = {{a}} # {{a}}\n AND b = {{b}}",
+    target: all,
+    dialog: [
+      { name: "a", value: 1 },
+      { name: "b", value: "o'k" },
+    ],
+    driver: [page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "mysql/write-last-insert-id",
+    engine: "mysql",
+    text: "INSERT INTO t (v) VALUES ('a');\nUPDATE t SET v = 'b' WHERE id = 1;",
+    target: all,
+    driver: [write(1, 42), write(0)],
+  });
+  add({
+    file,
+    name: "mysql/row-limited-streams",
+    engine: "mysql",
+    text: "SELECT * FROM t LIMIT 5",
+    target: all,
+    driver: [stream(["id"], rows(5))],
+  });
+  add({
+    file,
+    name: "mysql/destructive-and-backslash-string",
+    engine: "mysql",
+    text: "SELECT 'a\\';b' AS s;\nTRUNCATE TABLE t;",
+    target: all,
+    driver: [page(["s"], [["a';b"]]), util()],
+  });
+  add({
+    file,
+    name: "mysql/show-tables-returns-rows",
+    engine: "mysql",
+    notes: "SHOW is `other`: today its rows are dropped (Decision 18 shows them)",
+    text: "SHOW TABLES",
+    target: all,
+    driver: [{ op: "utility", columns: ["Tables_in_db"], rows: [["t"], ["u"]] }],
+  });
+  add({
+    file,
+    name: "mysql/mariadb-comment-is-a-comment",
+    engine: "mysql",
+    notes: "The contrast to `mariadb/executable-comment-run-all`: to MySQL `/*M! … */` is a plain comment, so this is two statements",
+    text: "SELECT 1 AS a /*M! ; DELETE FROM t */;\nSELECT 2 AS b;",
+    target: all,
+    driver: [page(["a"], [[1]]), page(["b"], [[2]])],
+  });
+  add({
+    file,
+    name: "mysql/utility-show",
+    engine: "mysql",
+    text: "SHOW TABLES;\nUSE other;",
+    target: all,
+    driver: [util(), util()],
+  });
+}
+
+// ---- plan-mariadb
+{
+  const file = "plan-mariadb";
+  const text = "SELECT 1 AS a /*M! ; DELETE FROM t */;\nSELECT 2 AS b;";
+  add({
+    file,
+    name: "mariadb/executable-comment-run-all",
+    engine: "mariadb",
+    notes: "`/*M! … */` is code to MariaDB: its `;` splits, and the DELETE is a statement. The pieces (`SELECT 1 AS a /*M!`, `DELETE FROM t */`) would be syntax errors on a real server; `mysql/mariadb-comment-is-a-comment` is the contrast",
+    text,
+    target: all,
+    driver: [page(["a"], [[1]]), write(2), page(["b"], [[2]])],
+  });
+  add({
+    file,
+    name: "mariadb/executable-comment-current",
+    engine: "mariadb",
+    text,
+    target: at(text, "DELETE"),
+    driver: [write(2)],
+  });
+  add({
+    file,
+    name: "mariadb/plain-comment",
+    engine: "mariadb",
+    notes: "A plain `/* … */` stays a comment",
+    text: "SELECT 1 AS a /* ; DELETE FROM t */;\nSELECT 2 AS b;",
+    target: all,
+    driver: [page(["a"], [[1]]), page(["b"], [[2]])],
+  });
+  add({
+    file,
+    name: "mariadb/params-bound",
+    engine: "mariadb",
+    text: "SELECT {{a}} AS a, {{a}} AS again",
+    target: all,
+    dialog: [{ name: "a", value: 3 }],
+    driver: [page(["a", "again"], [[3, 3]])],
+  });
+}
+
+// ---- plan-sqlite
+{
+  const file = "plan-sqlite";
+  add({
+    file,
+    name: "sqlite/params-bound",
+    engine: "sqlite",
+    text: "SELECT * FROM t WHERE a = {{a}} OR b = {{a}}",
+    target: all,
+    dialog: [{ name: "a", value: "x" }],
+    driver: [page(["a", "b"], [["x", null]])],
+  });
+  add({
+    file,
+    name: "sqlite/pragma-and-write",
+    engine: "sqlite",
+    text: "PRAGMA foreign_keys = ON;\nINSERT INTO t VALUES (1);",
+    target: all,
+    driver: [util(), write(1, 7)],
+  });
+  add({
+    file,
+    name: "sqlite/row-limited-streams",
+    engine: "sqlite",
+    text: "SELECT * FROM t LIMIT 2 OFFSET 1",
+    target: all,
+    driver: [stream(["id"], rows(2, 2))],
+  });
+  add({
+    file,
+    name: "sqlite/trigger-body",
+    engine: "sqlite",
+    notes: "Pins seaquel-sql's frozen `edge:begin-end` split: the `;` inside the trigger's BEGIN … END splits it, so both pieces are broken statements on a real server (Follow-ups)",
+    text: "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1; END;\nSELECT 1 AS a;",
+    target: all,
+    driver: [util(), util(), page(["a"], [[1]])],
+  });
+}
+
+// ---- plan-mssql
+{
+  const file = "plan-mssql";
+  add({
+    file,
+    name: "mssql/params-inlined",
+    engine: "mssql",
+    text: "SELECT * FROM t WHERE a = {{a}} AND n = {{n}}",
+    target: all,
+    dialog: [
+      { name: "a", value: "東京'x" },
+      { name: "n", value: 5 },
+    ],
+    driver: [page(["a", "n"], [["東京'x", 5]])],
+  });
+  add({
+    file,
+    name: "mssql/params-in-comment-and-string",
+    engine: "mssql",
+    notes: "Inlined: `'{{a}}'` in a string is replaced too (the value written as a literal), unlike on Postgres; the bracketed name and the comments keep `{{a}}`",
+    text: "SELECT {{a}} AS a, '{{a}}' AS s, [{{a}}] AS q -- {{a}}\n/* {{a}} */",
+    target: all,
+    dialog: [{ name: "a", value: 1 }],
+    driver: [page(["a", "s", "q"], [[1, "1", 1]])],
+  });
+  add({
+    file,
+    name: "mssql/substitution-error-inlined",
+    engine: "mssql",
+    notes: "A value an inlining engine can't write: a toast, nothing runs",
+    text: "SELECT {{a}} AS a",
+    target: cur(0),
+    dialog: [{ name: "a", value: bytes }],
+    driver: [],
+  });
+  add({
+    file,
+    name: "mssql/top-streams",
+    engine: "mssql",
+    text: "SELECT TOP 3 * FROM t",
+    target: all,
+    driver: [stream(["id"], rows(3))],
+  });
+  add({
+    file,
+    name: "mssql/bracket-name-and-write",
+    engine: "mssql",
+    text: "SELECT [a;b] FROM t;\nUPDATE t SET v = 1;",
+    target: all,
+    driver: [page(["a;b"], [[1]]), write(2)],
+  });
+  add({
+    file,
+    name: "mssql/utility-and-exec",
+    engine: "mssql",
+    text: "SET NOCOUNT ON;\nEXEC sp_who;",
+    target: all,
+    driver: [util(), util()],
+  });
+  add({
+    file,
+    name: "mssql/offset-fetch-streams",
+    engine: "mssql",
+    text: "SELECT * FROM t ORDER BY id OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+    target: all,
+    driver: [stream(["id"], rows(5, 11))],
+  });
+}
+
+// ---- plan-duckdb
+{
+  const file = "plan-duckdb";
+  add({
+    file,
+    name: "duckdb/params-inlined",
+    engine: "duckdb",
+    text: "SELECT * FROM t WHERE a = {{a}} AND b = {{b}}",
+    target: all,
+    dialog: [
+      { name: "a", value: "it's" },
+      { name: "b", value: 2.5 },
+    ],
+    driver: [page(["a", "b"], [["it's", 2.5]])],
+  });
+  add({
+    file,
+    name: "duckdb/set-is-utility",
+    engine: "duckdb",
+    text: "SET threads = 2;\nSELECT 1 AS a;",
+    target: all,
+    driver: [util(), page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "duckdb/row-limited-streams",
+    engine: "duckdb",
+    text: "SELECT * FROM range(10) LIMIT 3",
+    target: all,
+    driver: [stream(["range"], rows(3, 0))],
+  });
+  add({
+    file,
+    name: "duckdb/from-first-is-utility",
+    engine: "duckdb",
+    notes: "DuckDB's FROM-first SELECT isn't a `select` to the query-type check, so today it runs as a utility statement and shows no rows (Decision 18 shows them)",
+    text: "FROM range(10) LIMIT 3",
+    target: all,
+    driver: [{ op: "utility", columns: ["range"], rows: rows(3, 0) }],
+  });
+  add({
+    file,
+    name: "duckdb/params-in-comment-and-string",
+    engine: "duckdb",
+    notes: "Inlined: `'{{a}}'` in a string is replaced too, unlike on Postgres; the quoted name and the comment keep `{{a}}`",
+    text: "SELECT {{a}} AS a, '{{a}}' AS s, \"{{a}}\" AS q -- {{a}}",
+    target: all,
+    dialog: [{ name: "a", value: "v" }],
+    driver: [page(["a", "s", "q"], [["v", "v", 1]])],
+  });
+  add({
+    file,
+    name: "duckdb/attached-catalog",
+    engine: "duckdb",
+    text: "SELECT * FROM cat.main.t",
+    target: all,
+    driver: [page(["id"], [[1]])],
+  });
+  add({
+    file,
+    name: "duckdb/page-size-zero",
+    engine: "duckdb",
+    pageSize: 0,
+    text: "SELECT * FROM t",
+    target: all,
+    driver: [stream(["id"], rows(3))],
+  });
+}
+
+// ---- cursor
+{
+  const file = "cursor";
+  const two = "SELECT 1 AS a;\n\nSELECT 2 AS b;";
+  add({ file, name: "cursor/before-first", engine: "postgres", text: "  " + two, target: cur(0), driver: [page(["a"], [[1]])] });
+  add({ file, name: "cursor/inside-first", engine: "postgres", text: two, target: at(two, "1 AS"), driver: [page(["a"], [[1]])] });
+  add({ file, name: "cursor/at-first-semicolon", engine: "postgres", text: two, target: at(two, ";"), driver: [page(["a"], [[1]])] });
+  add({ file, name: "cursor/between", engine: "postgres", text: two, target: at(two, "\n\n", 1), driver: [page(["b"], [[2]])] });
+  add({ file, name: "cursor/inside-second", engine: "postgres", text: two, target: at(two, "2 AS"), driver: [page(["b"], [[2]])] });
+  add({ file, name: "cursor/after-last", engine: "postgres", text: two + "\n\n", target: cur(two.length + 2), driver: [page(["b"], [[2]])] });
+  const cjk = "SELECT '東京' AS a;\nSELECT 2 AS b;";
+  add({ file, name: "cursor/cjk-before", engine: "postgres", text: cjk, target: at(cjk, "2 AS"), driver: [page(["b"], [[2]])] });
+  const emoji = "SELECT '😀東京' AS a;\nSELECT 2 AS b;";
+  add({ file, name: "cursor/emoji-before", engine: "postgres", text: emoji, target: at(emoji, "2 AS"), driver: [page(["b"], [[2]])] });
+  add({ file, name: "cursor/emoji-first", engine: "postgres", text: emoji, target: at(emoji, "AS a"), driver: [page(["a"], [["😀東京"]])] });
+  const wide = "SELECT '東京東京東京東京' AS a;\nSELECT 2 AS b;";
+  add({
+    file,
+    name: "cursor/utf16-not-bytes",
+    engine: "postgres",
+    notes: "UTF-16 offset 24 is `SELECT 2`; as a byte offset it would land inside statement 1",
+    text: wide,
+    target: cur(24),
+    driver: [page(["b"], [[2]])],
+  });
+  const pair = "SELECT 1 AS a;\nSELECT '😀' AS b;";
+  add({
+    file,
+    name: "cursor/inside-surrogate-pair",
+    engine: "postgres",
+    notes: "The cursor sits between the two halves of 😀",
+    text: pair,
+    target: at(pair, "😀", 1),
+    driver: [page(["b"], [["😀"]])],
+  });
+  add({
+    file,
+    name: "cursor/whitespace-only",
+    engine: "postgres",
+    text: "  \n\t \n",
+    target: cur(2),
+    driver: [],
+  });
+  add({
+    file,
+    name: "cursor/comment-only",
+    engine: "postgres",
+    notes: "No statement at the cursor: today the whole buffer runs as a utility statement and is recorded in history",
+    text: "-- nothing here\n/* ; */",
+    target: cur(3),
+    driver: [util()],
+  });
+  add({
+    file,
+    name: "cursor/comment-only-run-all",
+    engine: "postgres",
+    text: "-- nothing here\n/* ; */",
+    target: all,
+    driver: [],
+  });
+  add({
+    file,
+    name: "cursor/mysql-hash-comment",
+    engine: "mysql",
+    text: "SELECT 1 AS a; # ; SELECT 3\nSELECT 2 AS b;",
+    target: at("SELECT 1 AS a; # ; SELECT 3\nSELECT 2 AS b;", "# ;", 2),
+    driver: [page(["b"], [[2]])],
+  });
+}
+
+// ---- execute
+{
+  const file = "execute";
+  add({
+    file,
+    name: "exec/partial-page-no-count",
+    engine: "postgres",
+    text: "SELECT g FROM t",
+    target: all,
+    driver: [page(["g"], rows(40))],
+  });
+  add({
+    file,
+    name: "exec/full-page-count",
+    engine: "postgres",
+    pageSize: 2,
+    text: "SELECT g FROM t ORDER BY g",
+    target: all,
+    driver: [page(["g"], rows(3)), count(250)],
+  });
+  add({
+    file,
+    name: "exec/count-as-text-and-bigint",
+    engine: "mysql",
+    pageSize: 2,
+    text: "SELECT g FROM t;\nSELECT h FROM u;",
+    target: all,
+    driver: [
+      page(["g"], rows(3)),
+      count("7"),
+      page(["h"], rows(3)),
+      count({ $sq: "bigint", v: "9" }),
+    ],
+  });
+  add({
+    file,
+    name: "exec/failed-count-estimated",
+    engine: "postgres",
+    pageSize: 2,
+    text: "SELECT g FROM t",
+    target: all,
+    driver: [page(["g"], rows(3)), fail("count", "canceling statement due to statement timeout")],
+    pages: [{ action: { type: "goToPage", page: 2 }, driver: [page(["g"], rows(3, 3)), fail("count", "again")] }],
+  });
+  add({
+    file,
+    name: "exec/count-not-numeric",
+    engine: "postgres",
+    pageSize: 2,
+    notes: "A count that isn't a number: today `parseInt` gives NaN (null in JSON) for totalRows and totalPages",
+    text: "SELECT g FROM t",
+    target: all,
+    driver: [page(["g"], rows(3)), count("n/a")],
+  });
+  add({
+    file,
+    name: "exec/with-and-select",
+    engine: "postgres",
+    notes: "Today the WITH's rows are dropped and its result hidden; history takes the SELECT's count (Decision 18 changes both)",
+    text: "WITH x AS (SELECT 1 AS a) SELECT a FROM x;\nSELECT b FROM t;",
+    target: all,
+    driver: [{ op: "utility", columns: ["a"], rows: [[1]] }, page(["b"], rows(3))],
+  });
+  add({
+    file,
+    name: "exec/stream-fails-mid-run",
+    engine: "postgres",
+    notes: "The run goes on after the failed stream (Decision 6); a failed stream means no history, today and in Core",
+    text: "SELECT 1 AS a;\nSELECT g FROM t LIMIT 5;\nSELECT 2 AS b;\nINSERT INTO t VALUES (1);",
+    target: all,
+    driver: [
+      page(["a"], [[1]]),
+      { op: "stream", columns: ["g"], rows: [[1]], error: { code: "QUERY_ERROR", message: "division by zero" } },
+      page(["b"], [[2]]),
+      write(1),
+    ],
+  });
+  add({
+    file,
+    name: "exec/empty-page",
+    engine: "postgres",
+    notes: "Today an empty page has no column names",
+    text: "SELECT a, b FROM t WHERE false",
+    target: all,
+    driver: [page(["a", "b"], [])],
+  });
+  add({
+    file,
+    name: "exec/stream-multi-batch",
+    engine: "postgres",
+    pageSize: 0,
+    text: "SELECT g FROM t",
+    target: all,
+    driver: [
+      {
+        op: "stream",
+        batches: [{ columns: ["g", "g"], rows: [[1, 1], [2, 2]] }, { rows: [[3, 3]] }, { rows: [] }],
+      },
+    ],
+  });
+  add({
+    file,
+    name: "exec/stream-error-after-rows",
+    engine: "postgres",
+    text: "SELECT g FROM t LIMIT 10",
+    target: all,
+    driver: [
+      { op: "stream", columns: ["g"], rows: [[1]], error: { code: "QUERY_ERROR", message: "division by zero" } },
+    ],
+  });
+  add({
+    file,
+    name: "exec/write-error-continues",
+    engine: "sqlite",
+    text: "INSERT INTO t VALUES (1);\nSELECT 1 AS a;",
+    target: all,
+    driver: [fail("write", "UNIQUE constraint failed: t.id"), page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "exec/utility-error",
+    engine: "postgres",
+    text: "CREATE TABLE t (id int);\nSELECT 1 AS a;",
+    target: all,
+    driver: [fail("utility", 'relation "t" already exists'), page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "exec/go-to-page-2",
+    engine: "postgres",
+    pageSize: 100,
+    text: "SELECT g FROM generate_series(1, 250) g",
+    target: all,
+    driver: [page(["g"], rows(101)), count(250)],
+    pages: [
+      { action: { type: "goToPage", page: 2 }, driver: [page(["g"], rows(101, 101)), count(250)] },
+      { action: { type: "goToPage", page: 3 }, driver: [page(["g"], rows(50, 201))] },
+    ],
+  });
+  add({
+    file,
+    name: "exec/set-page-size",
+    engine: "postgres",
+    text: "SELECT g FROM generate_series(1, 250) g",
+    target: all,
+    driver: [page(["g"], rows(101)), count(250)],
+    pages: [
+      { action: { type: "setPageSize", pageSize: 500 }, driver: [page(["g"], rows(250))] },
+      { action: { type: "setPageSize", pageSize: 0 }, driver: [stream(["g"], rows(250))] },
+    ],
+  });
+  add({
+    file,
+    name: "exec/paging-with-bound-params",
+    engine: "postgres",
+    notes: "Task 1: paging keeps the substituted SQL and its binds",
+    pageSize: 2,
+    text: "SELECT * FROM t WHERE a = {{a}}",
+    target: all,
+    dialog: [{ name: "a", value: 5 }],
+    driver: [page(["a"], [[5], [5], [5]]), count(4)],
+    pages: [
+      { action: { type: "goToPage", page: 2 }, driver: [page(["a"], [[5], [5]])] },
+      { action: { type: "setPageSize", pageSize: 500 }, driver: [page(["a"], [[5], [5], [5], [5]])] },
+    ],
+  });
+  add({
+    file,
+    name: "exec/paging-row-limited-with-params",
+    engine: "postgres",
+    text: "SELECT * FROM t WHERE a = {{a}} LIMIT 5",
+    target: all,
+    dialog: [{ name: "a", value: 5 }],
+    driver: [stream(["a"], [[5]])],
+    pages: [{ action: { type: "setPageSize", pageSize: 50 }, driver: [stream(["a"], [[5]])] }],
+  });
+  add({
+    file,
+    name: "exec/paging-run-all-own-binds",
+    engine: "mysql",
+    pageSize: 1,
+    text: "SELECT {{a}} AS a FROM t;\nSELECT {{b}} AS b FROM t;",
+    target: all,
+    dialog: [
+      { name: "a", value: 1 },
+      { name: "b", value: 2 },
+    ],
+    driver: [page(["a"], [[1], [1]]), count(2), page(["b"], [[2], [2]]), count(2)],
+    pages: [{ action: { type: "goToPage", page: 2, resultIndex: 0 }, driver: [page(["a"], [[1]])] }],
+  });
+  add({
+    file,
+    name: "exec/paging-inlined-params",
+    engine: "mssql",
+    pageSize: 1,
+    text: "SELECT * FROM t WHERE a = {{a}}",
+    target: all,
+    dialog: [{ name: "a", value: "x" }],
+    driver: [page(["a"], [["x"], ["x"]]), count(2)],
+    pages: [{ action: { type: "goToPage", page: 2 }, driver: [page(["a"], [["x"]])] }],
+  });
+  add({
+    file,
+    name: "exec/page-size-zero-current",
+    engine: "sqlite",
+    pageSize: 0,
+    text: "SELECT 1 AS a;\nSELECT 2 AS b;",
+    target: cur(0),
+    driver: [stream(["a"], [[1]])],
+  });
+}
+
+// ---- history
+{
+  const file = "history";
+  add({
+    file,
+    name: "history/current-page-1",
+    engine: "postgres",
+    text: "SELECT 1 AS a;\nSELECT {{b}} AS b;",
+    target: at("SELECT 1 AS a;\nSELECT {{b}} AS b;", "{{b}} AS"),
+    dialog: [{ name: "b", value: 2 }],
+    notes: "At the cursor history holds the statement before substitution",
+    driver: [page(["b"], [[2]])],
+  });
+  add({
+    file,
+    name: "history/page-2-none",
+    engine: "postgres",
+    pageSize: 1,
+    text: "SELECT g FROM t",
+    target: all,
+    driver: [page(["g"], rows(2)), count(2)],
+    pages: [{ action: { type: "goToPage", page: 2 }, driver: [page(["g"], rows(1, 2))] }],
+  });
+  add({
+    file,
+    name: "history/run-all-whole-text",
+    engine: "postgres",
+    notes: "Run all records the whole text, with the first shown result's row count",
+    text: "-- load\nSET search_path TO public;\nUPDATE t SET v = 1;\nSELECT 1 AS a;\n",
+    target: all,
+    driver: [util(), write(3), page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "history/all-utility-uses-first",
+    engine: "postgres",
+    text: "CREATE TABLE x (id int);\nDROP TABLE x;",
+    target: all,
+    driver: [util(), util()],
+  });
+  add({
+    file,
+    name: "history/failed-stream-none",
+    engine: "postgres",
+    text: "SELECT 1 AS a;\nSELECT g FROM t LIMIT 5;",
+    target: all,
+    driver: [page(["a"], [[1]]), fail("stream", "permission denied for table t")],
+  });
+  add({
+    file,
+    name: "history/failed-stream-current-none",
+    engine: "mysql",
+    text: "SELECT g FROM t LIMIT 5",
+    target: cur(0),
+    driver: [fail("stream", "Table 'db.t' doesn't exist")],
+  });
+  add({
+    file,
+    name: "history/failed-page-run-all-recorded",
+    engine: "postgres",
+    notes: "Today a failed paged statement in run all is still recorded",
+    text: "SELECT 1 AS a;\nSELECT nope;",
+    target: all,
+    driver: [page(["a"], [[1]]), fail("page", 'column "nope" does not exist')],
+  });
+  add({
+    file,
+    name: "history/failed-page-current-none",
+    engine: "postgres",
+    text: "SELECT nope",
+    target: cur(0),
+    driver: [fail("page", 'column "nope" does not exist')],
+  });
+  add({
+    file,
+    name: "history/write-row-count",
+    engine: "sqlite",
+    text: "DELETE FROM t WHERE id > 3",
+    target: cur(0),
+    driver: [write(5)],
+  });
+  add({
+    file,
+    name: "history/stream-row-count",
+    engine: "duckdb",
+    text: "SELECT * FROM t LIMIT 4",
+    target: cur(0),
+    driver: [stream(["id"], rows(4))],
+  });
+}
+
+// ---- pending
+{
+  const file = "pending";
+  add({
+    file,
+    name: "pending/current-insert-deferred",
+    engine: "postgres",
+    deferWrites: true,
+    text: "SELECT 1;\nINSERT INTO t VALUES ({{v}});",
+    target: at("SELECT 1;\nINSERT INTO t VALUES ({{v}});", "INSERT"),
+    dialog: [{ name: "v", value: 7 }],
+    driver: [],
+  });
+  add({
+    file,
+    name: "pending/current-select-runs",
+    engine: "postgres",
+    deferWrites: true,
+    text: "SELECT 1 AS a;\nINSERT INTO t VALUES (1);",
+    target: cur(0),
+    driver: [page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "pending/run-all-mix",
+    engine: "mysql",
+    deferWrites: true,
+    text: "INSERT INTO t VALUES (1);\nSELECT 1 AS a;\nCREATE TABLE u (id int);\nUPDATE t SET v = {{v}};\nSELECT 2 AS b;",
+    target: all,
+    dialog: [{ name: "v", value: "x" }],
+    driver: [page(["a"], [[1]]), page(["b"], [[2]])],
+  });
+  add({
+    file,
+    name: "pending/run-all-only-writes",
+    engine: "sqlite",
+    deferWrites: true,
+    text: "INSERT INTO t VALUES (1);\nDELETE FROM t;",
+    target: all,
+    driver: [],
+  });
+  add({
+    file,
+    name: "pending/destructive-deferred",
+    engine: "duckdb",
+    deferWrites: true,
+    notes: "The prompt comes first and lists the statement that is then deferred",
+    text: "DROP TABLE t;\nSELECT 1 AS a;",
+    target: all,
+    driver: [page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "pending/substitution-error-run-all",
+    engine: "postgres",
+    deferWrites: true,
+    notes: "Substitution runs before the pending check, so the INSERT is an error result, not a pending change",
+    text: "INSERT INTO t VALUES ({{v}});\nSELECT 1 AS a;",
+    target: all,
+    dialog: [{ name: "v", value: bytes }],
+    driver: [page(["a"], [[1]])],
+  });
+  add({
+    file,
+    name: "pending/mssql-inlined",
+    engine: "mssql",
+    deferWrites: true,
+    text: "UPDATE t SET v = {{v}} WHERE id = 1",
+    target: cur(0),
+    dialog: [{ name: "v", value: "a'b" }],
+    driver: [],
+  });
+}
+
+// ---------------------------------------------------------------- the client
+
+interface DriverOp {
+  op: string;
+  sql: string;
+  paginate?: { limit: number; offset: number };
+  params: Wire[];
+  answer: Omit<Answer, "op">;
+}
+
+const PAGE_RE = new RegExp(`^${PAGE}(\\d+):(\\d+)${PAGE}([\\s\\S]*)$`);
+
+class ScriptedClient {
+  log: DriverOp[] = [];
+  failures: string[] = [];
+  constructor(private answers: Answer[]) {}
+
+  private next(op: string, sqlText: string, params: Wire[], paginate?: DriverOp["paginate"]) {
+    const a = this.answers.shift();
+    if (!a || a.op !== op) {
+      const msg = `unexpected ${op} (${sqlText}); expected ${a ? a.op : "no call"}`;
+      this.failures.push(msg);
+      throw new CoreCallError({ code: "RECORDER", message: msg });
+    }
+    const { op: _op, ...answer } = a;
+    this.log.push({
+      op,
+      sql: sqlText,
+      ...(paginate ? { paginate } : {}),
+      params: structuredClone(params),
+      answer: structuredClone(answer),
+    });
+    return a;
+  }
+
+  left(): Answer[] {
+    return this.answers;
+  }
+
+  async call(request: { method: string; params: { method: string; params: Record<string, unknown> } }) {
+    const { method, params } = request.params;
+    const text = params.sql as string;
+    const binds = params.params as Wire[];
+    if (method === "query") {
+      const m = PAGE_RE.exec(text);
+      const a = m
+        ? this.next("page", m[3], binds, { limit: Number(m[1]), offset: Number(m[2]) })
+        : this.next(rec.counts.has(text) ? "count" : "utility", text, binds);
+      if (a.error) throw new CoreCallError(a.error);
+      const ans = a as { columns?: string[]; rows?: Wire[][] };
+      return {
+        method: "db",
+        result: {
+          method: "query",
+          result: { columns: ans.columns ?? [], rows: structuredClone(ans.rows ?? []) },
+        },
+      };
+    }
+    if (method === "execute") {
+      const a = this.next("write", text, binds) as {
+        rowsAffected?: number;
+        lastInsertId?: number;
+        error?: RpcErr;
+      };
+      if (a.error) throw new CoreCallError(a.error);
+      return {
+        method: "db",
+        result: {
+          method: "execute",
+          result: { rows_affected: a.rowsAffected ?? 0, last_insert_id: a.lastInsertId ?? null },
+        },
+      };
+    }
+    this.failures.push(`unexpected db.${method}`);
+    throw new CoreCallError({ code: "RECORDER", message: `unexpected db.${method}` });
+  }
+
+  async *stream(request: { params: { params: { sql: string; params: Wire[] } } }) {
+    const p = request.params.params;
+    let a: Answer;
+    try {
+      a = this.next("stream", p.sql, p.params);
+    } catch (e) {
+      yield { type: "error", code: "RECORDER", message: String(e) };
+      return;
+    }
+    const s = a as Extract<Answer, { op: "stream" }>;
+    const batches = s.batches ?? (s.rows || s.columns ? [{ columns: s.columns, rows: s.rows ?? [] }] : []);
+    for (let i = 0; i < batches.length; i++) {
+      const b = batches[i];
+      yield {
+        type: "batch",
+        columns: b.columns ?? null,
+        rows: structuredClone(b.rows),
+        is_final: !s.error && i === batches.length - 1,
+      };
+    }
+    if (s.error) yield { type: "error", ...s.error };
+    else yield { type: "done" };
+  }
+
+  events() {
+    return () => {};
+  }
+}
+
+// ---------------------------------------------------------------- recording
+
+const wire = (v: unknown): Wire => {
+  if (v instanceof Date) return v.toISOString();
+  return encodeParam(v);
+};
+const strip = (s: string) => s.replace(/;$/, "").trim();
+const PRIOR = "\u0001prior\u0001";
+
+function recordCase(c: Case) {
+  rec.toasts.length = 0;
+  rec.counts.clear();
+  rec.tables.clear();
+  rec.refs.clear();
+
+  const client = new ScriptedClient(structuredClone(c.driver));
+  const provider = new CoreProvider(() => client as unknown as CoreClient);
+  const connection = { id: "conn-1", type: c.engine, name: "Local", providerConnectionId: "pc-1" };
+  const pageSize = c.pageSize ?? 100;
+  // The editor never passes a page size: the runner takes the tab's last
+  // SELECT result's, else 100. A case with another page size starts from a
+  // tab whose last result had it.
+  const prior: StatementResult[] | undefined =
+    pageSize === 100
+      ? undefined
+      : [
+          {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            totalRows: 0,
+            executionTime: 0,
+            queryType: "select",
+            page: 1,
+            pageSize,
+            totalPages: 1,
+            statementIndex: 0,
+            statementSql: PRIOR,
+            isError: false,
+          },
+        ];
+  const tab = { id: "tab-1", query: c.text, results: prior } as {
+    id: string;
+    query: string;
+    results?: StatementResult[];
+    activeResultIndex?: number;
+  };
+  const state = {
+    activeProjectId: "p",
+    queryTabsByProject: { p: [tab] },
+    activeConnection: connection,
+    activeConnectionId: "conn-1",
+    connections: [connection],
+    schemas: {},
+  } as unknown as DatabaseState;
+  const providers = {
+    getForType: async () => provider,
+  } as unknown as ProviderRegistry;
+  const historyCalls: { query: string; rowCount: number | undefined }[] = [];
+  const history = {
+    addToHistory: (query: string, r: StatementResult) => {
+      // `QueryHistoryManager.addToHistory`'s row count.
+      historyCalls.push({ query, rowCount: r.affectedRows ?? r.totalRows });
+    },
+  } as unknown as QueryHistoryManager;
+  const pendingCalls: { sql: string; queryType: string; params: Wire[]; origin: string; tabId: string }[] = [];
+  const pending = {
+    isEnabled: () => !!c.deferWrites,
+    add: (
+      _conn: string,
+      s: string,
+      queryType: string,
+      origin: string,
+      tabId: string,
+      binds?: unknown[],
+    ) => {
+      pendingCalls.push({ sql: s, queryType, params: (binds ?? []).map(wire), origin, tabId });
+    },
+    openSheet: () => {},
+  } as unknown as PendingChangesManager;
+  const manager = new QueryExecutionManager(state, history, providers, pending);
+
+  let unfiltered: unknown[] | null = null;
+  const m = manager as unknown as { filterAndIndexResults: (r: StatementResult[]) => StatementResult[] };
+  const filter = m.filterAndIndexResults.bind(manager);
+  m.filterAndIndexResults = (list) => {
+    unfiltered = list.map((r) => snapshot(r));
+    return filter(list);
+  };
+
+  return {
+    client,
+    manager,
+    state,
+    tab,
+    pageSize,
+    historyCalls,
+    pendingCalls,
+    getUnfiltered: () => unfiltered,
+  };
+}
+
+function snapshot(r: StatementResult) {
+  return {
+    ...r,
+    columns: [...r.columns],
+    rows: r.rows.map((row) => [...row]),
+    pageSource: r.pageSource
+      ? { sql: r.pageSource.sql, params: [...r.pageSource.params] }
+      : undefined,
+    hasStreamSeed: "isStreaming" in r,
+  };
+}
+
+type Snap = ReturnType<typeof snapshot>;
+
+function errorText(e: RpcErr) {
+  return `${e.code}: ${e.message}`;
+}
+
+/** Which driver calls each result came from, in order. */
+function attribute(results: Snap[], ops: DriverOp[], failures: string[]) {
+  let k = 0;
+  const out: { kind: string | null; ops: DriverOp[] }[] = [];
+  for (const r of results) {
+    const mine: DriverOp[] = [];
+    let kind: string | null = null;
+    const op = ops[k];
+    const err = op?.answer && (op.answer as { error?: RpcErr }).error;
+    if (!r.isError || r.pageSource) {
+      if (!op) {
+        failures.push(`no driver call for result ${r.statementIndex}`);
+      } else {
+        kind = op.op;
+        mine.push(op);
+        k++;
+        if (kind === "page" && ops[k]?.op === "count") {
+          mine.push(ops[k]);
+          k++;
+        }
+      }
+    } else if (op && err && r.error === errorText(err)) {
+      kind = op.op;
+      mine.push(op);
+      k++;
+    }
+    out.push({ kind, ops: mine });
+  }
+  return { attributed: out, used: k };
+}
+
+function shapeResult(r: Snap, kind: string | null, ops: DriverOp[], shown: boolean) {
+  const base = r.pageSource ? strip(r.pageSource.sql) : null;
+  const out: Record<string, unknown> = {
+    index: r.statementIndex,
+    shown,
+    sql: r.statementSql,
+    source: r.pageSource ? { sql: r.pageSource.sql, params: r.pageSource.params.map(wire) } : null,
+    kind,
+    queryType: r.queryType ?? null,
+    columns: r.columns,
+    rows: r.rows.map((row) => row.map(wire)),
+    rowCount: r.rowCount,
+    totalRows: r.totalRows,
+    page: r.page,
+    pageSize: r.pageSize,
+    totalPages: r.totalPages,
+    error: r.error ?? null,
+    affectedRows: r.affectedRows ?? null,
+    lastInsertId: r.lastInsertId ?? null,
+  };
+  if (kind === "page" && !r.error && ops[0]?.paginate) {
+    const fetched = ((ops[0].answer as { rows?: unknown[] }).rows ?? []).length;
+    const full = fetched > ops[0].paginate.limit - 1;
+    const countOp = ops.find((o) => o.op === "count");
+    out.countEstimated = full && (!countOp || !!(countOp.answer as { error?: unknown }).error);
+  }
+  if (base !== null && rec.tables.has(base)) out.table = rec.tables.get(base) ?? null;
+  if (base !== null && rec.refs.has(base)) out.columnRefs = rec.refs.get(base) ?? null;
+  return out;
+}
+
+const recorded = new Map<string, Record<string, unknown>[]>();
+
+async function run(c: Case): Promise<Record<string, unknown>> {
+  const { client, manager, state, tab, pageSize, historyCalls, pendingCalls, getUnfiltered } =
+    recordCase(c);
+
+  // The editor, as query-editor.svelte wires it.
+  const inFlight: Promise<unknown>[] = [];
+  const track =
+    <A extends unknown[]>(fn: (...a: A) => Promise<unknown>) =>
+    (...a: A) => {
+      const p = fn(...a);
+      inFlight.push(p);
+      return p;
+    };
+  const queries = {
+    execute: track((...a: Parameters<typeof manager.execute>) => manager.execute(...a)),
+    executeCurrent: track((...a: Parameters<typeof manager.executeCurrent>) =>
+      manager.executeCurrent(...a),
+    ),
+    executeWithParams: track((...a: Parameters<typeof manager.executeWithParams>) =>
+      manager.executeWithParams(...a),
+    ),
+    executeCurrentWithParams: track(
+      (...a: Parameters<typeof manager.executeCurrentWithParams>) =>
+        manager.executeCurrentWithParams(...a),
+    ),
+  };
+  const paramDialog = {
+    params: [] as unknown[],
+    action: null as unknown,
+    show: false,
+    getParameterDefinitions: () => [],
+  };
+  const cursor = c.target.type === "current" ? c.target.cursor : 0;
+  const ctx = {
+    db: { state, queries },
+    getMonacoRef: () => ({ getCursorOffset: () => cursor }),
+    getActiveTab: () => tab,
+    getActiveTabId: () => tab.id,
+    getActiveResult: () => null,
+    getActiveResultIndex: () => 0,
+    getResultKey: () => null,
+  };
+
+  let destructive: { index: number; sql: string; reason: unknown }[] = [];
+  let sentParams: { name: string; value: Wire }[] | null = null;
+  const via = c.via ?? "editor";
+  if (via === "editor") {
+    const exec = createExecution(
+      ctx as never,
+      paramDialog as never,
+      () => {},
+    );
+    if (c.target.type === "all") exec.handleExecute();
+    else exec.handleExecuteCurrent();
+    if (exec.showDestructiveConfirm) {
+      destructive = exec.destructiveStatements.map((d) => ({
+        index: d.index,
+        sql: d.sql,
+        reason: JSON.parse(JSON.stringify(d.reason)),
+      }));
+      exec.handleDestructiveConfirm();
+    }
+    if (paramDialog.show) {
+      if (!c.dialog) throw new Error(`${c.name}: the parameter dialog opened with no values`);
+      paramDialog.show = false;
+      sentParams = c.dialog;
+      const values: ParameterValue[] = c.dialog.map((p) => ({
+        name: p.name,
+        value: decodeCell(structuredClone(p.value)),
+      }));
+      exec.handleParamExecute(values);
+    } else if (c.dialog) {
+      throw new Error(`${c.name}: dialog values given but the dialog didn't open`);
+    }
+  } else {
+    // The file drop and the reruns: `db.queries.execute(tabId)`, no prompt.
+    if (c.target.type !== "all") throw new Error("rerun runs the whole tab");
+    const split = sql.splitSqlStatementsOrThrow(c.text, c.engine);
+    destructive = sql.findDestructiveStatements(split, c.engine).map((d) => ({ ...d }));
+    inFlight.push(manager.execute(tab.id));
+  }
+  await Promise.all(inFlight);
+
+  // What ran.
+  const statements =
+    c.target.type === "all"
+      ? sql.splitSqlStatementsOrThrow(c.text, c.engine).map((s) => ({ index: s.index, sql: s.sql }))
+      : (() => {
+          const s = sql.getStatementAtOffsetOrThrow(c.text, c.target.cursor, c.engine);
+          return s ? [{ index: s.index, sql: s.sql }] : [];
+        })();
+
+  const current = (tab.results ?? []).filter((r) => r.statementSql !== PRIOR);
+  const unfiltered = (getUnfiltered() as Snap[] | null) ?? current.map(snapshot);
+  const shownCount = current.length;
+  const shownSet = new Set<Snap>();
+  if (c.target.type === "all" && getUnfiltered()) {
+    const anyShown = unfiltered.some((r) => !r.isUtility);
+    for (const r of unfiltered) if (!anyShown || !r.isUtility) shownSet.add(r);
+  } else {
+    for (const r of unfiltered) shownSet.add(r);
+  }
+  expect(shownSet.size).toBe(shownCount);
+
+  const failures = [...client.failures];
+  const ops = client.log.splice(0);
+  const { attributed, used } = attribute(unfiltered, ops, failures);
+  if (used !== ops.length) failures.push(`${ops.length - used} driver calls not attributed`);
+  const results = unfiltered.map((r, i) =>
+    shapeResult(r, attributed[i].kind, attributed[i].ops, shownSet.has(r)),
+  );
+
+  // Pending changes carry no index: they are the statements with no result.
+  // In run all a result's `statementIndex` is its statement's position, so
+  // the deferred ones are the positions with no result, in order.
+  const withResult = new Set(unfiltered.map((r) => r.statementIndex));
+  const deferredAt =
+    c.target.type === "all" ? statements.map((_, i) => i).filter((i) => !withResult.has(i)) : [0];
+  if (deferredAt.length !== pendingCalls.length && pendingCalls.length > 0) {
+    throw new Error(`${c.name}: ${pendingCalls.length} deferred, ${deferredAt.length} without a result`);
+  }
+  const deferred = pendingCalls.map((p, i) => ({
+    index: deferredAt[i],
+    sql: statements[deferredAt[i]]?.sql ?? null,
+    source: { sql: p.sql, params: p.params },
+    queryType: p.queryType,
+  }));
+
+  const historyOut = historyCalls.length === 0 ? null : historyCalls.map((h) => ({ ...h }));
+  const pagesOut: Record<string, unknown>[] = [];
+  const displayed = () => (tab.results ?? []).filter((r) => r.statementSql !== PRIOR);
+
+  for (const p of c.pages ?? []) {
+    (client as unknown as { answers: Answer[] }).answers.push(...structuredClone(p.driver));
+    const before = historyCalls.length;
+    const idx = p.action.resultIndex ?? tab.activeResultIndex ?? 0;
+    const shownBefore = results.filter((r) => r.shown);
+    if (p.action.type === "goToPage") await manager.goToPage(tab.id, p.action.page, p.action.resultIndex);
+    else await manager.setPageSize(tab.id, p.action.pageSize, p.action.resultIndex);
+    const pops = client.log.splice(0);
+    failures.push(...client.failures.splice(0));
+    const after = snapshot(displayed()[idx]);
+    const kind = pops[0]?.op ?? null;
+    const shaped = shapeResult(after, kind, pops, true);
+    shaped.index = shownBefore[idx]?.index ?? idx;
+    pagesOut.push({
+      action: p.action,
+      driver: pops,
+      result: shaped,
+      history: historyCalls.length > before ? historyCalls.slice(before) : null,
+    });
+  }
+
+  if (client.left().length) failures.push(`${client.left().length} answers left over`);
+  expect(failures, c.name).toEqual([]);
+
+  const out: Record<string, unknown> = {
+    name: c.name,
+    engine: c.engine,
+    ...(c.notes ? { notes: c.notes } : {}),
+    input: {
+      text: c.text,
+      target: c.target,
+      params: sentParams,
+      pageSize,
+      deferWrites: !!c.deferWrites,
+      confirmed: destructive.length > 0,
+      via,
+    },
+    statements,
+    destructive,
+    driver: ops,
+    results,
+    deferred,
+    history: historyOut ? historyOut[0] : null,
+    toasts: [...rec.toasts],
+  };
+  if (historyOut && historyOut.length > 1) out.historyCalls = historyOut;
+  if (pagesOut.length) out.pages = pagesOut;
+  return out;
+}
+
+describe("record run fixtures", () => {
+  for (const c of cases) {
+    it(c.name, async () => {
+      const out = await run(c);
+      const list = recorded.get(c.file) ?? [];
+      list.push(out);
+      recorded.set(c.file, list);
+    });
+  }
+
+  it("has unique names", () => {
+    expect(new Set(cases.map((c) => c.name)).size).toBe(cases.length);
+  });
+
+  afterAll(() => {
+    if (!process.env.FREEZE_RUN) return;
+    if ([...recorded.values()].flat().length !== cases.length) {
+      throw new Error("not every case recorded; nothing written");
+    }
+    const dir =
+      process.env.FREEZE_RUN_OUT ?? join(process.cwd(), "crates/seaquel-workspace/tests/fixtures/run");
+    mkdirSync(dir, { recursive: true });
+    const files = [
+      "plan-postgres",
+      "plan-mysql",
+      "plan-mariadb",
+      "plan-sqlite",
+      "plan-mssql",
+      "plan-duckdb",
+      "cursor",
+      "execute",
+      "history",
+      "pending",
+    ];
+    for (const f of files) {
+      writeFileSync(join(dir, `${f}.json`), JSON.stringify(recorded.get(f) ?? [], null, 2) + "\n");
+    }
+  });
+});

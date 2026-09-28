@@ -383,9 +383,11 @@ async fn handle_core_call(
     workspace.call(core, req).await
 }
 
-/// A `db.queryStream` request, its events pushed to `channel` as
-/// [`CoreEvent::Stream`]s: batches, then one `done` or `error`, or nothing
-/// more after a `db.cancel` (which may arrive before the stream starts).
+/// A `db.queryStream`, `db.run` or `db.page` request, its events pushed to
+/// `channel` as [`CoreEvent::Stream`]s (a query stream's batches) or
+/// [`CoreEvent::Run`]s (a run's or page's statements and batches), then one
+/// `done` or `error`, or nothing more after a `db.cancel` with its
+/// `streamId` (which may arrive before it starts).
 /// `request` is the request's JSON as a string: the invoke carries the
 /// channel too, so the body can't be raw bytes. Resolves when the stream
 /// ends or the webview drops the channel, with the number of events it sent:
@@ -426,8 +428,9 @@ async fn run_core_stream(
     mut send: impl FnMut(CoreEvent) -> bool,
 ) -> Result<u64, RpcError> {
     let req = seaquel_rpc::parse_request(body)?;
+    // A query stream's, a run's or a page's id.
     let stream_id = match &req {
-        Request::Db(DbRequest::QueryStream(params)) => Some(params.stream_id.clone()),
+        Request::Db(db) => db.stream_id().map(str::to_string),
         _ => None,
     };
     let db = workspace.db(core).await?;
@@ -882,6 +885,9 @@ pub fn run() {
         // it's slower than a second). The drivers turn it off; this drops it
         // too.
         .level_for("sqlx::query", log::LevelFilter::Off)
+        // sqlparser (Core's table and column refs for a run) logs the
+        // tokens it parses, literals included, at DEBUG.
+        .level_for("sqlparser", log::LevelFilter::Off)
         .max_file_size(5_000_000)
         .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll);
     // Workspace calls log their method names at debug; dev builds show them.
@@ -895,6 +901,7 @@ pub fn run() {
         .manage(
             seaquel_core::with_default_plugins()
                 .connect_policy(ConnectPolicy::Unrestricted)
+                .executor(std::sync::Arc::new(seaquel_runtime::TokioExecutor))
                 .build(),
         )
         .manage(PendingUpdate {
@@ -1221,6 +1228,7 @@ mod workspace_tests {
     fn sqlite_core() -> Core {
         seaquel_core::with_plugins(|id| id == "sqlite")
             .connect_policy(ConnectPolicy::Unrestricted)
+            .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build()
     }
 
@@ -1260,6 +1268,15 @@ mod workspace_tests {
     fn stream_body(connection_id: &str, stream_id: &str, sql: &str) -> String {
         json!({"method": "db", "params": {"method": "queryStream", "params": {
             "connectionId": connection_id, "streamId": stream_id, "sql": sql,
+        }}})
+        .to_string()
+    }
+
+    /// A `db.run` of every statement in `text` at `page_size`.
+    fn run_body(connection_id: &str, stream_id: &str, text: &str, page_size: u32) -> String {
+        json!({"method": "db", "params": {"method": "run", "params": {
+            "connectionId": connection_id, "streamId": stream_id, "text": text,
+            "target": {"type": "all"}, "pageSize": page_size,
         }}})
         .to_string()
     }
@@ -1461,6 +1478,112 @@ mod workspace_tests {
         assert_eq!(event_types(&events).last(), Some(&"done"));
         let events = stream(&core, &ws, &stream_body(&id, "early", "SELECT x FROM t"));
         assert_eq!(event_types(&events).last(), Some(&"done"));
+    }
+
+    /// `core_stream` serves `db.run` and `db.page` like a query stream: `run`
+    /// events with their `streamId`, one terminal event, and the count of
+    /// events sent as the reply.
+    #[test]
+    fn core_stream_serves_a_run_and_returns_its_event_count() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let id = sqlite(&core, &ws, &tmp.path().join("run.db"), 1000);
+
+        // `stream` checks the returned count against the events received.
+        let events = stream(
+            &core,
+            &ws,
+            &run_body(
+                &id,
+                "r1",
+                "SELECT x FROM t; SELECT nope; SELECT 1 AS one",
+                100,
+            ),
+        );
+        assert!(events
+            .iter()
+            .all(|e| e["type"] == "run" && e["streamId"] == "r1"));
+        assert_eq!(
+            event_types(&events),
+            [
+                "statementStart",
+                "batch",
+                "statementDone",
+                "statementStart",
+                "statementError",
+                "statementStart",
+                "batch",
+                "statementDone",
+                "done"
+            ]
+        );
+        assert_eq!(events[2]["event"]["totalRows"], 1000);
+        assert_eq!(events[2]["event"]["totalPages"], 10);
+
+        let page = json!({"method": "db", "params": {"method": "page", "params": {
+            "connectionId": id, "streamId": "p1", "source": events[0]["event"]["source"],
+            "page": 10, "pageSize": 100,
+        }}})
+        .to_string();
+        let events = stream(&core, &ws, &page);
+        assert_eq!(
+            event_types(&events),
+            ["statementStart", "batch", "statementDone", "done"]
+        );
+        assert_eq!(events[1]["event"]["rows"][99], json!([1000]));
+
+        // A destructive run without confirmation: one terminal error.
+        let events = stream(&core, &ws, &run_body(&id, "r2", "DROP TABLE t", 100));
+        assert_eq!(event_types(&events), ["error"]);
+        assert_eq!(events[0]["event"]["code"], "CONFIRM_REQUIRED");
+        // Tracking ended with the runs.
+        assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+    }
+
+    /// A reload cancels the webview's running run: the statement in flight
+    /// stops, the later ones never run, and no terminal event comes.
+    #[test]
+    fn a_reload_cancels_a_running_run() {
+        let core = Arc::new(sqlite_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(desktop(tmp.path().join("data")));
+        let id = sqlite(&core, &ws, &tmp.path().join("rr.db"), 2000);
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+
+        let (rx, task) = background_stream(
+            &core,
+            &ws,
+            "main",
+            run_body(
+                &id,
+                "run",
+                "SELECT a.x, b.x FROM t a, t b; CREATE TABLE after_run (a int)",
+                0,
+            ),
+        );
+        assert_eq!(
+            rx.recv_timeout(WAIT).unwrap()["event"]["type"],
+            "statementStart"
+        );
+        assert_eq!(rx.recv_timeout(WAIT).unwrap()["event"]["type"], "batch");
+        assert!(Webviews::lock(&ws.webviews).streams["main"].contains("run"));
+
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        ends_cancelled(&rx);
+        let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
+        assert!(sent >= 2);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        assert_eq!(db.ws.stream_count(&core), 0);
+        assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+        let res = db_call(
+            &core,
+            &ws,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT count(*) FROM sqlite_master WHERE name = 'after_run'"}),
+        )
+        .unwrap();
+        assert_eq!(res["rows"], json!([[0]]));
     }
 
     fn sink(tx: mpsc::Sender<Json>) -> EventSink {

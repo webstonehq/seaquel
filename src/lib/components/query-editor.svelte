@@ -424,5 +424,6 @@
 <DestructiveQueryConfirmDialog
 	bind:open={exec.showDestructiveConfirm}
 	statements={exec.destructiveStatements}
+	total={exec.destructiveTotal}
 	onconfirm={exec.handleDestructiveConfirm}
 />

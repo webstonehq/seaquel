@@ -29,7 +29,17 @@
  *      later, so the client reconnects and is checked afresh). After
  *      {@link MAX_LIFETIME_MS} the socket closes with 1000 anyway, and the
  *      client reconnects and re-authorises;
- *   5. closes each side when the other closes, which cancels the socket's
+ *   5. applies backpressure both ways: when the socket it writes to holds
+ *      more than {@link PAUSE_BUFFERED_BYTES} unsent, it stops reading the
+ *      other side (`pause()`), and reads again once those writes flush. A
+ *      slow browser then stalls Rust's sender (and Rust's bounded outbox
+ *      stalls the query), instead of growing Node's memory without limit
+ *      (phase 5b probe, I2). When more than {@link MAX_BUFFERED_BYTES}
+ *      still arrives from a side after it was paused, it closes both with
+ *      1013; one huge frame (a wide row) and the frames behind it pass. Browser frames queued while the Rust socket
+ *      opens count too (at most {@link MAX_PENDING_FRAMES}, and that many
+ *      bytes);
+ *   6. closes each side when the other closes, which cancels the socket's
  *      streams in Rust. Rust's close code and reason reach the browser
  *      (`TOO_MANY_SOCKETS` is 1013).
  *
@@ -65,6 +75,18 @@ export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
 /** Browser frames held while the Rust socket opens; more closes both. */
 export const MAX_PENDING_FRAMES = 64;
+
+/**
+ * Unsent bytes on one side past which the proxy stops reading the other.
+ * Rust splits batches at about 4 MiB, so this is a few frames.
+ */
+export const PAUSE_BUFFERED_BYTES = 16 * 1024 * 1024;
+
+/** Unsent bytes on one side past which the proxy closes both with 1013. */
+export const MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
+
+/** How long the Rust socket may take to open before the browser gets 1013. */
+export const RUST_CONNECT_TIMEOUT_MS = 10_000;
 
 /** How long a session lookup may take before it counts as unavailable. */
 export const ACCESS_TIMEOUT_MS = 5_000;
@@ -162,6 +184,9 @@ export function localBaseUrl(server) {
  * @param {typeof fetch} [options.fetch]
  * @param {number} [options.recheckMs] Tests only: {@link RECHECK_MS}.
  * @param {number} [options.maxLifetimeMs] Tests only: {@link MAX_LIFETIME_MS}.
+ * @param {number} [options.pauseBufferedBytes] Tests only: {@link PAUSE_BUFFERED_BYTES}.
+ * @param {number} [options.maxBufferedBytes] Tests only: {@link MAX_BUFFERED_BYTES}.
+ * @param {number} [options.rustConnectTimeoutMs] Tests only: {@link RUST_CONNECT_TIMEOUT_MS}.
  * @returns {WebSocketServer}
  */
 export function attachRpcStreamProxy(server, options) {
@@ -171,6 +196,11 @@ export function attachRpcStreamProxy(server, options) {
   const fetchImpl = options.fetch ?? fetch;
   const recheckMs = options.recheckMs ?? RECHECK_MS;
   const maxLifetimeMs = options.maxLifetimeMs ?? MAX_LIFETIME_MS;
+  const limits = {
+    pauseAt: options.pauseBufferedBytes ?? PAUSE_BUFFERED_BYTES,
+    maxBuffered: options.maxBufferedBytes ?? MAX_BUFFERED_BYTES,
+    connectTimeoutMs: options.rustConnectTimeoutMs ?? RUST_CONNECT_TIMEOUT_MS,
+  };
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
 
   server.on("upgrade", async (req, socket, head) => {
@@ -191,7 +221,7 @@ export function attachRpcStreamProxy(server, options) {
     const userId = session.userId;
 
     wss.handleUpgrade(req, socket, head, (browserWs) => {
-      const closeBoth = pipe(browserWs, rustWsUrl, userId);
+      const closeBoth = pipe(browserWs, rustWsUrl, userId, limits);
 
       // Still allowed? Checked again on a timer, with the same credentials.
       const recheck = setInterval(async () => {
@@ -215,6 +245,17 @@ export function attachRpcStreamProxy(server, options) {
 }
 
 /**
+ * The bytes in a frame `ws` handed over.
+ *
+ * @param {import("ws").RawData} data
+ * @returns {number}
+ */
+function byteLength(data) {
+  if (Array.isArray(data)) return data.reduce((n, b) => n + b.length, 0);
+  return data.byteLength;
+}
+
+/**
  * Whether a close code may be sent in a close frame (1005, 1006 and 1015
  * are only reported, never sent).
  *
@@ -233,10 +274,11 @@ function sendable(code) {
  * @param {WebSocket} browserWs
  * @param {string} rustWsUrl
  * @param {string} userId
+ * @param {{ pauseAt: number, maxBuffered: number, connectTimeoutMs: number }} limits
  * @returns {(code?: number, reason?: string) => void} Closes both sides; the
  *   browser gets `code` and `reason`.
  */
-function pipe(browserWs, rustWsUrl, userId) {
+function pipe(browserWs, rustWsUrl, userId, limits) {
   // No `maxPayload`: Rust is trusted, and a result frame may pass the
   // browser's limit (Rust splits batches at about 4 MiB, but one wide row
   // can be larger). 0 is no limit in `ws`.
@@ -245,10 +287,18 @@ function pipe(browserWs, rustWsUrl, userId) {
     maxPayload: 0,
   });
 
-  // Browser frames that arrive before the Rust socket opens.
+  // Browser frames that arrive before the Rust socket opens, and their bytes.
   /** @type {Array<[import("ws").RawData, boolean]>} */
   const pending = [];
+  let pendingBytes = 0;
   let closed = false;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let connectTimer;
+  /**
+   * Bytes forwarded from each side since it was paused.
+   * @type {Map<WebSocket, number>}
+   */
+  const late = new Map();
 
   /**
    * @param {number} [code]
@@ -257,7 +307,9 @@ function pipe(browserWs, rustWsUrl, userId) {
   const closeBoth = (code, reason) => {
     if (closed) return;
     closed = true;
+    clearTimeout(connectTimer);
     pending.length = 0;
+    pendingBytes = 0;
     const browserCode = code !== undefined && sendable(code) ? code : undefined;
     // `terminate` for a socket still connecting, which can't `close`.
     try {
@@ -274,25 +326,90 @@ function pipe(browserWs, rustWsUrl, userId) {
     }
   };
 
+  /**
+   * Send a frame read from `from` on to `to`, with backpressure: past
+   * `limits.pauseAt` unsent bytes on `to`, stop reading `from` until a write
+   * to `to` completes with the buffer back under half of it. The last
+   * write's callback always comes, so a paused side is always resumed once
+   * `to` drains.
+   *
+   * The hard cap is on what arrives after the pause, not on one frame: a
+   * wide row (a 70 MB bytea) and the frames right behind it pass, as before
+   * backpressure, while frames that keep arriving from a paused side past
+   * `limits.maxBuffered` (read-ahead the pause didn't stop) close both. So
+   * does a backlog past it when pausing never starts (`pauseAt` above it).
+   *
+   * @param {WebSocket} from
+   * @param {WebSocket} to
+   * @param {import("ws").RawData} data
+   * @param {boolean} isBinary
+   */
+  const forward = (from, to, data, isBinary) => {
+    const size = byteLength(data);
+    const wasPaused = from.isPaused;
+    to.send(data, { binary: isBinary }, () => {
+      if (!closed && from.isPaused && to.bufferedAmount <= limits.pauseAt / 2) {
+        late.set(from, 0);
+        from.resume();
+      }
+    });
+    const buffered = to.bufferedAmount;
+    if (wasPaused) {
+      const after = (late.get(from) ?? 0) + size;
+      late.set(from, after);
+      if (after > limits.maxBuffered) closeBoth(TRY_AGAIN_LATER, "too far behind");
+    } else if (buffered - size > limits.maxBuffered) {
+      closeBoth(TRY_AGAIN_LATER, "too far behind");
+    } else if (buffered > limits.pauseAt) {
+      late.set(from, 0);
+      from.pause();
+    }
+  };
+
+  // A Rust socket that never opens would hold the browser (and its queued
+  // frames) forever: give up with 1013 so the client reconnects.
+  connectTimer = setTimeout(() => {
+    if (rustWs.readyState !== WebSocket.OPEN) closeBoth(TRY_AGAIN_LATER, "upstream unavailable");
+  }, limits.connectTimeoutMs);
+
   rustWs.on("open", () => {
+    clearTimeout(connectTimer);
     if (closed) {
       rustWs.close();
       return;
     }
-    for (const [data, isBinary] of pending) rustWs.send(data, { binary: isBinary });
-    pending.length = 0;
+    // Through `forward`, so the queued bytes count toward backpressure;
+    // its send callbacks resume the browser if the queue paused it.
+    const queued = pending.splice(0);
+    pendingBytes = 0;
+    for (const [data, isBinary] of queued) {
+      if (closed) return;
+      forward(browserWs, rustWs, data, isBinary);
+    }
   });
 
   // `isBinary` is authoritative: `ws` hands over a Buffer either way, and
   // Rust answers a Binary frame with an error.
   browserWs.on("message", (data, isBinary) => {
     if (closed) return;
-    if (rustWs.readyState === WebSocket.OPEN) rustWs.send(data, { binary: isBinary });
-    else if (pending.length < MAX_PENDING_FRAMES) pending.push([data, isBinary]);
-    else closeBoth();
+    if (rustWs.readyState === WebSocket.OPEN) forward(browserWs, rustWs, data, isBinary);
+    else if (
+      pending.length < MAX_PENDING_FRAMES &&
+      pendingBytes + byteLength(data) <= limits.maxBuffered
+    ) {
+      pending.push([data, isBinary]);
+      pendingBytes += byteLength(data);
+      // Stop reading the browser until Rust opens and takes the queue.
+      if (pendingBytes > limits.pauseAt && !browserWs.isPaused) {
+        late.set(browserWs, 0);
+        browserWs.pause();
+      }
+    } else closeBoth(TRY_AGAIN_LATER, "too far behind");
   });
   rustWs.on("message", (data, isBinary) => {
-    if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data, { binary: isBinary });
+    if (!closed && browserWs.readyState === WebSocket.OPEN) {
+      forward(rustWs, browserWs, data, isBinary);
+    }
   });
 
   browserWs.on("close", () => closeBoth());

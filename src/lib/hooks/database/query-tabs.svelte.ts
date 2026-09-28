@@ -23,6 +23,26 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
     this.sharedQueryManager = manager;
   }
 
+  /** Told when a tab closes (its run is cancelled) and when one becomes active. */
+  private lifecycle: { removed?: (id: string) => void; activated?: (id: string) => void } = {};
+
+  setLifecycleListener(listener: {
+    removed?: (id: string) => void;
+    activated?: (id: string) => void;
+  }): void {
+    this.lifecycle = listener;
+  }
+
+  override remove(id: string): void {
+    super.remove(id);
+    this.lifecycle.removed?.(id);
+  }
+
+  override setActive(id: string): void {
+    super.setActive(id);
+    this.lifecycle.activated?.(id);
+  }
+
   protected get accessors(): TabStateAccessors<QueryTab> {
     return {
       getTabs: () => this.state.queryTabsByProject,
@@ -47,7 +67,10 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
       queryId,
     });
 
-    return this.appendTab(newTab);
+    const id = this.appendTab(newTab);
+    // A new tab is the active one: tell the listener as a switch.
+    this.lifecycle.activated?.(id);
+    return id;
   }
 
   /**

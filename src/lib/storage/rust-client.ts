@@ -190,7 +190,8 @@ export const STORAGE_METHOD_KIND: Record<StorageMethod, "read" | "write"> = {
   projectsSaveAll: "write",
   projectsRemove: "write",
   queryHistoryLoadByConnection: "read",
-  queryHistoryReplaceAll: "write",
+  queryHistoryAppend: "write",
+  queryHistorySetFavorite: "write",
   queryHistoryRemoveByConnection: "write",
   queryVersionsLoadByQuery: "read",
   queryVersionsLoadByProject: "read",
@@ -422,8 +423,11 @@ export class RustStorageClient implements StorageClient {
 
   queryHistory: StorageClient["queryHistory"] = {
     loadByConnection: (connectionId) => this.call("queryHistoryLoadByConnection", { connectionId }),
-    replaceAll: async (connectionId, items) => {
-      await this.call("queryHistoryReplaceAll", { connectionId, items });
+    append: async (item) => {
+      await this.call("queryHistoryAppend", { item });
+    },
+    setFavorite: async (id, favorite) => {
+      await this.call("queryHistorySetFavorite", { id, favorite });
     },
     removeByConnection: async (connectionId) => {
       await this.call("queryHistoryRemoveByConnection", { connectionId });

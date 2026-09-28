@@ -4,6 +4,7 @@
  */
 
 import type { QueryType } from "./generated/QueryType";
+import type { StatementKind } from "./generated/StatementKind";
 import type { ConnectionLabel } from "./project";
 import type { ExplainResult } from "./explain";
 import type { ParsedQueryVisual } from "./visualize";
@@ -123,8 +124,19 @@ export interface QueryResult {
 export interface StatementResult extends QueryResult {
   /** Index of this statement in the batch (0-indexed) */
   statementIndex: number;
-  /** The SQL text of this specific statement */
+  /** The SQL text of this specific statement, as typed (before `{{param}}` substitution) */
   statementSql: string;
+  /**
+   * What paging re-runs (`db.page`): the statement after `{{param}}`
+   * substitution and its bind values, in the cell wire format, as the run's
+   * `statementStart` sent them. Absent on an error result for a statement
+   * that never started, which can't be paged.
+   */
+  pageSource?: { sql: string; params: unknown[] };
+  /** How the statement ran: paged, streamed, a write or a utility statement. */
+  kind?: StatementKind;
+  /** A paged result whose count failed: `totalRows` is an estimate. */
+  countEstimated?: boolean;
   /** Error message if this statement failed */
   error?: string;
   /** Whether this statement resulted in an error */

@@ -1,0 +1,434 @@
+[
+  {
+    "name": "sqlite/params-bound",
+    "engine": "sqlite",
+    "input": {
+      "text": "SELECT * FROM t WHERE a = {{a}} OR b = {{a}}",
+      "target": {
+        "type": "all"
+      },
+      "params": [
+        {
+          "name": "a",
+          "value": "x"
+        }
+      ],
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t WHERE a = {{a}} OR b = {{a}}"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "page",
+        "sql": "SELECT * FROM t WHERE a = $1 OR b = $1",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [
+          "x"
+        ],
+        "answer": {
+          "columns": [
+            "a",
+            "b"
+          ],
+          "rows": [
+            [
+              "x",
+              null
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t WHERE a = {{a}} OR b = {{a}}",
+        "source": {
+          "sql": "SELECT * FROM t WHERE a = $1 OR b = $1",
+          "params": [
+            "x"
+          ]
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a",
+          "b"
+        ],
+        "rows": [
+          [
+            "x",
+            null
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t WHERE a = {{a}} OR b = {{a}}",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "sqlite/pragma-and-write",
+    "engine": "sqlite",
+    "input": {
+      "text": "PRAGMA foreign_keys = ON;\nINSERT INTO t VALUES (1);",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "PRAGMA foreign_keys = ON"
+      },
+      {
+        "index": 1,
+        "sql": "INSERT INTO t VALUES (1)"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "PRAGMA foreign_keys = ON",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "write",
+        "sql": "INSERT INTO t VALUES (1)",
+        "params": [],
+        "answer": {
+          "rowsAffected": 1,
+          "lastInsertId": 7
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "PRAGMA foreign_keys = ON",
+        "source": {
+          "sql": "PRAGMA foreign_keys = ON",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": true,
+        "sql": "INSERT INTO t VALUES (1)",
+        "source": {
+          "sql": "INSERT INTO t VALUES (1)",
+          "params": []
+        },
+        "kind": "write",
+        "queryType": "insert",
+        "columns": [
+          "Result"
+        ],
+        "rows": [
+          [
+            "1 row(s) affected"
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": 1,
+        "lastInsertId": 7
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "PRAGMA foreign_keys = ON;\nINSERT INTO t VALUES (1);",
+      "rowCount": 1
+    },
+    "toasts": []
+  },
+  {
+    "name": "sqlite/row-limited-streams",
+    "engine": "sqlite",
+    "input": {
+      "text": "SELECT * FROM t LIMIT 2 OFFSET 1",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "SELECT * FROM t LIMIT 2 OFFSET 1"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "stream",
+        "sql": "SELECT * FROM t LIMIT 2 OFFSET 1",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id"
+          ],
+          "rows": [
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": true,
+        "sql": "SELECT * FROM t LIMIT 2 OFFSET 1",
+        "source": {
+          "sql": "SELECT * FROM t LIMIT 2 OFFSET 1",
+          "params": []
+        },
+        "kind": "stream",
+        "queryType": "select",
+        "columns": [
+          "id"
+        ],
+        "rows": [
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "rowCount": 2,
+        "totalRows": 2,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "table": {
+          "table": "t"
+        },
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "SELECT * FROM t LIMIT 2 OFFSET 1",
+      "rowCount": 2
+    },
+    "toasts": []
+  },
+  {
+    "name": "sqlite/trigger-body",
+    "engine": "sqlite",
+    "notes": "Pins seaquel-sql's frozen `edge:begin-end` split: the `;` inside the trigger's BEGIN … END splits it, so both pieces are broken statements on a real server (Follow-ups)",
+    "input": {
+      "text": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1; END;\nSELECT 1 AS a;",
+      "target": {
+        "type": "all"
+      },
+      "params": null,
+      "pageSize": 100,
+      "deferWrites": false,
+      "confirmed": false,
+      "via": "editor"
+    },
+    "statements": [
+      {
+        "index": 0,
+        "sql": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1"
+      },
+      {
+        "index": 1,
+        "sql": "END"
+      },
+      {
+        "index": 2,
+        "sql": "SELECT 1 AS a"
+      }
+    ],
+    "destructive": [],
+    "driver": [
+      {
+        "op": "utility",
+        "sql": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "utility",
+        "sql": "END",
+        "params": [],
+        "answer": {
+          "columns": [],
+          "rows": []
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT 1 AS a",
+        "paginate": {
+          "limit": 101,
+          "offset": 0
+        },
+        "params": [],
+        "answer": {
+          "columns": [
+            "a"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "results": [
+      {
+        "index": 0,
+        "shown": false,
+        "sql": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1",
+        "source": {
+          "sql": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 1,
+        "shown": false,
+        "sql": "END",
+        "source": {
+          "sql": "END",
+          "params": []
+        },
+        "kind": "utility",
+        "queryType": "other",
+        "columns": [],
+        "rows": [],
+        "rowCount": 0,
+        "totalRows": 0,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null
+      },
+      {
+        "index": 2,
+        "shown": true,
+        "sql": "SELECT 1 AS a",
+        "source": {
+          "sql": "SELECT 1 AS a",
+          "params": []
+        },
+        "kind": "page",
+        "queryType": "select",
+        "columns": [
+          "a"
+        ],
+        "rows": [
+          [
+            1
+          ]
+        ],
+        "rowCount": 1,
+        "totalRows": 1,
+        "page": 1,
+        "pageSize": 100,
+        "totalPages": 1,
+        "error": null,
+        "affectedRows": null,
+        "lastInsertId": null,
+        "countEstimated": false,
+        "table": null,
+        "columnRefs": null
+      }
+    ],
+    "deferred": [],
+    "history": {
+      "query": "CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET v = 1; END;\nSELECT 1 AS a;",
+      "rowCount": 1
+    },
+    "toasts": []
+  }
+]

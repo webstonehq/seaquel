@@ -96,7 +96,7 @@ async fn each_user_reaches_only_their_own_connections() {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(
             body["result"]["result"],
-            json!({"kind": "sql", "data": "SELECT * FROM t LIMIT 10 OFFSET 20"})
+            json!({"kind": "sql", "data": "SELECT * FROM t\nLIMIT 10 OFFSET 20"})
         );
     }
     let before = (

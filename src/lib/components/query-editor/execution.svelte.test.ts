@@ -31,11 +31,18 @@ vi.mock("$lib/wasm", async (importOriginal) => {
 const { createExecution } = await import("./execution.svelte.js");
 
 function setup(query: string, type: DatabaseType = "postgres", cursorOffset = 0) {
-  const queries = { execute: vi.fn(), executeCurrent: vi.fn() };
+  const queries = {
+    execute: vi.fn(),
+    executeCurrent: vi.fn(),
+    pendingConfirm: null as null | { tabId: string; statements: unknown[]; total?: number },
+    confirmPending: vi.fn(),
+    clearPendingConfirm: vi.fn(),
+  };
   const ctx = {
     db: { state: { activeConnection: { type } }, queries },
     getActiveTab: () => ({ id: "tab-1", query }),
     getActiveTabId: () => "tab-1",
+    getResultKey: () => null,
     getMonacoRef: () => ({ getCursorOffset: () => cursorOffset, insertText: () => {} }),
   } as unknown as QueryEditorContext;
   const paramDialog = {
@@ -45,7 +52,7 @@ function setup(query: string, type: DatabaseType = "postgres", cursorOffset = 0)
     getParameterDefinitions: () => [],
   } as unknown as ParamDialog;
   const execution = createExecution(ctx, paramDialog, () => {});
-  return { execution, queries };
+  return { execution, queries, paramDialog };
 }
 
 beforeEach(() => {
@@ -84,7 +91,7 @@ describe("destructive check before running", () => {
     const { execution, queries } = setup("SELECT 1; UPDATE t SET a = 1 WHERE id = 2");
     execution.handleExecute();
     expect(execution.showDestructiveConfirm).toBe(false);
-    expect(queries.execute).toHaveBeenCalledWith("tab-1");
+    expect(queries.execute).toHaveBeenCalledWith("tab-1", { confirmed: false });
   });
 
   it("reports a failed check and runs nothing", () => {
@@ -115,6 +122,62 @@ describe("destructive check before running", () => {
     execution.handleExecute();
     expect(errorToast).toHaveBeenCalledTimes(1);
     expect(queries.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmed runs (phase 5b)", () => {
+  it("sends confirmed after the prompt", () => {
+    const { execution, queries } = setup("DELETE FROM t");
+    execution.handleExecute();
+    execution.handleDestructiveConfirm();
+    expect(queries.execute).toHaveBeenCalledExactlyOnceWith("tab-1", { confirmed: true });
+  });
+
+  it("sends confirmed at the cursor too", () => {
+    const { execution, queries } = setup("SELECT 1;\nDELETE FROM t", "postgres", 15);
+    execution.handleExecuteCurrent();
+    execution.handleDestructiveConfirm();
+    expect(queries.executeCurrent).toHaveBeenCalledExactlyOnceWith("tab-1", 15, {
+      confirmed: true,
+    });
+  });
+
+  it("keeps the confirmation through the parameter dialog", () => {
+    const { execution, queries, paramDialog } = setup(
+      "DELETE FROM t WHERE {{a}} = 1 OR TRUE; DROP TABLE x",
+    );
+    execution.handleExecute();
+    execution.handleDestructiveConfirm();
+    expect(paramDialog.show).toBe(true);
+    execution.handleParamExecute([{ name: "a", value: 1 }]);
+    expect(queries.execute).toHaveBeenCalledExactlyOnceWith("tab-1", {
+      params: [{ name: "a", value: 1 }],
+      confirmed: true,
+    });
+  });
+
+  it("CONFIRM_REQUIRED opens the destructive dialog and Confirm resends with confirmed", () => {
+    // A run Core refused (a rerun, a file drop): the view model holds it.
+    const { execution, queries } = setup("SELECT 1");
+    const statements = [{ index: 0, sql: "DELETE FROM t", reason: "delete_no_where" }];
+    queries.pendingConfirm = { tabId: "tab-1", statements, total: 250 };
+    expect(execution.showDestructiveConfirm).toBe(true);
+    expect(execution.destructiveStatements).toEqual(statements);
+    // Core lists the first statements; the dialog says how many more.
+    expect(execution.destructiveTotal).toBe(250);
+    execution.handleDestructiveConfirm();
+    expect(queries.confirmPending).toHaveBeenCalledExactlyOnceWith("tab-1");
+    expect(queries.execute).not.toHaveBeenCalled();
+  });
+
+  it("cancelling Core's confirmation drops it, and another tab's isn't shown", () => {
+    const { execution, queries } = setup("SELECT 1");
+    queries.pendingConfirm = { tabId: "tab-2", statements: [] };
+    expect(execution.showDestructiveConfirm).toBe(false);
+    queries.pendingConfirm = { tabId: "tab-1", statements: [] };
+    execution.showDestructiveConfirm = false;
+    expect(queries.clearPendingConfirm).toHaveBeenCalledOnce();
+    expect(queries.confirmPending).not.toHaveBeenCalled();
   });
 });
 

@@ -129,6 +129,82 @@ async fn a_connection_round_trips_through_dispatch() {
     );
 }
 
+fn history_item(id: &str, favorite: bool) -> Json {
+    json!({
+        "id": id,
+        "query": "SELECT 1",
+        "timestamp": "2026-01-02T03:04:05.000Z",
+        "executionTime": 1.5,
+        "rowCount": 1,
+        "connectionId": "c1",
+        "favorite": favorite,
+        "connectionLabelsSnapshot": [{"id": "l1", "name": "Prod", "color": "red"}],
+        "connectionNameSnapshot": "Prod",
+    })
+}
+
+#[tokio::test]
+async fn history_appends_and_sets_favourites_through_dispatch() {
+    let env = env(false).await;
+    env.storage("projectsSave", json!({"project": project("p1")}))
+        .await
+        .unwrap();
+    env.storage(
+        "connectionsSave",
+        json!({"connection": connection("c1", "p1")}),
+    )
+    .await
+    .unwrap();
+
+    let item = history_item("hist-1", false);
+    assert_eq!(
+        env.storage("queryHistoryAppend", json!({"item": item}))
+            .await
+            .unwrap(),
+        Json::Null
+    );
+    assert_eq!(
+        env.storage(
+            "queryHistorySetFavorite",
+            json!({"id": "hist-1", "favorite": true})
+        )
+        .await
+        .unwrap(),
+        Json::Null
+    );
+    let loaded = env
+        .storage(
+            "queryHistoryLoadByConnection",
+            json!({"connectionId": "c1"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(loaded, json!([history_item("hist-1", true)]));
+
+    // An unsaved connection fails the foreign key, with storage's code.
+    let mut orphan = history_item("hist-2", false);
+    orphan["connectionId"] = json!("unsaved");
+    let err = env
+        .storage("queryHistoryAppend", json!({"item": orphan}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "STORAGE_ERROR");
+}
+
+#[test]
+fn query_history_replace_all_is_an_unknown_method() {
+    let err = parse_request(
+        br#"{"method":"storage","params":{"method":"queryHistoryReplaceAll","params":{"connectionId":"c1","items":[]}}}"#,
+    )
+    .unwrap_err();
+    assert_eq!(err.code, "INVALID_ARGUMENT");
+    assert!(
+        err.message.contains("queryHistoryReplaceAll"),
+        "{}",
+        err.message
+    );
+}
+
 #[tokio::test]
 async fn a_method_without_params_needs_no_params_key() {
     let env = env(false).await;
@@ -340,6 +416,24 @@ fn storage_request_snapshot() {
     // And back.
     let back = parse_request(text.as_bytes()).unwrap();
     assert_eq!(serde_json::to_string(&back).unwrap(), text);
+
+    let fav = Request::Storage(StorageRequest::QueryHistorySetFavorite {
+        id: "hist-1".into(),
+        favorite: true,
+    });
+    assert_eq!(
+        serde_json::to_string(&fav).unwrap(),
+        r#"{"method":"storage","params":{"method":"queryHistorySetFavorite","params":{"id":"hist-1","favorite":true}}}"#
+    );
+
+    let append_body = format!(
+        r#"{{"method":"storage","params":{{"method":"queryHistoryAppend","params":{{"item":{}}}}}}}"#,
+        history_item("hist-1", false)
+    );
+    let append = parse_request(append_body.as_bytes()).unwrap();
+    assert_eq!(append.method(), "queryHistoryAppend");
+    let back: Json = serde_json::from_str(&serde_json::to_string(&append).unwrap()).unwrap();
+    assert_eq!(back, serde_json::from_str::<Json>(&append_body).unwrap());
 
     let unit = Request::Storage(StorageRequest::TutorialRemoveAll);
     assert_eq!(

@@ -24,6 +24,8 @@ tauri-build = { version = "2", features = [] }
 # workspace, saved rows and forms alike.
 seaquel-core = { path = "../crates/seaquel-core", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
 seaquel-types = { path = "../crates/seaquel-types" }
+# `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
+seaquel-runtime = { path = "../crates/seaquel-runtime", features = ["tokio"] }
 seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }

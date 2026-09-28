@@ -38,7 +38,8 @@ vi.mock("$lib/utils/logger", () => ({
 }));
 
 const { TauriCoreClient } = await import("./tauri");
-import type { QueryStreamRequest, StreamEvent } from "./client";
+import type { PageRequest, QueryStreamRequest, RunRequest, StreamEvent } from "./client";
+import type { RunEvent } from "$lib/types/generated/RunEvent";
 
 function request(streamId = "s-1"): QueryStreamRequest {
   return {
@@ -241,5 +242,98 @@ describe("TauriCoreClient.events", () => {
     channel.onmessage(closed);
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TauriCoreClient.stream of a run (phase 5b)", () => {
+  function runRequest(streamId = "r-1", text = "SELECT 1"): RunRequest {
+    return {
+      method: "db",
+      params: {
+        method: "run",
+        params: { connectionId: "c-1", streamId, text, target: { type: "all" }, pageSize: 100 },
+      },
+    };
+  }
+
+  it("yields the run's events and ends at its done", async () => {
+    const client = new TauriCoreClient();
+    const events: RunEvent[] = [];
+    const done = (async () => {
+      for await (const e of client.stream(runRequest())) events.push(e);
+    })();
+    const { channel } = streamCall();
+    const start: RunEvent = {
+      type: "statementStart",
+      index: 0,
+      sql: "SELECT 1",
+      source: { sql: "SELECT 1", params: [] },
+      queryType: "select",
+      kind: "page",
+      page: 1,
+      pageSize: 100,
+    };
+    channel.onmessage({ type: "run", streamId: "r-1", event: start });
+    // Another stream's event on this channel is not this run's.
+    channel.onmessage({
+      type: "run",
+      streamId: "other",
+      event: { type: "done", statements: 9, succeeded: true },
+    });
+    channel.onmessage({
+      type: "run",
+      streamId: "r-1",
+      event: { type: "done", statements: 1, succeeded: true },
+    });
+    tauri.settle?.resolve(3);
+    await done;
+    expect(events).toEqual([start, { type: "done", statements: 1, succeeded: true }]);
+  });
+
+  it("ends a run refused before its first statement with that error", async () => {
+    const client = new TauriCoreClient();
+    const events: RunEvent[] = [];
+    const done = (async () => {
+      for await (const e of client.stream(runRequest())) events.push(e);
+    })();
+    streamCall().channel.onmessage({
+      type: "run",
+      streamId: "r-1",
+      event: { type: "error", code: "CONFIRM_REQUIRED", message: "confirm", destructive: [] },
+    });
+    tauri.settle?.resolve(1);
+    await done;
+    expect(events).toEqual([
+      { type: "error", code: "CONFIRM_REQUIRED", message: "confirm", destructive: [] },
+    ]);
+  });
+
+  it("replaces a lone surrogate in the run's text, keeping its UTF-16 length", () => {
+    const client = new TauriCoreClient();
+    const text = "SELECT '\uD83D' AS a; SELECT 2 AS b";
+    void client.stream(runRequest("r-1", text));
+    const sent = JSON.parse(streamCall().request) as RunRequest;
+    expect(sent.params.params.text).toBe("SELECT '�' AS a; SELECT 2 AS b");
+    expect(sent.params.params.text.length).toBe(text.length);
+  });
+
+  it("replaces a lone surrogate in a page's SQL", () => {
+    const client = new TauriCoreClient();
+    const request: PageRequest = {
+      method: "db",
+      params: {
+        method: "page",
+        params: {
+          connectionId: "c-1",
+          streamId: "p-1",
+          source: { sql: "SELECT '\uDC00'", params: [] },
+          page: 2,
+          pageSize: 10,
+        },
+      },
+    };
+    void client.stream(request);
+    const sent = JSON.parse(streamCall().request) as PageRequest;
+    expect(sent.params.params.source.sql).toBe("SELECT '�'");
   });
 });

@@ -13,7 +13,7 @@ mod tutorial;
 mod util;
 mod visual;
 
-pub use column_refs::{column_refs, ColumnRef};
+pub use column_refs::{column_refs, ColumnRef, MAX_COLUMN_REFS_BYTES};
 pub use tutorial::{
     parse_builder_query, AggregateFunction, Connector, FilterOperator, HavingOperator, JoinType,
     ParsedColumnAggregate, ParsedCte, ParsedFilter, ParsedGroupBy, ParsedHaving, ParsedJoin,

@@ -48,7 +48,10 @@ compile_error!(
      feature; build it with --no-default-features --features browser"
 );
 
+#[cfg(feature = "workspace")]
+mod run;
 mod workspace;
+pub use seaquel_runtime::Executor;
 /// What a GUI sends to connect: the form and the secrets it supplies.
 pub use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
 #[cfg(feature = "workspace")]
@@ -78,9 +81,12 @@ pub use seaquel_sql as sql;
 
 /// The workspace domain (`seaquel-workspace`), for interfaces, which may not
 /// depend on it directly. Named `domain` because `workspace` is Core's own
-/// [`Workspace`] module.
-#[cfg(feature = "workspace")]
+/// [`Workspace`] module. Always there (it's pure): the `db` wire names its
+/// run types in every build, while connecting and running need the
+/// `workspace` feature.
 pub use seaquel_workspace as domain;
+/// What a run may carry, set per interface with [`CoreBuilder::run_limits`].
+pub use seaquel_workspace::run::RunLimits;
 
 /// Git for shared projects (`seaquel-git`).
 #[cfg(feature = "git")]
@@ -161,6 +167,12 @@ struct StreamEntry {
 struct Connection {
     engine: Arc<dyn Engine>,
     driver: Arc<dyn Driver>,
+    /// The SQL rules its text is scanned with: the database type's
+    /// ([`Workspace::connect`] records MariaDB as MariaDB, though it opens
+    /// with the `mysql` driver), or the driver id's for [`Core::connect`].
+    /// `None` for an engine id with no rules: its read-only queries and
+    /// runs are refused.
+    sql_engine: Option<SqlEngine>,
     /// The workspace that opened it ([`Workspace::connect`]), or `None` for
     /// [`Core::connect`]. A workspace reaches only its own connections.
     owner: Option<WorkspaceId>,
@@ -187,6 +199,13 @@ pub struct Core {
     /// `None` until a builder sets one: every connect and test is refused.
     connect_policy: Option<ConnectPolicy>,
     limits: ConnectionLimits,
+    /// What a run may carry ([`CoreBuilder::run_limits`]).
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
+    run_limits: RunLimits,
+    /// The clock and spawner ([`CoreBuilder::executor`]). `None`: the
+    /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
+    executor: Option<Arc<dyn Executor>>,
 }
 
 /// How much one workspace may open ([`CoreBuilder::connection_limits`]).
@@ -266,6 +285,8 @@ pub struct CoreBuilder {
     ssh: ssh::TunnelOptions,
     connect_policy: Option<ConnectPolicy>,
     limits: ConnectionLimits,
+    run_limits: RunLimits,
+    executor: Option<Arc<dyn Executor>>,
 }
 
 impl CoreBuilder {
@@ -289,10 +310,32 @@ impl CoreBuilder {
         self
     }
 
+    /// What a run may carry: its text's size, its statement count and its
+    /// parameter values. Without it, no limit (the desktop, the CLI, MCP);
+    /// the web server sets all four.
+    #[must_use]
+    pub fn run_limits(mut self, limits: RunLimits) -> Self {
+        self.run_limits = limits;
+        self
+    }
+
+    /// The runtime Core takes time from (statement timings and history
+    /// timestamps in `Workspace::run`). There is no default: without one,
+    /// `Workspace::run` and `Workspace::page` answer `NOT_SUPPORTED`, as a
+    /// Core without a [`ConnectPolicy`] refuses to connect. Interfaces pass
+    /// `seaquel_runtime::TokioExecutor`.
+    #[must_use]
+    pub fn executor(mut self, executor: Arc<dyn Executor>) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
     pub fn build(self) -> Core {
         Core {
+            executor: self.executor,
             connect_policy: self.connect_policy,
             limits: self.limits,
+            run_limits: self.run_limits,
             engines: self.engines,
             connections: RwLock::default(),
             streams: Mutex::default(),
@@ -436,9 +479,11 @@ impl QueryOptions {
 }
 
 /// The `seaquel_sql` engine whose token rules apply to a connection opened by
-/// the engine with this id. No fallback: an id without rules is refused, not
-/// checked under some other engine's rules. `mysql` also serves MariaDB,
-/// whose `/*M!` comments the MySQL rules refuse.
+/// the engine with this id, for [`Core::connect`], which knows only the
+/// driver. No fallback: an id without rules is refused, not checked under
+/// some other engine's rules. `mysql` also serves MariaDB, whose `/*M!`
+/// comments the MySQL rules refuse; [`Workspace::connect`] records MariaDB
+/// from the connection's database type instead.
 fn sql_engine(engine_id: &str) -> Option<SqlEngine> {
     match engine_id {
         "postgres" => Some(SqlEngine::Postgres),
@@ -450,10 +495,10 @@ fn sql_engine(engine_id: &str) -> Option<SqlEngine> {
     }
 }
 
-/// Fix 14's token check for a read-only query on an engine, as
-/// [`DbError::read_only`] with the exact text the TS shows.
-fn check_read_only(sql: &str, engine_id: &str) -> Result<(), DbError> {
-    let refusal = match sql_engine(engine_id) {
+/// Fix 14's token check for a read-only query on a connection with these
+/// SQL rules, as [`DbError::read_only`] with the exact text the TS shows.
+fn check_read_only(sql: &str, engine: Option<SqlEngine>) -> Result<(), DbError> {
+    let refusal = match engine {
         Some(engine) => read_only_error(sql, engine),
         None => Some(seaquel_sql::read_only::READ_ONLY_MESSAGE),
     };
@@ -463,8 +508,8 @@ fn check_read_only(sql: &str, engine_id: &str) -> Result<(), DbError> {
 /// [`seaquel_engine::EXPLAIN_ONE_STATEMENT`] as `READ_ONLY` when `sql` holds
 /// more than one statement, split on `;` under the engine's quoting. Only
 /// called after [`check_read_only`], which refuses an engine without rules.
-fn check_one_statement(sql: &str, engine_id: &str) -> Result<(), DbError> {
-    let Some(engine) = sql_engine(engine_id) else {
+fn check_one_statement(sql: &str, engine: Option<SqlEngine>) -> Result<(), DbError> {
+    let Some(engine) = engine else {
         return Err(DbError::read_only(
             seaquel_sql::read_only::READ_ONLY_MESSAGE,
         ));
@@ -548,6 +593,11 @@ impl Core {
         self.limits
     }
 
+    /// The limits [`CoreBuilder::run_limits`] set.
+    pub fn run_limits(&self) -> RunLimits {
+        self.run_limits
+    }
+
     /// Ids of the engines in this build, sorted.
     pub fn engine_ids(&self) -> Vec<&'static str> {
         self.engines.ids()
@@ -556,14 +606,16 @@ impl Core {
     /// Open a connection that no workspace owns. Interfaces connect through
     /// [`Workspace::connect`]; this stays for the engine tests.
     pub async fn connect(&self, config: &ConnectConfig) -> Result<ConnectResult, DbError> {
-        self.connect_as(config, None).await
+        self.connect_as(config, None, None).await
     }
 
-    /// Open a connection owned by `owner`.
+    /// Open a connection owned by `owner`, scanned with `sql_engine`
+    /// (`None`: the driver id's rules).
     pub(crate) async fn connect_as(
         &self,
         config: &ConnectConfig,
         owner: Option<WorkspaceId>,
+        sql_engine: Option<SqlEngine>,
     ) -> Result<ConnectResult, DbError> {
         let driver_name = config.driver.as_str();
         info!(activity = "db.connect", driver = driver_name; "Connecting");
@@ -582,6 +634,7 @@ impl Core {
             .insert(
                 connection_id.clone(),
                 Connection {
+                    sql_engine: sql_engine.or_else(|| crate::sql_engine(driver_name)),
                     engine,
                     driver,
                     owner,
@@ -915,7 +968,7 @@ impl Core {
             };
             if options.read_only {
                 // The check runs before the driver is touched.
-                if let Err(e) = check_read_only(&sql, connection.engine.id()) {
+                if let Err(e) = check_read_only(&sql, connection.sql_engine) {
                     yield StreamEvent::from(e);
                     return;
                 }
@@ -963,6 +1016,8 @@ impl Core {
                 // closing event, which is what stops the statement on the
                 // server: the sqlx engines cancel it from a connection of
                 // their own, and DuckDB (on `spawn_blocking`) interrupts it.
+                // `Workspace::run`'s stream and page loops (run.rs) do the
+                // same; keep them in step.
                 let mut batches = std::pin::pin!(driver
                     .query_stream(sql, params, token.clone())
                     .take_until(token.cancelled()));
@@ -1290,8 +1345,8 @@ impl ConnectionHandle<'_> {
         let keyword = sql_keyword(sql);
         debug!(activity = "db.explain_read_only", connection_id = self.connection_id.as_str(), keyword = keyword.as_str(), sql_len = sql.len(), params = params.len(), timeout_ms = timeout.map(|t| t.as_millis() as u64); "Read-only explain");
         let connection = self.connection()?;
-        check_read_only(sql, connection.engine.id())?;
-        check_one_statement(sql, connection.engine.id())?;
+        check_read_only(sql, connection.sql_engine)?;
+        check_one_statement(sql, connection.sql_engine)?;
         connection
             .driver
             .explain_read_only(sql, params, timeout)
@@ -1334,10 +1389,10 @@ mod tests {
     fn an_unknown_engine_id_is_refused_without_a_fallback() {
         for id in ["", "oracle", "mariadb", "Postgres"] {
             assert_eq!(sql_engine(id), None, "{id}");
-            let err = check_read_only("SELECT 1", id).unwrap_err();
+            let err = check_read_only("SELECT 1", sql_engine(id)).unwrap_err();
             assert_eq!(err.code, "READ_ONLY");
             assert_eq!(err.message, seaquel_sql::read_only::READ_ONLY_MESSAGE);
         }
-        assert!(check_read_only("SELECT 1", "postgres").is_ok());
+        assert!(check_read_only("SELECT 1", sql_engine("postgres")).is_ok());
     }
 }

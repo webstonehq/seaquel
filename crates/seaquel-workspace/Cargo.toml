@@ -2,15 +2,29 @@
 name = "seaquel-workspace"
 version = "0.1.0"
 edition = "2021"
-description = "Seaquel workspace domain: turns a saved connection and its secrets into a ConnectConfig, and later holds the services behind every interface."
+description = "Seaquel workspace domain: turns a saved connection and its secrets into a ConnectConfig, plans the editor's runs, and later holds the services behind every interface."
+
+[features]
+# Generates the run types into src/lib/types/generated/ when running
+# `cargo test --features ts`. Run it through `npm run types:gen`.
+ts = ["dep:ts-rs", "seaquel-types/ts", "seaquel-sql/ts"]
 
 [dependencies]
 seaquel-types = { path = "../seaquel-types" }
-serde_json = { workspace = true }
+# `run::plan`: splitting, the statement at the cursor, `{{param}}`
+# substitution and the statement checks.
+seaquel-sql = { path = "../seaquel-sql" }
+# `max_query_rows()`, the cap on a run's page size.
+seaquel-engine = { path = "../seaquel-engine" }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+# History timestamps, formatted like `Date.toISOString()`.
+time = { workspace = true }
 # The WHATWG URL parser, as the TypeScript's `new URL` (password
 # reinjection, the SSH host and port rewrite, the URL-username fallback).
 url = "2"
 percent-encoding = "2"
+ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true }

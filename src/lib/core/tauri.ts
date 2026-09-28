@@ -1,7 +1,9 @@
 /**
  * `CoreClient` on desktop:
  * - `call`: the `core_call` command, the request's JSON as raw bytes;
- * - `stream`: `core_stream({request, channel})`. The request goes as a JSON
+ * - `stream`: `core_stream({request, channel})` for `db.queryStream`,
+ *   `db.run` and `db.page` (a run's events arrive as `type: "run"`). The
+ *   request goes as a JSON
  *   string, since an invoke with a raw bytes body can't carry a channel.
  *   The command resolves when the stream ends, with the number of events it
  *   sent. Its reply can overtake them, so the stream ends only once that
@@ -25,9 +27,10 @@ import {
   type ConnectionClosedEvent,
   type CoreClient,
   type CoreEvent,
-  type QueryStreamRequest,
-  type StreamEvent,
+  type EventOf,
   type StreamOptions,
+  type StreamRequest,
+  wellFormedRequest,
 } from "./client";
 
 export class TauriCoreClient implements CoreClient {
@@ -46,13 +49,16 @@ export class TauriCoreClient implements CoreClient {
     return (await tauriCoreTransport(encodeCoreRequest(request))) as CoreResponse;
   }
 
-  stream(request: QueryStreamRequest, options: StreamOptions = {}): AsyncIterable<StreamEvent> {
+  stream<R extends StreamRequest>(
+    request: R,
+    options: StreamOptions = {},
+  ): AsyncIterable<EventOf<R>> {
     const { signal } = options;
     const streamId = request.params.params.streamId;
-    const queue = new StreamQueue(() => this.cancel(streamId));
+    const queue = new StreamQueue<EventOf<R>>(() => this.cancel(streamId));
     if (signal?.aborted) {
       // Nothing started, so nothing to cancel.
-      queue.push(cancelledEvent());
+      queue.pushError(cancelledEvent());
       return queue;
     }
 
@@ -84,13 +90,16 @@ export class TauriCoreClient implements CoreClient {
     const channel = new Channel<CoreEvent>();
     channel.onmessage = (message) => {
       received += 1;
-      if (message.type === "stream" && message.streamId === streamId) queue.push(message.event);
+      // A query stream's events come as `stream`, a run's or page's as `run`.
+      if ((message.type === "stream" || message.type === "run") && message.streamId === streamId) {
+        queue.push(message.event as EventOf<R>);
+      }
       finishIfAllIn();
     };
 
     const onAbort = () => {
       this.cancel(streamId);
-      queue.push(cancelledEvent());
+      queue.pushError(cancelledEvent());
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     queue.onEnd(() => {
@@ -100,12 +109,15 @@ export class TauriCoreClient implements CoreClient {
       channel.onmessage = () => {};
     });
 
-    invoke<number>("core_stream", { request: JSON.stringify(request), channel }).then(
+    invoke<number>("core_stream", {
+      request: JSON.stringify(wellFormedRequest(request)),
+      channel,
+    }).then(
       (count) => {
         sent = typeof count === "number" ? count : 0;
         finishIfAllIn();
       },
-      (error: unknown) => queue.push(errorEvent(error)),
+      (error: unknown) => queue.pushError(errorEvent(error)),
     );
     return queue;
   }

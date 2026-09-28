@@ -134,6 +134,12 @@ impl Driver for FakeDriver {
                     .collect(),
             });
         }
+        if sql.contains("echo-fail") {
+            // As Postgres and MySQL do, the message quotes the SQL.
+            return Err(DbError::query_error(format!(
+                "syntax error at or near \"{sql}\""
+            )));
+        }
         if sql.contains("fail") {
             return Err(DbError::query_error("the fake query failed"));
         }
@@ -231,6 +237,8 @@ impl Env {
             .engine(Arc::new(FakePostgres(calls.clone())))
             .connect_policy(web_connect_policy())
             .connection_limits(WEB_CONNECTION_LIMITS)
+            .run_limits(seaquel_server::WEB_RUN_LIMITS)
+            .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build();
         Self::with_core(Arc::new(core), capacity, calls)
     }
@@ -341,6 +349,44 @@ pub fn start_with(stream_id: &str, mut params: Json) -> Json {
     params["streamId"] = json!(stream_id);
     json!({"op": "start", "streamId": stream_id,
            "request": db("queryStream", params)})
+}
+
+/// A `start` frame for a `db.run` of `text` (every statement) on
+/// `connection_id` at `page_size`.
+pub fn start_run(stream_id: &str, connection_id: &str, text: &str, page_size: u32) -> Json {
+    start_run_with(
+        stream_id,
+        json!({"connectionId": connection_id, "text": text, "target": {"type": "all"},
+               "pageSize": page_size}),
+    )
+}
+
+/// A `start` frame with these run params (`streamId` added).
+pub fn start_run_with(stream_id: &str, mut params: Json) -> Json {
+    params["streamId"] = json!(stream_id);
+    json!({"op": "start", "streamId": stream_id, "request": db("run", params)})
+}
+
+/// A `start` frame for a `db.page` of `sql` on `connection_id`.
+pub fn start_page(
+    stream_id: &str,
+    connection_id: &str,
+    sql: &str,
+    page: u32,
+    page_size: u32,
+) -> Json {
+    json!({"op": "start", "streamId": stream_id, "request": db("page", json!({
+        "connectionId": connection_id, "streamId": stream_id,
+        "source": {"sql": sql, "params": []}, "page": page, "pageSize": page_size,
+    }))})
+}
+
+/// The event types of `frames`.
+pub fn event_types(frames: &[Json]) -> Vec<String> {
+    frames
+        .iter()
+        .map(|f| f["event"]["type"].as_str().unwrap_or_default().to_string())
+        .collect()
 }
 
 pub async fn send(ws: &mut Ws, frame: &Json) {

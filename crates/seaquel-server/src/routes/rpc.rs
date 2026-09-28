@@ -20,9 +20,11 @@
 //! refused engines and options 400, and the storage codes 500
 //! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
-//! The full error is logged here. The copy sent to the browser keeps its
-//! code, but the data root in its message becomes `DATA_DIR`, so it never
-//! shows where the server keeps its files.
+//! A failure is logged by its code and the request's group and method only:
+//! the message can quote SQL and values (a database's syntax error, a parse
+//! error naming what it read). The copy sent to the browser keeps its code,
+//! but the data root in its message becomes `DATA_DIR`, so it never shows
+//! where the server keeps its files.
 
 use axum::{
     body::Bytes,
@@ -48,10 +50,13 @@ pub const USER_HEADER: &str = "x-seaquel-user";
 pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 pub async fn rpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    match call(&state, &headers, &body).await {
+    let mut method = None;
+    match call(&state, &headers, &body, &mut method).await {
         Ok(json) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
         Err(e) => {
-            log::warn!(activity = "rpc.error", code = e.code.as_str(); "/rpc failed: {}: {}", e.code, e.message);
+            // Code and method only: the message can quote SQL and values.
+            let (group, method) = method.unwrap_or(("-", "-"));
+            log::warn!(activity = "rpc.error", code = e.code.as_str(), group = group, method = method; "/rpc failed");
             error_response(redact(e, state.workspaces.root()))
         }
     }
@@ -94,10 +99,18 @@ pub fn redact(e: RpcError, root: &Path) -> RpcError {
     RpcError::new(e.code, message)
 }
 
-async fn call(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Vec<u8>, RpcError> {
+/// Serve one call. `method` is set to the request's group and method once
+/// it parses, for the error log.
+async fn call(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &[u8],
+    method: &mut Option<(&'static str, &'static str)>,
+) -> Result<Vec<u8>, RpcError> {
     let user = user_id(headers)?;
     // Parse before opening anything, so a bad body never creates a file.
     let request = parse_request(body)?;
+    *method = Some((request.group(), request.method()));
     let open = open_workspace(state, user).await?;
     let response = dispatch_workspace(&state.core, open.workspace(), request).await?;
     serde_json::to_vec(&response).map_err(|e| {

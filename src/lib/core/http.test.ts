@@ -13,7 +13,8 @@ vi.mock("$lib/utils/logger", () => ({
 vi.mock("$lib/utils/toast", () => ({ errorToast: vi.fn() }));
 
 const { HttpCoreClient } = await import("./http");
-import type { QueryStreamRequest, StreamEvent } from "./client";
+import type { QueryStreamRequest, RunRequest, StreamEvent } from "./client";
+import type { RunEvent } from "$lib/types/generated/RunEvent";
 
 class FakeSocket {
   static all: FakeSocket[] = [];
@@ -312,5 +313,71 @@ describe("HttpCoreClient.events", () => {
     };
     socket().receive(closed);
     expect(handler).toHaveBeenCalledWith(closed);
+  });
+});
+
+describe("HttpCoreClient.stream of a run (phase 5b)", () => {
+  function runRequest(streamId: string, text = "SELECT 1"): RunRequest {
+    return {
+      method: "db",
+      params: {
+        method: "run",
+        params: { connectionId: "c-1", streamId, text, target: { type: "all" }, pageSize: 100 },
+      },
+    };
+  }
+
+  it("routes run frames by stream id and ends at the run's done", async () => {
+    const c = client();
+    const events: RunEvent[] = [];
+    const done = (async () => {
+      for await (const e of c.stream(runRequest("r"))) events.push(e);
+    })();
+    socket().open();
+    expect(socket().starts()).toEqual(["r"]);
+    socket().receive({
+      type: "run",
+      streamId: "other",
+      event: { type: "done", statements: 2, succeeded: true },
+    });
+    socket().receive({
+      type: "run",
+      streamId: "r",
+      event: { type: "done", statements: 1, succeeded: true },
+    });
+    await done;
+    expect(events).toEqual([{ type: "done", statements: 1, succeeded: true }]);
+  });
+
+  it("retries a run whose start the server refused with TOO_MANY_STREAMS", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    void c.stream(runRequest("r"));
+    socket().open();
+    socket().receive({
+      type: "run",
+      streamId: "r",
+      event: { type: "error", code: "TOO_MANY_STREAMS", message: "busy" },
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(socket().starts()).toEqual(["r", "r"]);
+  });
+
+  it("sends a cancel frame for a run when its signal aborts", async () => {
+    const c = client();
+    const controller = new AbortController();
+    const out = collect(c.stream(runRequest("r"), { signal: controller.signal }) as never);
+    socket().open();
+    controller.abort();
+    expect(socket().sent.at(-1)).toEqual({ op: "cancel", streamId: "r" });
+    expect(await out).toEqual([expect.objectContaining({ code: "CANCELLED" })]);
+  });
+
+  it("replaces a lone surrogate in the run's text before sending", () => {
+    const c = client();
+    void c.stream(runRequest("r", "SELECT '\uD83D'"));
+    socket().open();
+    const start = socket().sent[0] as { request: RunRequest };
+    expect(start.request.params.params.text).toBe("SELECT '�'");
   });
 });

@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use seaquel_sql::params::{extract_parameters, has_parameters, substitute};
+use seaquel_sql::params::{extract_parameters, has_parameters, substitute, substituted_size_bound};
 use seaquel_sql::SqlEngine;
 use seaquel_types::Value;
 use serde_json::{json, Value as Json};
@@ -126,6 +126,71 @@ fn params_fixtures() {
     // 392 extract cases, and 246 substitute cases on six engines each.
     assert_eq!(passed, 392 + 246 * 6);
     assert_eq!(deviations, 8);
+}
+
+/// A bind value's bytes, as [`substituted_size_bound`] counts them.
+fn bind_bytes(v: &Value) -> usize {
+    match v {
+        Value::Text(s) | Value::Decimal(s) => s.len(),
+        Value::Bytes(b) => b.len(),
+        Value::Json(j) => j.to_string().len(),
+        Value::Array(items) => items.iter().map(bind_bytes).sum(),
+        _ => 32,
+    }
+}
+
+/// `substituted_size_bound` is never below what `substitute` makes (its SQL
+/// plus its bind values), on every engine, bound or forced inline: over the
+/// frozen substitute cases, and the whole scanner corpus with values that
+/// exercise every branch (phase 5b probe, N3).
+#[test]
+fn the_size_bound_covers_every_substitution() {
+    let mut checked = 0;
+    let mut check = |sql: &str, values: &[(String, Value)]| {
+        let bound = substituted_size_bound(sql, values);
+        for engine in SqlEngine::ALL {
+            for force in [false, true] {
+                if let Ok(out) = substitute(sql, values, engine, force) {
+                    let size =
+                        out.sql.len() + out.bind_values.iter().map(bind_bytes).sum::<usize>();
+                    assert!(
+                        size <= bound,
+                        "{engine} force={force}: {size} > {bound} for {sql:?}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    };
+    for case in cases(&fixture("params.json")) {
+        if case["input"]["kind"] == "substitute" {
+            check(
+                case["input"]["sql"].as_str().unwrap(),
+                &values_of(&case["input"]),
+            );
+        }
+    }
+    let wide = vec![
+        ("p".to_string(), Value::Decimal("1e5000".into())),
+        ("q".to_string(), Value::Text("-1.5e-4000".into())),
+        ("r".to_string(), Value::Text("'\\'\"$$".repeat(100))),
+    ];
+    check(
+        "SELECT {{p}}, '{{q}}', $$ {{r}} $$, E'{{r}}', \"{{r}}\", `{{r}}`, [{{r}}]",
+        &wide,
+    );
+    for case in cases(&fixture("split.json")) {
+        let sql = case["input"]["sql"].as_str().unwrap();
+        for values in [prefix_values(), breakout_values(), wide.clone()] {
+            check(sql, &values);
+        }
+    }
+    assert!(checked > 5_000, "{checked}");
+
+    // Repeated parameters count once per use: that is the amplification.
+    let sql = "SELECT {{p}}".to_string() + &",{{p}}".repeat(999);
+    let values = [("p".to_string(), Value::Text("x".repeat(1024)))];
+    assert!(substituted_size_bound(&sql, &values) >= 1000 * 1024);
 }
 
 #[test]

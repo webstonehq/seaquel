@@ -194,14 +194,16 @@ fn js_number(f: f64) -> String {
 }
 
 /// The values by name, with `Map` semantics: the last duplicate wins.
-struct Values<'a> {
+/// Build it once and pass it to [`substitute_with`] and [`SizeBound`] for
+/// many statements.
+pub struct Values<'a> {
     map: HashMap<&'a str, &'a Value>,
 }
 
 const NULL: Value = Value::Null;
 
 impl<'a> Values<'a> {
-    fn new(values: &'a [(String, Value)]) -> Self {
+    pub fn new(values: &'a [(String, Value)]) -> Self {
         let mut map = HashMap::with_capacity(values.len());
         for (name, value) in values {
             map.insert(name.as_str(), value);
@@ -339,11 +341,18 @@ fn paren(text: String) -> String {
 /// as it is instead of writing out the zeros.
 const MAX_DECIMAL_PADDING: u64 = 1 << 20;
 
-/// `plainDecimal`: decimal text without an exponent (`1e5` → `100000`,
-/// `-1.5E-3` → `-0.0015`), so it inlines as an exact numeric, not a float.
-/// Text that isn't a decimal with an exponent comes back unchanged.
-fn plain_decimal(text: &str) -> String {
-    let unchanged = || text.to_string();
+/// Decimal text with an exponent, as [`plain_decimal`] reads it.
+struct ExpDecimal<'a> {
+    negative: bool,
+    int: &'a str,
+    frac: &'a str,
+    exp: u64,
+    exp_negative: bool,
+}
+
+/// `text` read as a decimal with an exponent, or `None` for text that
+/// [`plain_decimal`] leaves unchanged.
+fn exp_decimal(text: &str) -> Option<ExpDecimal<'_>> {
     let t = js_trim(text);
     let b = t.as_bytes();
     let digits_from = |mut k: usize| {
@@ -374,7 +383,7 @@ fn plain_decimal(text: &str) -> String {
         k = end;
     }
     if !matches!(b.get(k), Some(b'e' | b'E')) {
-        return unchanged();
+        return None;
     }
     k += 1;
     let exp_negative = match b.get(k) {
@@ -390,7 +399,7 @@ fn plain_decimal(text: &str) -> String {
     };
     let exp_end = digits_from(k);
     if exp_end == k || exp_end != b.len() || (int.is_empty() && frac.is_empty()) {
-        return unchanged();
+        return None;
     }
     // Saturating: anything this large is refused below anyway.
     let exp = t[k..exp_end].bytes().fold(0u64, |acc, d| {
@@ -398,6 +407,51 @@ fn plain_decimal(text: &str) -> String {
             .saturating_add(u64::from(d - b'0'))
             .min(u64::MAX / 4)
     });
+    Some(ExpDecimal {
+        negative,
+        int,
+        frac,
+        exp,
+        exp_negative,
+    })
+}
+
+/// At least `plain_decimal(text).len()`, without building it: a written-out
+/// exponent can be a megabyte of zeros.
+fn plain_decimal_len_bound(text: &str) -> usize {
+    let Some(d) = exp_decimal(text) else {
+        return text.len();
+    };
+    let int_len = d.int.len() as u64;
+    let len = int_len.saturating_add(d.frac.len() as u64);
+    let pad = if d.exp_negative {
+        d.exp.saturating_sub(int_len)
+    } else {
+        int_len.saturating_add(d.exp).saturating_sub(len)
+    };
+    if pad > MAX_DECIMAL_PADDING {
+        return text.len();
+    }
+    // A sign, a leading `0` and a point around the digits and their zeros.
+    let out = usize::try_from(len + pad + 3).unwrap_or(usize::MAX);
+    out.max(text.len())
+}
+
+/// `plainDecimal`: decimal text without an exponent (`1e5` → `100000`,
+/// `-1.5E-3` → `-0.0015`), so it inlines as an exact numeric, not a float.
+/// Text that isn't a decimal with an exponent comes back unchanged.
+fn plain_decimal(text: &str) -> String {
+    let unchanged = || text.to_string();
+    let Some(ExpDecimal {
+        negative,
+        int,
+        frac,
+        exp,
+        exp_negative,
+    }) = exp_decimal(text)
+    else {
+        return unchanged();
+    };
     let mut digits = format!("{int}{frac}");
     let len = digits.len() as u64;
     let int_len = int.len() as u64;
@@ -440,6 +494,72 @@ fn plain_decimal(text: &str) -> String {
     out
 }
 
+// --- Size bound ---------------------------------------------------------------
+
+/// An upper bound on the bytes [`substitute`] can make of `sql` with
+/// `values`, on any engine, bound or forced inline: its SQL plus its bind
+/// values' text. For one statement; over many, use [`SizeBound`], which
+/// costs each value once.
+pub fn substituted_size_bound(sql: &str, values: &[(String, Value)]) -> usize {
+    SizeBound::new(&Values::new(values)).bound(sql)
+}
+
+/// [`substituted_size_bound`] over many statements with one set of values.
+///
+/// A value is copied once per use on the engines that inline it (SQL
+/// Server, DuckDB, forced inline) and bound once per use on MySQL, so a big
+/// value used many times multiplies (phase 5b probe, N3). Each `{{name}}` in
+/// the text counts its value's cost: twice its text (every quote or
+/// backslash doubled) plus room for the quoting around it, with a decimal
+/// exponent written out as [`plain_decimal`] does (its length computed, not
+/// built). A name without a value is NULL; of duplicate names the last
+/// counts, as in [`substitute`]. Each name's cost is worked out the first
+/// time a statement uses it, so the work is the statements' length plus
+/// the values they use, never statements × values (phase 5b review, C1).
+pub struct SizeBound<'v, 'a> {
+    values: &'v Values<'a>,
+    costs: HashMap<&'a str, usize>,
+}
+
+impl<'v, 'a> SizeBound<'v, 'a> {
+    pub fn new(values: &'v Values<'a>) -> Self {
+        SizeBound {
+            values,
+            costs: HashMap::new(),
+        }
+    }
+
+    /// The bound for `sql`: its length, plus each use's cost.
+    pub fn bound(&mut self, sql: &str) -> usize {
+        if !sql.contains("{{") {
+            return sql.len();
+        }
+        let mut total = sql.len();
+        for p in params(sql) {
+            let cost = match self.values.map.get_key_value(p.name) {
+                Some((&name, value)) => {
+                    *self.costs.entry(name).or_insert_with(|| value_cost(value))
+                }
+                None => value_cost(&NULL),
+            };
+            total = total.saturating_add(cost);
+        }
+        total
+    }
+}
+
+/// What one use of `value` can add, for [`SizeBound`].
+fn value_cost(value: &Value) -> usize {
+    let text = match value {
+        Value::Null | Value::Bool(_) | Value::Int(_) | Value::Float(_) => 32,
+        Value::Text(s) | Value::Decimal(s) => plain_decimal_len_bound(s),
+        Value::Bytes(b) => b.len(),
+        Value::Json(j) => j.to_string().len(),
+        Value::Array(items) => items.iter().map(value_cost).fold(0, usize::saturating_add),
+    };
+    text.saturating_mul(2).saturating_add(32)
+}
+
 // --- Substitution -------------------------------------------------------------
 
 /// Replaces each `{{name}}` with a placeholder or the value's literal text, as
@@ -452,14 +572,23 @@ pub fn substitute(
     engine: SqlEngine,
     force_inline: bool,
 ) -> Result<Substituted, SubstitutionError> {
-    let values = Values::new(values);
+    substitute_with(sql, &Values::new(values), engine, force_inline)
+}
+
+/// [`substitute`] with the values already looked up, for many statements.
+pub fn substitute_with(
+    sql: &str,
+    values: &Values<'_>,
+    engine: SqlEngine,
+    force_inline: bool,
+) -> Result<Substituted, SubstitutionError> {
     match engine {
         SqlEngine::Mysql | SqlEngine::Mariadb if !force_inline => {
-            substitute_mysql(sql, &values, engine)
+            substitute_mysql(sql, values, engine)
         }
-        SqlEngine::Mssql => substitute_mssql(sql, &values),
-        SqlEngine::Duckdb => substitute_duckdb(sql, &values),
-        _ => substitute_tokens(sql, &values, engine, force_inline),
+        SqlEngine::Mssql => substitute_mssql(sql, values),
+        SqlEngine::Duckdb => substitute_duckdb(sql, values),
+        _ => substitute_tokens(sql, values, engine, force_inline),
     }
 }
 

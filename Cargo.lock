@@ -6003,6 +6003,7 @@ dependencies = [
  "plist",
  "seaquel-core",
  "seaquel-rpc",
+ "seaquel-runtime",
  "seaquel-types",
  "serde",
  "serde_json",
@@ -6031,6 +6032,7 @@ dependencies = [
  "rmcp",
  "seaquel-core",
  "seaquel-mcp",
+ "seaquel-runtime",
  "seaquel-types",
  "serde_json",
  "sqlx",
@@ -6394,8 +6396,13 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "percent-encoding",
+ "seaquel-engine",
+ "seaquel-sql",
  "seaquel-types",
+ "serde",
  "serde_json",
+ "time",
+ "ts-rs",
  "url",
 ]
 

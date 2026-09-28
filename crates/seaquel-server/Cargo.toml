@@ -31,6 +31,8 @@ seaquel-core = { path = "../seaquel-core", default-features = false, features = 
 ] }
 seaquel-types = { path = "../seaquel-types" }
 seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace"] }
+# `TokioExecutor`, Core's clock for the editor's runs (phase 5b).
+seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 
 axum = { workspace = true }
 tower = { workspace = true }

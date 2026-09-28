@@ -221,8 +221,10 @@ impl Dialect for DuckdbDialect {
         quote_schema(schema)
     }
 
+    /// The limit goes on a line of its own, so a trailing `--` comment in
+    /// `sql` can't swallow it.
     fn paginate(&self, sql: &str, limit: u64, offset: u64) -> String {
-        format!("{sql} LIMIT {limit} OFFSET {offset}")
+        format!("{sql}\nLIMIT {limit} OFFSET {offset}")
     }
 
     fn build_update(

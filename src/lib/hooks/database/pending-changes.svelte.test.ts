@@ -11,7 +11,23 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
+const storageCalls: Array<[string, ...unknown[]]> = [];
+vi.mock("$lib/storage", () => {
+  const queryHistory = new Proxy(
+    {},
+    {
+      get: (_t, method: string) =>
+        vi.fn(async (...args: unknown[]) => void storageCalls.push([method, ...args])),
+    },
+  );
+  return { getStorage: () => ({ queryHistory }) };
+});
+vi.mock("$lib/stores/license-nudge.svelte.js", () => ({
+  licenseNudgeStore: { recordQuery: () => {} },
+}));
+
 const { PendingChangesManager } = await import("./pending-changes.svelte.js");
+const { QueryHistoryManager: RealHistory } = await import("./query-history.svelte.js");
 
 function change(id: string, origin: PendingChange["origin"], extra: Partial<PendingChange> = {}) {
   return {
@@ -31,16 +47,24 @@ const keyed = (id: string, origin: PendingChange["origin"] = "inline-edit") =>
     target: { schema: "public", table: "users", column: "name", primaryKeyValues: { id: 7 } },
   });
 
-function makeManager(changes: PendingChange[], rowsAffected: number[]) {
+function makeManager(
+  changes: PendingChange[],
+  rowsAffected: number[],
+  makeHistory?: (state: DatabaseState) => QueryHistoryManager,
+) {
   const state = {
     connections: [{ id: "conn-1", type: "postgres", providerConnectionId: "pc-1" }],
     pendingChangesByConnection: { "conn-1": changes },
+    activeConnectionId: "conn-1",
+    queryHistoryByConnection: {},
   } as unknown as DatabaseState;
   const execute = vi.fn(async () => ({ rowsAffected: rowsAffected.shift() ?? 1 }));
   const providers = {
     getForType: vi.fn(async () => ({ execute })),
   } as unknown as ProviderRegistry;
-  const history = { addToHistory: vi.fn() } as unknown as QueryHistoryManager;
+  const history = makeHistory
+    ? makeHistory(state)
+    : ({ addToHistory: vi.fn() } as unknown as QueryHistoryManager);
   return { manager: new PendingChangesManager(state, providers, history), state, execute };
 }
 
@@ -73,5 +97,30 @@ describe("PendingChangesManager.executeAll", () => {
 
     expect(await manager.executeAll("conn-1")).toEqual({ executed: 3, failed: 0, hasDdl: true });
     expect(state.pendingChangesByConnection["conn-1"]).toHaveLength(3);
+  });
+
+  it("pending changes append through the same call", async () => {
+    const changes = [change("a", "query-editor"), change("b", "query-editor")];
+    const { manager } = makeManager(
+      changes,
+      [1, 1],
+      (state) =>
+        new RealHistory(
+          state,
+          () => [],
+          () => "Local",
+        ),
+    );
+    storageCalls.length = 0;
+
+    await manager.executeAll("conn-1");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(
+      storageCalls.map(([method, item]) => [method, (item as { query: string }).query]),
+    ).toEqual([
+      ["append", "SQL a"],
+      ["append", "SQL b"],
+    ]);
   });
 });

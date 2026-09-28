@@ -72,6 +72,7 @@
 	<div class="flex items-center gap-2">
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger
+				disabled={isExecuting}
 				class={buttonVariants({
 					variant: "outline",
 					size: "sm"

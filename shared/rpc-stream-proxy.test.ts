@@ -66,13 +66,22 @@ let proxyPort: number;
 let rustPort: number;
 
 /** A proxy server over the fake Rust and gate, with these options. */
-async function startProxy(extra: { recheckMs?: number; maxLifetimeMs?: number } = {}) {
+async function startProxy(
+  extra: {
+    recheckMs?: number;
+    maxLifetimeMs?: number;
+    pauseBufferedBytes?: number;
+    maxBufferedBytes?: number;
+    rustConnectTimeoutMs?: number;
+    rustUrl?: string;
+  } = {},
+) {
   const server = createServer((_req, res) => {
     res.statusCode = 404;
     res.end();
   });
-  attachRpcStreamProxy(server, {
-    rustUrl: `http://127.0.0.1:${rustPort}`,
+  lastWss = attachRpcStreamProxy(server, {
+    rustUrl: extra.rustUrl ?? `http://127.0.0.1:${rustPort}`,
     accessUrl: () => ACCESS_URL,
     fetch: fetchMock as unknown as typeof fetch,
     ...extra,
@@ -83,6 +92,8 @@ async function startProxy(extra: { recheckMs?: number; maxLifetimeMs?: number } 
 }
 
 let extraServers: Server[];
+/** The last proxy's server, whose `clients` are the browser sockets. */
+let lastWss: WebSocketServer;
 
 beforeEach(async () => {
   sockets = new Set();
@@ -105,7 +116,21 @@ beforeEach(async () => {
         const text = isBinary ? "" : (data as Buffer).toString("utf8");
         // Commands for the tests; anything else is echoed as it came.
         if (text === "send-big") ws.send("y".repeat(9 * 1024 * 1024));
-        else if (text === "close-1013") ws.close(1013, "TOO_MANY_SOCKETS: at most 8 open at once");
+        else if (text.startsWith("send-mib ")) {
+          // `send-mib <n>`: one frame of n MiB, then a small one right behind it.
+          ws.send(Buffer.alloc(Number(text.slice(9)) * 1024 * 1024, 0x77), { binary: false });
+          ws.send("after");
+        } else if (text.startsWith("flood ")) {
+          // `flood <frames>`: 1 MiB frames numbered from 0, as fast as the
+          // proxy reads them.
+          const frames = Number(text.slice(6));
+          for (let i = 0; i < frames; i++) {
+            const frame = Buffer.alloc(1024 * 1024, 0x7a);
+            frame.write(`${String(i).padStart(6, "0")}:`);
+            ws.send(frame, { binary: false });
+          }
+        } else if (text === "close-1013")
+          ws.close(1013, "TOO_MANY_SOCKETS: at most 8 open at once");
         else ws.send(data, { binary: isBinary });
       });
     });
@@ -343,5 +368,163 @@ describe("/api/rpc/stream proxy", () => {
     const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
     const closed = new Promise<number>((r) => ws.once("close", (c) => r(c)));
     expect(await closed).toBe(1000);
+  });
+
+  describe("backpressure (phase 5b probe, I2)", () => {
+    const MiB = 1024 * 1024;
+
+    /** The proxy's end of the one browser socket. */
+    function proxied(wss: WebSocketServer): WebSocket {
+      const [ws] = [...wss.clients];
+      return ws;
+    }
+
+    it("stops reading Rust while the browser is slow, and loses nothing", async () => {
+      const port = await startProxy({ pauseBufferedBytes: 2 * MiB });
+      const wss = lastWss;
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      await vi.waitFor(() => expect(rustSockets).toHaveLength(1));
+      const frames: string[] = [];
+      let bytes = 0;
+      ws.on("message", (data: Buffer) => {
+        bytes += data.length;
+        frames.push(data.subarray(0, 6).toString());
+      });
+      // A slow reader: the browser stops reading from TCP.
+      (ws as unknown as { _socket: Socket })._socket.pause();
+      ws.send("flood 48");
+
+      // The proxy holds about the threshold (plus a frame in flight); the
+      // rest waits in Rust's send buffer.
+      let peak = 0;
+      const until = Date.now() + 1500;
+      while (Date.now() < until) {
+        peak = Math.max(peak, proxied(wss).bufferedAmount);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(peak).toBeLessThanOrEqual(4 * MiB);
+      expect(rustSockets[0].bufferedAmount).toBeGreaterThan(8 * MiB);
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+
+      (ws as unknown as { _socket: Socket })._socket.resume();
+      await vi.waitFor(() => expect(bytes).toBe(48 * MiB), { timeout: 10_000 });
+      expect(frames).toEqual(Array.from({ length: 48 }, (_, i) => String(i).padStart(6, "0")));
+      ws.close();
+    });
+
+    it("delivers one frame larger than the hard cap (a wide row)", async () => {
+      const port = await startProxy({ pauseBufferedBytes: 2 * MiB, maxBufferedBytes: 4 * MiB });
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      const got: Buffer[] = [];
+      ws.on("message", (data: Buffer) => got.push(data));
+      ws.send("send-mib 12");
+      // The wide frame and the one right behind it (a stream's `done`).
+      await vi.waitFor(() => expect(got).toHaveLength(2), { timeout: 5_000 });
+      expect(got[0].length).toBe(12 * MiB);
+      expect(got[1].toString()).toBe("after");
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+      // Still open and piping.
+      const next = nextMessage(ws);
+      ws.send("ping");
+      expect((await next).data.toString()).toBe("ping");
+      ws.close();
+    });
+
+    it("stops reading the browser while Rust is slow, and loses nothing", async () => {
+      const port = await startProxy({ pauseBufferedBytes: 2 * MiB });
+      const wss = lastWss;
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      await vi.waitFor(() => expect(rustSockets).toHaveLength(1));
+      const echoed: string[] = [];
+      ws.on("message", (data: Buffer) => echoed.push(data.subarray(0, 6).toString()));
+      // Rust stops reading; the browser keeps sending.
+      rustSockets[0].pause();
+      for (let i = 0; i < 48; i++) {
+        const frame = Buffer.alloc(MiB, 0x7a);
+        frame.write(`${String(i).padStart(6, "0")}:`);
+        ws.send(frame, { binary: false });
+      }
+      await vi.waitFor(() => expect(proxied(wss).isPaused).toBe(true), { timeout: 5_000 });
+      rustSockets[0].resume();
+      await vi.waitFor(() => expect(echoed).toHaveLength(48), { timeout: 10_000 });
+      expect(echoed).toEqual(Array.from({ length: 48 }, (_, i) => String(i).padStart(6, "0")));
+      ws.close();
+    });
+
+    it("closes with 1013 when a paused side keeps sending past the hard cap (read-ahead)", async () => {
+      const port = await startProxy({ pauseBufferedBytes: 2 * MiB, maxBufferedBytes: 6 * MiB });
+      const wss = lastWss;
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      await vi.waitFor(() => expect(rustSockets).toHaveLength(1));
+      // A pause that only sets the flag: the socket keeps reading, as
+      // read-ahead a real pause() doesn't stop would.
+      const browserSide = proxied(wss) as unknown as { _paused: boolean; pause: () => void };
+      let pauses = 0;
+      browserSide.pause = function () {
+        pauses++;
+        this._paused = true;
+      };
+      const closed = new Promise<number>((r) => ws.once("close", (c) => r(c)));
+      rustSockets[0].pause();
+      for (let i = 0; i < 24; i++) ws.send(Buffer.alloc(MiB, 0x7a), { binary: false });
+      expect(await closed).toBe(1013);
+      expect(pauses).toBe(1);
+    });
+
+    it("does not close when a paused side sends less than the hard cap after the pause", async () => {
+      const port = await startProxy({ pauseBufferedBytes: 2 * MiB, maxBufferedBytes: 6 * MiB });
+      const wss = lastWss;
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      await vi.waitFor(() => expect(rustSockets).toHaveLength(1));
+      const browserSide = proxied(wss) as unknown as { _paused: boolean; pause: () => void };
+      browserSide.pause = function () {
+        this._paused = true;
+      };
+      const echoed: number[] = [];
+      ws.on("message", (d: Buffer) => echoed.push(d.length));
+      rustSockets[0].pause();
+      for (let i = 0; i < 6; i++) ws.send(Buffer.alloc(MiB, 0x7a), { binary: false });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+      rustSockets[0].resume();
+      await vi.waitFor(() => expect(echoed).toHaveLength(6), { timeout: 5_000 });
+      ws.close();
+    });
+
+    it("closes with 1013 when a slow browser's buffer passes the hard cap", async () => {
+      // No pause, so only the cap stands between Rust and Node's memory.
+      const port = await startProxy({
+        pauseBufferedBytes: Number.MAX_SAFE_INTEGER,
+        maxBufferedBytes: 4 * MiB,
+      });
+      const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+      await vi.waitFor(() => expect(rustSockets).toHaveLength(1));
+      const rustClosed = new Promise((r) => rustSockets[0].once("close", r));
+      const closed = new Promise<number>((r) => ws.once("close", (c) => r(c)));
+      (ws as unknown as { _socket: Socket })._socket.pause();
+      ws.send("flood 48");
+      await rustClosed;
+      (ws as unknown as { _socket: Socket })._socket.resume();
+      expect(await closed).toBe(1013);
+    });
+  });
+
+  it("closes the browser with 1013 when Rust's socket never opens", async () => {
+    // Accepts TCP and never answers the upgrade.
+    const silent = createServer();
+    silent.on("upgrade", () => undefined);
+    const silentPort = await listen(silent);
+    extraServers.push(silent);
+    const port = await startProxy({
+      rustUrl: `http://127.0.0.1:${silentPort}`,
+      rustConnectTimeoutMs: 200,
+    });
+    const ws = await openBrowser(RPC_STREAM_PATH, { cookie: "session=alice" }, port);
+    const closed = new Promise<[number, string]>((r) =>
+      ws.once("close", (code, reason) => r([code, reason.toString()])),
+    );
+    ws.send("queued while Rust connects");
+    expect(await closed).toEqual([1013, "upstream unavailable"]);
   });
 });

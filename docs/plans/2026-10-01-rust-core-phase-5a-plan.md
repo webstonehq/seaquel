@@ -298,7 +298,7 @@ Probe fixes are budgeted separately.
 - **Effort log:** the totals.
 - **Checkpoint.**
 
-**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5a cost", the execution notes, Task 7 findings, release notes, checkpoint and follow-ups below, and the effort log's totals are written. The full check list ran: everything passes. Two CI steps failed on the first run (the wasm32 `browser` build and oxlint's type check) and were fixed afterwards; see "Checkpoint". The manual checks below are not run yet.
+**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5a cost", the execution notes, Task 7 findings, release notes, checkpoint and follow-ups below, and the effort log's totals are written. The full check list ran: everything passes. Two CI steps failed on the first run (the wasm32 `browser` build and oxlint's type check) and were fixed afterwards; see "Checkpoint". The owner ran the manual checks below on 2026-09-27; all pass.
 
 ## Manual checks
 
@@ -424,7 +424,9 @@ CI doesn't run oxfmt. `npx oxfmt --check` on the repo flags 34 files, nearly all
 1. **Core no longer builds for wasm32 with `browser`.** `seaquel-rpc` now depends on `seaquel-core` with `features = ["workspace"]` (Task 3's review, so `db.connect` is always built), and `browser` refuses `workspace` with its `compile_error!`. `cargo clippy --target wasm32-unknown-unknown -p seaquel-core --no-default-features --features seaquel-core/browser` alone passes; adding `-p seaquel-rpc` fails. Fixed by keeping Core's guard and giving `seaquel-rpc` a `workspace` feature (turning on `seaquel-core/workspace`) in place of the no-op `connect`. `src-tauri` and `seaquel-server` turn it on; the browser line leaves it off, and there `db.connect`/`db.test` answer `NOT_SUPPORTED`. The wasm32 line, CI clippy, `-p seaquel` clippy, fmt, `crates:check` and the `seaquel-rpc`/`seaquel-server` tests pass again.
 2. **oxlint's type check fails on `src/lib/core/http.test.ts`** (lines 74 and 132): `Type '(url: string) => FakeSocket' is not assignable to type '(url: string) => WebSocketLike'`. `svelte-check` and vitest pass; only oxlint's type-aware check (tsgo) sees it. The cause was `FakeSocket.readyState`, inferred as `number` where tsgo's `WebSocket["readyState"]` is a literal union. Typing the field as `WebSocket["readyState"]` fixed it; the full oxlint step exits 0 and `src/lib/core` vitest passes.
 
-**Not run:** the manual checks (above), the release workflow, and a signed build.
+**Manual checks:** all pass (the owner, 2026-09-27).
+
+**Not run:** the release workflow and a signed build.
 
 ---
 

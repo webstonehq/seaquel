@@ -421,7 +421,7 @@ describe("RustEngineClient.paginate (computed locally)", () => {
 
   it("needs no connection", async () => {
     const { client, transport } = recording({ kind: "sql", data: "x" }, null);
-    expect(await client.paginate("SELECT 1", 11, 20)).toBe("SELECT 1 LIMIT 11 OFFSET 20");
+    expect(await client.paginate("SELECT 1", 11, 20)).toBe("SELECT 1\nLIMIT 11 OFFSET 20");
     expect(transport).not.toHaveBeenCalled();
   });
 

@@ -20,9 +20,13 @@ ssh = ["dep:seaquel-ssh"]
 git = ["dep:seaquel-git"]
 license-desktop = ["dep:seaquel-license", "seaquel-license/desktop"]
 license-server = ["dep:seaquel-license", "seaquel-license/server"]
-# The workspace domain (phase 4): saved connection -> ConnectConfig, re-exported
-# as `seaquel_core::domain`. seaquel-cli enables it with storage, secrets and ssh.
-workspace = ["dep:seaquel-workspace"]
+# `Workspace::connect`/`test` and the editor's runs (`Workspace::run`/`page`).
+# seaquel-cli enables it with storage, secrets and ssh. The domain crate
+# itself (`seaquel_core::domain`) is always there: it is pure, builds for
+# wasm32, and its run types are on the `db` wire in every build.
+workspace = []
+# The TypeScript bindings of the domain's wire types (`seaquel-rpc/ts`).
+ts = ["seaquel-workspace/ts"]
 # The wasm32 build for the browser (phase 8's Core in the web page): no
 # engines and no infrastructure, only what builds for wasm32-unknown-unknown.
 # CI checks it with --no-default-features --features seaquel-core/browser.
@@ -43,7 +47,7 @@ seaquel-secrets = { path = "../seaquel-secrets", optional = true }
 seaquel-ssh = { path = "../seaquel-ssh", optional = true }
 seaquel-git = { path = "../seaquel-git", optional = true }
 seaquel-license = { path = "../seaquel-license", optional = true }
-seaquel-workspace = { path = "../seaquel-workspace", optional = true }
+seaquel-workspace = { path = "../seaquel-workspace" }
 async-stream = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -62,3 +66,5 @@ uuid = { workspace = true, features = ["js"] }
 seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+# `TokioExecutor` for tests/run_live.rs.
+seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }

@@ -2,14 +2,21 @@
 	import type { DestructiveReason, DestructiveStatement } from "$lib/sql";
 	import * as AlertDialog from "$lib/components/ui/alert-dialog/index.js";
 	import * as m from "$lib/paraglide/messages.js";
+	import { MAX_DESTRUCTIVE_LISTED } from "$lib/hooks/database/query-runner/types";
 
 	type Props = {
 		open?: boolean;
 		statements: DestructiveStatement[];
+		/** How many there are; Core lists only the first 100, and so does this dialog. */
+		total?: number;
 		onconfirm: () => void;
 	};
 
-	let { open = $bindable(false), statements, onconfirm }: Props = $props();
+	let { open = $bindable(false), statements, total, onconfirm }: Props = $props();
+
+	// The editor's own prompt passes every statement; Core's, the first 100.
+	const shown = $derived(statements.slice(0, MAX_DESTRUCTIVE_LISTED));
+	const more = $derived(Math.max(0, (total ?? statements.length) - shown.length));
 
 	const reasonLabel: Record<DestructiveReason, () => string> = {
 		drop_table: m.destructive_reason_drop_table,
@@ -42,12 +49,17 @@
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<div class="flex max-h-48 flex-col gap-2 overflow-y-auto py-2">
-			{#each statements as stmt (stmt.index)}
+			{#each shown as stmt (stmt.index)}
 				<div class="bg-muted rounded-md px-3 py-2 text-sm">
 					<span class="text-destructive font-medium">{reasonLabel[stmt.reason]()}</span>
 					<code class="text-muted-foreground mt-1 block truncate text-xs">{truncateSql(stmt.sql)}</code>
 				</div>
 			{/each}
+			{#if more > 0}
+				<p class="text-muted-foreground px-3 text-xs">
+					{m.destructive_query_confirm_more({ count: more })}
+				</p>
+			{/if}
 		</div>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>

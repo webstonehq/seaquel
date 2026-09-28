@@ -7,9 +7,9 @@
 //! - [`MaybeSend`] / [`MaybeSync`]: `Send`/`Sync` on native, no bound on wasm32.
 //! - [`BoxStream`] / [`BoxFuture`]: `Send` boxes on native, local boxes on wasm32.
 //! - [`async_trait`]: `async_trait` on native, `async_trait(?Send)` on wasm32.
-//! - [`Executor`]: spawning, sleeping and wall-clock time. Core must not call
-//!   `tokio::spawn`, `std::time::Instant` or `SystemTime` directly; clippy
-//!   enforces that through `crates/clippy.toml`.
+//! - [`Executor`]: spawning, sleeping, wall-clock and monotonic time. Core
+//!   must not call `tokio::spawn`, `std::time::Instant` or `SystemTime`
+//!   directly; clippy enforces that through `crates/clippy.toml`.
 
 // Lets `#[seaquel_runtime::async_trait]` expand to `::seaquel_runtime::…` paths
 // inside this crate too.
@@ -61,6 +61,11 @@ pub trait Executor: MaybeSend + MaybeSync {
 
     /// Wall-clock time since the Unix epoch.
     fn unix_time(&self) -> Duration;
+
+    /// Time on a clock that never goes backwards, from an arbitrary start
+    /// (fixed for the process or page). Only differences between two
+    /// readings mean anything: Core times statements with it.
+    fn monotonic(&self) -> Duration;
 }
 
 #[cfg(feature = "tokio")]
@@ -89,6 +94,14 @@ mod tokio_executor {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
         }
+
+        // The one sanctioned `Instant` in Core's crates: elapsed since the
+        // first reading in this process.
+        #[allow(clippy::disallowed_types)]
+        fn monotonic(&self) -> Duration {
+            static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+            START.get_or_init(std::time::Instant::now).elapsed()
+        }
     }
 }
 
@@ -113,8 +126,30 @@ mod wasm_executor {
         }
 
         fn unix_time(&self) -> Duration {
-            Duration::from_secs_f64(js_sys::Date::now() / 1000.0)
+            Duration::try_from_secs_f64(js_sys::Date::now() / 1000.0).unwrap_or_default()
         }
+
+        /// `performance.now()`, read through the global object so it works
+        /// in a window and in a worker. Without `performance` (never in a
+        /// browser) it falls back to the wall clock.
+        fn monotonic(&self) -> Duration {
+            let ms = performance_now().unwrap_or_else(js_sys::Date::now);
+            Duration::try_from_secs_f64(ms / 1000.0).unwrap_or_default()
+        }
+    }
+
+    fn performance_now() -> Option<f64> {
+        let global = js_sys::global();
+        let performance = js_sys::Reflect::get(&global, &"performance".into()).ok()?;
+        if performance.is_undefined() || performance.is_null() {
+            return None;
+        }
+        let now = js_sys::Reflect::get(&performance, &"now".into()).ok()?;
+        if !now.is_function() {
+            return None;
+        }
+        let now = js_sys::Function::from(now);
+        now.call0(&performance).ok()?.as_f64()
     }
 }
 
@@ -134,6 +169,17 @@ mod tests {
         }));
         exec.sleep(Duration::from_millis(1)).await;
         assert_eq!(rx.await.unwrap(), 42);
+    }
+
+    #[test]
+    fn tokio_executor_monotonic_time_moves_forward() {
+        let first = TokioExecutor.monotonic();
+        std::thread::sleep(Duration::from_millis(2));
+        let second = TokioExecutor.monotonic();
+        assert!(
+            second >= first + Duration::from_millis(2),
+            "{first:?} {second:?}"
+        );
     }
 
     #[test]

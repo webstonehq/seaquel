@@ -31,11 +31,28 @@ struct FromEntry {
     table: String,
 }
 
+/// The longest statement [`column_refs`] parses, in bytes. Longer text gets
+/// `None` without being tokenized.
+///
+/// Core computes column references for every SELECT a run or page carries,
+/// on text up to the web's 8 MiB frame, and sqlparser tokenizes and parses
+/// the whole input first. A dense select list (`SELECT 1,1,…`) costs about
+/// 1.3 KB of heap and 0.2 µs per byte in a release build, so an 8 MiB
+/// statement took gigabytes (phase 5b probe, I1). At 64 KiB the worst case
+/// measured is ~86 MB for ~12 ms, and a select list of about 1,500 qualified
+/// columns still fits. The references are only inline-editing hints: without
+/// them the grid isn't editable, as for a `*` query.
+pub const MAX_COLUMN_REFS_BYTES: usize = 64 * 1024;
+
 /// One entry per output column (`None` where it isn't a column of a FROM
 /// table the query names), or `None` for the whole query when its columns
 /// can't be mapped: it doesn't parse, isn't a SELECT, has no base table in
-/// FROM, or selects `*` or `t.*` (the columns would depend on the live schema).
+/// FROM, selects `*` or `t.*` (the columns would depend on the live schema),
+/// or is longer than [`MAX_COLUMN_REFS_BYTES`].
 pub fn column_refs(sql: &str, engine: SqlEngine) -> Option<Vec<Option<ColumnRef>>> {
+    if sql.len() > MAX_COLUMN_REFS_BYTES {
+        return None;
+    }
     let stmts = parse(sql, engine).ok()?;
     let Some(Statement::Query(q)) = stmts.first() else {
         return None;

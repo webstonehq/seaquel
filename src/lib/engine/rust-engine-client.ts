@@ -79,8 +79,9 @@ function checkRowCount(name: string, n: number): void {
  * A later phase should replace this with
  * the Rust dialect compiled to wasm (seaquel-wasm).
  */
+// The limit goes on its own line, so a trailing `--` comment can't swallow it.
 const limitOffset = (sql: string, limit: number, offset: number) =>
-  `${sql} LIMIT ${limit} OFFSET ${offset}`;
+  `${sql}\nLIMIT ${limit} OFFSET ${offset}`;
 
 /** `char::is_whitespace` in Rust: Unicode White_Space (JS `\s` differs at U+0085 and U+FEFF). */
 function isRustWhitespace(c: string): boolean {

@@ -413,3 +413,11 @@ the same seeded file and scratch objects, and converted rows with Arrow's
   where 1.4.3 has `AS DATE`.
 - The schema listing, indexes, index usage, overview, table sizes, row counts
   and the other columns were identical.
+
+## Changes
+
+- **Phase 5b, Task 4 review (`paginate.json`, every case):** the limit now
+  goes on its own line (`…\nLIMIT n OFFSET m`). A trailing `--` comment
+  swallowed the LIMIT: `SELECT * FROM big -- note` paged as
+  `… -- note LIMIT 101 OFFSET 0`, which fetched the whole table. Only the
+  whitespace before `LIMIT` changed.

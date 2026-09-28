@@ -2,7 +2,8 @@
  * `CoreClient` on web:
  * - `call`: `POST /api/rpc`;
  * - `stream` and `events`: one WebSocket per page at `/api/rpc/stream`,
- *   shared by every stream. Client frames are
+ *   shared by every stream (`db.queryStream`, and the editor's `db.run` and
+ *   `db.page`, whose events come as `type: "run"`). Client frames are
  *   `{"op":"start","streamId","request"}` (the `CoreRequest` inline) and
  *   `{"op":"cancel","streamId"}`; server frames are `CoreEvent` JSON.
  *
@@ -41,10 +42,12 @@ import {
   StreamQueue,
   type ConnectionClosedEvent,
   type CoreClient,
+  type AnyStreamEvent,
   type CoreEvent,
-  type QueryStreamRequest,
-  type StreamEvent,
+  type EventOf,
   type StreamOptions,
+  type StreamRequest,
+  wellFormedRequest,
 } from "./client";
 
 /** The server's cap on streams per socket. */
@@ -89,7 +92,7 @@ export interface HttpCoreClientOptions {
 }
 
 interface Entry {
-  queue: StreamQueue;
+  queue: StreamQueue<AnyStreamEvent>;
   frame: string;
   /** Its start frame went out on the current socket. */
   started: boolean;
@@ -144,18 +147,21 @@ export class HttpCoreClient implements CoreClient {
     return (await httpCoreTransport(encodeCoreRequest(request))) as CoreResponse;
   }
 
-  stream(request: QueryStreamRequest, options: StreamOptions = {}): AsyncIterable<StreamEvent> {
+  stream<R extends StreamRequest>(
+    request: R,
+    options: StreamOptions = {},
+  ): AsyncIterable<EventOf<R>> {
     const { signal } = options;
     const streamId = request.params.params.streamId;
-    const queue = new StreamQueue(() => this.cancel(streamId));
+    const queue = new StreamQueue<EventOf<R>>(() => this.cancel(streamId));
     if (signal?.aborted) {
-      queue.push(cancelledEvent());
+      queue.pushError(cancelledEvent());
       return queue;
     }
 
     const entry: Entry = {
-      queue,
-      frame: JSON.stringify({ op: "start", streamId, request }),
+      queue: queue as StreamQueue<AnyStreamEvent>,
+      frame: JSON.stringify({ op: "start", streamId, request: wellFormedRequest(request) }),
       started: false,
       heard: false,
       retries: 0,
@@ -164,7 +170,7 @@ export class HttpCoreClient implements CoreClient {
 
     const onAbort = () => {
       this.cancel(streamId);
-      queue.push(cancelledEvent());
+      queue.pushError(cancelledEvent());
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     queue.onEnd(() => {
@@ -270,18 +276,20 @@ export class HttpCoreClient implements CoreClient {
       ) {
         const message = m.core_stream_too_many_tabs();
         for (const entry of this.streams.values()) {
-          entry.queue.push(streamError(TOO_MANY_TABS, message));
+          entry.queue.pushError(streamError(TOO_MANY_TABS, message));
         }
         return;
       }
       for (const entry of this.streams.values()) {
         if (entry.started) {
-          entry.queue.push(
+          entry.queue.pushError(
             streamError(WS_CLOSED, "The connection to the server closed before the query ended"),
           );
         } else if (!opened) {
           // The server couldn't be reached: don't leave a query waiting.
-          entry.queue.push(streamError(WS_CLOSED, "Couldn't reach the server to run the query"));
+          entry.queue.pushError(
+            streamError(WS_CLOSED, "Couldn't reach the server to run the query"),
+          );
         }
       }
     };
@@ -296,7 +304,7 @@ export class HttpCoreClient implements CoreClient {
     }
     const message = m.core_stream_access_lost();
     for (const entry of this.streams.values()) {
-      entry.queue.push(streamError(ACCESS_LOST, message));
+      entry.queue.pushError(streamError(ACCESS_LOST, message));
     }
     this.onAccessLost(message);
   }
@@ -327,7 +335,8 @@ export class HttpCoreClient implements CoreClient {
       for (const handler of this.handlers) handler(event);
       return;
     }
-    if (event.type !== "stream") {
+    // A query stream's events come as `stream`, a run's or page's as `run`.
+    if (event.type !== "stream" && event.type !== "run") {
       void log.warn(
         `Ignoring a Core stream frame of type ${String((event as { type?: unknown }).type)}`,
       );

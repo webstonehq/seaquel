@@ -7,7 +7,7 @@ description = "The engine RPC: EngineRequest/EngineResponse and a dispatcher ont
 [features]
 # Generates src/lib/types/generated/Engine*.ts when running `cargo test --features ts`.
 # Run it through `npm run types:gen`.
-ts = ["dep:ts-rs", "seaquel-types/ts"]
+ts = ["dep:ts-rs", "seaquel-types/ts", "seaquel-core/ts"]
 # The workspace groups this build serves. Every Request variant exists either
 # way; a group whose feature is off answers NOT_SUPPORTED. They turn on the
 # matching Core features.
@@ -16,10 +16,10 @@ secrets = ["seaquel-core/secrets"]
 license-desktop = ["seaquel-core/license-desktop"]
 git = ["seaquel-core/git"]
 ssh = ["seaquel-core/ssh"]
-# `db.connect`/`db.test` (`Workspace::connect`), through Core's `workspace`.
-# Every native interface turns it on; the browser build (Core's `browser`,
-# which refuses `workspace`) leaves it off, and then both answer
-# NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
+# `db.connect`/`db.test` (`Workspace::connect`) and `db.run`/`db.page`
+# (`Workspace::run`/`page`), through Core's `workspace`. Every native
+# interface turns it on; the browser build (Core's `browser`, which refuses
+# `workspace`) leaves it off, and then all four answer NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
 # `ConnectPolicy`, not this feature.
 workspace = ["seaquel-core/workspace"]
 
@@ -40,7 +40,8 @@ seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop",
 # Real engines for tests/db.rs: SQLite in temp files, Postgres when
 # SEAQUEL_TEST_POSTGRES is set.
 seaquel-core = { path = "../seaquel-core", default-features = false, features = ["engine-sqlite", "engine-postgres"] }
-seaquel-runtime = { path = "../seaquel-runtime" }
+# `TokioExecutor`, Core's clock for `db.run`/`db.page`.
+seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
 tempfile = "3"
 # Only to point libgit2 at an empty config dir in tests/git.rs.
 git2 = { workspace = true }

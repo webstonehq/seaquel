@@ -2,7 +2,9 @@
 import type { BatchStatement } from "./BatchStatement";
 import type { ConnectParams } from "./ConnectParams";
 import type { EngineRequest } from "./EngineRequest";
+import type { PageParams } from "./PageParams";
 import type { QueryStreamParams } from "./QueryStreamParams";
+import type { RunParams } from "./RunParams";
 
 /**
  * A `db` call. `Debug` never shows a secret or a connection string
@@ -16,4 +18,4 @@ params?: unknown[], } } | { "method": "execute", "params": { connectionId: strin
 /**
  * Absent is none.
  */
-params?: unknown[], } } | { "method": "transaction", "params": { connectionId: string, statements: Array<BatchStatement>, } } | { "method": "engine", "params": { connectionId: string, request: EngineRequest, } } | { "method": "cancel", "params": { streamId: string, } } | { "method": "queryStream", "params": QueryStreamParams };
+params?: unknown[], } } | { "method": "transaction", "params": { connectionId: string, statements: Array<BatchStatement>, } } | { "method": "engine", "params": { connectionId: string, request: EngineRequest, } } | { "method": "cancel", "params": { streamId: string, } } | { "method": "queryStream", "params": QueryStreamParams } | { "method": "run", "params": RunParams } | { "method": "page", "params": PageParams };
