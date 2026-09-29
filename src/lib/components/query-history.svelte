@@ -7,7 +7,12 @@
 	import { Input } from "$lib/components/ui/input";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { HistoryIcon, StarIcon, SearchIcon, ClockIcon, BookmarkIcon, Trash2Icon } from "@lucide/svelte";
+	import HistoryIcon from "@lucide/svelte/icons/history";
+	import StarIcon from "@lucide/svelte/icons/star";
+	import SearchIcon from "@lucide/svelte/icons/search";
+	import ClockIcon from "@lucide/svelte/icons/clock";
+	import BookmarkIcon from "@lucide/svelte/icons/bookmark";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import { m } from "$lib/paraglide/messages.js";
 
 	const db = useDatabase();

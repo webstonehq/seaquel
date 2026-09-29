@@ -14,20 +14,60 @@ import type {
   SerializedWorkflowEdge,
 } from "$lib/types/workflow";
 import type { SchemaTable, ChartConfig } from "$lib/types";
+import type { ReadOnlyRows } from "$lib/providers";
 import { createDefaultChartConfig } from "$lib/components/charts/chart-utils";
+import { READ_ONLY_REFUSAL } from "$lib/sql";
+import { m } from "$lib/paraglide/messages.js";
 
 const DEFAULT_NODE_WIDTH = 320;
+
+/**
+ * The most rows a workflow query node fetches (phase 5c, Decision 10).
+ * Result rows are saved with the workflow, so the cap is well under the
+ * engine's 100,000; a result past it is cut short and says so.
+ */
+export const WORKFLOW_MAX_ROWS = 10_000;
+
+/**
+ * Runs a query node's SQL read-only on the node's own saved connection
+ * (`QueryCrudManager.executeReadOnly`), at most `maxRows` rows. Aborting
+ * `signal` cancels it.
+ */
+export type RunWorkflowQuery = (
+  connectionId: string,
+  sql: string,
+  signal: AbortSignal,
+  maxRows: number,
+) => Promise<ReadOnlyRows>;
+
+/** A read-only refusal (the token check's, or the database's `READ_ONLY`), worded for a node. */
+function nodeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith(READ_ONLY_REFUSAL) || /^READ_ONLY\b/.test(message)) {
+    return m.workflow_node_read_only();
+  }
+  return message;
+}
 
 /**
  * Workflow manager - handles all workflow operations
  */
 export class WorkflowManager {
+  /** Each query node's run in flight: re-running or deleting the node cancels it. */
+  private runs = new Map<string, AbortController>();
+
   constructor(
     private state: DatabaseState,
     private workflowState: WorkflowState,
     private schedulePersistence: (projectId: string | null) => void,
-    private executeQuery: (query: string) => Promise<Record<string, unknown>[]>,
+    private executeQuery: RunWorkflowQuery,
   ) {}
+
+  /** Cancel a query node's run in flight. */
+  private cancelRun(nodeId: string): void {
+    this.runs.get(nodeId)?.abort();
+    this.runs.delete(nodeId);
+  }
 
   // === NODE MANAGEMENT ===
 
@@ -132,6 +172,7 @@ export class WorkflowManager {
     totalRows: number,
     executionTime?: number,
     position?: XYPosition,
+    truncated?: boolean,
   ): string {
     const id = `workflow-node-${crypto.randomUUID()}`;
 
@@ -149,6 +190,7 @@ export class WorkflowManager {
       rows,
       totalRows,
       executionTime,
+      ...(truncated ? { truncated: true } : {}),
     };
 
     const node: Node<WorkflowResultNodeData> = {
@@ -218,6 +260,7 @@ export class WorkflowManager {
    * Remove a node and its connected edges
    */
   removeNode(nodeId: string): void {
+    this.cancelRun(nodeId);
     // Remove connected edges first
     const connectedEdges = this.workflowState.getConnectedEdges(nodeId);
     for (const edge of connectedEdges) {
@@ -320,6 +363,7 @@ export class WorkflowManager {
           nodes = nodes.map((n) => (n.id === change.id ? { ...n, selected: change.selected } : n));
           break;
         case "remove":
+          this.cancelRun(change.id);
           nodes = nodes.filter((n) => n.id !== change.id);
           break;
       }
@@ -365,7 +409,10 @@ export class WorkflowManager {
   // === QUERY EXECUTION ===
 
   /**
-   * Execute a query node and create/update result node
+   * Run a query node read-only on its own saved connection (phase 5c,
+   * Decision 10), at most `WORKFLOW_MAX_ROWS` rows, and create or update its
+   * result node. A write is refused as read-only. Re-running the node
+   * cancels its run in flight; only the latest run updates the canvas.
    */
   async executeQueryNode(nodeId: string): Promise<void> {
     const node = this.workflowState.getNode(nodeId);
@@ -374,6 +421,11 @@ export class WorkflowManager {
     }
 
     const queryData = node.data as WorkflowQueryNodeData;
+
+    this.cancelRun(nodeId);
+    const controller = new AbortController();
+    this.runs.set(nodeId, controller);
+    const superseded = () => controller.signal.aborted || this.runs.get(nodeId) !== controller;
 
     // Mark as executing
     this.updateNodeData<WorkflowQueryNodeData>(nodeId, {
@@ -384,11 +436,16 @@ export class WorkflowManager {
     const startTime = performance.now();
 
     try {
-      const rowObjects = await this.executeQuery(queryData.query);
+      const { rows: rowObjects, truncated } = await this.executeQuery(
+        queryData.connectionId,
+        queryData.query,
+        controller.signal,
+        WORKFLOW_MAX_ROWS,
+      );
+      if (superseded()) return;
       const executionTime = performance.now() - startTime;
       const columns = rowObjects.length > 0 ? Object.keys(rowObjects[0]) : [];
-      // Result/chart nodes use the columnar row shape. `executeQuery` still
-      // returns row objects (shared with dashboards), so convert once here.
+      // Result/chart nodes use the columnar row shape: convert once here.
       const rows: unknown[][] = rowObjects.map((r) => columns.map((c) => r[c]));
 
       // Update query node
@@ -415,11 +472,20 @@ export class WorkflowManager {
           rows,
           totalRows: rows.length,
           executionTime,
+          truncated,
           error: undefined,
         });
       } else {
         // Create new result node
-        resultNodeId = this.addResultNode(nodeId, columns, rows, rows.length, executionTime);
+        resultNodeId = this.addResultNode(
+          nodeId,
+          columns,
+          rows,
+          rows.length,
+          executionTime,
+          undefined,
+          truncated,
+        );
       }
 
       // Update any downstream chart nodes connected to the result node
@@ -432,7 +498,8 @@ export class WorkflowManager {
         nodeId,
       });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (superseded()) return;
+      const errorMessage = nodeError(error);
       this.updateNodeData<WorkflowQueryNodeData>(nodeId, {
         isExecuting: false,
         error: errorMessage,
@@ -451,11 +518,14 @@ export class WorkflowManager {
           columns: [],
           rows: [],
           totalRows: 0,
+          truncated: false,
         });
 
         // Clear downstream chart nodes on error
         this.updateDownstreamChartNodes(existingResultNode.id, [], []);
       }
+    } finally {
+      if (this.runs.get(nodeId) === controller) this.runs.delete(nodeId);
     }
   }
 

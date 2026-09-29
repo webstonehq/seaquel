@@ -1,0 +1,1606 @@
+[
+  {
+    "name": "sqlite/set-default-expression",
+    "engine": "sqlite",
+    "notes": "SQLite has no DEFAULT in UPDATE: Set default reads the column's default from fresh metadata",
+    "input": {
+      "via": "dataTab",
+      "pending": true,
+      "table": {
+        "schema": "main",
+        "table": "notes"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "body",
+          "created",
+          "tag"
+        ],
+        "rows": [
+          [
+            1,
+            "b",
+            "2024-01-01 10:00:00",
+            "t"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "notes",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "notes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "body",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'empty'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "created",
+            "type": "DATETIME",
+            "nullable": true,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "tag",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notes_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "body",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "body"
+        },
+        "driver": [
+          {
+            "op": "tableMetadata",
+            "schema": "main",
+            "table": "notes",
+            "answer": {
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "INTEGER",
+                  "nullable": false,
+                  "isPrimaryKey": true,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "body",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "defaultValue": "'empty'",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "created",
+                  "type": "DATETIME",
+                  "nullable": true,
+                  "defaultValue": "CURRENT_TIMESTAMP",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "tag",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "notes_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true,
+                  "type": "btree"
+                }
+              ]
+            }
+          },
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "column": "body",
+              "column_default": "'empty'",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"notes\" SET \"body\" = ('empty') WHERE \"id\" = $1",
+              "bindValues": [
+                1
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      },
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "created",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "created"
+        },
+        "driver": [
+          {
+            "op": "tableMetadata",
+            "schema": "main",
+            "table": "notes",
+            "answer": {
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "INTEGER",
+                  "nullable": false,
+                  "isPrimaryKey": true,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "body",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "defaultValue": "'empty'",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "created",
+                  "type": "DATETIME",
+                  "nullable": true,
+                  "defaultValue": "CURRENT_TIMESTAMP",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "tag",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "notes_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true,
+                  "type": "btree"
+                }
+              ]
+            }
+          },
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "column": "created",
+              "column_default": "CURRENT_TIMESTAMP",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"notes\" SET \"created\" = (CURRENT_TIMESTAMP) WHERE \"id\" = $1",
+              "bindValues": [
+                1
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      }
+    ],
+    "queue": [
+      {
+        "id": "c1",
+        "change": {
+          "type": "edit",
+          "id": "c1",
+          "edit": {
+            "type": "setDefault",
+            "target": {
+              "schema": "main",
+              "table": "notes"
+            },
+            "key": [
+              [
+                "id",
+                1
+              ]
+            ],
+            "column": "body"
+          }
+        },
+        "sql": "UPDATE \"main\".\"notes\" SET \"body\" = ('empty') WHERE \"id\" = $1",
+        "params": [
+          1
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": {
+          "verb": "update",
+          "table": "notes",
+          "column": "body"
+        },
+        "description": "Update notes.body",
+        "origin": "set-default",
+        "target": {
+          "schema": "main",
+          "table": "notes",
+          "column": "body",
+          "primaryKeyValues": {
+            "id": 1
+          }
+        }
+      },
+      {
+        "id": "c2",
+        "change": {
+          "type": "edit",
+          "id": "c2",
+          "edit": {
+            "type": "setDefault",
+            "target": {
+              "schema": "main",
+              "table": "notes"
+            },
+            "key": [
+              [
+                "id",
+                1
+              ]
+            ],
+            "column": "created"
+          }
+        },
+        "sql": "UPDATE \"main\".\"notes\" SET \"created\" = (CURRENT_TIMESTAMP) WHERE \"id\" = $1",
+        "params": [
+          1
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": {
+          "verb": "update",
+          "table": "notes",
+          "column": "created"
+        },
+        "description": "Update notes.created",
+        "origin": "set-default",
+        "target": {
+          "schema": "main",
+          "table": "notes",
+          "column": "created",
+          "primaryKeyValues": {
+            "id": 1
+          }
+        }
+      }
+    ],
+    "toasts": []
+  },
+  {
+    "name": "sqlite/set-default-no-default",
+    "engine": "sqlite",
+    "notes": "A column without a default is set to NULL",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "main",
+        "table": "notes"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "body",
+          "created",
+          "tag"
+        ],
+        "rows": [
+          [
+            1,
+            "b",
+            "2024-01-01 10:00:00",
+            "t"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "notes",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "notes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "body",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'empty'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "created",
+            "type": "DATETIME",
+            "nullable": true,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "tag",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notes_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "tag",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "tag"
+        },
+        "driver": [
+          {
+            "op": "tableMetadata",
+            "schema": "main",
+            "table": "notes",
+            "answer": {
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "INTEGER",
+                  "nullable": false,
+                  "isPrimaryKey": true,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "body",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "defaultValue": "'empty'",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "created",
+                  "type": "DATETIME",
+                  "nullable": true,
+                  "defaultValue": "CURRENT_TIMESTAMP",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "tag",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "notes_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true,
+                  "type": "btree"
+                }
+              ]
+            }
+          },
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "column": "tag",
+              "column_default": "NULL",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"notes\" SET \"tag\" = (NULL) WHERE \"id\" = $1",
+              "bindValues": [
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"notes\" SET \"tag\" = (NULL) WHERE \"id\" = $1",
+            "params": [
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  },
+  {
+    "name": "sqlite/set-default-fresh-metadata",
+    "engine": "sqlite",
+    "notes": "The cache's default is stale; the metadata's is used",
+    "input": {
+      "via": "dataTab",
+      "pending": true,
+      "table": {
+        "schema": "main",
+        "table": "notes"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "body",
+          "created",
+          "tag"
+        ],
+        "rows": [
+          [
+            1,
+            "b",
+            "2024-01-01 10:00:00",
+            "t"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "notes",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'old'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": []
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "notes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "body",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'empty'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "created",
+            "type": "DATETIME",
+            "nullable": true,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "tag",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notes_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "body",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "body"
+        },
+        "driver": [
+          {
+            "op": "tableMetadata",
+            "schema": "main",
+            "table": "notes",
+            "answer": {
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "INTEGER",
+                  "nullable": false,
+                  "isPrimaryKey": true,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "body",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "defaultValue": "'empty'",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "created",
+                  "type": "DATETIME",
+                  "nullable": true,
+                  "defaultValue": "CURRENT_TIMESTAMP",
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                },
+                {
+                  "name": "tag",
+                  "type": "TEXT",
+                  "nullable": true,
+                  "isPrimaryKey": false,
+                  "isForeignKey": false
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "notes_pkey",
+                  "columns": [
+                    "id"
+                  ],
+                  "unique": true,
+                  "type": "btree"
+                }
+              ]
+            }
+          },
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "column": "body",
+              "column_default": "'empty'",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"notes\" SET \"body\" = ('empty') WHERE \"id\" = $1",
+              "bindValues": [
+                1
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      }
+    ],
+    "queue": [
+      {
+        "id": "c1",
+        "change": {
+          "type": "edit",
+          "id": "c1",
+          "edit": {
+            "type": "setDefault",
+            "target": {
+              "schema": "main",
+              "table": "notes"
+            },
+            "key": [
+              [
+                "id",
+                1
+              ]
+            ],
+            "column": "body"
+          }
+        },
+        "sql": "UPDATE \"main\".\"notes\" SET \"body\" = ('empty') WHERE \"id\" = $1",
+        "params": [
+          1
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": {
+          "verb": "update",
+          "table": "notes",
+          "column": "body"
+        },
+        "description": "Update notes.body",
+        "origin": "set-default",
+        "target": {
+          "schema": "main",
+          "table": "notes",
+          "column": "body",
+          "primaryKeyValues": {
+            "id": 1
+          }
+        }
+      }
+    ],
+    "toasts": []
+  },
+  {
+    "name": "sqlite/edits-immediate",
+    "engine": "sqlite",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "main",
+        "table": "notes"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "body",
+          "created",
+          "tag"
+        ],
+        "rows": [
+          [
+            1,
+            "b",
+            "2024-01-01 10:00:00",
+            null
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "notes",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "notes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "body",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'empty'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "created",
+            "type": "DATETIME",
+            "nullable": true,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "tag",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notes_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "body",
+        "value": "c",
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "body",
+          "value": "c"
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "column": "body",
+              "value": "c",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"notes\" SET \"body\" = $1 WHERE \"id\" = $2",
+              "bindValues": [
+                "c",
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"notes\" SET \"body\" = $1 WHERE \"id\" = $2",
+            "params": [
+              "c",
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      },
+      {
+        "action": "insertRow",
+        "values": {
+          "body": "d",
+          "tag": null
+        },
+        "edit": {
+          "type": "insertRow",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "values": [
+            [
+              "body",
+              "d"
+            ],
+            [
+              "tag",
+              null
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildInsert",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "values": [
+                [
+                  "body",
+                  "d"
+                ],
+                [
+                  "tag",
+                  null
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "INSERT INTO \"main\".\"notes\" (\"body\", \"tag\") VALUES ($1, $2)",
+              "bindValues": [
+                "d",
+                null
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "INSERT INTO \"main\".\"notes\" (\"body\", \"tag\") VALUES ($1, $2)",
+            "params": [
+              "d",
+              null
+            ],
+            "answer": {
+              "rowsAffected": 1,
+              "lastInsertId": 2
+            }
+          }
+        ],
+        "outcome": {
+          "saved": true
+        },
+        "refreshed": true
+      },
+      {
+        "action": "deleteRow",
+        "row": 0,
+        "edit": {
+          "type": "deleteRow",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildDelete",
+            "params": {
+              "schema": "main",
+              "table": "notes",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "DELETE FROM \"main\".\"notes\" WHERE \"id\" = $1",
+              "bindValues": [
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "DELETE FROM \"main\".\"notes\" WHERE \"id\" = $1",
+            "params": [
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  },
+  {
+    "name": "sqlite/null-key",
+    "engine": "sqlite",
+    "notes": "SQLite allows NULL in a non-INTEGER primary key; `code = NULL` matches nothing, so the edit is stale",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "main",
+        "table": "codes"
+      },
+      "result": {
+        "columns": [
+          "code",
+          "v"
+        ],
+        "rows": [
+          [
+            null,
+            1
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "codes",
+          "primaryKeys": [
+            "code"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "codes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "code",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "v",
+              "type": "INTEGER",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "codes_pkey",
+              "columns": [
+                "code"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "codes",
+        "columns": [
+          {
+            "name": "code",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "v",
+            "type": "INTEGER",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "codes_pkey",
+            "columns": [
+              "code"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "v",
+        "value": 2,
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "main",
+            "table": "codes"
+          },
+          "key": [
+            [
+              "code",
+              null
+            ]
+          ],
+          "column": "v",
+          "value": 2
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "main",
+              "table": "codes",
+              "column": "v",
+              "value": 2,
+              "primary_keys": [
+                "code"
+              ],
+              "row": [
+                [
+                  "code",
+                  null
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"codes\" SET \"v\" = $1 WHERE \"code\" = $2",
+              "bindValues": [
+                2,
+                null
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"codes\" SET \"v\" = $1 WHERE \"code\" = $2",
+            "params": [
+              2,
+              null
+            ],
+            "answer": {
+              "rowsAffected": 0
+            }
+          }
+        ],
+        "outcome": {
+          "success": false,
+          "error": "No row in main.codes matched code = NULL. It may have been changed or deleted since it was loaded; refresh and try again.",
+          "code": "NO_ROWS_AFFECTED"
+        }
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  },
+  {
+    "name": "sqlite/set-default-metadata-fails",
+    "engine": "sqlite",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "main",
+        "table": "notes"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "body",
+          "created",
+          "tag"
+        ],
+        "rows": [
+          [
+            1,
+            "b",
+            "2024-01-01 10:00:00",
+            "t"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "notes",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "notes",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "body",
+            "type": "TEXT",
+            "nullable": true,
+            "defaultValue": "'empty'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "created",
+            "type": "DATETIME",
+            "nullable": true,
+            "defaultValue": "CURRENT_TIMESTAMP",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "tag",
+            "type": "TEXT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notes_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "body",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "main",
+            "table": "notes"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "column": "body"
+        },
+        "driver": [
+          {
+            "op": "tableMetadata",
+            "schema": "main",
+            "table": "notes",
+            "answer": {
+              "error": {
+                "code": "QUERY_ERROR",
+                "message": "database is locked"
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "success": false,
+          "error": "QUERY_ERROR: database is locked",
+          "code": "QUERY_ERROR"
+        }
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  }
+]

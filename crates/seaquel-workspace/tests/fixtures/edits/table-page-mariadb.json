@@ -1,0 +1,322 @@
+[
+  {
+    "name": "tp/mariadb-in-and-sort",
+    "engine": "mariadb",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "app",
+          "table": "events"
+        },
+        "filters": [
+          {
+            "column": "kind",
+            "op": "IN",
+            "value": "a,b"
+          }
+        ],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "id",
+            "direction": "ASC"
+          }
+        ]
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "kind",
+          "operator": "IN",
+          "value": "a,b",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "events",
+          "schema": "app",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "bigint(20) unsigned",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "kind",
+              "type": "varchar(16)",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "events_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "kind"
+      ],
+      "matching": [
+        [
+          {
+            "$sq": "bigint",
+            "v": "18446744073709551615"
+          },
+          "a"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM `app`.`events` WHERE CAST(`kind` AS CHAR) IN (?, ?)",
+        "params": [
+          "a",
+          "b"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM `app`.`events` WHERE CAST(`kind` AS CHAR) IN (?, ?) ORDER BY `id` ASC LIMIT 100 OFFSET 0",
+        "params": [
+          "a",
+          "b"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "kind"
+          ],
+          "rows": [
+            [
+              {
+                "$sq": "bigint",
+                "v": "18446744073709551615"
+              },
+              "a"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM `app`.`events` WHERE CAST(`kind` AS CHAR) IN (?, ?) ORDER BY `id` ASC",
+      "params": [
+        "a",
+        "b"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM `app`.`events` WHERE CAST(`kind` AS CHAR) IN (?, ?)",
+      "params": [
+        "a",
+        "b"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "kind"
+      ],
+      "rows": [
+        [
+          {
+            "$sq": "bigint",
+            "v": "18446744073709551615"
+          },
+          "a"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "app",
+        "name": "events",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/mariadb-full-page",
+    "engine": "mariadb",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "app",
+          "table": "events"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 2,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "events",
+          "schema": "app",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "bigint(20) unsigned",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "kind",
+              "type": "varchar(16)",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "events_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "kind"
+      ],
+      "matching": [
+        [
+          1,
+          "a"
+        ],
+        [
+          2,
+          "b"
+        ],
+        [
+          3,
+          "c"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM `app`.`events`",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              3
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM `app`.`events` LIMIT 2 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "kind"
+          ],
+          "rows": [
+            [
+              1,
+              "a"
+            ],
+            [
+              2,
+              "b"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM `app`.`events`",
+      "params": []
+    },
+    "paging": {
+      "limit": 2,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM `app`.`events`",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "kind"
+      ],
+      "rows": [
+        [
+          1,
+          "a"
+        ],
+        [
+          2,
+          "b"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 3,
+      "page": 1,
+      "pageSize": 2,
+      "totalPages": 2,
+      "error": null,
+      "sourceTable": {
+        "schema": "app",
+        "name": "events",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  }
+]

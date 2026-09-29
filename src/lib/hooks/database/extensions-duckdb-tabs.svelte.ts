@@ -4,23 +4,32 @@ import { parseCommunityExtensionsHtml } from "$lib/utils/parse-community-extensi
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
+import type { ExtensionAction } from "$lib/types/generated/ExtensionAction";
+
+/**
+ * Runs an extensions tab action on the saved connection `connectionId` (the
+ * tab's, never the active one): `db.duckdbExtension` on desktop, the
+ * demo's TypeScript path in the demo (`EditService.duckdbExtension`).
+ * `list` answers `duckdb_extensions()`'s rows.
+ */
+export type RunExtensionAction = (
+  connectionId: string,
+  action: ExtensionAction,
+) => Promise<Record<string, unknown>[] | null>;
 
 /**
  * Manages DuckDB Extensions tabs.
  * Tabs are organized per-project.
  */
 export class ExtensionsDuckdbTabManager extends BaseTabManager<ExtensionsDuckdbTab> {
-  private executeQuery: (query: string) => Promise<Record<string, unknown>[]>;
-
   constructor(
     state: DatabaseState,
     tabOrdering: TabOrderingManager,
     schedulePersistence: (projectId: string | null) => void,
     setActiveView: (view: ActiveViewType) => void,
-    executeQuery: (query: string) => Promise<Record<string, unknown>[]>,
+    private runAction: RunExtensionAction,
   ) {
     super(state, tabOrdering, schedulePersistence, setActiveView);
-    this.executeQuery = executeQuery;
   }
 
   protected get accessors(): TabStateAccessors<ExtensionsDuckdbTab> {
@@ -82,72 +91,53 @@ export class ExtensionsDuckdbTabManager extends BaseTabManager<ExtensionsDuckdbT
    * Install a DuckDB extension.
    */
   async installExtension(tabId: string, extensionName: string): Promise<void> {
-    await this.runExtensionAction(tabId, extensionName, "Installing", `INSTALL '${extensionName}'`);
+    await this.runExtensionAction(tabId, extensionName, "Installing", "install");
   }
 
   /**
    * Load an already-installed DuckDB extension.
    */
   async loadExtension(tabId: string, extensionName: string): Promise<void> {
-    await this.runExtensionAction(tabId, extensionName, "Loading", `LOAD '${extensionName}'`);
+    await this.runExtensionAction(tabId, extensionName, "Loading", "load");
   }
 
   /**
    * Update an installed DuckDB extension.
    */
   async updateExtension(tabId: string, extensionName: string): Promise<void> {
-    await this.runExtensionAction(
-      tabId,
-      extensionName,
-      "Updating",
-      `UPDATE EXTENSIONS (${extensionName})`,
-    );
+    await this.runExtensionAction(tabId, extensionName, "Updating", "update");
   }
 
   /**
    * Install and load a community extension.
    */
   async installCommunityExtension(tabId: string, extensionName: string): Promise<void> {
-    await this.runExtensionAction(
-      tabId,
-      extensionName,
-      "Installing",
-      `INSTALL '${extensionName}' FROM community; LOAD '${extensionName}';`,
-    );
+    await this.runExtensionAction(tabId, extensionName, "Installing", "installCommunity");
   }
 
   /**
    * Install and load a DuckDB extension.
    */
   async installAndLoadExtension(tabId: string, extensionName: string): Promise<void> {
-    await this.runExtensionAction(
-      tabId,
-      extensionName,
-      "Installing",
-      `INSTALL '${extensionName}'; LOAD '${extensionName}';`,
-    );
+    await this.runExtensionAction(tabId, extensionName, "Installing", "installAndLoad");
   }
 
-  private validateExtensionName(name: string): void {
-    if (!/^[a-zA-Z0-9_]+$/.test(name)) {
-      throw new Error(`Invalid extension name: ${name}`);
-    }
-  }
-
+  /** Core (and the demo) validate the name and build each statement. */
   private async runExtensionAction(
     tabId: string,
     extensionName: string,
     actionLabel: string,
-    query: string,
+    type: Exclude<ExtensionAction["type"], "list">,
   ): Promise<void> {
-    this.validateExtensionName(extensionName);
+    const tab = this.getProjectTabs().find((t) => t.id === tabId);
+    if (!tab) return;
     this.updateTab(tabId, (t) => ({
       ...t,
       actionInProgress: { ...t.actionInProgress, [extensionName]: actionLabel },
     }));
 
     try {
-      await this.executeQuery(query);
+      await this.runAction(tab.connectionId, { type, name: extensionName });
       await this.loadExtensions(tabId);
     } catch (error) {
       this.updateTab(tabId, (t) => ({
@@ -217,7 +207,7 @@ export class ExtensionsDuckdbTabManager extends BaseTabManager<ExtensionsDuckdbT
     this.updateTab(tabId, (t) => ({ ...t, isLoading: true, error: undefined }));
 
     try {
-      const rows = await this.executeQuery("SELECT * FROM duckdb_extensions()");
+      const rows = (await this.runAction(tab.connectionId, { type: "list" })) ?? [];
 
       const extensions: DuckDBExtension[] = rows.map((row) => ({
         extension_name: String((row.extension_name as string) ?? ""),

@@ -2,7 +2,10 @@
   // Shown by the root +layout.svelte when seaquel-wasm fails to load, instead
   // of SvelteKit's bare "500 Internal Error". In Tauri there's no console, so
   // the error text is on the page with a copy button.
-  import { CheckIcon, CopyIcon, RotateCwIcon, TriangleAlertIcon } from "@lucide/svelte";
+  import CheckIcon from "@lucide/svelte/icons/check";
+  import CopyIcon from "@lucide/svelte/icons/copy";
+  import RotateCwIcon from "@lucide/svelte/icons/rotate-cw";
+  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import { invalidateAll } from "$app/navigation";
   import { Button } from "$lib/components/ui/button/index.js";
   import { m } from "$lib/paraglide/messages.js";

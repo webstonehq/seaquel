@@ -3,7 +3,14 @@
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
-	import { StarIcon, BookmarkIcon, SearchIcon, PlusIcon, GitBranchIcon, LayoutDashboardIcon, LinkIcon, Trash2Icon } from "@lucide/svelte";
+	import StarIcon from "@lucide/svelte/icons/star";
+	import BookmarkIcon from "@lucide/svelte/icons/bookmark";
+	import SearchIcon from "@lucide/svelte/icons/search";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import GitBranchIcon from "@lucide/svelte/icons/git-branch";
+	import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
+	import LinkIcon from "@lucide/svelte/icons/link";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";

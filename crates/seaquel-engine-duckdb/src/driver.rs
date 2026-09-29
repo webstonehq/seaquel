@@ -12,7 +12,8 @@ use log::warn;
 use seaquel_engine::{
     BatchStatement, BoxStream, CancellationToken, CappedResult, ConnectConfig, DatabaseStatistics,
     DbError, Driver, ExecuteResult, ExpectRows, ExplainResult, QueryResult, ReadOnlyOptions,
-    RowCap, SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, Value,
+    RowCap, SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, TransactionError, Value,
+    TRANSACTION_ALREADY_OPEN, TRANSACTION_OPEN,
 };
 
 use crate::blocking::{self, Op, Worker};
@@ -505,45 +506,79 @@ fn stream_blocking(
     Ok(())
 }
 
+/// Whether a transaction opened by hand is running on `conn`. In autocommit
+/// every statement runs in a transaction of its own, so two
+/// `txid_current()` calls return different ids; inside one transaction they
+/// return the same. A probe that fails counts as open, so the batch is
+/// refused rather than risking the user's transaction. (duckdb-rs's
+/// `is_autocommit` is a stub that always says true.) Logs nothing.
+fn transaction_open(conn: &Connection) -> bool {
+    let txid = || conn.query_row("SELECT txid_current()", [], |row| row.get::<_, i64>(0));
+    match (txid(), txid()) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => true,
+    }
+}
+
 /// `Driver::transaction`, on the blocking thread.
 fn transaction_blocking(
     conn: &Connection,
     worker: &Worker,
     statements: &[(String, Vec<DuckValue>, Option<ExpectRows>)],
-) -> Result<(), DbError> {
+) -> Result<Vec<u64>, TransactionError> {
     let no_params = || params_from_iter(std::iter::empty::<DuckValue>());
 
-    // Fails (and leaves it alone) when a transaction opened by hand is
-    // already running.
+    // A BEGIN inside a transaction opened by hand would fail and make
+    // DuckDB abort the user's transaction, so refuse before sending it.
+    if transaction_open(conn) {
+        return Err(DbError {
+            message: TRANSACTION_ALREADY_OPEN.to_string(),
+            code: TRANSACTION_OPEN.to_string(),
+        }
+        .into());
+    }
     conn.execute("BEGIN", no_params())
         .map_err(DbError::execute_error)?;
 
-    let body = catch_unwind(AssertUnwindSafe(|| -> Result<(), DbError> {
-        for (index, (sql, bound, expect)) in statements.iter().enumerate() {
+    // The statement running, so a panic can name it too.
+    let current = std::cell::Cell::new(None);
+    let body = catch_unwind(AssertUnwindSafe(
+        || -> Result<Vec<u64>, TransactionError> {
+            let mut counts = Vec::with_capacity(statements.len());
+            for (index, (sql, bound, expect)) in statements.iter().enumerate() {
+                if worker.is_cancelled() {
+                    return Err(DbError::execute_error("cancelled").into());
+                }
+                current.set(Some(index));
+                let at = |e| TransactionError::at(index, e);
+                let affected = prepare(conn, worker, Op::Execute, sql)
+                    .map_err(at)?
+                    .execute(params_from_iter(bound.iter()))
+                    .map_err(|e| at(DbError::execute_error(e)))?;
+                if let Some(expect) = expect {
+                    expect.check(index, affected as u64).map_err(at)?;
+                }
+                counts.push(affected as u64);
+            }
+            current.set(None);
+            // Nobody would learn the outcome: roll back instead.
             if worker.is_cancelled() {
-                return Err(DbError::execute_error("cancelled"));
+                return Err(DbError::execute_error("cancelled").into());
             }
-            let affected = prepare(conn, worker, Op::Execute, sql)?
-                .execute(params_from_iter(bound.iter()))
+            conn.execute("COMMIT", no_params())
                 .map_err(DbError::execute_error)?;
-            if let Some(expect) = expect {
-                expect.check(index, affected as u64)?;
-            }
-        }
-        // Nobody would learn the outcome: roll back instead.
-        if worker.is_cancelled() {
-            return Err(DbError::execute_error("cancelled"));
-        }
-        conn.execute("COMMIT", no_params())
-            .map_err(DbError::execute_error)?;
-        Ok(())
-    }));
+            Ok(counts)
+        },
+    ));
     let outcome = match body {
         Ok(outcome) => outcome,
-        Err(payload) => Err(DbError::execute_error(format!(
-            "DuckDB panicked: {}",
-            blocking::panic_message(&*payload)
-        ))),
+        Err(payload) => Err(TransactionError {
+            index: current.get(),
+            error: DbError::execute_error(format!(
+                "DuckDB panicked: {}",
+                blocking::panic_message(&*payload)
+            )),
+        }),
     };
     if outcome.is_err() {
         // Best-effort rollback; surface the original error regardless of
@@ -760,18 +795,31 @@ impl Driver for DuckdbDriver {
     /// panic) rolls back and is returned; bind errors fail before anything
     /// runs, and a statement that affected fewer rows than its
     /// `expect_rows` rolls back with `NO_ROWS_AFFECTED`. Dropping the future
-    /// interrupts the running statement, which fails and rolls back. BEGIN
-    /// fails while a transaction opened by hand is running, which is then
-    /// left alone.
-    async fn transaction(&self, statements: Vec<BatchStatement>) -> Result<(), DbError> {
+    /// interrupts the running statement, which fails and rolls back. While
+    /// a transaction opened by hand is running, the batch is refused before
+    /// BEGIN ([`TRANSACTION_OPEN`], found by [`transaction_open`]):
+    /// a failed nested BEGIN would make DuckDB abort the user's transaction.
+    ///
+    /// A failure names its statement ([`TransactionError`]): the one DuckDB
+    /// refused, whose parameters didn't bind (before anything runs), that
+    /// fell short of `expect_rows`, or that panicked. BEGIN, COMMIT and a
+    /// cancel between statements name none.
+    async fn transaction(
+        &self,
+        statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
         let statements = statements
             .into_iter()
-            .map(|s| Ok((s.sql, bind_all(&s.params)?, s.expect_rows)))
-            .collect::<Result<Vec<_>, DbError>>()?;
+            .enumerate()
+            .map(|(index, s)| {
+                let bound = bind_all(&s.params).map_err(|e| TransactionError::at(index, e))?;
+                Ok((s.sql, bound, s.expect_rows))
+            })
+            .collect::<Result<Vec<_>, TransactionError>>()?;
         self.run(Op::Execute, move |conn, worker| {
-            transaction_blocking(conn, worker, &statements)
+            Ok(transaction_blocking(conn, worker, &statements))
         })
-        .await
+        .await?
     }
 
     /// See [`read_only_blocking`]. DuckDB's read-only path takes no bind

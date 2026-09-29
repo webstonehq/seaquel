@@ -1,16 +1,13 @@
-//! "Install Command Line Tool…": puts the bundled `seaquel-cli` sidecar on `PATH`.
+//! "Install Command Line Tool…": downloads the version-matched CLI on demand.
 //!
 //! - **macOS:** `/usr/local/bin/seaquel-cli` becomes a symlink to
-//!   `Seaquel.app/Contents/MacOS/seaquel-cli`. When the user can't write there
+//!   the CLI in the app's data directory. When the user can't write there
 //!   (the usual case), the same two commands run through `osascript … with
 //!   administrator privileges`, built from fixed, quoted paths only.
-//! - **Linux AppImage:** the image is mounted at a new path on every run, so a
-//!   link into the mount would break once the app quits. The sidecar is copied
-//!   to `<data dir>/<identifier>/bin/seaquel-cli` and `~/.local/bin/seaquel-cli`
-//!   links to that copy. Running the item again after an update refreshes the
-//!   copy. deb and rpm installs already put the sidecar in `/usr/bin`, so the
-//!   item isn't shown there.
-//! - **Windows:** no item (phase 4 leaves `PATH` alone there).
+//! - **Linux:** `~/.local/bin/seaquel-cli` links to the downloaded CLI in the
+//!   app's data directory, including for AppImage, deb, and rpm installs.
+//! - **Windows:** the CLI is installed in the app's data directory. MCP
+//!   snippets use that absolute path; this doesn't edit the user's `PATH`.
 //!
 //! The file-system steps are plain functions over paths so they can be tested
 //! against a temp directory; only [`install_from_menu`] touches the real system.
@@ -22,6 +19,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::cli_download;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 pub const MENU_ID: &str = "install_cli";
@@ -32,24 +30,11 @@ const DIALOG_TITLE: &str = "Install Command Line Tool";
 
 /// Whether the menu shows the item on this platform and install.
 pub fn available() -> bool {
-    if cfg!(target_os = "macos") {
-        true
-    } else if cfg!(target_os = "linux") {
-        std::env::var_os("APPIMAGE").is_some()
-    } else {
-        false
-    }
-}
-
-/// The sidecar next to the running app's executable, where Tauri puts it
-/// (`Contents/MacOS` on macOS, `usr/bin` inside an AppImage, `target/<profile>`
-/// under `tauri dev`).
-pub fn sidecar_path() -> io::Result<PathBuf> {
-    let exe = std::env::current_exe()?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| io::Error::other("the app's executable has no parent directory"))?;
-    Ok(dir.join(CLI_NAME))
+    cfg!(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows"
+    ))
 }
 
 /// What is at the link path now.
@@ -100,7 +85,7 @@ pub enum Outcome {
     Installed,
     AlreadyInstalled,
     Replaced,
-    /// AppImage: the link was ours but the copy was from another version.
+    /// The link was ours but the installed CLI was from another version.
     Updated,
     Cancelled,
 }
@@ -183,18 +168,17 @@ fn osascript_cancelled(stderr: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn install_macos(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
-    let target = sidecar_path().map_err(|e| format!("Couldn't find the app's executable: {e}"))?;
-    if !target.is_file() {
-        return Err(format!(
-            "This copy of Seaquel doesn't include the command line tool (expected at {}).",
-            target.display()
-        ));
-    }
+    let target = cli_download::installed_path(&app.config().identifier)?;
+    let version = cli_download::VERSION;
+    let current = cli_download::is_current(&target, version);
     let link = PathBuf::from(MACOS_LINK);
     let state =
         link_state(&link, &target).map_err(|e| format!("Couldn't check {MACOS_LINK}: {e}"))?;
     let replace = match &state {
-        LinkState::Ours => return Ok((Outcome::AlreadyInstalled, link_message(&link, &target))),
+        LinkState::Ours if current => {
+            return Ok((Outcome::AlreadyInstalled, link_message(&link, &target)))
+        }
+        LinkState::Ours => false,
         LinkState::Directory => {
             return Err(format!(
                 "{MACOS_LINK} is a directory. Remove it, then try again."
@@ -208,6 +192,14 @@ fn install_macos(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
             true
         }
     };
+
+    if !current {
+        cli_download::install(version, &app.config().identifier)?;
+    }
+
+    if state == LinkState::Ours {
+        return Ok((Outcome::Updated, link_message(&link, &target)));
+    }
 
     match place_symlink(&link, &target, replace) {
         Ok(()) => {}
@@ -247,95 +239,7 @@ fn install_macos(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
     Ok((outcome, link_message(&link, &target)))
 }
 
-// --- Linux AppImage --------------------------------------------------------------
-
-/// Where the AppImage variant keeps its copy of the sidecar and its link.
-#[derive(Debug, Clone)]
-pub struct AppImagePaths {
-    /// The sidecar inside the mounted image.
-    pub sidecar: PathBuf,
-    /// The stable copy, `<data dir>/<identifier>/bin/seaquel-cli`.
-    pub copy: PathBuf,
-    /// `~/.local/bin/seaquel-cli`.
-    pub link: PathBuf,
-}
-
-fn same_contents(a: &Path, b: &Path) -> io::Result<bool> {
-    let (ma, mb) = (fs::metadata(a)?, fs::metadata(b)?);
-    if ma.len() != mb.len() {
-        return Ok(false);
-    }
-    Ok(fs::read(a)? == fs::read(b)?)
-}
-
-/// Copies the sidecar to `paths.copy` (through a temp file and a rename, so a
-/// running `seaquel-cli` keeps its old inode), executable.
-#[cfg(unix)]
-fn refresh_copy(paths: &AppImagePaths) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = paths
-        .copy
-        .parent()
-        .ok_or_else(|| io::Error::other("the copy has no parent directory"))?;
-    fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{CLI_NAME}.tmp-{}", std::process::id()));
-    let result = fs::copy(&paths.sidecar, &tmp)
-        .and_then(|_| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)))
-        .and_then(|_| fs::rename(&tmp, &paths.copy));
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
-/// The AppImage install, given the answer to "replace?" for a foreign file.
-/// `confirm` is only called when something that isn't ours is in the way.
-#[cfg(unix)]
-pub fn install_appimage(
-    paths: &AppImagePaths,
-    confirm: impl FnOnce(&LinkState) -> bool,
-) -> Result<Outcome, String> {
-    if !paths.sidecar.is_file() {
-        return Err(format!(
-            "This copy of Seaquel doesn't include the command line tool (expected at {}).",
-            paths.sidecar.display()
-        ));
-    }
-    let link_err = |e: io::Error| format!("Couldn't check {}: {e}", paths.link.display());
-    let copy_err =
-        |e: io::Error| format!("Couldn't copy the tool to {}: {e}", paths.copy.display());
-    let state = link_state(&paths.link, &paths.copy).map_err(link_err)?;
-    match state {
-        LinkState::Ours => {
-            if paths.copy.is_file()
-                && same_contents(&paths.sidecar, &paths.copy).map_err(copy_err)?
-            {
-                return Ok(Outcome::AlreadyInstalled);
-            }
-            refresh_copy(paths).map_err(copy_err)?;
-            Ok(Outcome::Updated)
-        }
-        LinkState::Directory => Err(format!(
-            "{} is a directory. Remove it, then try again.",
-            paths.link.display()
-        )),
-        LinkState::Missing => {
-            refresh_copy(paths).map_err(copy_err)?;
-            place_symlink(&paths.link, &paths.copy, false)
-                .map_err(|e| format!("Couldn't create {}: {e}", paths.link.display()))?;
-            Ok(Outcome::Installed)
-        }
-        LinkState::OtherLink(_) | LinkState::File => {
-            if !confirm(&state) {
-                return Ok(Outcome::Cancelled);
-            }
-            refresh_copy(paths).map_err(copy_err)?;
-            place_symlink(&paths.link, &paths.copy, true)
-                .map_err(|e| format!("Couldn't create {}: {e}", paths.link.display()))?;
-            Ok(Outcome::Replaced)
-        }
-    }
-}
+// --- Linux -----------------------------------------------------------------------
 
 /// Whether `dir` is one of `PATH`'s entries.
 pub fn on_path(dir: &Path, path_var: Option<&std::ffi::OsStr>) -> bool {
@@ -344,33 +248,49 @@ pub fn on_path(dir: &Path, path_var: Option<&std::ffi::OsStr>) -> bool {
         .unwrap_or(false)
 }
 
-/// The AppImage variant's paths for this run. The copy and the link don't
-/// depend on where the image is mounted; the settings panel uses the copy as
-/// the MCP command.
-pub fn appimage_paths(app: &tauri::AppHandle) -> Result<AppImagePaths, String> {
-    let sidecar = sidecar_path().map_err(|e| format!("Couldn't find the app's executable: {e}"))?;
-    let home = dirs::home_dir().ok_or("Couldn't find your home directory.")?;
-    let data = dirs::data_local_dir().ok_or("Couldn't find your data directory.")?;
-    Ok(AppImagePaths {
-        sidecar,
-        copy: data
-            .join(&app.config().identifier)
-            .join("bin")
-            .join(CLI_NAME),
-        link: home.join(".local").join("bin").join(CLI_NAME),
-    })
-}
-
 #[cfg(target_os = "linux")]
 fn install_linux(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
     let home = dirs::home_dir().ok_or("Couldn't find your home directory.")?;
-    let paths = appimage_paths(app)?;
-    let outcome = install_appimage(&paths, |state| confirm_replace(app, &paths.link, state))?;
-    let mut message = link_message(&paths.link, &paths.copy);
-    message.push_str(
-        "\n\nThe AppImage is mounted at a new place each time it runs, so this is a copy of the \
-         tool. After updating Seaquel, choose Install Command Line Tool again to update it.",
-    );
+    let target = cli_download::installed_path(&app.config().identifier)?;
+    let version = cli_download::VERSION;
+    let current = cli_download::is_current(&target, version);
+    let link = home.join(".local").join("bin").join(CLI_NAME);
+    let state = link_state(&link, &target)
+        .map_err(|e| format!("Couldn't check {}: {e}", link.display()))?;
+    let replace = match &state {
+        LinkState::Ours if current => {
+            return Ok((Outcome::AlreadyInstalled, link_message(&link, &target)))
+        }
+        LinkState::Ours => false,
+        LinkState::Directory => {
+            return Err(format!(
+                "{} is a directory. Remove it, then try again.",
+                link.display()
+            ))
+        }
+        LinkState::Missing => false,
+        LinkState::OtherLink(_) | LinkState::File => {
+            if !confirm_replace(app, &link, &state) {
+                return Ok((Outcome::Cancelled, String::new()));
+            }
+            true
+        }
+    };
+    if !current {
+        cli_download::install(version, &app.config().identifier)?;
+    }
+    let outcome = if state == LinkState::Ours {
+        Outcome::Updated
+    } else {
+        place_symlink(&link, &target, replace)
+            .map_err(|e| format!("Couldn't create {}: {e}", link.display()))?;
+        if replace {
+            Outcome::Replaced
+        } else {
+            Outcome::Installed
+        }
+    };
+    let mut message = link_message(&link, &target);
     let bin_dir = home.join(".local").join("bin");
     if !on_path(&bin_dir, std::env::var_os("PATH").as_deref()) {
         message.push_str(&format!(
@@ -379,6 +299,22 @@ fn install_linux(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
         ));
     }
     Ok((outcome, message))
+}
+
+#[cfg(target_os = "windows")]
+fn install_windows(app: &tauri::AppHandle) -> Result<(Outcome, String), String> {
+    let version = cli_download::VERSION;
+    let target = cli_download::installed_path(&app.config().identifier)?;
+    if cli_download::is_current(&target, version) {
+        return Ok((Outcome::AlreadyInstalled, target.display().to_string()));
+    }
+    let outcome = if target.is_file() {
+        Outcome::Updated
+    } else {
+        Outcome::Installed
+    };
+    cli_download::install(version, &app.config().identifier)?;
+    Ok((outcome, target.display().to_string()))
 }
 
 // --- dialogs ---------------------------------------------------------------------
@@ -435,7 +371,9 @@ pub fn install_and_report(app: &tauri::AppHandle) {
         let result = install_macos(&app);
         #[cfg(target_os = "linux")]
         let result = install_linux(&app);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(target_os = "windows")]
+        let result = install_windows(&app);
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         let result: Result<(Outcome, String), String> =
             Err("Installing the command line tool isn't supported on this platform.".into());
 
@@ -444,7 +382,11 @@ pub fn install_and_report(app: &tauri::AppHandle) {
             Ok((outcome, detail)) => {
                 let head = match outcome {
                     Outcome::Installed => {
-                        format!("Installed. You can now run {CLI_NAME} in a terminal.")
+                        if cfg!(target_os = "windows") {
+                            "Installed. Use the path below in your MCP configuration.".to_string()
+                        } else {
+                            format!("Installed. You can now run {CLI_NAME} in a terminal.")
+                        }
                     }
                     Outcome::AlreadyInstalled => {
                         "The command line tool is already installed.".to_string()
@@ -651,75 +593,6 @@ mod tests {
         if std::env::var("USER").as_deref() != Ok("root") {
             assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         }
-    }
-
-    #[test]
-    fn appimage_install_copies_links_and_updates() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mount1 = sidecar_in(tmp.path(), "tmp/.mount_SeaquXYZ/usr/bin", b"v1");
-        let paths = |sidecar: &Path| AppImagePaths {
-            sidecar: sidecar.to_path_buf(),
-            copy: tmp
-                .path()
-                .join("home/.local/share/app.seaquel.desktop/bin")
-                .join(CLI_NAME),
-            link: tmp.path().join("home/.local/bin").join(CLI_NAME),
-        };
-        let never = |_: &LinkState| -> bool { panic!("nothing foreign in the way") };
-
-        let p = paths(&mount1);
-        assert_eq!(install_appimage(&p, never).unwrap(), Outcome::Installed);
-        assert_eq!(link_state(&p.link, &p.copy).unwrap(), LinkState::Ours);
-        assert_eq!(fs::read(&p.link).unwrap(), b"v1");
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&p.copy).unwrap().permissions().mode() & 0o777,
-                0o755
-            );
-        }
-        // Next run: a new mount path, same contents.
-        let mount2 = sidecar_in(tmp.path(), "tmp/.mount_SeaquABC/usr/bin", b"v1");
-        assert_eq!(
-            install_appimage(&paths(&mount2), never).unwrap(),
-            Outcome::AlreadyInstalled
-        );
-        // After an update: new contents.
-        let mount3 = sidecar_in(tmp.path(), "tmp/.mount_SeaquNEW/usr/bin", b"v2");
-        assert_eq!(
-            install_appimage(&paths(&mount3), never).unwrap(),
-            Outcome::Updated
-        );
-        assert_eq!(fs::read(&p.link).unwrap(), b"v2");
-
-        // Something else at the link: asked, and declined, then accepted.
-        let p3 = paths(&mount3);
-        fs::remove_file(&p3.link).unwrap();
-        fs::write(&p3.link, b"foreign").unwrap();
-        assert_eq!(
-            install_appimage(&p3, |s| {
-                assert_eq!(s, &LinkState::File);
-                false
-            })
-            .unwrap(),
-            Outcome::Cancelled
-        );
-        assert_eq!(fs::read(&p3.link).unwrap(), b"foreign");
-        assert_eq!(install_appimage(&p3, |_| true).unwrap(), Outcome::Replaced);
-        assert_eq!(fs::read(&p3.link).unwrap(), b"v2");
-    }
-
-    #[test]
-    fn appimage_install_without_sidecar_is_an_error() {
-        let tmp = tempfile::tempdir().unwrap();
-        let p = AppImagePaths {
-            sidecar: tmp.path().join("missing"),
-            copy: tmp.path().join("copy"),
-            link: tmp.path().join("link"),
-        };
-        assert!(install_appimage(&p, |_| true)
-            .unwrap_err()
-            .contains("doesn't include"));
     }
 
     #[test]

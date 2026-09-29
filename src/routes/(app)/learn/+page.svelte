@@ -5,11 +5,9 @@
   import { Button } from '$lib/components/ui/button';
   import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
-  import {
-    GraduationCapIcon,
-    PlayIcon,
-    BookOpenIcon,
-  } from '@lucide/svelte';
+  import GraduationCapIcon from '@lucide/svelte/icons/graduation-cap';
+  import PlayIcon from '@lucide/svelte/icons/play';
+  import BookOpenIcon from '@lucide/svelte/icons/book-open';
   import { LESSONS, LESSON_SECTIONS } from '$lib/tutorial/lessons';
   import { resolve } from '$app/paths';
 

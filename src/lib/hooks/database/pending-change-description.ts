@@ -1,102 +1,52 @@
+import type { DatabaseType } from "$lib/types";
 import type { PendingChangeOrigin } from "$lib/types/pending-changes";
+import { changeSummary, detectQueryType, type ChangeSummary, type QueryType } from "$lib/sql";
 
 /**
- * Extract a table name from SQL, handling quoted and unqualified names.
- * Matches patterns like: "schema"."table", schema.table, "table", table
+ * A pending change's description in the sheet, from what the statement does
+ * (`ChangeSummary`, read by Core's scanner: phase 5c, Decision 12). The
+ * English and the origin fallback stay here.
+ *
+ * Without a summary, a statement that reads as an INSERT, UPDATE or DELETE
+ * (one whose table couldn't be read) and anything typed in the editor show
+ * their SQL, cut at 80 characters; any other origin names itself.
  */
-function extractTableName(sql: string, keyword: string): string | null {
-  const pattern = new RegExp(
-    `${keyword}\\s+(?:"?([a-zA-Z_][a-zA-Z0-9_]*)"?\\.)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?`,
-    "i",
-  );
-  const match = sql.match(pattern);
-  if (!match) return null;
-  return match[2] || null;
-}
+export function describeChange(
+  summary: ChangeSummary | null | undefined,
+  sql: string,
+  origin: PendingChangeOrigin,
+  queryType: QueryType,
+): string {
+  if (summary) {
+    const { table, column } = summary;
+    switch (summary.verb) {
+      case "insert":
+        return `Insert row into ${table}`;
+      case "update":
+        return column ? `Update ${table}.${column}` : `Update ${table}`;
+      case "delete":
+        return `Delete row from ${table}`;
+      case "createTable":
+        return `Create table ${table}`;
+      case "createIndex":
+        return `Create index ${table}`;
+      case "dropTable":
+        return `Drop table ${table}`;
+      case "dropIndex":
+        return `Drop index ${table}`;
+      case "dropView":
+        return `Drop view ${table}`;
+      case "truncate":
+        return `Truncate table ${table}`;
+      case "alterTable":
+        return `Alter table ${table}`;
+    }
+  }
 
-/**
- * Generate a human-readable description for a pending change.
- */
-export function describePendingChange(sql: string, origin: PendingChangeOrigin): string {
   const trimmed = sql.replace(/\s+/g, " ").trim();
-  const upper = trimmed.toUpperCase();
-
-  // INSERT
-  if (upper.startsWith("INSERT")) {
-    const table = extractTableName(trimmed, "INTO");
-    if (table) return `Insert row into ${table}`;
+  if (queryType === "insert" || queryType === "update" || queryType === "delete") {
     return truncate(trimmed);
   }
-
-  // UPDATE
-  if (upper.startsWith("UPDATE")) {
-    const table = extractTableName(trimmed, "UPDATE");
-    const setMatch = trimmed.match(/SET\s+"?([a-z_][a-z0-9_]*)"?\s*=/i);
-    const column = setMatch?.[1];
-    if (table && column) return `Update ${table}.${column}`;
-    if (table) return `Update ${table}`;
-    return truncate(trimmed);
-  }
-
-  // DELETE
-  if (upper.startsWith("DELETE")) {
-    const table = extractTableName(trimmed, "FROM");
-    if (table) return `Delete row from ${table}`;
-    return truncate(trimmed);
-  }
-
-  // CREATE TABLE
-  if (upper.startsWith("CREATE TABLE")) {
-    const table = extractTableName(trimmed, "TABLE");
-    if (table) return `Create table ${table}`;
-    return truncate(trimmed);
-  }
-
-  // CREATE INDEX
-  if (upper.startsWith("CREATE INDEX") || upper.startsWith("CREATE UNIQUE INDEX")) {
-    const match = trimmed.match(/INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/i);
-    if (match?.[1]) return `Create index ${match[1]}`;
-    return truncate(trimmed);
-  }
-
-  // DROP TABLE
-  if (upper.startsWith("DROP TABLE")) {
-    const table = extractTableName(trimmed, "TABLE");
-    if (table) return `Drop table ${table}`;
-    return truncate(trimmed);
-  }
-
-  // DROP INDEX
-  if (upper.startsWith("DROP INDEX")) {
-    const match = trimmed.match(/INDEX\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/i);
-    if (match?.[1]) return `Drop index ${match[1]}`;
-    return truncate(trimmed);
-  }
-
-  // DROP VIEW
-  if (upper.startsWith("DROP VIEW")) {
-    const match = trimmed.match(
-      /VIEW\s+(?:IF\s+EXISTS\s+)?(?:"?[a-z_][a-z0-9_]*"?\.)?"?([a-z_][a-z0-9_]*)"?/i,
-    );
-    if (match?.[1]) return `Drop view ${match[1]}`;
-    return truncate(trimmed);
-  }
-
-  // TRUNCATE
-  if (upper.startsWith("TRUNCATE")) {
-    const table = extractTableName(trimmed, "TABLE") ?? extractTableName(trimmed, "TRUNCATE");
-    if (table) return `Truncate table ${table}`;
-    return truncate(trimmed);
-  }
-
-  // ALTER TABLE
-  if (upper.startsWith("ALTER TABLE")) {
-    const table = extractTableName(trimmed, "TABLE");
-    if (table) return `Alter table ${table}`;
-    return truncate(trimmed);
-  }
-
-  // Fallback by origin
   switch (origin) {
     case "inline-edit":
       return "Update cell";
@@ -112,11 +62,26 @@ export function describePendingChange(sql: string, origin: PendingChangeOrigin):
       return "Alter table";
     case "drop-table":
       return "Drop table";
+    case "drop-view":
+      return "Drop view";
     case "truncate-table":
       return "Truncate table";
     default:
       return truncate(trimmed);
   }
+}
+
+/**
+ * `describeChange` for SQL whose summary nobody planned (a statement the
+ * editor deferred, one the table editor generated): read with the
+ * connection's quoting through `$lib/sql`.
+ */
+export function describePendingChange(
+  sql: string,
+  origin: PendingChangeOrigin,
+  engine: DatabaseType,
+): string {
+  return describeChange(changeSummary(sql, engine), sql, origin, detectQueryType(sql, engine));
 }
 
 function truncate(sql: string, maxLength = 80): string {

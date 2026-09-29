@@ -1,24 +1,13 @@
 #!/usr/bin/env node
-// Builds the `seaquel-cli` binary (crates/seaquel-cli) and copies it to
-// src-tauri/binaries/seaquel-cli-<target-triple>[.exe], where Tauri's
-// `bundle.externalBin` picks it up as a sidecar. tauri-build refuses to build
-// the desktop app while that file is missing, so `cargo check -p seaquel` needs
-// it too (src-tauri/build.rs says so and points here).
+// Builds the standalone `seaquel-cli` release asset (crates/seaquel-cli) and
+// copies it to src-tauri/binaries/seaquel-cli-<target-triple>[.exe]. The release
+// workflow uploads it separately; the desktop app downloads it on request.
 //
 //   node scripts/build-cli.mjs                     debug build for the host
 //   node scripts/build-cli.mjs --release           release build
 //   node scripts/build-cli.mjs --target <triple>   cross build (cargo --target)
-//   SEAQUEL_CLI_PREBUILT=1 node scripts/...        check the file exists and stop
-//                                                  (release.yml builds it in its own step)
-//
-// Run by `beforeDevCommand` and `beforeBuildCommand` in tauri.conf.json. There,
-// Tauri's TAURI_ENV_TARGET_TRIPLE picks the triple and TAURI_ENV_DEBUG the
-// profile (release unless `tauri build --debug` or `tauri dev`). An explicit
-// flag wins over both.
-//
 // Without an explicit --target, a host build runs without `--target`, so it
-// shares target/debug (or target/release) with the app's own cargo build
-// instead of compiling every dependency a second time. Respects
+// shares target/debug (or target/release) with other host builds. Respects
 // CARGO_TARGET_DIR.
 //
 // Node, not bash, because the release builds on Windows too.
@@ -27,10 +16,14 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,10 +64,6 @@ for (let i = 0; i < argv.length; i++) {
   } else fail(`unknown argument \`${arg}\`. Run with --help.`);
 }
 
-// Under `tauri build`/`tauri dev` (beforeBuildCommand/beforeDevCommand).
-const tauriTriple = process.env.TAURI_ENV_TARGET_TRIPLE || null;
-if (!release && tauriTriple && process.env.TAURI_ENV_DEBUG !== "true") release = true;
-
 function run(cmd, args, { capture = false } = {}) {
   return spawnSync(cmd, args, {
     cwd: root,
@@ -95,7 +84,7 @@ function hostTriple() {
 }
 
 const host = hostTriple();
-const triple = explicitTarget || tauriTriple || host;
+const triple = explicitTarget || host;
 if (triple.startsWith("universal-")) {
   fail(
     `${triple} isn't supported: build seaquel-cli for aarch64-apple-darwin and x86_64-apple-darwin ` +
@@ -106,17 +95,6 @@ const exe = triple.includes("windows") ? ".exe" : "";
 const dest = join(binariesDir, `${BIN}-${triple}${exe}`);
 const rel = (p) => p.slice(root.length + 1);
 
-if (process.env.SEAQUEL_CLI_PREBUILT === "1") {
-  if (!existsSync(dest)) {
-    fail(
-      `SEAQUEL_CLI_PREBUILT=1 but ${rel(dest)} is missing. ` +
-        `Run \`node scripts/build-cli.mjs${release ? " --release" : ""} --target ${triple}\` first.`,
-    );
-  }
-  console.log(`build-cli: SEAQUEL_CLI_PREBUILT=1, using the existing ${rel(dest)}`);
-  process.exit(0);
-}
-
 // --- build ---------------------------------------------------------------------
 
 const meta = run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { capture: true });
@@ -124,9 +102,8 @@ if (meta.error) fail("cargo not found. Install Rust from https://rustup.rs.");
 if (meta.status !== 0) fail(`cargo metadata failed:\n${meta.stderr}`);
 const targetDir = JSON.parse(meta.stdout).target_directory;
 
-// `--target` only when asked for, or when Tauri targets another triple than the
-// host (it passes `--target` to its own cargo build then too).
-const passTarget = explicitTarget !== null || triple !== host;
+// `--target` only when asked for, so local builds share the host target cache.
+const passTarget = explicitTarget !== null;
 const profile = release ? "release" : "debug";
 const cargoArgs = ["build", "-p", PACKAGE, "--bin", BIN];
 if (release) cargoArgs.push("--release");
@@ -135,7 +112,7 @@ if (passTarget) cargoArgs.push("--target", triple);
 // `tauri build` exports MACOSX_DEPLOYMENT_TARGET (bundle.macOS.minimumSystemVersion,
 // 10.13 by default) for the app; `tauri dev` doesn't. Changing it recompiles the
 // C/C++ crates the CLI shares with the app (duckdb, sqlite, ring), so a release
-// build run on its own (release.yml's sidecar step) uses the same value.
+// standalone CLI build in release.yml uses the same value.
 if (release && triple.includes("apple-darwin") && !process.env.MACOSX_DEPLOYMENT_TARGET) {
   const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
   process.env.MACOSX_DEPLOYMENT_TARGET = conf.bundle?.macOS?.minimumSystemVersion ?? "10.13";
@@ -156,8 +133,33 @@ if (cargo.status !== 0) {
 const built = join(targetDir, ...(passTarget ? [triple] : []), profile, `${BIN}${exe}`);
 if (!existsSync(built)) fail(`cargo finished but ${built} doesn't exist.`);
 
-// Copy to a temp name and rename, so a build that dies halfway never leaves a
-// truncated sidecar for tauri-build to bundle.
+// Keep the release asset's timestamp stable when Cargo produced identical bytes.
+function sameFileContents(a, b) {
+  if (!existsSync(b) || statSync(a).size !== statSync(b).size) return false;
+  const left = openSync(a, "r");
+  const right = openSync(b, "r");
+  const leftChunk = Buffer.allocUnsafe(1024 * 1024);
+  const rightChunk = Buffer.allocUnsafe(leftChunk.length);
+  try {
+    while (true) {
+      const count = readSync(left, leftChunk, 0, leftChunk.length, null);
+      if (count === 0) return true;
+      if (readSync(right, rightChunk, 0, count, null) !== count) return false;
+      if (!leftChunk.subarray(0, count).equals(rightChunk.subarray(0, count))) return false;
+    }
+  } finally {
+    closeSync(left);
+    closeSync(right);
+  }
+}
+
+if (sameFileContents(built, dest)) {
+  console.log(`build-cli: ${rel(dest)} is up to date (${profile})`);
+  process.exit(0);
+}
+
+// Copy to a temp name and rename, so a failed copy never leaves a truncated
+// release asset.
 mkdirSync(binariesDir, { recursive: true });
 const tmp = `${dest}.tmp-${process.pid}`;
 try {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { PlayIcon, Loader2Icon } from '@lucide/svelte';
+	import PlayIcon from '@lucide/svelte/icons/play';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
 	import MonacoEditor from '$lib/components/monaco-editor.svelte';
 
 	interface Props {

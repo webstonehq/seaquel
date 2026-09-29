@@ -4,7 +4,10 @@
 	import { onboardingStore, type UserBackground } from "$lib/stores/onboarding.svelte.js";
 	import { getMigrationTrack, migrationTracks } from "$lib/config/migration-tracks.js";
 	import { m } from "$lib/paraglide/messages.js";
-	import { ArrowRightIcon, CheckCircleIcon, InfoIcon, KeyboardIcon } from "@lucide/svelte";
+	import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
+	import CheckCircleIcon from "@lucide/svelte/icons/check-circle";
+	import InfoIcon from "@lucide/svelte/icons/info";
+	import KeyboardIcon from "@lucide/svelte/icons/keyboard";
 
 	const track = $derived(getMigrationTrack(onboardingStore.userBackground));
 

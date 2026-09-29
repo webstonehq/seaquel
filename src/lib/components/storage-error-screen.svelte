@@ -4,7 +4,8 @@
   // data from before 2026.4.5, a metadata file that isn't SQLite, or no data
   // dir at all. There is no retry button; the user has to act outside the
   // app first.
-  import { DatabaseIcon, ExternalLinkIcon } from "@lucide/svelte";
+  import DatabaseIcon from "@lucide/svelte/icons/database";
+  import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
   import { m } from "$lib/paraglide/messages.js";
   import type { BlockingStorageError } from "$lib/storage/storage-gate.svelte";
   import { isTauri } from "$lib/utils/environment";

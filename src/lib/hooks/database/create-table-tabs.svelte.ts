@@ -8,8 +8,8 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
 import { getEngineClient } from "$lib/engine";
-import type { ProviderRegistry } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
+import type { QueryCrudManager } from "./query-crud.svelte.js";
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
 import { splitDdlScript } from "$lib/utils/ddl-script";
@@ -30,9 +30,10 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
     tabOrdering: TabOrderingManager,
     schedulePersistence: (projectId: string | null) => void,
     setActiveView: (view: ActiveViewType) => void,
-    private providers: ProviderRegistry,
     private refreshSchemaFn: (connectionId: string) => Promise<void>,
     private getPendingChanges: () => PendingChangesManager,
+    /** Queues or applies the statements (`QueryCrudManager.applyStatements`). */
+    private getCrud: () => Pick<QueryCrudManager, "applyStatements">,
   ) {
     super(state, tabOrdering, schedulePersistence, setActiveView);
   }
@@ -214,37 +215,32 @@ export class CreateTableTabManager extends BaseTabManager<CreateTableTab> {
       return false;
     }
 
-    // Queue statements when pending changes is enabled
-    const pendingChanges = this.getPendingChanges();
-    if (pendingChanges.isEnabled()) {
-      const origin = tab.isEditMode ? ("alter-table" as const) : ("create-table" as const);
-      for (const stmt of statements) {
-        pendingChanges.add(connection.id, stmt, "other", origin);
-      }
+    // Queued one per statement with pending changes on; otherwise applied
+    // through Core, in order, stopping at the first failure.
+    const origin = tab.isEditMode ? ("alter-table" as const) : ("create-table" as const);
+    const result = await this.getCrud().applyStatements(connection.id, statements, origin);
+    if (result.queued) {
       toast.info(
         `${statements.length} statement${statements.length > 1 ? "s" : ""} added to pending changes`,
       );
       if (notes.length > 0) showNotes(m.table_editor_changes_skipped());
-      pendingChanges.openSheet();
+      this.getPendingChanges().openSheet();
       return true;
     }
 
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      for (const stmt of statements) {
-        await provider.execute(connection.providerConnectionId, stmt);
-      }
-      toast.success(
-        tab.isEditMode
-          ? `Table "${tab.tableDefinition.tableName}" updated successfully`
-          : `Table "${tab.tableDefinition.tableName}" created successfully`,
-      );
-      if (notes.length > 0) showNotes(m.table_editor_changes_skipped());
-      await this.refreshSchemaFn(connection.id);
-      return true;
-    } catch (error) {
-      errorToast(`Failed to ${tab.isEditMode ? "update" : "create"} table: ${errorText(error)}`);
+    if (result.error !== undefined) {
+      errorToast(`Failed to ${tab.isEditMode ? "update" : "create"} table: ${result.error}`);
+      // Statements before the failed one stay applied (DDL runs in order).
+      if (result.applied > 0) await this.refreshSchemaFn(connection.id);
       return false;
     }
+    toast.success(
+      tab.isEditMode
+        ? `Table "${tab.tableDefinition.tableName}" updated successfully`
+        : `Table "${tab.tableDefinition.tableName}" created successfully`,
+    );
+    if (notes.length > 0) showNotes(m.table_editor_changes_skipped());
+    await this.refreshSchemaFn(connection.id);
+    return true;
   }
 }

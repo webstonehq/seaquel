@@ -10,8 +10,9 @@ import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 import { QueryCrudManager } from "./query-crud.svelte.js";
+import { errorText } from "./error-text.js";
 import { dedupeColumnNames, rowToObject } from "$lib/utils/row-access";
-import { decodeCell, decodeRows, encodeParam } from "$lib/values";
+import { decodeRows, encodeParam } from "$lib/values";
 import { licenseNudgeStore } from "$lib/stores/license-nudge.svelte.js";
 import { CANCELLED } from "$lib/core/client";
 import type { ParamValue } from "$lib/types/generated/ParamValue";
@@ -34,6 +35,11 @@ export interface RunOptions {
   params?: ParameterValue[];
   /** The user confirmed the run's destructive statements. */
   confirmed?: boolean;
+  /**
+   * The saved connection to run on instead of the active one: the rerun
+   * after an edit goes to the connection the edited result came from.
+   */
+  connectionId?: string;
 }
 
 /** A run Core refused with `CONFIRM_REQUIRED`: the editor's destructive dialog shows it. */
@@ -88,22 +94,7 @@ interface Consumer {
 
 const round = (ms: number) => Math.round(ms * 100) / 100;
 
-/** Core's code for a statement the database refused: its message is the database's own. */
-const QUERY_ERROR = "QUERY_ERROR";
-/** The TS runner's code for the SQL module failing on the run path. */
-const SQL_CHECK_FAILED = "SQL_CHECK_FAILED";
-
-/**
- * An error as the grid and toasts show it: the database's message alone for
- * `QUERY_ERROR`, a translated sentence when the SQL module failed, and
- * `CODE: message` otherwise (the code says what went wrong around the query:
- * `CONNECTION_CLOSED`, `WS_CLOSED`, `RESULT_TOO_LARGE`, …).
- */
-export function errorText(code: string, message: string): string {
-  if (code === QUERY_ERROR) return message;
-  if (code === SQL_CHECK_FAILED) return m.statement_at_cursor_failed({ error: message });
-  return `${code}: ${message}`;
-}
+export { errorText } from "./error-text.js";
 
 /**
  * The editor's query results as a view model over run events (phase 5b).
@@ -282,11 +273,10 @@ export class QueryExecutionManager {
     if (pending?.tabId !== tabId) return;
     const retry = this.confirmRetry;
     this.clearPendingConfirm();
-    const connection = this.state.activeConnection;
-    if (
-      connection?.id !== pending.connectionId ||
-      connection.providerConnectionId !== pending.providerConnectionId
-    ) {
+    // The refused run's own connection, as it is now: removed, disconnected
+    // or reconnected (a new Core id) means it isn't what was confirmed.
+    const connection = this.state.connections.find((c) => c.id === pending.connectionId);
+    if (!connection || connection.providerConnectionId !== pending.providerConnectionId) {
       errorToast(m.query_confirm_connection_changed());
       return;
     }
@@ -319,7 +309,10 @@ export class QueryExecutionManager {
   ): Promise<void> {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
-    const connection = this.state.activeConnection;
+    const connection =
+      options.connectionId === undefined
+        ? this.state.activeConnection
+        : this.state.connections.find((c) => c.id === options.connectionId);
     if (!connection?.providerConnectionId) {
       errorToast("Not connected to database. Please reconnect.");
       return;
@@ -384,8 +377,14 @@ export class QueryExecutionManager {
       open: new Set(),
     };
     op.consumer = consumer;
+    // Confirm reruns on the connection it was refused on, whatever is active by then.
     await this.consume(consumer, runner.run(request, op.controller.signal), () =>
-      this.run(tabId, target, { ...options, confirmed: true }, runText),
+      this.run(
+        tabId,
+        target,
+        { ...options, confirmed: true, connectionId: connection.id },
+        runText,
+      ),
     );
   }
 
@@ -425,12 +424,13 @@ export class QueryExecutionManager {
   ): Promise<void> {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) return;
     // A page never cancels a run: the rest of it would silently not run.
     // The pagination controls are disabled while it goes.
     if (this.operations.get(tabId)?.mode === "run") return;
     const result = this.getProxiedResult(projectId, tabId, position);
+    // The result's own connection, as it is now (a reconnect's new Core id).
+    const connection = this.state.connections.find((c) => c.id === result?.connectionId);
+    if (!connection?.providerConnectionId) return;
     // Only a SELECT pages (Core refuses anything else); an error result
     // that never started has no source.
     if (!result?.pageSource || result.queryType !== "select") return;
@@ -655,6 +655,7 @@ export class QueryExecutionManager {
           executionTime: 0,
           statementIndex: event.index,
           statementSql: event.sql,
+          connectionId: c.connection.id,
           pageSource: { sql: event.source.sql, params: event.source.params },
         });
         if (c.position >= 0) c.open.add(c.position);
@@ -738,7 +739,7 @@ export class QueryExecutionManager {
             event.code === INVALID_PARAMETERS
               ? event.message
               : errorText(event.code, event.message);
-          this.append(c, this.errorResult(event.sql, text, event.index, c.pageSize));
+          this.append(c, this.errorResult(c, event.sql, text, event.index));
           return;
         }
         const target = this.current(c);
@@ -749,14 +750,13 @@ export class QueryExecutionManager {
         return;
       }
       case "statementDeferred": {
-        const binds = event.source.params.map((v) => decodeCell(v));
-        this.pendingChanges.add(
+        this.pendingChanges.addSql(
           c.connection.id,
           event.source.sql,
+          event.source.params,
           event.queryType,
           "query-editor",
           c.tabId,
-          binds.length > 0 ? binds : undefined,
         );
         c.deferred += 1;
         return;
@@ -808,7 +808,7 @@ export class QueryExecutionManager {
           if (c.position !== null) c.open.delete(c.position);
           this.fail(c, target, text, round(performance.now() - c.startedAt));
         } else if (c.mode === "run") {
-          this.append(c, this.errorResult(c.text, text, 0, c.pageSize));
+          this.append(c, this.errorResult(c, c.text, text, 0));
         }
         return;
       }
@@ -853,10 +853,10 @@ export class QueryExecutionManager {
    * Create a standardized error result for failed statement execution.
    */
   private errorResult(
+    c: Consumer,
     statementSql: string,
     error: string,
     statementIndex: number,
-    pageSize: number,
   ): StatementResult {
     return {
       columns: ["Error"],
@@ -865,10 +865,11 @@ export class QueryExecutionManager {
       totalRows: 1,
       executionTime: 0,
       page: 1,
-      pageSize,
+      pageSize: c.pageSize,
       totalPages: 1,
       statementIndex,
       statementSql,
+      connectionId: c.connection.id,
       error,
       isError: true,
     };
@@ -910,9 +911,12 @@ export class QueryExecutionManager {
     const editTarget = this.resolveEditTarget(tabId, resultIndex, rowIndex, column, sourceTable);
     if (!editTarget) return { success: false, error: "Row not found" };
     if (editTarget.error) return { success: false, error: editTarget.error };
+    const { connectionId } = editTarget;
+    if (!connectionId) return { success: false, error: "No connection established" };
 
-    void log.debug(`Cell update on ${this.state.activeConnection?.id}`);
+    void log.debug(`Cell update on ${connectionId}`);
     const result = await this.crud.updateCellDirect(
+      connectionId,
       editTarget.sourceTable,
       editTarget.row,
       editTarget.column,
@@ -957,57 +961,96 @@ export class QueryExecutionManager {
     const editTarget = this.resolveEditTarget(tabId, resultIndex, rowIndex, column, sourceTable);
     if (!editTarget) return { success: false, error: "Row not found" };
     if (editTarget.error) return { success: false, error: editTarget.error };
+    const { connectionId } = editTarget;
+    if (!connectionId) return { success: false, error: "No connection established" };
 
-    void log.debug(`Cell set default on ${this.state.activeConnection?.id}`);
+    void log.debug(`Cell set default on ${connectionId}`);
     const result = await this.crud.setCellDefaultDirect(
+      connectionId,
       editTarget.sourceTable,
       editTarget.row,
       editTarget.column,
     );
     if (result.success && !result.queued) {
-      // Re-fetch the row to get the actual default value
-      await this.execute(tabId);
+      // Re-fetch the row to get the actual default value, from the
+      // connection the result came from.
+      await this.execute(tabId, { connectionId });
     }
     return result;
   }
 
-  // --- Delegated CRUD methods (preserve public API) ---
+  /**
+   * Delete a row of a query tab's result, on the connection the result came
+   * from. The key is read through the result's column sources, as a cell
+   * edit's is, so an aliased key column (`SELECT id AS order_id`) binds.
+   */
+  async deleteRowAt(
+    tabId: string,
+    resultIndex: number,
+    rowIndex: number,
+    sourceTable: { schema: string; name: string; primaryKeys: string[] },
+  ): Promise<{ success: boolean; error?: string; queued?: boolean }> {
+    const tabs = this.state.queryTabsByProject[this.state.activeProjectId!] ?? [];
+    const result = tabs.find((t) => t.id === tabId)?.results?.[resultIndex];
+    if (!result) return { success: false, error: "Row not found" };
+    // Any column that comes from the table routes to it; without one, the
+    // fallback keys the row by display names.
+    const fromTable = result.columns.find((_, i) => {
+      const s = result.columnSources?.[i];
+      return s?.schema === sourceTable.schema && s.table === sourceTable.name;
+    });
+    const editTarget = this.resolveEditTarget(
+      tabId,
+      resultIndex,
+      rowIndex,
+      fromTable ?? result.columns[0] ?? "",
+      sourceTable,
+    );
+    if (!editTarget) return { success: false, error: "Row not found" };
+    if (editTarget.error) return { success: false, error: editTarget.error };
+    const { connectionId } = editTarget;
+    if (!connectionId) return { success: false, error: "No connection established" };
+    return await this.crud.deleteRow(connectionId, editTarget.sourceTable, editTarget.row);
+  }
 
-  insertRow(sourceTable: { schema: string; name: string }, values: Record<string, unknown>) {
-    return this.crud.insertRow(sourceTable, values);
+  // --- Delegated CRUD methods: each takes the saved connection the row came from ---
+
+  insertRow(
+    connectionId: string,
+    sourceTable: { schema: string; name: string },
+    values: Record<string, unknown>,
+  ) {
+    return this.crud.insertRow(connectionId, sourceTable, values);
   }
 
   deleteRow(
+    connectionId: string,
     sourceTable: { schema: string; name: string; primaryKeys: string[] },
     row: Record<string, unknown>,
   ) {
-    return this.crud.deleteRow(sourceTable, row);
+    return this.crud.deleteRow(connectionId, sourceTable, row);
   }
 
   updateCellDirect(
+    connectionId: string,
     sourceTable: { schema: string; name: string; primaryKeys: string[] },
     row: Record<string, unknown>,
     column: string,
     newValue: unknown,
   ) {
-    return this.crud.updateCellDirect(sourceTable, row, column, newValue, {
-      deduplicatePending: true,
-    });
+    return this.crud.updateCellDirect(connectionId, sourceTable, row, column, newValue);
   }
 
   setCellDefaultDirect(
+    connectionId: string,
     sourceTable: { schema: string; name: string; primaryKeys: string[] },
     row: Record<string, unknown>,
     column: string,
   ) {
-    return this.crud.setCellDefaultDirect(sourceTable, row, column, { deduplicatePending: true });
+    return this.crud.setCellDefaultDirect(connectionId, sourceTable, row, column);
   }
 
-  executeRaw(query: string) {
-    return this.crud.executeRaw(query);
-  }
-
-  /** See `QueryCrudManager.executeReadOnly`: AI and dashboard SQL only. */
+  /** See `QueryCrudManager.executeReadOnly`: AI, dashboard and workflow SQL only. */
   executeReadOnly(
     connectionId: string,
     sql: string,
@@ -1018,30 +1061,18 @@ export class QueryExecutionManager {
     return this.crud.executeReadOnly(connectionId, sql, signal, connectionName, maxRows);
   }
 
-  executeRawDdl(query: string) {
-    return this.crud.executeRawDdl(query);
+  /** The sidebar's DROP: see `QueryCrudManager.dropObject`. */
+  dropObject(
+    connectionId: string,
+    table: { schema: string; name: string },
+    kind: "table" | "view" | "materializedView",
+  ) {
+    return this.crud.dropObject(connectionId, table, kind);
   }
 
-  /**
-   * Resolve a row from a query tab's results.
-   *
-   * Rows are stored columnar (`unknown[][]`); CRUD helpers still expect
-   * `Record<string, unknown>`, so we materialize one here on demand. This
-   * only fires on user-initiated cell edits / deletes, so the conversion
-   * cost is trivial.
-   */
-  private getRowFromTab(
-    tabId: string,
-    resultIndex: number,
-    rowIndex: number,
-  ): Record<string, unknown> | undefined {
-    const tabs = this.state.queryTabsByProject[this.state.activeProjectId!] ?? [];
-    const tab = tabs.find((t) => t.id === tabId);
-    if (!tab?.results || resultIndex >= tab.results.length) return undefined;
-    const result = tab.results[resultIndex];
-    const row = result.rows[rowIndex];
-    if (!row) return undefined;
-    return rowToObject(row, result.columns);
+  /** The sidebar's TRUNCATE: see `QueryCrudManager.truncateTable`. */
+  truncateTable(connectionId: string, table: { schema: string; name: string }) {
+    return this.crud.truncateTable(connectionId, table);
   }
 
   /**
@@ -1069,6 +1100,8 @@ export class QueryExecutionManager {
         sourceTable: { schema: string; name: string; primaryKeys: string[] };
         row: Record<string, unknown>;
         column: string;
+        /** The saved connection the result came from. */
+        connectionId: string | undefined;
         error?: string;
       }
     | undefined {
@@ -1078,6 +1111,7 @@ export class QueryExecutionManager {
     const result = tab.results[resultIndex];
     const rawRow = result.rows[rowIndex];
     if (!rawRow) return undefined;
+    const { connectionId } = result;
 
     // No per-column info parsed — fall back to single-table routing, keyed by
     // display names (which is what the WHERE builder has always seen).
@@ -1088,6 +1122,7 @@ export class QueryExecutionManager {
         sourceTable: fallbackSourceTable,
         row: rowToObject(rawRow, result.columns),
         column,
+        connectionId,
       };
     }
 
@@ -1113,6 +1148,7 @@ export class QueryExecutionManager {
         sourceTable: fallbackSourceTable,
         row: rowToObject(rawRow, result.columns),
         column,
+        connectionId,
         error: `Cannot edit ${src.table}.${src.column}: primary key ${missingPks.join(", ")} is not in the result`,
       };
     }
@@ -1125,6 +1161,7 @@ export class QueryExecutionManager {
       },
       row: rowObj,
       column: src.column,
+      connectionId,
     };
   }
 }

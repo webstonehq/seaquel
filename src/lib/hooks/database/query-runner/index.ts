@@ -5,7 +5,7 @@
  * runner (`TsQueryRunner`) until phase 8.
  */
 import { isTauri, isWeb } from "$lib/utils/environment";
-import { getEngineClient } from "$lib/engine";
+import { getAdapter } from "$lib/db";
 import { getStorage } from "$lib/storage";
 import type { DatabaseConnection } from "$lib/types";
 import type { ProviderRegistry } from "$lib/providers";
@@ -22,16 +22,17 @@ let coreRunner: CoreQueryRunner | null = null;
 
 export async function getQueryRunner(
   connection: DatabaseConnection,
-  state: DatabaseState,
+  _state: DatabaseState,
   providers: ProviderRegistry,
 ): Promise<QueryRunner> {
   if (isTauri() || isWeb()) return (coreRunner ??= new CoreQueryRunner());
   const provider = await providers.getForType(connection.type);
-  const client = getEngineClient(connection, state);
   return new TsQueryRunner({
     provider,
     engine: connection.type,
-    paginate: (sql, limit, offset) => client.paginate(sql, limit, offset),
+    // The demo's dialect pages (phase 5c, Decision 14: the engine client has no `paginate`).
+    paginate: async (sql, limit, offset) =>
+      getAdapter(connection.type).paginateQuery(sql, limit, offset),
     appendHistory: (item) => getStorage().queryHistory.append(item),
   });
 }

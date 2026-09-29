@@ -16,6 +16,7 @@
 	import MoreHorizontalIcon from "@lucide/svelte/icons/more-horizontal";
 	import { copyCell as clipboardCopyCell, copyRowAsJSON as clipboardCopyRowAsJSON, copyColumn as clipboardCopyColumn } from "$lib/utils/clipboard";
 	import { rowToObject } from "$lib/utils/row-access";
+	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {
 		id: string;
@@ -132,6 +133,11 @@
 			{#if data.totalRows !== undefined}
 				<span class="text-xs text-muted-foreground">
 					{data.totalRows.toLocaleString()} rows
+				</span>
+			{/if}
+			{#if data.truncated}
+				<span class="text-xs text-amber-600 dark:text-amber-400" title={m.workflow_result_truncated({ count: data.totalRows.toLocaleString() })}>
+					{m.workflow_result_truncated_short()}
 				</span>
 			{/if}
 

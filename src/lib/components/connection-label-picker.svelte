@@ -4,7 +4,10 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import * as Popover from "$lib/components/ui/popover/index.js";
-	import { CheckIcon, PlusIcon, XIcon, TagIcon } from "@lucide/svelte";
+	import CheckIcon from "@lucide/svelte/icons/check";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import XIcon from "@lucide/svelte/icons/x";
+	import TagIcon from "@lucide/svelte/icons/tag";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { ConnectionLabel } from "$lib/types";
 

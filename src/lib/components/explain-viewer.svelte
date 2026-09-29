@@ -5,7 +5,13 @@
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import * as Collapsible from "$lib/components/ui/collapsible";
-  import { ClockIcon, RowsIcon, DatabaseIcon, FileCodeIcon, LoaderIcon, FlameIcon, ChevronDownIcon } from "@lucide/svelte";
+  import ClockIcon from "@lucide/svelte/icons/clock";
+  import RowsIcon from "@lucide/svelte/icons/rows";
+  import DatabaseIcon from "@lucide/svelte/icons/database";
+  import FileCodeIcon from "@lucide/svelte/icons/file-code";
+  import LoaderIcon from "@lucide/svelte/icons/loader";
+  import FlameIcon from "@lucide/svelte/icons/flame";
+  import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import ExplainPlanNode from "./explain-plan-node.svelte";
   import { layoutExplainPlan } from "$lib/utils/explain-layout";
   import { analyzeExplainPlan, type HotPathAnalysis } from "$lib/utils/explain-analysis";

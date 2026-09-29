@@ -4,7 +4,9 @@
 	import { formatRelativeTime } from "$lib/utils.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button";
-	import { Trash2Icon, StarIcon, GitBranchIcon } from "@lucide/svelte";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
+	import StarIcon from "@lucide/svelte/icons/star";
+	import GitBranchIcon from "@lucide/svelte/icons/git-branch";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { m } from "$lib/paraglide/messages.js";
 

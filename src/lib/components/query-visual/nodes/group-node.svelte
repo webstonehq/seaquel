@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { GroupIcon } from "@lucide/svelte";
+	import GroupIcon from "@lucide/svelte/icons/group";
 
 	type Props = {
 		data: {

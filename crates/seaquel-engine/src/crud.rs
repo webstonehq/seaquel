@@ -35,6 +35,11 @@ pub fn question_placeholder(_index: usize) -> String {
     "?".to_string()
 }
 
+/// `@PN` (SQL Server, tiberius's parameter names).
+pub fn at_placeholder(index: usize) -> String {
+    format!("@P{index}")
+}
+
 /// `row[pk]`. A missing key is `undefined` in TypeScript, which binds as NULL.
 /// A duplicated key resolves to its last entry, as a JS object would.
 fn lookup(row: &RowValues, key: &str) -> Value {

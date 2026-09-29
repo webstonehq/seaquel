@@ -4,7 +4,8 @@
 	import { resolve } from "$app/paths";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { SIDEBAR_WIDTH_ICON } from "$lib/components/ui/sidebar/constants.js";
-	import { GraduationCapIcon, Settings2Icon } from "@lucide/svelte";
+	import GraduationCapIcon from "@lucide/svelte/icons/graduation-cap";
+	import Settings2Icon from "@lucide/svelte/icons/settings-2";
 	import { isTauri } from "$lib/utils/environment";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import SidebarManage from "./sidebar-manage.svelte";

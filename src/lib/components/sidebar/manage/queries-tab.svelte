@@ -5,7 +5,16 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
-	import { StarIcon, ClockIcon, BookmarkIcon, SearchIcon, FileTextIcon, PlusIcon, HistoryIcon, GitBranchIcon, LinkIcon, Trash2Icon } from "@lucide/svelte";
+	import StarIcon from "@lucide/svelte/icons/star";
+	import ClockIcon from "@lucide/svelte/icons/clock";
+	import BookmarkIcon from "@lucide/svelte/icons/bookmark";
+	import SearchIcon from "@lucide/svelte/icons/search";
+	import FileTextIcon from "@lucide/svelte/icons/file-text";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import HistoryIcon from "@lucide/svelte/icons/history";
+	import GitBranchIcon from "@lucide/svelte/icons/git-branch";
+	import LinkIcon from "@lucide/svelte/icons/link";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";

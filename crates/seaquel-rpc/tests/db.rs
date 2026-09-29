@@ -236,12 +236,10 @@ fn response_wire_snapshots() {
             r#"{"method":"db","result":{"method":"cancel","result":null}}"#,
         ),
     ];
+    // Responses only go out (the GUIs read them), so they aren't parsed back.
     for (res, expected) in cases {
         let text = serde_json::to_string(&Response::Db(res)).unwrap();
         assert_eq!(text, expected);
-        // And back.
-        let back: Response = serde_json::from_str(&text).unwrap();
-        assert_eq!(serde_json::to_string(&back).unwrap(), expected);
     }
 }
 
@@ -417,6 +415,64 @@ async fn a_connection_round_trip() {
         e.call(&e.a, "disconnect", json!({"connectionId": id}))
             .await,
     );
+}
+
+/// `db.transaction`'s failures keep their wire: the error's code and
+/// message, exactly as before Core learned which statement failed.
+#[tokio::test]
+async fn a_failed_transaction_keeps_its_wire_error() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "tx").await;
+    let count = || async {
+        e.call(
+            &e.a,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT COUNT(*) AS c FROM t"}),
+        )
+        .await
+        .unwrap()["rows"][0][0]
+            .clone()
+    };
+    let before = count().await;
+
+    let err = e
+        .call(
+            &e.a,
+            "transaction",
+            json!({"connectionId": id, "statements": [
+                {"sql": "INSERT INTO t VALUES (0)"},
+                {"sql": "UPDATE t SET x = 1 WHERE x = ?", "params": [-5], "expectRows": {"min": 1}},
+            ]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        serde_json::to_value(&err).unwrap(),
+        json!({
+            "code": "NO_ROWS_AFFECTED",
+            "message": "Statement 2 (index 1) affected 0 rows, expected at least 1. \
+                        The transaction was rolled back.",
+        })
+    );
+
+    let err = e
+        .call(
+            &e.a,
+            "transaction",
+            json!({"connectionId": id, "statements": [
+                {"sql": "INSERT INTO t VALUES (0)"},
+                {"sql": "INSERT INTO no_such_table VALUES (0)"},
+            ]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "EXECUTE_ERROR");
+    assert!(
+        err.message.starts_with("Execute failed: ") && err.message.contains("no_such_table"),
+        "the database's message, nothing added: {}",
+        err.message
+    );
+    assert_eq!(count().await, before, "both rolled back");
 }
 
 /// Workspace B can't reach A's connection through any `db` call: every
@@ -1203,4 +1259,502 @@ async fn without_an_executor_run_is_not_supported() {
         .await;
     assert_eq!(events.len(), 1, "{events:?}");
     assert_eq!(events[0]["event"]["code"], "NOT_SUPPORTED");
+}
+
+// ── db.planEdits, db.applyChanges, db.tablePage, db.duckdbExtension ──
+
+/// Each edit request parses from its wire JSON and serializes back to it:
+/// `method` before `params`, absent optionals left out, filter operators as
+/// the data tab's text.
+#[test]
+fn edits_wire_shapes() {
+    let cases = [
+        r#"{"method":"db","params":{"method":"planEdits","params":{"connectionId":"c1","edits":[{"type":"updateCell","target":{"schema":"public","table":"t"},"key":[["id",1],["k",{"$sq":"bigint","v":"9007199254740993"}]],"column":"name","value":"x"},{"type":"setDefault","target":{"schema":"public","table":"t"},"key":[["id",1]],"column":"c"},{"type":"insertRow","target":{"schema":"main.s","table":"t"},"values":[["b",null],["a",{"$sq":"bytes","v":"AQI="}]]},{"type":"deleteRow","target":{"schema":"public","table":"t"},"key":[["id",2]]},{"type":"truncateTable","target":{"schema":"public","table":"t"}},{"type":"dropObject","target":{"schema":"public","table":"v"},"kind":"materializedView"}]}}}"#,
+        r#"{"method":"db","params":{"method":"applyChanges","params":{"connectionId":"c1","changes":[{"type":"edit","id":"p1","edit":{"type":"deleteRow","target":{"schema":"public","table":"t"},"key":[["id",1]]}},{"type":"sql","id":"p2","sql":"UPDATE t SET a = $1","params":[{"$sq":"decimal","v":"1.50"}]}],"confirmed":true,"history":{"connectionId":"saved-1","connectionName":"Prod","connectionLabels":[{"id":"l1","name":"prod","color":"red"}]}}}}"#,
+        r#"{"method":"db","params":{"method":"applyChanges","params":{"connectionId":"c1","changes":[],"confirmed":false}}}"#,
+        r#"{"method":"db","params":{"method":"tablePage","params":{"connectionId":"c1","streamId":"t1","query":{"target":{"schema":"public","table":"t"},"filters":[{"column":"a","op":"NOT IN","value":"1, 2"},{"column":"b","op":"IS NOT NULL","value":""},{"column":"c","op":"!=","value":"x"}],"logic":"OR","sort":[{"column":"a","direction":"DESC"}]},"page":2,"pageSize":100}}}"#,
+        r#"{"method":"db","params":{"method":"duckdbExtension","params":{"connectionId":"c1","action":{"type":"list"}}}}"#,
+        r#"{"method":"db","params":{"method":"duckdbExtension","params":{"connectionId":"c1","action":{"type":"installAndLoad","name":"httpfs"}}}}"#,
+    ];
+    for case in cases {
+        let req = parse_request(case.as_bytes()).unwrap_or_else(|e| panic!("{case}: {e}"));
+        assert_eq!(serde_json::to_string(&req).unwrap(), case);
+    }
+
+    // Defaults: confirmed, history, a typed change's params, a table
+    // query's filters, logic and sort, a filter's value.
+    let req = parse(&db(
+        "applyChanges",
+        json!({"connectionId": "c", "changes": [{"type": "sql", "id": "p", "sql": "DELETE FROM t"}]}),
+    ));
+    assert_eq!(req.method(), "applyChanges");
+    assert_eq!(
+        serde_json::to_value(&req).unwrap()["params"]["params"],
+        json!({"connectionId": "c", "changes": [{"type": "sql", "id": "p", "sql": "DELETE FROM t", "params": []}],
+               "confirmed": false})
+    );
+    let req = parse(&db(
+        "tablePage",
+        json!({"connectionId": "c", "streamId": "t", "page": 1, "pageSize": 10,
+               "query": {"target": {"schema": "s", "table": "t"}, "filters": [{"column": "a", "op": "IS NULL"}]}}),
+    ));
+    assert_eq!(
+        serde_json::to_value(&req).unwrap()["params"]["params"]["query"],
+        json!({"target": {"schema": "s", "table": "t"},
+               "filters": [{"column": "a", "op": "IS NULL", "value": ""}], "logic": "AND", "sort": []})
+    );
+
+    // Refused when read: an unknown operator, logic or direction, a key as
+    // an object, an unknown edit or action, a bad value tag.
+    for params in [
+        (
+            "tablePage",
+            json!({"connectionId": "c", "streamId": "t", "page": 1, "pageSize": 10,
+            "query": {"target": {"schema": "s", "table": "t"}, "filters": [{"column": "a", "op": "eq", "value": "1"}]}}),
+        ),
+        (
+            "tablePage",
+            json!({"connectionId": "c", "streamId": "t", "page": 1, "pageSize": 10,
+            "query": {"target": {"schema": "s", "table": "t"}, "logic": "XOR"}}),
+        ),
+        (
+            "tablePage",
+            json!({"connectionId": "c", "streamId": "t", "page": 1, "pageSize": 10,
+            "query": {"target": {"schema": "s", "table": "t"}, "sort": [{"column": "a", "direction": "down"}]}}),
+        ),
+        (
+            "planEdits",
+            json!({"connectionId": "c", "edits": [{"type": "deleteRow",
+            "target": {"schema": "s", "table": "t"}, "key": {"id": 1}}]}),
+        ),
+        (
+            "planEdits",
+            json!({"connectionId": "c", "edits": [{"type": "dropDatabase",
+            "target": {"schema": "s", "table": "t"}}]}),
+        ),
+        (
+            "applyChanges",
+            json!({"connectionId": "c", "changes": [{"type": "sql", "id": "p",
+            "sql": "x", "params": [{"$sq": "nope", "v": 1}]}]}),
+        ),
+        (
+            "duckdbExtension",
+            json!({"connectionId": "c", "action": {"type": "uninstall", "name": "x"}}),
+        ),
+    ] {
+        let err = parse_request(db(params.0, params.1.clone()).to_string().as_bytes()).unwrap_err();
+        assert_eq!(
+            err.code, "INVALID_ARGUMENT",
+            "{}: {}",
+            params.1, err.message
+        );
+    }
+}
+
+/// The unary results as they go out.
+#[test]
+fn edits_response_wire_shapes() {
+    use seaquel_core::domain::edits::{
+        ApplyFailure, ApplyMode, ApplyOutcome, ChangeResult, PlannedChange,
+    };
+    use seaquel_core::domain::run::DestructiveStatement;
+    use seaquel_core::sql::statements::{ChangeSummary, ChangeVerb, DestructiveReason, QueryType};
+
+    let cases: Vec<(DbResponse, &str)> = vec![
+        (
+            DbResponse::PlanEdits(vec![
+                PlannedChange {
+                    sql: "UPDATE \"t\" SET \"name\" = $1 WHERE \"id\" = $2".into(),
+                    params: vec![
+                        seaquel_types::Value::Text("x".into()),
+                        seaquel_types::Value::Int(9007199254740993),
+                    ],
+                    query_type: QueryType::Update,
+                    dml: true,
+                    summary: Some(ChangeSummary {
+                        verb: ChangeVerb::Update,
+                        table: "t".into(),
+                        column: Some("name".into()),
+                    }),
+                },
+                PlannedChange {
+                    sql: "DROP VIEW \"v\"".into(),
+                    params: vec![],
+                    query_type: QueryType::Other,
+                    dml: false,
+                    summary: None,
+                },
+            ]),
+            r#"{"method":"db","result":{"method":"planEdits","result":[{"sql":"UPDATE \"t\" SET \"name\" = $1 WHERE \"id\" = $2","params":["x",{"$sq":"bigint","v":"9007199254740993"}],"queryType":"update","dml":true,"summary":{"verb":"update","table":"t","column":"name"}},{"sql":"DROP VIEW \"v\"","params":[],"queryType":"other","dml":false}]}}"#,
+        ),
+        (
+            DbResponse::ApplyChanges(ApplyOutcome::Applied {
+                mode: ApplyMode::InOrder,
+                applied: 1,
+                results: vec![ChangeResult {
+                    id: "p1".into(),
+                    rows_affected: 1,
+                    last_insert_id: Some(7),
+                }],
+                failed: Some(ApplyFailure {
+                    id: Some("p2".into()),
+                    index: Some(1),
+                    code: "NO_ROWS_AFFECTED".into(),
+                    message: "m".into(),
+                }),
+                ddl: false,
+                history: vec![],
+            }),
+            r#"{"method":"db","result":{"method":"applyChanges","result":{"outcome":"applied","mode":"inOrder","applied":1,"results":[{"id":"p1","rowsAffected":1,"lastInsertId":7}],"failed":{"id":"p2","index":1,"code":"NO_ROWS_AFFECTED","message":"m"},"ddl":false,"history":[]}}}"#,
+        ),
+        (
+            DbResponse::ApplyChanges(ApplyOutcome::Applied {
+                mode: ApplyMode::Atomic,
+                applied: 0,
+                results: vec![],
+                failed: Some(ApplyFailure {
+                    id: None,
+                    index: None,
+                    code: "EXECUTE_ERROR".into(),
+                    message: "m".into(),
+                }),
+                ddl: false,
+                history: vec![],
+            }),
+            r#"{"method":"db","result":{"method":"applyChanges","result":{"outcome":"applied","mode":"atomic","applied":0,"results":[],"failed":{"code":"EXECUTE_ERROR","message":"m"},"ddl":false,"history":[]}}}"#,
+        ),
+        (
+            DbResponse::ApplyChanges(ApplyOutcome::ConfirmRequired {
+                destructive: vec![DestructiveStatement {
+                    index: 0,
+                    sql: "TRUNCATE t".into(),
+                    reason: DestructiveReason::Truncate,
+                }],
+                destructive_total: 1,
+            }),
+            r#"{"method":"db","result":{"method":"applyChanges","result":{"outcome":"confirmRequired","destructive":[{"index":0,"sql":"TRUNCATE t","reason":"truncate"}],"destructiveTotal":1}}}"#,
+        ),
+        (
+            DbResponse::DuckdbExtension(None),
+            r#"{"method":"db","result":{"method":"duckdbExtension","result":null}}"#,
+        ),
+        (
+            DbResponse::DuckdbExtension(Some(seaquel_types::QueryResult {
+                columns: vec!["extension_name".into()],
+                rows: vec![vec![seaquel_types::Value::Text("json".into())]],
+            })),
+            r#"{"method":"db","result":{"method":"duckdbExtension","result":{"columns":["extension_name"],"rows":[["json"]]}}}"#,
+        ),
+    ];
+    for (res, expected) in cases {
+        assert_eq!(serde_json::to_string(&Response::Db(res)).unwrap(), expected);
+    }
+}
+
+/// `db.tablePage` is a stream: `dispatch_workspace` refuses it. Its
+/// `streamId` is the request's, and its events are run events.
+#[tokio::test]
+async fn table_page_is_stream_only() {
+    let e = env().await;
+    let req = parse(&db(
+        "tablePage",
+        json!({"connectionId": "c", "streamId": "tp", "page": 1, "pageSize": 10,
+               "query": {"target": {"schema": "main", "table": "t"}}}),
+    ));
+    let Request::Db(db_req) = &req else { panic!() };
+    assert_eq!(db_req.stream_id(), Some("tp"));
+    assert!(db_req.is_run());
+    let err = dispatch_workspace(&e.core, &e.a, req).await.unwrap_err();
+    assert_eq!(err.code, "INVALID_ARGUMENT", "{err}");
+}
+
+/// `db.planEdits`, `db.applyChanges` and `db.duckdbExtension` are unary:
+/// the stream transport refuses them, and they have no stream id.
+#[tokio::test]
+async fn apply_changes_is_unary() {
+    let e = env().await;
+    for (method, params) in [
+        ("planEdits", json!({"connectionId": "c", "edits": []})),
+        ("applyChanges", json!({"connectionId": "c", "changes": []})),
+        (
+            "duckdbExtension",
+            json!({"connectionId": "c", "action": {"type": "list"}}),
+        ),
+    ] {
+        let req = parse(&db(method, params));
+        let Request::Db(db_req) = &req else { panic!() };
+        assert_eq!(db_req.method(), method);
+        assert_eq!(db_req.stream_id(), None, "{method}");
+        assert!(!db_req.is_run(), "{method}");
+        let Err(err) = dispatch_stream(&e.core, &e.a, req) else {
+            panic!("{method} streamed")
+        };
+        assert_eq!(err.code, "INVALID_ARGUMENT", "{method}: {err}");
+    }
+}
+
+/// `Debug` of every new request shows no value, key, filter value or SQL.
+#[test]
+fn edit_params_debug_shows_no_values() {
+    let key = json!([["id", "canary-key"]]);
+    let target = json!({"schema": "public", "table": "t"});
+    let edits = json!([
+        {"type": "updateCell", "target": target, "key": key, "column": "c", "value": "canary-value"},
+        {"type": "setDefault", "target": target, "key": key, "column": "c"},
+        {"type": "insertRow", "target": target, "values": [["c", "canary-insert"]]},
+        {"type": "deleteRow", "target": target, "key": key},
+    ]);
+    let history = json!({"connectionId": "s", "connectionName": "canary-name",
+                         "connectionLabels": [{"name": "canary-label"}]});
+    let requests = [
+        parse(&db(
+            "planEdits",
+            json!({"connectionId": "c", "edits": edits}),
+        )),
+        parse(&db(
+            "applyChanges",
+            json!({"connectionId": "c", "history": history, "changes": [
+                {"type": "edit", "id": "p1", "edit": edits[0]},
+                {"type": "sql", "id": "p2", "sql": "DELETE FROM t WHERE a = 'canary-sql'", "params": ["canary-param"]},
+            ]}),
+        )),
+        parse(&db(
+            "tablePage",
+            json!({"connectionId": "c", "streamId": "t", "page": 1, "pageSize": 10,
+            "query": {"target": target, "filters": [
+                {"column": "a", "op": "=", "value": "canary-filter"},
+                {"column": "b", "op": "IN", "value": "canary-in, 2"},
+            ]}}),
+        )),
+    ];
+    for req in requests {
+        let debug = format!("{req:?} {req:#?}");
+        assert!(!debug.contains("canary"), "{debug}");
+    }
+}
+
+/// Plan, apply and page on a SQLite table through dispatch; every page
+/// event is a run event under its `streamId`, ending with one `done`.
+#[tokio::test]
+async fn edits_round_trip_through_dispatch() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "ed").await;
+    e.call(
+        &e.a,
+        "execute",
+        json!({"connectionId": id, "sql": "CREATE TABLE p (id INTEGER PRIMARY KEY, name TEXT)"}),
+    )
+    .await
+    .unwrap();
+    let target = json!({"schema": "main", "table": "p"});
+
+    let planned = e
+        .call(
+            &e.a,
+            "planEdits",
+            json!({"connectionId": id, "edits": [
+                {"type": "insertRow", "target": target, "values": [["id", 1], ["name", "a"]]},
+                {"type": "updateCell", "target": target, "key": [["id", 1]], "column": "name", "value": "b"},
+            ]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(planned[0]["queryType"], "insert", "{planned}");
+    assert_eq!(planned[0]["dml"], true);
+    assert_eq!(planned[1]["queryType"], "update");
+    assert_eq!(planned[1]["params"], json!(["b", 1]));
+    assert_eq!(planned[1]["summary"]["verb"], "update");
+
+    // Two DML changes: one transaction.
+    let outcome = e
+        .call(
+            &e.a,
+            "applyChanges",
+            json!({"connectionId": id, "changes": [
+                {"type": "edit", "id": "p1", "edit": {"type": "insertRow", "target": target, "values": [["id", 1], ["name", "a"]]}},
+                {"type": "edit", "id": "p2", "edit": {"type": "updateCell", "target": target, "key": [["id", 1]], "column": "name", "value": "b"}},
+            ]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome["outcome"], "applied", "{outcome}");
+    assert_eq!(outcome["mode"], "atomic");
+    assert_eq!(outcome["applied"], 2);
+    assert!(outcome.get("failed").is_none(), "{outcome}");
+
+    // A stale key: NO_ROWS_AFFECTED on its change, as an outcome.
+    let outcome = e
+        .call(
+            &e.a,
+            "applyChanges",
+            json!({"connectionId": id, "changes": [
+                {"type": "edit", "id": "gone", "edit": {"type": "deleteRow", "target": target, "key": [["id", 99]]}},
+            ]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome["mode"], "single", "{outcome}");
+    assert_eq!(outcome["applied"], 0);
+    assert_eq!(outcome["failed"]["code"], "NO_ROWS_AFFECTED");
+    assert_eq!(outcome["failed"]["id"], "gone");
+
+    // A key that isn't the primary key is refused before anything runs.
+    let outcome = e
+        .call(
+            &e.a,
+            "applyChanges",
+            json!({"connectionId": id, "changes": [
+                {"type": "edit", "id": "k", "edit": {"type": "deleteRow", "target": target, "key": [["name", "b"]]}},
+            ]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(outcome["failed"]["code"], "NOT_EDITABLE", "{outcome}");
+
+    // A destructive change asks first, then applies when confirmed.
+    let apply = |confirmed: bool| {
+        json!({"connectionId": id, "confirmed": confirmed, "changes": [
+            {"type": "edit", "id": "tr", "edit": {"type": "truncateTable", "target": {"schema": "main", "table": "t"}}},
+        ]})
+    };
+    let outcome = e.call(&e.a, "applyChanges", apply(false)).await.unwrap();
+    assert_eq!(outcome["outcome"], "confirmRequired", "{outcome}");
+    assert_eq!(outcome["destructiveTotal"], 1);
+
+    // A page of `p`, filtered and sorted.
+    let events = e
+        .run_all(
+            &e.a,
+            "tablePage",
+            json!({"connectionId": id, "streamId": "tp1", "page": 1, "pageSize": 10,
+                   "query": {"target": target, "filters": [{"column": "name", "op": "IN", "value": "b, c"}],
+                             "sort": [{"column": "id", "direction": "DESC"}]}}),
+        )
+        .await;
+    for event in &events {
+        assert_eq!(event["type"], "run", "{event}");
+        assert_eq!(event["streamId"], "tp1", "{event}");
+    }
+    let types: Vec<&str> = events
+        .iter()
+        .map(|e| e["event"]["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        ["statementStart", "batch", "statementDone", "done"],
+        "{events:?}"
+    );
+    assert_eq!(events[0]["event"]["kind"], "page");
+    assert_eq!(events[1]["event"]["rows"], json!([[1, "b"]]));
+    assert_eq!(events[2]["event"]["totalRows"], 1);
+
+    // A refused page is one terminal run error.
+    let events = e
+        .run_all(
+            &e.a,
+            "tablePage",
+            json!({"connectionId": id, "streamId": "tp2", "page": 0, "pageSize": 10,
+                   "query": {"target": target}}),
+        )
+        .await;
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["type"], "run");
+    assert_eq!(events[0]["event"]["code"], "INVALID_ARGUMENT");
+
+    // Extensions are DuckDB's only.
+    let err = e
+        .call(
+            &e.a,
+            "duckdbExtension",
+            json!({"connectionId": id, "action": {"type": "list"}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "NOT_SUPPORTED", "{err}");
+}
+
+/// Workspace B can't plan, apply, page or run an extension action on A's
+/// connection: `CONNECTION_NOT_FOUND`, and A's table is untouched.
+#[tokio::test]
+async fn a_foreign_connection_is_not_found_for_edits() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "fe").await;
+    let target = json!({"schema": "main", "table": "t"});
+    for (method, params) in [
+        (
+            "planEdits",
+            json!({"connectionId": id, "edits": [{"type": "truncateTable", "target": target}]}),
+        ),
+        (
+            "applyChanges",
+            json!({"connectionId": id, "confirmed": true, "changes": [
+                {"type": "edit", "id": "x", "edit": {"type": "truncateTable", "target": target}}]}),
+        ),
+        (
+            "duckdbExtension",
+            json!({"connectionId": id, "action": {"type": "list"}}),
+        ),
+    ] {
+        not_found(e.call(&e.b, method, params).await);
+    }
+    let events = e
+        .run_all(
+            &e.b,
+            "tablePage",
+            json!({"connectionId": id, "streamId": "x", "page": 1, "pageSize": 10, "query": {"target": target}}),
+        )
+        .await;
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0]["type"], "run");
+    assert_eq!(events[0]["event"]["code"], "CONNECTION_NOT_FOUND");
+    let res = e
+        .call(
+            &e.a,
+            "query",
+            json!({"connectionId": id, "sql": "SELECT count(*) FROM t"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res["rows"], json!([[200000]]));
+}
+
+/// `db.cancel` stops a table page: nothing more arrives, and no terminal
+/// event (the transports add their own).
+#[tokio::test]
+async fn db_cancel_stops_a_table_page() {
+    let e = env().await;
+    let id = e.sqlite(&e.a, "tc").await;
+    // A view whose every row is a scan of a 200,000 × 200,000 join.
+    e.call(
+        &e.a,
+        "execute",
+        json!({"connectionId": id, "sql": "CREATE VIEW slow AS SELECT a.x AS x, b.x AS y FROM t a, t b"}),
+    )
+    .await
+    .unwrap();
+    let mut events = e
+        .run(
+            &e.a,
+            "tablePage",
+            json!({"connectionId": id, "streamId": "slow", "page": 1, "pageSize": 10,
+                   "query": {"target": {"schema": "main", "table": "slow"},
+                             "filters": [{"column": "y", "op": "=", "value": "-1"}]}}),
+        )
+        .unwrap();
+    assert_eq!(
+        wire(&events.next().await.unwrap())["event"]["type"],
+        "statementStart"
+    );
+    assert_eq!(e.a.stream_count(&e.core), 1);
+    e.call(&e.a, "cancel", json!({"streamId": "slow"}))
+        .await
+        .unwrap();
+    let rest: Vec<Json> = tokio::time::timeout(
+        Duration::from_secs(30),
+        events.map(|event| wire(&event)).collect(),
+    )
+    .await
+    .expect("the cancelled page ends");
+    assert!(rest.is_empty(), "{rest:?}");
+    assert_eq!(e.a.stream_count(&e.core), 0);
 }

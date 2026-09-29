@@ -1,499 +1,434 @@
+/**
+ * The grid's edits over the edits service (phase 5c): intents out, outcomes
+ * in, on the saved connection each edit is given, never the active one.
+ */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SchemaColumn, SchemaTable } from "$lib/types";
 import type { ProviderRegistry } from "$lib/providers";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
+import type { ApplyChangesParams, PlanEditsParams } from "./edit-service/types";
 
-const client = {
-  buildUpdate: vi.fn(),
-  buildSetDefault: vi.fn(),
-  buildInsert: vi.fn(),
-  buildDelete: vi.fn(),
-  tableMetadata: vi.fn(),
-};
-const getEngineClient = vi.fn((..._args: unknown[]) => client);
-const usesRustEngine = vi.fn((c: { type: string }) => c.type === "postgres");
-vi.mock("$lib/engine", () => ({
-  getEngineClient: (...args: unknown[]) => getEngineClient(...args),
-  usesRustEngine: (c: { type: string }) => usesRustEngine(c),
-}));
 const debug = vi.fn();
+const logError = vi.fn();
 vi.mock("$lib/utils/logger", () => ({
-  log: { debug: (...args: unknown[]) => debug(...args), error: vi.fn(), info: vi.fn() },
+  log: {
+    debug: (...args: unknown[]) => debug(...args),
+    error: (...args: unknown[]) => logError(...args),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
 }));
 
-const { QueryCrudManager, castMapForColumns } = await import("./query-crud.svelte.js");
+const { QueryCrudManager } = await import("./query-crud.svelte.js");
+const { CoreEditService } = await import("./edit-service/core-service.js");
+const { scriptedCore, refusal } = await import("./edit-service/scripted-core.js");
 
-function column(name: string, type: string, castType?: string): SchemaColumn {
-  return {
-    name,
-    type,
-    ...(castType === undefined ? {} : { castType }),
-    nullable: true,
-    isPrimaryKey: false,
-    isForeignKey: false,
-  } as SchemaColumn;
-}
-
-const users: SchemaTable = {
-  name: "users",
-  schema: "public",
-  type: "table",
-  columns: [
-    column("id", "bigint"),
-    column("name", "TEXT"),
-    column("email", "character varying"),
-    column("code", "character"),
-    column("mood", "USER-DEFINED"),
-    column("tags", "ARRAY"),
-    column("balance", "numeric"),
-    column("meta", "jsonb"),
-  ],
-  indexes: [],
-} as unknown as SchemaTable;
-
-const connection = {
-  id: "conn-1",
-  type: "postgres",
-  name: "Local",
-  providerConnectionId: "pc-1",
-};
-
-function makeManager(
-  opts: {
-    pending?: boolean;
-    activeConnectionId?: string | null;
-    tables?: SchemaTable[];
-    type?: string;
-  } = {},
-) {
-  const active = { ...connection, type: opts.type ?? connection.type };
-  const state = {
-    activeConnectionId: opts.activeConnectionId === undefined ? "conn-1" : opts.activeConnectionId,
-    activeConnection: active,
-    connections: [active],
-    schemas: { "conn-1": opts.tables ?? [users] },
-  } as unknown as DatabaseState;
-  const provider = { execute: vi.fn(async () => ({ rowsAffected: 1, lastInsertId: 7 })) };
-  const providers = { getForType: vi.fn(async () => provider) } as unknown as ProviderRegistry;
-  const addPending = vi.fn();
-  const pending = {
-    isEnabled: () => opts.pending ?? false,
-    add: addPending,
-    findForCell: vi.fn(() => undefined),
-    update: vi.fn(),
-  } as unknown as PendingChangesManager;
-  return { manager: new QueryCrudManager(state, providers, pending), state, provider, addPending };
-}
-
-describe("castMapForColumns", () => {
-  it("casts every column except text, varchar, user-defined and array ones", () => {
-    expect(castMapForColumns(users.columns)).toEqual({
-      id: "bigint",
-      code: "bpchar",
-      balance: "numeric",
-      meta: "jsonb",
-    });
-  });
-
-  it("casts length-typed bit and character columns to their unbounded types", () => {
-    // information_schema reports `bit`/`character` without the length, and
-    // CAST(… AS bit) would be bit(1): the WHERE clause would match nothing.
-    expect(
-      castMapForColumns([
-        column("flags", "bit"),
-        column("code", "character"),
-        column("mask", "bit varying"),
-      ]),
-    ).toEqual({ flags: "bit varying", code: "bpchar", mask: "bit varying" });
-  });
-
-  it("keeps the column's own type spelling", () => {
-    expect(castMapForColumns([column("n", "NUMERIC(10,2)")])).toEqual({ n: "NUMERIC(10,2)" });
-  });
-
-  it("casts to castType verbatim when the column has one, for every column", () => {
-    // Postgres reports castType (bug fix 7): enums and arrays get their real
-    // type, and text columns a harmless text cast.
-    expect(
-      castMapForColumns([
-        column("mood", "USER-DEFINED", 'app."Weird Mood"'),
-        column("tags", "ARRAY", "integer[]"),
-        column("name", "text", "text"),
-        column("email", "character varying", "character varying"),
-        column("flags", "bit", '"bit"'),
-        column("code", "character", "bpchar"),
-        column("n", "numeric", "numeric(10,2)"),
-        // No castType (other engines, or an older cache entry): today's rules.
-        column("legacy", "USER-DEFINED"),
-        column("mask", "bit"),
-        column("id", "bigint"),
-      ]),
-    ).toEqual({
-      mood: 'app."Weird Mood"',
-      tags: "integer[]",
-      name: "text",
-      email: "character varying",
-      flags: '"bit"',
-      code: "bpchar",
-      n: "numeric(10,2)",
-      mask: "bit varying",
-      id: "bigint",
-    });
-  });
-});
-
-describe("QueryCrudManager.buildCastMap", () => {
-  const fetched = {
-    columns: [column("id", "uuid", "uuid"), column("mood", "USER-DEFINED", "app.mood")],
-    indexes: [{ name: "orders_pkey", columns: ["id"], unique: true, type: "btree" }],
-  };
-
-  beforeEach(() => {
-    getEngineClient.mockClear();
-    client.tableMetadata.mockReset();
-    debug.mockClear();
-  });
-
-  it("returns the active connection's table cast map", async () => {
-    const { manager } = makeManager();
-    expect(await manager.buildCastMap("public", "users")).toEqual({
-      id: "bigint",
-      code: "bpchar",
-      balance: "numeric",
-      meta: "jsonb",
-    });
-    expect(client.tableMetadata).not.toHaveBeenCalled();
-  });
-
-  it("is undefined without an active connection", async () => {
-    const { manager } = makeManager({ activeConnectionId: null });
-    expect(await manager.buildCastMap("public", "users")).toBe(undefined);
-    expect(client.tableMetadata).not.toHaveBeenCalled();
-  });
-
-  it("loads the columns of a table missing from the schema cache", async () => {
-    client.tableMetadata.mockResolvedValue(fetched);
-    const { manager, state } = makeManager();
-
-    expect(await manager.buildCastMap("app", "orders")).toEqual({ id: "uuid", mood: "app.mood" });
-    expect(getEngineClient).toHaveBeenCalledWith(state.activeConnection, state);
-    expect(client.tableMetadata).toHaveBeenCalledWith("app", "orders");
-    // Not in the cache's table list, so there is nothing to update.
-    expect(state.schemas["conn-1"]).toEqual([users]);
-  });
-
-  it("loads and caches the columns of a cached table without them", async () => {
-    client.tableMetadata.mockResolvedValue(fetched);
-    const orders = { ...users, name: "orders", schema: "app", columns: [] } as SchemaTable;
-    const { manager, state } = makeManager({ tables: [users, orders] });
-
-    expect(await manager.buildCastMap("app", "orders")).toEqual({ id: "uuid", mood: "app.mood" });
-    expect(state.schemas["conn-1"]).toEqual([users, { ...orders, ...fetched }]);
-
-    // Cached now: no second fetch.
-    expect(await manager.buildCastMap("app", "orders")).toEqual({ id: "uuid", mood: "app.mood" });
-    expect(client.tableMetadata).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to no cast map when loading fails, and logs it at debug level", async () => {
-    client.tableMetadata.mockRejectedValue(new Error("connection lost"));
-    const { manager, state } = makeManager();
-
-    expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
-    expect(debug).toHaveBeenCalledWith(expect.stringContaining("connection lost"));
-    expect(state.schemas["conn-1"]).toEqual([users]);
-  });
-
-  it("loads a table's columns once for concurrent and later edits", async () => {
-    let resolve!: (m: typeof fetched) => void;
-    client.tableMetadata.mockReturnValue(new Promise((r) => (resolve = r)));
-    const { manager } = makeManager();
-
-    const first = manager.buildCastMap("app", "orders");
-    const second = manager.buildCastMap("app", "orders");
-    resolve(fetched);
-    const casts = { id: "uuid", mood: "app.mood" };
-    expect(await first).toEqual(casts);
-    expect(await second).toEqual(casts);
-    // Not in the schema cache's table list, but remembered all the same.
-    expect(await manager.buildCastMap("app", "orders")).toEqual(casts);
-    expect(client.tableMetadata).toHaveBeenCalledTimes(1);
-  });
-
-  it("loads again after the schema reloads, a reconnect or a failed load", async () => {
-    client.tableMetadata.mockResolvedValue(fetched);
-    const { manager, state } = makeManager();
-
-    await manager.buildCastMap("app", "orders");
-    manager.forgetLoadedColumns("conn-1");
-    await manager.buildCastMap("app", "orders");
-    expect(client.tableMetadata).toHaveBeenCalledTimes(2);
-
-    // reconnect() replaces the connection with a new provider connection id.
-    const reconnected = { ...state.activeConnection!, providerConnectionId: "pc-2" };
-    Object.assign(state, { activeConnection: reconnected, connections: [reconnected] });
-    await manager.buildCastMap("app", "orders");
-    expect(client.tableMetadata).toHaveBeenCalledTimes(3);
-
-    client.tableMetadata.mockRejectedValueOnce(new Error("timeout"));
-    manager.forgetLoadedColumns("conn-1");
-    expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
-    expect(await manager.buildCastMap("app", "orders")).toEqual({ id: "uuid", mood: "app.mood" });
-    expect(client.tableMetadata).toHaveBeenCalledTimes(5);
-  });
-
-  it("doesn't overwrite columns a schema refresh stored while it was loading", async () => {
-    let resolve!: (m: typeof fetched) => void;
-    client.tableMetadata.mockReturnValue(new Promise((r) => (resolve = r)));
-    const orders = { ...users, name: "orders", schema: "app", columns: [] } as SchemaTable;
-    const { manager, state } = makeManager({ tables: [users, orders] });
-
-    const pending = manager.buildCastMap("app", "orders");
-    const refreshed = {
-      ...orders,
-      columns: [column("id", "uuid", "uuid"), column("total", "numeric", "numeric(10,2)")],
-    };
-    state.schemas = { "conn-1": [users, refreshed] };
-    resolve(fetched);
-    await pending;
-
-    expect(state.schemas["conn-1"]).toEqual([users, refreshed]);
-  });
-
-  // Task 1 (phase 2): SQLite's CAST(? AS DATETIME/JSON/BOOLEAN/…) applies
-  // numeric affinity and corrupts the value, and the other engines ignore
-  // casts, so only Postgres gets a cast map.
-  it.each(["sqlite", "mysql", "mariadb", "mssql", "duckdb"])(
-    "has no cast map for %s, even with the table's columns cached",
-    async (type) => {
-      const { manager } = makeManager({ type });
-      expect(await manager.buildCastMap("public", "users")).toBe(undefined);
-      expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
-      expect(client.tableMetadata).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(["sqlite", "mysql", "mariadb", "mssql", "duckdb"])(
-    "doesn't load columns for %s once it runs on the Rust engine",
-    async (type) => {
-      usesRustEngine.mockReturnValue(true);
-      try {
-        const { manager } = makeManager({ type });
-        expect(await manager.buildCastMap("app", "orders")).toBe(undefined);
-        expect(client.tableMetadata).not.toHaveBeenCalled();
-      } finally {
-        usesRustEngine.mockReset();
-        usesRustEngine.mockImplementation((c) => c.type === "postgres");
-      }
-    },
-  );
-
-  it("doesn't load columns for TypeScript engines", async () => {
-    const { manager } = makeManager({ type: "sqlite" });
-    expect(await manager.buildCastMap("main", "nope")).toBe(undefined);
-    expect(client.tableMetadata).not.toHaveBeenCalled();
-  });
-});
-
-describe("QueryCrudManager via EngineClient", () => {
+describe("QueryCrudManager edits", () => {
+  // Connection A holds the data; B is active in the sidebar.
+  const a = { id: "conn-a", type: "postgres", name: "A", providerConnectionId: "pc-a" };
+  const b = { id: "conn-b", type: "postgres", name: "B", providerConnectionId: "pc-b" };
   const source = { schema: "public", name: "users", primaryKeys: ["id"] };
-  const row = { id: 9007199254740993n, name: "a" };
+  const row = { id: 5, name: "a" };
+
+  function setup(opts: { pending?: boolean; script?: Parameters<typeof scriptedCore>[0] } = {}) {
+    const state = {
+      activeConnectionId: "conn-b",
+      activeConnection: b,
+      connections: [a, b],
+      schemas: {},
+    } as unknown as DatabaseState;
+    const core = scriptedCore(opts.script);
+    const service = new CoreEditService(() => core.client);
+    const serviceFor = vi.fn(async (..._args: unknown[]) => service);
+    const addPlanned = vi.fn();
+    const pending = {
+      isEnabled: () => opts.pending ?? false,
+      addPlanned,
+    } as unknown as PendingChangesManager;
+    const manager = new QueryCrudManager(
+      state,
+      {} as ProviderRegistry,
+      pending,
+      serviceFor as never,
+    );
+    const applies = () => core.of("applyChanges") as ApplyChangesParams[];
+    const plans = () => core.of("planEdits") as PlanEditsParams[];
+    return { manager, state, core, serviceFor, addPlanned, applies, plans };
+  }
 
   beforeEach(() => {
-    getEngineClient.mockClear();
-    for (const fn of Object.values(client)) fn.mockReset();
+    logError.mockClear();
   });
 
-  it("updateCellDirect builds with the cast map and executes the bindings", async () => {
-    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: ["b", row.id] });
-    const { manager, state, provider } = makeManager();
-
-    const result = await manager.updateCellDirect(source, row, "name", "b");
-
-    expect(result).toEqual({ success: true });
-    expect(getEngineClient).toHaveBeenCalledWith(connection, state);
-    expect(client.buildUpdate).toHaveBeenCalledWith("public", "users", "name", "b", ["id"], row, {
-      id: "bigint",
-      code: "bpchar",
-      balance: "numeric",
-      meta: "jsonb",
+  it("an immediate edit sends one applyChanges with one change, unconfirmed and without history", async () => {
+    const { manager, applies, plans } = setup();
+    expect(await manager.updateCellDirect("conn-a", source, row, "name", "b")).toEqual({
+      success: true,
+      error: undefined,
+      queued: undefined,
     });
-    expect(provider.execute).toHaveBeenCalledWith("pc-1", "UPDATE", ["b", row.id]);
-  });
-
-  it("insertRow passes the cast map and returns lastInsertId", async () => {
-    client.buildInsert.mockResolvedValue({ sql: "INSERT", bindValues: [1] });
-    const { manager } = makeManager();
-
-    const result = await manager.insertRow(source, { id: 1 });
-
-    expect(result).toEqual({ success: true, lastInsertId: 7 });
-    expect(client.buildInsert.mock.calls[0]).toEqual([
-      "public",
-      "users",
-      { id: 1 },
-      { id: "bigint", code: "bpchar", balance: "numeric", meta: "jsonb" },
+    expect(plans()).toEqual([]);
+    expect(applies()).toHaveLength(1);
+    const [apply] = applies();
+    expect(apply.connectionId).toBe("pc-a");
+    expect(apply.confirmed).toBeUndefined();
+    expect(apply.history).toBeUndefined();
+    expect(apply.changes).toEqual([
+      {
+        type: "edit",
+        id: expect.any(String),
+        edit: {
+          type: "updateCell",
+          target: { schema: "public", table: "users" },
+          key: [["id", 5]],
+          column: "name",
+          value: "b",
+        },
+      },
     ]);
   });
 
-  it("deleteRow and setCellDefaultDirect queue the built SQL when pending changes are on", async () => {
-    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [row.id] });
-    client.buildSetDefault.mockResolvedValue({ sql: "SET DEFAULT", bindValues: [row.id] });
-    const { manager, addPending, provider } = makeManager({ pending: true });
+  it("runs every edit on the given connection, not the active one", async () => {
+    const { manager, applies, serviceFor, state } = setup();
+    await manager.updateCellDirect("conn-a", source, row, "name", "b");
+    await manager.setCellDefaultDirect("conn-a", source, row, "name");
+    await manager.insertRow("conn-a", source, { id: 1 });
+    await manager.deleteRow("conn-a", source, row);
 
-    expect(await manager.deleteRow(source, row)).toEqual({ success: true, queued: true });
-    expect(await manager.setCellDefaultDirect(source, row, "name")).toEqual({
+    expect(applies().map((p) => p.connectionId)).toEqual(["pc-a", "pc-a", "pc-a", "pc-a"]);
+    expect(applies().map((p) => p.changes[0].type === "edit" && p.changes[0].edit.type)).toEqual([
+      "updateCell",
+      "setDefault",
+      "insertRow",
+      "deleteRow",
+    ]);
+    for (const call of serviceFor.mock.calls) expect(call[0]).toBe(state.connections[0]);
+  });
+
+  it("insertRow returns the insert id", async () => {
+    const { manager } = setup({
+      script: {
+        applyChanges: (p) => ({
+          outcome: "applied",
+          mode: "single",
+          applied: 1,
+          results: [{ id: p.changes[0].id, rowsAffected: 1, lastInsertId: 42 }],
+          ddl: false,
+          history: [],
+        }),
+      },
+    });
+    expect(await manager.insertRow("conn-a", source, { name: "x" })).toEqual({
+      success: true,
+      error: undefined,
+      queued: undefined,
+      lastInsertId: 42,
+    });
+  });
+
+  it("a queued edit stores the intent and its planned display fields", async () => {
+    const { manager, addPlanned, applies, plans } = setup({ pending: true });
+    expect(await manager.updateCellDirect("conn-a", source, row, "name", "b")).toMatchObject({
       success: true,
       queued: true,
     });
-
-    // The cast map covers the primary-key placeholders too (bug fix 6).
-    const casts = { id: "bigint", code: "bpchar", balance: "numeric", meta: "jsonb" };
-    expect(client.buildDelete).toHaveBeenCalledWith("public", "users", ["id"], row, casts);
-    expect(client.buildSetDefault).toHaveBeenCalledWith(
-      "public",
-      "users",
-      "name",
-      ["id"],
-      row,
-      casts,
-    );
-    expect(addPending.mock.calls.map((c) => [c[1], c[5]])).toEqual([
-      ["DELETE", [row.id]],
-      ["SET DEFAULT", [row.id]],
-    ]);
-    expect(provider.execute).not.toHaveBeenCalled();
-  });
-
-  it("builds with the loaded cast map when the table isn't cached", async () => {
-    client.tableMetadata.mockResolvedValue({
-      columns: [column("id", "uuid", "uuid"), column("meta", "jsonb", "jsonb")],
-      indexes: [],
-    });
-    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: [null, "k"] });
-    client.buildSetDefault.mockResolvedValue({ sql: "SET DEFAULT", bindValues: ["k"] });
-    client.buildInsert.mockResolvedValue({ sql: "INSERT", bindValues: [null] });
-    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: ["k"] });
-    const { manager } = makeManager();
-    const orders = { schema: "app", name: "orders", primaryKeys: ["id"] };
-    const key = { id: "k" };
-    const casts = { id: "uuid", meta: "jsonb" };
-
-    expect(await manager.updateCellDirect(orders, key, "meta", null)).toEqual({ success: true });
-    expect(await manager.setCellDefaultDirect(orders, key, "meta")).toEqual({ success: true });
-    expect(await manager.insertRow(orders, { meta: null })).toMatchObject({ success: true });
-    expect(await manager.deleteRow(orders, key)).toEqual({ success: true });
-
-    expect(client.buildUpdate.mock.calls[0]?.[6]).toEqual(casts);
-    expect(client.buildSetDefault.mock.calls[0]?.[5]).toEqual(casts);
-    expect(client.buildInsert.mock.calls[0]?.[3]).toEqual(casts);
-    expect(client.buildDelete.mock.calls[0]?.[4]).toEqual(casts);
-  });
-
-  it("builds SQLite edits without casts", async () => {
-    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: ["2024-01-01 10:00", 1] });
-    client.buildInsert.mockResolvedValue({ sql: "INSERT", bindValues: ['{"a":1}'] });
-    const { manager } = makeManager({ type: "sqlite" });
-
-    await manager.updateCellDirect(source, row, "balance", "2024-01-01 10:00");
-    await manager.insertRow(source, { meta: '{"a":1}' });
-
-    expect(client.buildUpdate.mock.calls[0]?.[6]).toBe(undefined);
-    expect(client.buildInsert.mock.calls[0]?.[3]).toBe(undefined);
-  });
-
-  it("sends SQLite's Set to default the column's default expression from fresh metadata", async () => {
-    usesRustEngine.mockImplementation((c) => c.type === "postgres" || c.type === "sqlite");
-    try {
-      client.tableMetadata.mockResolvedValue({
-        columns: [
-          { ...column("status", "TEXT"), defaultValue: "'active'" },
-          { ...column("at", "DATETIME"), defaultValue: "CURRENT_TIMESTAMP" },
-          column("note", "TEXT"),
+    expect(applies()).toEqual([]);
+    expect(plans()).toEqual([
+      {
+        connectionId: "pc-a",
+        edits: [
+          {
+            type: "updateCell",
+            target: { schema: "public", table: "users" },
+            key: [["id", 5]],
+            column: "name",
+            value: "b",
+          },
         ],
-        indexes: [],
-      });
-      client.buildSetDefault.mockResolvedValue({ sql: "UPDATE", bindValues: [row.id] });
-      const { manager, provider } = makeManager({ type: "sqlite" });
-
-      for (const c of ["status", "at", "note"]) {
-        expect(await manager.setCellDefaultDirect(source, row, c)).toEqual({ success: true });
-      }
-      // No casts for SQLite; the default expression is the 7th argument, NULL without one.
-      expect(client.buildSetDefault.mock.calls.map((c) => [c[2], c[5], c[6]])).toEqual([
-        ["status", undefined, "'active'"],
-        ["at", undefined, "CURRENT_TIMESTAMP"],
-        ["note", undefined, "NULL"],
-      ]);
-      expect(client.tableMetadata).toHaveBeenCalledTimes(3);
-      expect(client.tableMetadata).toHaveBeenCalledWith("public", "users");
-      expect(provider.execute).toHaveBeenCalledTimes(3);
-
-      // A column the metadata doesn't list fails instead of setting NULL.
-      const missing = await manager.setCellDefaultDirect(source, row, "gone");
-      expect(missing.success).toBe(false);
-      expect(missing.error).toContain('Column "gone" not found');
-      expect(client.buildSetDefault).toHaveBeenCalledTimes(3);
-    } finally {
-      usesRustEngine.mockImplementation((c) => c.type === "postgres");
-    }
+      },
+    ]);
+    const [connectionId, edit, planned, origin, target] = addPlanned.mock.calls[0] ?? [];
+    expect(connectionId).toBe("conn-a");
+    expect(edit).toEqual(plans()[0].edits[0]);
+    expect(planned).toMatchObject({ queryType: "update", dml: true });
+    expect(origin).toBe("inline-edit");
+    expect(target).toEqual({
+      schema: "public",
+      table: "users",
+      column: "name",
+      primaryKeyValues: { id: 5 },
+      newValue: "b",
+    });
   });
 
-  it("sends no default expression for other engines", async () => {
-    client.buildSetDefault.mockResolvedValue({ sql: "UPDATE", bindValues: [row.id] });
-    const { manager } = makeManager();
-    await manager.setCellDefaultDirect(source, row, "name");
-    expect(client.buildSetDefault.mock.calls[0]).toHaveLength(6);
-    expect(client.tableMetadata).not.toHaveBeenCalled();
+  it("two quick queued edits of one cell keep the later, however their plans land", async () => {
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let n = 0;
+    const { manager, addPlanned } = setup({
+      pending: true,
+      script: {
+        planEdits: async (p) => {
+          n += 1;
+          if (n === 1) await firstHeld;
+          return p.edits.map(() => ({ sql: "X", params: [], queryType: "update", dml: true }));
+        },
+      },
+    });
+    const first = manager.updateCellDirect("conn-a", source, row, "name", "first");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const second = await manager.updateCellDirect("conn-a", source, row, "name", "second");
+    releaseFirst();
+    expect(await first).toMatchObject({ success: true, queued: true });
+    expect(second).toMatchObject({ success: true, queued: true });
+    // The later edit queued; the earlier plan, landing after it, was dropped.
+    expect(addPlanned).toHaveBeenCalledOnce();
+    expect(addPlanned.mock.calls[0][1]).toMatchObject({ value: "second" });
+
+    // Another cell, or the same cell after, isn't affected.
+    await manager.updateCellDirect("conn-a", source, { id: 6 }, "name", "other");
+    await manager.updateCellDirect("conn-a", source, row, "name", "third");
+    expect(addPlanned).toHaveBeenCalledTimes(3);
   });
 
-  it("fails a keyed edit that matched no row, naming the table and key", async () => {
-    client.buildUpdate.mockResolvedValue({ sql: "UPDATE", bindValues: ["b", row.id] });
-    client.buildSetDefault.mockResolvedValue({ sql: "SET DEFAULT", bindValues: [row.id] });
-    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [row.id] });
-    const { manager, provider } = makeManager();
-    provider.execute.mockResolvedValue({ rowsAffected: 0, lastInsertId: 7 });
-
-    for (const result of [
-      await manager.updateCellDirect(source, row, "name", "b"),
-      await manager.setCellDefaultDirect(source, row, "name"),
-      await manager.deleteRow(source, row),
-    ]) {
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("public.users");
-      expect(result.error).toContain("id = 9007199254740993");
-    }
-    expect(provider.execute).toHaveBeenCalledTimes(3);
+  it("queues under the given connection with each edit's origin", async () => {
+    const { manager, addPlanned } = setup({ pending: true });
+    await manager.updateCellDirect("conn-a", source, row, "name", "b");
+    await manager.setCellDefaultDirect("conn-a", source, row, "name");
+    await manager.insertRow("conn-a", source, { id: 1 });
+    await manager.deleteRow("conn-a", source, row);
+    expect(addPlanned.mock.calls.map((c) => [c[0], c[3]])).toEqual([
+      ["conn-a", "inline-edit"],
+      ["conn-a", "set-default"],
+      ["conn-a", "insert-row"],
+      ["conn-a", "delete-row"],
+    ]);
   });
 
-  it("names every key column, quoting text keys", async () => {
-    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [] });
-    const { manager, provider } = makeManager();
-    provider.execute.mockResolvedValue({ rowsAffected: 0, lastInsertId: 7 });
+  it("NO_ROWS_AFFECTED shows the i18n message with the change's table and key", async () => {
+    const { manager } = setup({
+      script: {
+        applyChanges: (p) => ({
+          outcome: "applied",
+          mode: "single",
+          applied: 0,
+          results: [],
+          failed: {
+            id: p.changes[0].id,
+            index: 0,
+            code: "NO_ROWS_AFFECTED",
+            message: "Change 1 matched no row.",
+          },
+          ddl: false,
+          history: [],
+        }),
+      },
+    });
+    const composite = { schema: "inv", name: "stock", primaryKeys: ["region", "sku"] };
+    const result = await manager.deleteRow("conn-a", composite, { region: "eu", sku: "A'1" });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("inv.stock");
+    expect(result.error).toContain("region = 'eu', sku = 'A''1'");
+  });
 
-    const result = await manager.deleteRow(
-      { schema: "public", name: "users", primaryKeys: ["org", "name"] },
-      { org: 3, name: "O'Brien" },
+  it("a database error shows as the grid shows run errors; a refusal shows its code", async () => {
+    const failing = setup({
+      script: {
+        applyChanges: (p) => ({
+          outcome: "applied",
+          mode: "single",
+          applied: 0,
+          results: [],
+          failed: { id: p.changes[0].id, index: 0, code: "QUERY_ERROR", message: "boom" },
+          ddl: false,
+          history: [],
+        }),
+      },
+    });
+    expect((await failing.manager.updateCellDirect("conn-a", source, row, "name", "b")).error).toBe(
+      "boom",
     );
 
-    expect(result.error).toContain("org = 3, name = 'O''Brien'");
+    const refused = setup({
+      script: {
+        applyChanges: () => {
+          throw refusal("NOT_EDITABLE", "users has no primary key");
+        },
+      },
+    });
+    expect((await refused.manager.updateCellDirect("conn-a", source, row, "name", "b")).error).toBe(
+      "NOT_EDITABLE: users has no primary key",
+    );
   });
 
-  it("succeeds when a keyed edit affected its row", async () => {
-    client.buildDelete.mockResolvedValue({ sql: "DELETE", bindValues: [row.id] });
-    const { manager } = makeManager();
-    expect(await manager.deleteRow(source, row)).toEqual({ success: true });
+  it("an edit Core asks to confirm shows a translated message and applies nothing", async () => {
+    const { manager } = setup({
+      script: {
+        applyChanges: () => ({
+          outcome: "confirmRequired",
+          destructive: [{ index: 0, sql: "DELETE FROM users", reason: "delete_no_where" }],
+          destructiveTotal: 1,
+        }),
+      },
+    });
+    const { success, error } = await manager.deleteRow("conn-a", source, row);
+    expect(success).toBe(false);
+    expect(error).toMatch(/wasn't confirmed, so nothing was applied/);
   });
 
-  it("returns the builder's error instead of throwing", async () => {
-    client.buildUpdate.mockRejectedValue(new Error("ENGINE_ERROR: nope"));
-    const { manager } = makeManager();
+  it("TRANSACTION_OPEN asks to commit or roll back first", async () => {
+    const { manager } = setup({
+      script: {
+        applyChanges: () => {
+          throw refusal("TRANSACTION_OPEN", "a transaction is open");
+        },
+      },
+    });
+    const { error } = await manager.updateCellDirect("conn-a", source, row, "name", "b");
+    expect(error).toMatch(/Commit or roll it back first/);
+  });
 
-    const result = await manager.updateCellDirect(source, row, "name", "b");
+  it("an edit after a reconnect uses the connection's new Core id", async () => {
+    const { manager, state, applies, serviceFor } = setup();
+    state.connections = [{ ...a, providerConnectionId: "pc-a2" } as never, b as never];
+    await manager.updateCellDirect("conn-a", source, row, "name", "b");
+    expect(applies()[0].connectionId).toBe("pc-a2");
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("nope");
+    // A reconnect that lands while the service is looked up.
+    const service = await serviceFor.mock.results[0]?.value;
+    serviceFor.mockImplementationOnce(async () => {
+      state.connections = [{ ...a, providerConnectionId: "pc-a3" } as never, b as never];
+      return service;
+    });
+    await manager.deleteRow("conn-a", source, row);
+    expect(applies()[1].connectionId).toBe("pc-a3");
+  });
+
+  it("an edit on a disconnected or removed connection is refused, and nothing is sent", async () => {
+    const { manager, state, core, addPlanned } = setup();
+    state.connections = [{ ...a, providerConnectionId: undefined } as never, b as never];
+    const refused = { success: false, error: "No connection established" };
+    expect(await manager.updateCellDirect("conn-a", source, row, "name", "b")).toEqual(refused);
+    expect(await manager.setCellDefaultDirect("conn-a", source, row, "name")).toEqual(refused);
+    expect(await manager.insertRow("conn-a", source, { id: 1 })).toMatchObject(refused);
+    expect(await manager.deleteRow("conn-a", source, row)).toEqual(refused);
+    state.connections = [b as never];
+    expect(await manager.updateCellDirect("conn-a", source, row, "name", "b")).toEqual(refused);
+    expect(core.calls).toEqual([]);
+    expect(addPlanned).not.toHaveBeenCalled();
+  });
+
+  it("a queued edit whose connection went while it was planned queues nothing", async () => {
+    const holder: { state?: DatabaseState } = {};
+    const { manager, state, addPlanned } = setup({
+      pending: true,
+      script: {
+        planEdits: (p) => {
+          holder.state!.connections = [{ ...a, providerConnectionId: undefined } as never];
+          return p.edits.map(() => ({ sql: "X", params: [], queryType: "update", dml: true }));
+        },
+      },
+    });
+    holder.state = state;
+    expect(await manager.updateCellDirect("conn-a", source, row, "name", "b")).toEqual({
+      success: false,
+      error: "No connection established",
+    });
+    expect(addPlanned).not.toHaveBeenCalled();
+  });
+
+  it("a table without a primary key is refused before anything is sent", async () => {
+    const { manager, core } = setup();
+    const noKey = { ...source, primaryKeys: [] };
+    expect(await manager.updateCellDirect("conn-a", noKey, row, "name", "b")).toEqual({
+      success: false,
+      error: "No primary key found",
+    });
+    expect(core.calls).toEqual([]);
+  });
+
+  it("the stale-key log line holds no key value", async () => {
+    const canary = "CANARY-51c9";
+    const { manager } = setup({
+      script: {
+        applyChanges: (p) => ({
+          outcome: "applied",
+          mode: "single",
+          applied: 0,
+          results: [],
+          failed: { id: p.changes[0].id, index: 0, code: "NO_ROWS_AFFECTED", message: "x" },
+          ddl: false,
+          history: [],
+        }),
+      },
+    });
+    const result = await manager.updateCellDirect("conn-a", source, { id: canary }, "name", "b");
+    // The user still sees the key; the log doesn't.
+    expect(result.error).toContain(canary);
+    expect(logError).toHaveBeenCalledTimes(1);
+    const line = String(logError.mock.calls[0]?.[0]);
+    expect(line).toContain("public.users");
+    expect(line).not.toContain(canary);
+  });
+
+  it("sidebar drop and truncate send intents with confirmed", async () => {
+    const { manager, applies } = setup();
+    await manager.dropObject("conn-a", { schema: "public", name: "v" }, "view");
+    await manager.truncateTable("conn-a", { schema: "public", name: "t" });
+    expect(applies().map((p) => [p.connectionId, p.confirmed, p.changes[0]])).toEqual([
+      [
+        "pc-a",
+        true,
+        {
+          type: "edit",
+          id: expect.any(String),
+          edit: { type: "dropObject", target: { schema: "public", table: "v" }, kind: "view" },
+        },
+      ],
+      [
+        "pc-a",
+        true,
+        {
+          type: "edit",
+          id: expect.any(String),
+          edit: { type: "truncateTable", target: { schema: "public", table: "t" } },
+        },
+      ],
+    ]);
+  });
+
+  it("sidebar drop and truncate queue with their origins when pending changes are on", async () => {
+    const { manager, addPlanned, applies } = setup({ pending: true });
+    expect(await manager.dropObject("conn-a", { schema: "public", name: "t" }, "table")).toEqual({
+      queued: true,
+    });
+    await manager.dropObject("conn-a", { schema: "public", name: "mv" }, "materializedView");
+    await manager.truncateTable("conn-a", { schema: "public", name: "t" });
+    expect(addPlanned.mock.calls.map((c) => c[3])).toEqual([
+      "drop-table",
+      "drop-view",
+      "truncate-table",
+    ]);
+    expect(applies()).toEqual([]);
+  });
+
+  it("a failed sidebar drop throws the error", async () => {
+    const { manager } = setup({
+      script: {
+        applyChanges: (p) => ({
+          outcome: "applied",
+          mode: "single",
+          applied: 0,
+          results: [],
+          failed: { id: p.changes[0].id, index: 0, code: "EXECUTE_ERROR", message: "in use" },
+          ddl: false,
+          history: [],
+        }),
+      },
+    });
+    await expect(
+      manager.dropObject("conn-a", { schema: "public", name: "t" }, "table"),
+    ).rejects.toThrow("EXECUTE_ERROR: in use");
   });
 });
 

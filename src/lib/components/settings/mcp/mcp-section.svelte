@@ -110,8 +110,8 @@
 		{#if loadError}
 			<p class="text-sm text-destructive">{m.settings_mcp_load_failed({ error: loadError })}</p>
 		{:else if info}
-			<pre class="bg-muted rounded-md px-3 py-2 text-xs font-mono break-all whitespace-pre-wrap select-text">{info.sidecarPath}</pre>
-			{#if !info.sidecarExists}
+			<pre class="bg-muted rounded-md px-3 py-2 text-xs font-mono break-all whitespace-pre-wrap select-text">{info.binaryPath}</pre>
+			{#if !info.binaryExists}
 				<p class="flex items-center gap-1.5 text-xs text-destructive">
 					<TriangleAlertIcon class="size-3.5 shrink-0" />
 					{m.settings_mcp_binary_missing()}
@@ -137,7 +137,7 @@
 					{info.appImage ? m.settings_mcp_path_missing_appimage() : m.settings_mcp_path_missing()}
 				</p>
 			{/if}
-			{#if info.canInstall && info.sidecarExists && info.pathStatus !== "installed"}
+			{#if info.canInstall && (os === "windows" ? !info.binaryCurrent : info.pathStatus !== "installed")}
 				<Button variant="outline" size="sm" onclick={install} disabled={installing}>
 					{installing ? m.settings_mcp_installing() : m.settings_mcp_install()}
 				</Button>

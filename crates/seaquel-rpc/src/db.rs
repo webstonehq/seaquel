@@ -22,14 +22,23 @@
 //! workspace doesn't own is `CONNECTION_NOT_FOUND`, the same as one that
 //! doesn't exist.
 //!
-//! `queryStream`, `run` and `page` aren't request/response calls:
-//! [`dispatch_stream`] serves them as streams of [`CoreEvent`]s (the
+//! `queryStream`, `run`, `page` and `tablePage` aren't request/response
+//! calls: [`dispatch_stream`] serves them as streams of [`CoreEvent`]s (the
 //! desktop's `core_stream`, the web's `/rpc/stream`), and
 //! [`crate::dispatch_workspace`] refuses them. `run` is the editor's run
-//! (`Workspace::run`, phase 5b) and `page` re-pages one of its statements;
+//! (`Workspace::run`, phase 5b), `page` re-pages one of its statements, and
+//! `tablePage` is a data tab's page (`Workspace::table_page`, phase 5c);
 //! their events are [`CoreEvent::Run`]s. Their types live in
-//! `seaquel_core::domain::run` and exist in every build; without the
-//! `workspace` feature (the browser build) both answer `NOT_SUPPORTED`.
+//! `seaquel_core::domain::run` and `…::edits` and exist in every build;
+//! without the `workspace` feature (the browser build) they answer
+//! `NOT_SUPPORTED`.
+//!
+//! The grid's edits (phase 5c) are unary: `planEdits` (the pending-changes
+//! queue's display fields for some edit intents), `applyChanges` (the queue
+//! applied: one change, one transaction for DML only, or in order; its
+//! refusals and failures are the outcome's `failed`, not an error) and
+//! `duckdbExtension` (the DuckDB extensions tab's actions). Without the
+//! `workspace` feature they answer `NOT_SUPPORTED` too.
 //!
 //! Whether `connect` and `test` may connect at all, and to what, is Core's
 //! `ConnectPolicy`: a Core built without one answers `NOT_SUPPORTED`. Without
@@ -37,6 +46,10 @@
 //! `NOT_SUPPORTED` too.
 
 use futures::StreamExt;
+use seaquel_core::domain::edits::{
+    ApplyChangesParams, ApplyOutcome, ExtensionAction, PlanEditsParams, PlannedChange,
+    TablePageParams,
+};
 use seaquel_core::domain::run::{PageParams, RunEvent, RunParams};
 use seaquel_core::{Core, QueryOptions, Workspace, WorkspaceEvent};
 use seaquel_engine::BoxStream;
@@ -111,6 +124,20 @@ pub enum DbRequest {
     /// carried: another page, or the whole result at page size 0. Only
     /// through [`dispatch_stream`]. `Debug` shows no SQL or values.
     Page(PageParams),
+    /// The queue entries' SQL, binds, query type and summary for some edit
+    /// intents; runs nothing. `Debug` shows counts only.
+    PlanEdits(PlanEditsParams),
+    /// Apply the pending-changes queue. `Debug` shows counts only.
+    ApplyChanges(ApplyChangesParams),
+    /// One page of a data tab: Core builds the SELECT from the typed query.
+    /// Only through [`dispatch_stream`]. `Debug` shows the table, counts and
+    /// the page, never filter values.
+    TablePage(TablePageParams),
+    /// An action of the DuckDB extensions tab on a DuckDB connection.
+    DuckdbExtension {
+        connection_id: String,
+        action: ExtensionAction,
+    },
 }
 
 impl DbRequest {
@@ -128,24 +155,37 @@ impl DbRequest {
             DbRequest::QueryStream(_) => "queryStream",
             DbRequest::Run(_) => "run",
             DbRequest::Page(_) => "page",
+            DbRequest::PlanEdits(_) => "planEdits",
+            DbRequest::ApplyChanges(_) => "applyChanges",
+            DbRequest::TablePage(_) => "tablePage",
+            DbRequest::DuckdbExtension { .. } => "duckdbExtension",
         }
     }
 
-    /// The `streamId` of a stream request (`queryStream`, `run`, `page`):
-    /// what its events carry and `cancel` takes. `None` for the rest.
+    /// The `streamId` of a stream request (`queryStream`, `run`, `page`,
+    /// `tablePage`): what its events carry and `cancel` takes. `None` for
+    /// the rest.
     pub fn stream_id(&self) -> Option<&str> {
         match self {
             DbRequest::QueryStream(params) => Some(&params.stream_id),
             DbRequest::Run(params) => Some(&params.stream_id),
             DbRequest::Page(params) => Some(&params.stream_id),
+            DbRequest::TablePage(params) => Some(&params.stream_id),
             _ => None,
         }
     }
 
-    /// Whether its events are [`CoreEvent::Run`]s (`run`, `page`) rather
-    /// than [`CoreEvent::Stream`]s.
+    /// Whether its events are [`CoreEvent::Run`]s (`run`, `page`,
+    /// `tablePage`) rather than [`CoreEvent::Stream`]s.
     pub fn is_run(&self) -> bool {
-        matches!(self, DbRequest::Run(_) | DbRequest::Page(_))
+        Self::is_run_method(self.method())
+    }
+
+    /// Whether `method` names a request whose events are
+    /// [`CoreEvent::Run`]s, for a transport that has only the name (a
+    /// request it couldn't parse still gets its refusal as a run event).
+    pub fn is_run_method(method: &str) -> bool {
+        matches!(method, "run" | "page" | "tablePage")
     }
 }
 
@@ -237,7 +277,8 @@ impl QueryStreamParams {
 
 /// A `db` call's result, as `{"method": …, "result": …}`. Calls that return
 /// nothing have `"result": null`.
-#[derive(Debug, Serialize, Deserialize)]
+// Not `Deserialize`: results only go out (the edit outcomes can't be read).
+#[derive(Debug, Serialize)]
 #[serde(tag = "method", content = "result", rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum DbResponse {
@@ -249,6 +290,10 @@ pub enum DbResponse {
     Transaction(()),
     Engine(EngineResponse),
     Cancel(()),
+    PlanEdits(Vec<PlannedChange>),
+    ApplyChanges(ApplyOutcome),
+    /// `list`'s rows; `null` for the other actions.
+    DuckdbExtension(Option<QueryResult>),
 }
 
 /// `connect`'s result: Core's id for the new connection.
@@ -290,7 +335,7 @@ pub enum CoreEvent {
         code: String,
         message: String,
     },
-    /// One event of run or page `streamId`: per statement a
+    /// One event of run, page or table page `streamId`: per statement a
     /// `statementStart`, its `batch`es (`StreamBatch` flattened, snake_case,
     /// as in `stream`) and `statementDone`/`statementError`, then one `done`
     /// or `error` (nothing more after a cancel).
@@ -321,7 +366,7 @@ impl CoreEvent {
     }
 
     /// A terminal `error` for stream `stream_id`, shaped for the request it
-    /// answers: a `run` event when `run` (`db.run`/`db.page`), else a
+    /// answers: a `run` event when `run` (`db.run`/`db.page`/`db.tablePage`), else a
     /// `stream` event. The transports use it for a request they can't
     /// serve, and the web for a stream that ended without a terminal event.
     pub fn error(stream_id: &str, run: bool, code: &str, message: impl Into<String>) -> Self {
@@ -395,7 +440,13 @@ pub(crate) async fn db(
         DbRequest::Transaction {
             connection_id,
             statements,
-        } => DbResponse::Transaction(ws.transaction(core, &connection_id, statements).await?),
+        } => DbResponse::Transaction(
+            // The wire keeps the error alone; the index is for Core's callers.
+            ws.transaction(core, &connection_id, statements)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.error)?,
+        ),
         DbRequest::Engine {
             connection_id,
             request,
@@ -407,7 +458,18 @@ pub(crate) async fn db(
             ws.cancel(core, &stream_id);
             DbResponse::Cancel(())
         }
-        req @ (DbRequest::QueryStream(_) | DbRequest::Run(_) | DbRequest::Page(_)) => {
+        DbRequest::PlanEdits(params) => DbResponse::PlanEdits(plan_edits(core, ws, params).await?),
+        DbRequest::ApplyChanges(params) => {
+            DbResponse::ApplyChanges(apply_changes(core, ws, params).await?)
+        }
+        DbRequest::DuckdbExtension {
+            connection_id,
+            action,
+        } => DbResponse::DuckdbExtension(duckdb_extension(core, ws, &connection_id, action).await?),
+        req @ (DbRequest::QueryStream(_)
+        | DbRequest::Run(_)
+        | DbRequest::Page(_)
+        | DbRequest::TablePage(_)) => {
             return Err(RpcError::invalid_argument(format!(
                 "db.{} is served by the stream transport (core_stream, /rpc/stream), \
                  not as a single call",
@@ -454,19 +516,75 @@ async fn test(_: &Core, _: &Workspace, _: ConnectParams) -> Result<(), RpcError>
     Err(RpcError::not_supported("Connecting"))
 }
 
+#[cfg(feature = "workspace")]
+async fn plan_edits(
+    core: &Core,
+    ws: &Workspace,
+    params: PlanEditsParams,
+) -> Result<Vec<PlannedChange>, RpcError> {
+    Ok(ws.plan_edits(core, params).await?)
+}
+
+#[cfg(feature = "workspace")]
+async fn apply_changes(
+    core: &Core,
+    ws: &Workspace,
+    params: ApplyChangesParams,
+) -> Result<ApplyOutcome, RpcError> {
+    Ok(ws.apply_changes(core, params).await?)
+}
+
+#[cfg(feature = "workspace")]
+async fn duckdb_extension(
+    core: &Core,
+    ws: &Workspace,
+    connection_id: &str,
+    action: ExtensionAction,
+) -> Result<Option<QueryResult>, RpcError> {
+    Ok(ws.duckdb_extension(core, connection_id, action).await?)
+}
+
+#[cfg(not(feature = "workspace"))]
+async fn plan_edits(
+    _: &Core,
+    _: &Workspace,
+    _: PlanEditsParams,
+) -> Result<Vec<PlannedChange>, RpcError> {
+    Err(RpcError::not_supported("Editing"))
+}
+
+#[cfg(not(feature = "workspace"))]
+async fn apply_changes(
+    _: &Core,
+    _: &Workspace,
+    _: ApplyChangesParams,
+) -> Result<ApplyOutcome, RpcError> {
+    Err(RpcError::not_supported("Editing"))
+}
+
+#[cfg(not(feature = "workspace"))]
+async fn duckdb_extension(
+    _: &Core,
+    _: &Workspace,
+    _: &str,
+    _: ExtensionAction,
+) -> Result<Option<QueryResult>, RpcError> {
+    Err(RpcError::not_supported("DuckDB extensions"))
+}
+
 /// Start a stream request on `ws`, its events tagged with its `streamId`:
 ///
 /// - `db.queryStream`: [`CoreEvent::Stream`]s, ending after `done` or
 ///   `error`;
-/// - `db.run` and `db.page`: [`CoreEvent::Run`]s, ending after the run's
-///   `done` or `error`.
+/// - `db.run`, `db.page` and `db.tablePage`: [`CoreEvent::Run`]s, ending
+///   after the run's `done` or `error`.
 ///
-/// Either ends with nothing more after a cancel. A connection `ws` doesn't
+/// Each ends with nothing more after a cancel. A connection `ws` doesn't
 /// own gives one `CONNECTION_NOT_FOUND` error event. The stream borrows `ws`
 /// (a run appends its history row through it).
 ///
-/// Anything else is `INVALID_ARGUMENT`; `run` and `page` without the
-/// `workspace` feature are `NOT_SUPPORTED`. The desktop's `core_stream` and
+/// Anything else is `INVALID_ARGUMENT`; `run`, `page` and `tablePage`
+/// without the `workspace` feature are `NOT_SUPPORTED`. The desktop's `core_stream` and
 /// the web's `/rpc/stream` call it with a request parsed by
 /// [`crate::parse_request`]. Logs the method name only.
 pub fn dispatch_stream<'a>(
@@ -480,10 +598,12 @@ pub fn dispatch_stream<'a>(
         crate::Request::Db(DbRequest::QueryStream(params)) => params,
         crate::Request::Db(DbRequest::Run(params)) => return run(core, ws, params),
         crate::Request::Db(DbRequest::Page(params)) => return page(core, ws, params),
+        crate::Request::Db(DbRequest::TablePage(params)) => return table_page(core, ws, params),
         _ => {
             log::debug!(activity = "rpc.stream", group = group, method = method, code = crate::INVALID_ARGUMENT; "Workspace stream refused");
             return Err(RpcError::invalid_argument(format!(
-                "{group}.{method} isn't a stream; only db.queryStream, db.run and db.page are"
+                "{group}.{method} isn't a stream; only db.queryStream, db.run, db.page and \
+                 db.tablePage are"
             )));
         }
     };
@@ -529,6 +649,25 @@ fn page<'a>(
 ) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
     let stream_id = params.stream_id.clone();
     Ok(tag_run(stream_id, ws.page(core, params)))
+}
+
+#[cfg(feature = "workspace")]
+fn table_page<'a>(
+    core: &'a Core,
+    ws: &'a Workspace,
+    params: TablePageParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    let stream_id = params.stream_id.clone();
+    Ok(tag_run(stream_id, ws.table_page(core, params)))
+}
+
+#[cfg(not(feature = "workspace"))]
+fn table_page<'a>(
+    _: &'a Core,
+    _: &'a Workspace,
+    _: TablePageParams,
+) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
+    Err(RpcError::not_supported("Paging tables"))
 }
 
 #[cfg(not(feature = "workspace"))]

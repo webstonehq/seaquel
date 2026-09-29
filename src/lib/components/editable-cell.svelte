@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Input } from "$lib/components/ui/input";
-	import { LoaderIcon } from "@lucide/svelte";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
 	import FormattedCell from "$lib/components/formatted-cell.svelte";
 	import type { BinaryStringEncoding, CellType } from "$lib/utils/cell-type";
 	import { binaryCellBytes, editedCellValue, inputTypeForCellType } from "$lib/utils/cell-type";

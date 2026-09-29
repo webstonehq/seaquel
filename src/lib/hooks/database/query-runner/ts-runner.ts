@@ -5,8 +5,8 @@
  * deletes it, when the demo runs Core in the browser.
  *
  * It plans with the wasm SQL module (`$lib/sql`), runs on a
- * `DatabaseProvider` (DuckDB-WASM in the demo), pages through the engine
- * client's `paginate`, and appends history through the storage client (the
+ * `DatabaseProvider` (DuckDB-WASM in the demo), pages through the demo
+ * adapter's `paginateQuery`, and appends history through the storage client (the
  * demo's sql.js). It follows Core's rules where the fixtures in
  * `crates/seaquel-workspace/tests/fixtures/run` pin them, `changes.json`
  * included:
@@ -71,7 +71,7 @@ export interface TsRunnerContext {
   provider: DatabaseProvider;
   /** The connection's type: the rules the wasm module scans with. */
   engine: DatabaseType;
-  /** The engine client's `paginate` (dialect work stays in `$lib/engine`). */
+  /** The demo adapter's `paginateQuery` (dialect work stays in `$lib/db`). */
   paginate: (sql: string, limit: number, offset: number) => Promise<string>;
   /** Stores a history row (`getStorage().queryHistory.append`). */
   appendHistory: (item: PersistedQueryHistoryItem) => Promise<void>;

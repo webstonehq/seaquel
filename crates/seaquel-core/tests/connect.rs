@@ -579,6 +579,7 @@ async fn another_workspace_is_refused_on_every_operation() {
         &b.transaction(&f.core, &a_id, vec![stmt])
             .await
             .unwrap_err()
+            .error
             .code,
     );
     not_found(&b.engine(&f.core, &a_id).err().unwrap().code);

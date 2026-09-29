@@ -1,0 +1,417 @@
+[
+  {
+    "name": "tp/sqlite-filters",
+    "engine": "sqlite",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "main",
+          "table": "notes"
+        },
+        "filters": [
+          {
+            "column": "body",
+            "op": "!=",
+            "value": "x"
+          },
+          {
+            "column": "tag",
+            "op": "IS NULL",
+            "value": ""
+          },
+          {
+            "column": "id",
+            "op": "NOT IN",
+            "value": "4, 5"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "body",
+          "operator": "!=",
+          "value": "x",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "tag",
+          "operator": "IS NULL",
+          "value": "",
+          "enabled": true
+        },
+        {
+          "id": "f3",
+          "column": "id",
+          "operator": "NOT IN",
+          "value": "4, 5",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "body",
+        "created",
+        "tag"
+      ],
+      "matching": [
+        [
+          1,
+          "b1",
+          "2024-01-01 10:00:00",
+          null
+        ],
+        [
+          2,
+          "b2",
+          "2024-01-01 10:00:00",
+          null
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"main\".\"notes\" WHERE CAST(\"body\" AS TEXT) != $1 AND \"tag\" IS NULL AND CAST(\"id\" AS TEXT) NOT IN ($2, $3)",
+        "params": [
+          "x",
+          "4",
+          "5"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"main\".\"notes\" WHERE CAST(\"body\" AS TEXT) != $1 AND \"tag\" IS NULL AND CAST(\"id\" AS TEXT) NOT IN ($2, $3) LIMIT 100 OFFSET 0",
+        "params": [
+          "x",
+          "4",
+          "5"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "body",
+            "created",
+            "tag"
+          ],
+          "rows": [
+            [
+              1,
+              "b1",
+              "2024-01-01 10:00:00",
+              null
+            ],
+            [
+              2,
+              "b2",
+              "2024-01-01 10:00:00",
+              null
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"main\".\"notes\" WHERE CAST(\"body\" AS TEXT) != $1 AND \"tag\" IS NULL AND CAST(\"id\" AS TEXT) NOT IN ($2, $3)",
+      "params": [
+        "x",
+        "4",
+        "5"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"main\".\"notes\" WHERE CAST(\"body\" AS TEXT) != $1 AND \"tag\" IS NULL AND CAST(\"id\" AS TEXT) NOT IN ($2, $3)",
+      "params": [
+        "x",
+        "4",
+        "5"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "body",
+        "created",
+        "tag"
+      ],
+      "rows": [
+        [
+          1,
+          "b1",
+          "2024-01-01 10:00:00",
+          null
+        ],
+        [
+          2,
+          "b2",
+          "2024-01-01 10:00:00",
+          null
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "main",
+        "name": "notes",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/sqlite-last-page",
+    "engine": "sqlite",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "main",
+          "table": "notes"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "created",
+            "direction": "DESC"
+          }
+        ]
+      },
+      "page": 2,
+      "pageSize": 3,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "notes",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "body",
+              "type": "TEXT",
+              "nullable": true,
+              "defaultValue": "'empty'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "created",
+              "type": "DATETIME",
+              "nullable": true,
+              "defaultValue": "CURRENT_TIMESTAMP",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "tag",
+              "type": "TEXT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "notes_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "body",
+        "created",
+        "tag"
+      ],
+      "matching": [
+        [
+          1,
+          "b1",
+          "2024-01-01 10:00:00",
+          null
+        ],
+        [
+          2,
+          "b2",
+          "2024-01-01 10:00:00",
+          null
+        ],
+        [
+          3,
+          "b3",
+          "2024-01-01 10:00:00",
+          null
+        ],
+        [
+          4,
+          "b4",
+          "2024-01-01 10:00:00",
+          null
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"main\".\"notes\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              4
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"main\".\"notes\" ORDER BY \"created\" DESC LIMIT 3 OFFSET 3",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "body",
+            "created",
+            "tag"
+          ],
+          "rows": [
+            [
+              4,
+              "b4",
+              "2024-01-01 10:00:00",
+              null
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"main\".\"notes\" ORDER BY \"created\" DESC",
+      "params": []
+    },
+    "paging": {
+      "limit": 3,
+      "offset": 3
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"main\".\"notes\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "body",
+        "created",
+        "tag"
+      ],
+      "rows": [
+        [
+          4,
+          "b4",
+          "2024-01-01 10:00:00",
+          null
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 4,
+      "page": 2,
+      "pageSize": 3,
+      "totalPages": 2,
+      "error": null,
+      "sourceTable": {
+        "schema": "main",
+        "name": "notes",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  }
+]

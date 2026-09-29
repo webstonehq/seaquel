@@ -8,8 +8,10 @@
 	import DashboardWidgetEditor from './dashboard-widget-editor.svelte';
 	import DashboardDiffView from './dashboard-diff-view.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-	import { Loader2Icon } from '@lucide/svelte';
-	import { ChartBarIcon, GaugeIcon, TypeIcon } from '@lucide/svelte';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import ChartBarIcon from '@lucide/svelte/icons/chart-bar';
+	import GaugeIcon from '@lucide/svelte/icons/gauge';
+	import TypeIcon from '@lucide/svelte/icons/type';
 	import { isTauri } from '$lib/utils/environment';
 
 	let { tabId: propTabId = undefined }: { tabId?: string } = $props();

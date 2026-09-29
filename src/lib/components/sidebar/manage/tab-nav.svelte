@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-	import { DatabaseIcon, FileTextIcon, LayoutDashboardIcon } from "@lucide/svelte";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
+	import FileTextIcon from "@lucide/svelte/icons/file-text";
+	import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { m } from "$lib/paraglide/messages.js";
 

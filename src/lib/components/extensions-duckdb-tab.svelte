@@ -1,6 +1,13 @@
 <script lang="ts">
 	import type { ExtensionsDuckdbTab, DuckDBExtension, CommunityExtension } from '$lib/types';
-	import { RefreshCw as RefreshCwIcon, Loader2 as Loader2Icon, SearchIcon, DownloadIcon, PlayIcon, ArrowUpCircleIcon, ExternalLinkIcon, ChevronRightIcon } from '@lucide/svelte';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import SearchIcon from '@lucide/svelte/icons/search';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import PlayIcon from '@lucide/svelte/icons/play';
+	import ArrowUpCircleIcon from '@lucide/svelte/icons/arrow-up-circle';
+	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Table from '$lib/components/ui/table';

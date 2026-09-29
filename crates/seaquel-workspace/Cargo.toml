@@ -28,3 +28,10 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true }
+# tests/edits_plan.rs replays the edit fixtures with each engine's real
+# dialect (dev-dependencies are exempt from the crate rules).
+seaquel-engine-postgres = { path = "../seaquel-engine-postgres" }
+seaquel-engine-mysql = { path = "../seaquel-engine-mysql" }
+seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
+seaquel-engine-mssql = { path = "../seaquel-engine-mssql" }
+seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb" }

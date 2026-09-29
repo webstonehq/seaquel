@@ -1030,6 +1030,76 @@ async fn a_failed_count_is_estimated_and_flagged() {
     }
 }
 
+/// Probe M3: a page past the end comes back empty, and its offset says
+/// nothing about the total, so the count runs (estimated when it fails).
+#[tokio::test]
+async fn an_empty_page_past_the_start_counts() {
+    let e = env("postgres").await;
+    let count_sql = "SELECT COUNT(*) as total FROM (SELECT a FROM t) AS count_query";
+    e.driver.load(vec![
+        expect(
+            "stream",
+            &paginate("postgres", "SELECT a FROM t", 3, 20),
+            json!([]),
+            json!({"columns": ["a"], "rows": []}),
+        ),
+        expect(
+            "query",
+            count_sql,
+            json!([]),
+            json!({"columns": ["total"], "rows": [[5]]}),
+        ),
+    ]);
+    let ev = page(
+        &e,
+        json!({"source": {"sql": "SELECT a FROM t", "params": []}, "page": 11, "pageSize": 2}),
+    )
+    .await;
+    assert_eq!(
+        types(&ev),
+        ["statementStart", "batch", "statementDone", "done"]
+    );
+    assert_eq!(ev[2]["totalRows"], 5);
+    assert_eq!(ev[2]["totalPages"], 3);
+    assert_eq!(ev[2]["countEstimated"], false);
+    assert!(e.driver.problems().is_empty(), "{:?}", e.driver.problems());
+
+    // The count fails: the total is flagged as an estimate.
+    e.driver.load(vec![
+        expect(
+            "stream",
+            &paginate("postgres", "SELECT a FROM t", 3, 20),
+            json!([]),
+            json!({"columns": ["a"], "rows": []}),
+        ),
+        expect(
+            "query",
+            count_sql,
+            json!([]),
+            json!({"error": {"code": "QUERY_ERROR", "message": "timeout"}}),
+        ),
+    ]);
+    let ev = page(
+        &e,
+        json!({"source": {"sql": "SELECT a FROM t", "params": []}, "page": 11, "pageSize": 2}),
+    )
+    .await;
+    assert_eq!(ev[2]["countEstimated"], true, "{ev:?}");
+    assert!(e.driver.problems().is_empty(), "{:?}", e.driver.problems());
+
+    // The first page, empty: nothing to count.
+    e.driver.load(vec![expect(
+        "stream",
+        &paginate("postgres", "SELECT a FROM t", 3, 0),
+        json!([]),
+        json!({"columns": ["a"], "rows": []}),
+    )]);
+    let ev = run(&e, json!({"text": "SELECT a FROM t", "pageSize": 2})).await;
+    assert_eq!(ev[2]["totalRows"], 0);
+    assert_eq!(ev[2]["countEstimated"], false);
+    assert!(e.driver.problems().is_empty(), "{:?}", e.driver.problems());
+}
+
 #[tokio::test]
 async fn page_refuses_a_non_select() {
     let e = env("postgres").await;

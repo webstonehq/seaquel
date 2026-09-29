@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { SvelteFlow, Background, Controls, MiniMap } from "@xyflow/svelte";
 	import "@xyflow/svelte/dist/style.css";
-	import { LoaderIcon, DatabaseIcon } from "@lucide/svelte";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import ExplainPlanNode from "$lib/components/explain-plan-node.svelte";
 	import { layoutExplainPlan } from "$lib/utils/explain-layout";
 	import { analyzeExplainPlan, type HotPathAnalysis } from "$lib/utils/explain-analysis";

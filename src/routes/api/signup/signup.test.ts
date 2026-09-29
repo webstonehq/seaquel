@@ -306,3 +306,28 @@ describe("POST /api/signup — Origin check", () => {
     expect(licensing.registerInstall).not.toHaveBeenCalled();
   });
 });
+
+// Probe review: the body-limit hook fails a chunked body past the limit
+// with a 413 HttpError while the route reads it; that must stay a 413.
+describe("POST /api/signup — an oversized body", () => {
+  it("rethrows the hook's 413 instead of calling it invalid JSON", async () => {
+    const { error } = await import("@sveltejs/kit");
+    let tooLarge: unknown;
+    try {
+      error(413, "Payload Too Large");
+    } catch (e) {
+      tooLarge = e;
+    }
+    const body = new ReadableStream({ start: (c) => c.error(tooLarge) });
+    const event = {
+      request: new Request("http://localhost/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", origin: "http://localhost" },
+        body,
+        duplex: "half",
+      } as RequestInit),
+      getClientAddress: () => "127.0.0.1",
+    } as unknown as Parameters<typeof POST>[0];
+    await expect(POST(event)).rejects.toMatchObject({ status: 413 });
+  });
+});

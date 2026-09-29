@@ -130,8 +130,9 @@ pub enum Connector {
     Or,
 }
 
-/// `SortDirection` in `$lib/types`.
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+/// `SortDirection` in `$lib/types`. Also the data tab's sort
+/// (`seaquel_workspace::edits::Sort`), which reads it from the wire.
+#[derive(Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SortDirection {

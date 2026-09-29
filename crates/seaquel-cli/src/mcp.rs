@@ -5,9 +5,11 @@
 //!
 //! stdout carries only JSON-RPC. Logs, rmcp's `tracing` events and Core's
 //! `log` records alike, go to stderr at `--log-level`, and so does a startup
-//! failure, which exits non-zero. sqlx's `sqlx::query` target is held at
-//! ERROR below `debug`: it logs any statement slower than 1 s at WARN with
-//! its full SQL.
+//! failure, which exits non-zero. sqlx's `sqlx::query` target (any
+//! statement slower than 1 s at WARN, with its full SQL) and
+//! `sqlx::postgres::notice` (a `RAISE`'s text) are dropped at every level,
+//! and so is tiberius's token stream (SQL Server errors and `PRINT` text);
+//! the rest of tiberius passes at WARN at most.
 //!
 //! **Where it reads from.** The data dir is
 //! `seaquel_storage::data_dir("app.seaquel.desktop")` (`.dev` in a debug
@@ -82,8 +84,19 @@ pub fn run(args: McpArgs) -> ExitCode {
 /// values. The drivers turn it off; this drops it too, at every level.
 const SQLX_QUERY_TARGET: &str = "sqlx::query";
 
+/// sqlx's Postgres notice target: a `RAISE WARNING`'s text, which the query
+/// chooses and can fill with values (probe M5). Dropped at every level.
+const SQLX_NOTICE_TARGET: &str = "sqlx::postgres::notice";
+
+/// tiberius's token stream: every SQL Server error (ERROR) and `PRINT`
+/// (INFO) with the server's text, which can quote values. Dropped at every
+/// level; the rest of tiberius passes at WARN at most (its TLS warnings).
+const TIBERIUS_TOKEN_TARGET: &str = "tiberius::tds::stream::token";
+
 /// What `--log-level` lets through: everything at `level`, except
-/// `sqlx::query` and `sqlparser`, which log SQL text and never pass.
+/// `sqlx::query`, `sqlx::postgres::notice`, tiberius's token stream and
+/// `sqlparser`, which log SQL or query text and never pass, and the rest of
+/// tiberius, held at WARN.
 pub(crate) fn log_filter(level: LogLevel) -> Targets {
     let filter = match level {
         LogLevel::Off => LevelFilter::OFF,
@@ -96,6 +109,9 @@ pub(crate) fn log_filter(level: LogLevel) -> Targets {
     Targets::new()
         .with_default(filter)
         .with_target(SQLX_QUERY_TARGET, LevelFilter::OFF)
+        .with_target(SQLX_NOTICE_TARGET, LevelFilter::OFF)
+        .with_target(TIBERIUS_TOKEN_TARGET, LevelFilter::OFF)
+        .with_target("tiberius", filter.min(LevelFilter::WARN))
         .with_target("sqlparser", LevelFilter::OFF)
 }
 
@@ -283,6 +299,14 @@ mod tests {
                 Level::TRACE,
             ] {
                 assert!(!enables(&t, "sqlx::query", l), "{level:?} {l:?}");
+                assert!(!enables(&t, "sqlx::postgres::notice", l), "{level:?} {l:?}");
+                assert!(
+                    !enables(&t, "tiberius::tds::stream::token", l),
+                    "{level:?} {l:?}"
+                );
+                if l > Level::WARN {
+                    assert!(!enables(&t, "tiberius::client", l), "{level:?} {l:?}");
+                }
             }
         }
         assert!(enables(

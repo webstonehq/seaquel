@@ -1,7 +1,8 @@
 //! `GET /rpc/stream`: one WebSocket per browser session, for the user in
 //! `X-Seaquel-User`. It carries that user's query streams, several at once,
-//! and their connection events, and the editor's runs (`db.run`,
-//! `db.page`), each of which counts as one stream.
+//! and their connection events, the editor's runs (`db.run`, `db.page`)
+//! and the data tab's pages (`db.tablePage`), each of which counts as one
+//! stream.
 //!
 //! Only Node's `/api/rpc/stream` upgrade reaches it. Node sets the header
 //! from the session and drops any copy the browser sent, and passes frames
@@ -15,8 +16,8 @@
 //! ```
 //!
 //! - `start` runs `request`, a `CoreRequest` that must be `db.queryStream`,
-//!   `db.run` or `db.page` with the same `streamId`, on the user's
-//!   workspace (`dispatch_stream`).
+//!   `db.run`, `db.page` or `db.tablePage` with the same `streamId`, on the
+//!   user's workspace (`dispatch_stream`).
 //!   `request` is an inline JSON object. It goes to `parse_request` as the
 //!   exact bytes it has in the frame (a borrowed `RawValue`, never a
 //!   `serde_json::Value`), so the `method`-before-`params` rule holds.
@@ -30,10 +31,10 @@
 //!   one `done` or `error`. A stream that ends without either (another
 //!   request cancelled it, or the workspace was evicted) gets a final
 //!   `error` with code [`CANCELLED`]; one this socket cancelled gets nothing.
-//! - `{"type":"run","streamId":…,"event":…}`: a run's or page's events
-//!   (per statement a `statementStart`, `batch`es and `statementDone` or
-//!   `statementError`), then one `done` or `error`. The `CANCELLED` rule is
-//!   the same, as a run `error`.
+//! - `{"type":"run","streamId":…,"event":…}`: a run's, page's or table
+//!   page's events (per statement a `statementStart`, `batch`es and
+//!   `statementDone` or `statementError`), then one `done` or `error`. The
+//!   `CANCELLED` rule is the same, as a run `error`.
 //! - `{"type":"connectionClosed",…}`: one of the user's connections went
 //!   away (`WORKSPACE_EVICTED`), from any of the user's workspaces.
 //!
@@ -42,13 +43,14 @@
 //! mismatched `streamId`, one longer than [`MAX_STREAM_ID_LEN`] or outside
 //! `[A-Za-z0-9_.:-]`, a bad `request`, a stream id already running on this
 //! socket) or [`TOO_MANY_STREAMS`]. It is a `run` event when the frame's
-//! request names `db.run` or `db.page`, else a `stream` event. Its
+//! request names `db.run`, `db.page` or `db.tablePage`, else a `stream`
+//! event. Its
 //! `streamId` is the frame's when it has a valid string one, else `""`.
 //!
 //! # Limits
 //!
-//! - At most [`MAX_STREAMS`] streams run per socket, a run or page being
-//!   one however many statements it has, and a user has at most
+//! - At most [`MAX_STREAMS`] streams run per socket, a run, page or table
+//!   page being one however many statements it has, and a user has at most
 //!   [`MAX_LISTENERS_PER_USER`] sockets; one more is closed at once with
 //!   code 1013 and a [`TOO_MANY_SOCKETS`] reason.
 //! - A batch (a stream's or a run's) whose frame would pass
@@ -73,7 +75,9 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use seaquel_core::domain::run::RunEvent;
 use seaquel_core::StreamEvent;
-use seaquel_rpc::{dispatch_stream, parse_request, CoreEvent, Request, RpcError, INVALID_ARGUMENT};
+use seaquel_rpc::{
+    dispatch_stream, parse_request, CoreEvent, DbRequest, Request, RpcError, INVALID_ARGUMENT,
+};
 use seaquel_types::StreamBatch;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -180,9 +184,9 @@ fn error_event(stream_id: &str, code: &str, message: impl Into<String>) -> CoreE
     CoreEvent::error(stream_id, false, code, message)
 }
 
-/// Whether a start frame's `request` names `db.run` or `db.page`, read
-/// leniently (it may not parse as a request at all), so that even its
-/// refusal is a `run` event.
+/// Whether a start frame's `request` names `db.run`, `db.page` or
+/// `db.tablePage`, read leniently (it may not parse as a request at all),
+/// so that even its refusal is a `run` event.
 fn names_a_run(request: &RawValue) -> bool {
     #[derive(Deserialize)]
     struct Outer {
@@ -197,7 +201,7 @@ fn names_a_run(request: &RawValue) -> bool {
         o.method.as_deref() == Some("db")
             && o.params
                 .and_then(|p| p.method)
-                .is_some_and(|m| m == "run" || m == "page")
+                .is_some_and(|m| DbRequest::is_run_method(&m))
     })
 }
 
@@ -418,13 +422,13 @@ impl Session {
 
 fn not_a_stream(request: &Request) -> RpcError {
     RpcError::invalid_argument(format!(
-        "{}.{} isn't a stream; only db.queryStream, db.run and db.page are",
+        "{}.{} isn't a stream; only db.queryStream, db.run, db.page and db.tablePage are",
         request.group(),
         request.method()
     ))
 }
 
-/// Run one stream (a query stream, a run or a page) to its end, sending
+/// Run one stream (a query stream, a run, a page or a table page) to its end, sending
 /// its events to the client. `run`: its events are `run` events, and so is
 /// the error this sends when it can't be served or ends without a terminal
 /// event.

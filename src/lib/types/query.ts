@@ -127,6 +127,12 @@ export interface StatementResult extends QueryResult {
   /** The SQL text of this specific statement, as typed (before `{{param}}` substitution) */
   statementSql: string;
   /**
+   * The saved connection the result came from. Edits, Set default, deletes,
+   * paging and the reruns after them go there, never to whichever
+   * connection is active by then.
+   */
+  connectionId?: string;
+  /**
    * What paging re-runs (`db.page`): the statement after `{{param}}`
    * substitution and its bind values, in the cell wire format, as the run's
    * `statementStart` sent them. Absent on an error result for a statement

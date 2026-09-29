@@ -1,6 +1,8 @@
 /**
  * `EngineClient`: the one async interface every dialect-dependent call site
- * uses (introspection, EXPLAIN, statistics, pagination, CRUD and DDL SQL).
+ * uses (introspection, EXPLAIN, statistics and DDL SQL). The grid's edits,
+ * the data tab's page and pagination are Core's (phase 5c: the edits
+ * service; `TsEditService` and `TsQueryRunner` in the demo).
  *
  * Two implementations:
  * - `RustEngineClient` sends an `EngineRequest` to the Rust core as a
@@ -10,8 +12,6 @@
  *
  * `getEngineClient(connection)` in `./index` picks one. One method per
  * `EngineRequest` variant, taking and returning the generated wire types.
- * Rows are plain objects here; the Rust client turns them into the ordered
- * `[column, value]` pairs of the wire format.
  */
 
 import type { ColumnTypeInfo } from "$lib/types/generated/ColumnTypeInfo";
@@ -21,13 +21,6 @@ import type { ExplainResult } from "$lib/types/generated/ExplainResult";
 import type { SchemaColumn } from "$lib/types/generated/SchemaColumn";
 import type { SchemaIndex } from "$lib/types/generated/SchemaIndex";
 import type { SchemaTable } from "$lib/types/generated/SchemaTable";
-import type { SqlWithBindings } from "$lib/types/generated/SqlWithBindings";
-
-/** Column name → SQL type for `CAST($n AS type)`; columns that need no cast are absent. */
-export type CastMap = Record<string, string>;
-
-/** A row keyed by column name. Key order is the column order. */
-export type RowRecord = Record<string, unknown>;
 
 export interface TableMetadata {
   columns: SchemaColumn[];
@@ -52,64 +45,19 @@ export interface EngineClient {
   /** Column types offered by the create-table editor. */
   columnTypes(): Promise<ColumnTypeInfo[]>;
 
-  /** `sql` wrapped with this dialect's LIMIT/OFFSET. */
-  paginate(sql: string, limit: number, offset: number): Promise<string>;
-
   /**
    * One identifier (a column, an index), quoted and escaped the way the
-   * dialect's `quote_ident` does. Local, like `paginate`; see `./qualified-table`.
+   * dialect's `quote_ident` does. Local; see `./qualified-table`.
    */
   quoteIdent(name: string): string;
 
   /**
    * `"schema"."table"` for a table as `schemaTables` lists it. Build every
    * table name from a listed schema with this, never by quoting the schema
-   * as one identifier (DuckDB's `catalog.schema` is two). Local, like
-   * `paginate`; see `./qualified-table`.
+   * as one identifier (DuckDB's `catalog.schema` is two). Local; see
+   * `./qualified-table`.
    */
   qualifiedTable(schema: string, table: string): string;
-
-  buildUpdate(
-    schema: string,
-    table: string,
-    column: string,
-    value: unknown,
-    primaryKeys: string[],
-    row: RowRecord,
-    casts?: CastMap,
-  ): Promise<SqlWithBindings>;
-
-  /**
-   * `casts` wraps the primary-key placeholders (Rust dialects only).
-   * `columnDefault` is the column's default expression from its metadata
-   * (`defaultValue`, or `"NULL"` when it has none): SQLite has no `DEFAULT`
-   * in `UPDATE` and assigns it instead. Other engines ignore it.
-   */
-  buildSetDefault(
-    schema: string,
-    table: string,
-    column: string,
-    primaryKeys: string[],
-    row: RowRecord,
-    casts?: CastMap,
-    columnDefault?: string,
-  ): Promise<SqlWithBindings>;
-
-  buildInsert(
-    schema: string,
-    table: string,
-    values: RowRecord,
-    casts?: CastMap,
-  ): Promise<SqlWithBindings>;
-
-  /** `casts` wraps the primary-key placeholders (Rust dialects only). */
-  buildDelete(
-    schema: string,
-    table: string,
-    primaryKeys: string[],
-    row: RowRecord,
-    casts?: CastMap,
-  ): Promise<SqlWithBindings>;
 
   /** CREATE TABLE DDL. */
   createTable(definition: CreateTableDefinition): Promise<string>;

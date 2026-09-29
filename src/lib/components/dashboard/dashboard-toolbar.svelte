@@ -3,14 +3,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import ConnectionSelector from '$lib/components/connection-selector.svelte';
-	import {
-		PlusIcon,
-		RefreshCwIcon,
-		Loader2Icon,
-		MaximizeIcon,
-		MinimizeIcon,
-		HistoryIcon,
-	} from '@lucide/svelte';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import MaximizeIcon from '@lucide/svelte/icons/maximize';
+	import MinimizeIcon from '@lucide/svelte/icons/minimize';
+	import HistoryIcon from '@lucide/svelte/icons/history';
 
 	interface Props {
 		dashboard: Dashboard;

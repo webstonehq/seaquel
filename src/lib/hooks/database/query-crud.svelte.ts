@@ -1,478 +1,377 @@
-import type { PendingChangeOrigin, PendingChangeTarget } from "$lib/types";
+import type { DatabaseConnection, PendingChangeOrigin, PendingChangeTarget } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { ProviderRegistry, ReadOnlyRows } from "$lib/providers";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
-import { extractErrorMessage } from "$lib/errors";
 import { log } from "$lib/utils/logger";
-import { getEngineClient, usesRustEngine, type CastMap, type TableMetadata } from "$lib/engine";
-import { describePendingChange } from "./pending-change-description.js";
-import type { SchemaColumn } from "$lib/types";
-import { storeTableMetadata } from "./schema-cache.js";
 import { noRowMatchedMessage } from "./stale-edit.js";
 import { readOnlyError } from "$lib/services/ai/context.js";
+import { callErrorText, errorText } from "./error-text.js";
+import { CONFIRM_REQUIRED } from "./query-runner/types";
+import {
+  deleteRowEdit,
+  dropObjectEdit,
+  getEditService,
+  insertRowEdit,
+  NO_ROWS_AFFECTED,
+  setDefaultEdit,
+  truncateTableEdit,
+  updateCellEdit,
+  type Edit,
+  type EditService,
+  type EditTable,
+} from "./edit-service/index.js";
+import type { ObjectKind } from "$lib/types/generated/ObjectKind";
+
+/**
+ * The cell a queued update or Set default writes, as a key; `null` for the
+ * other edits, which never replace a queued one.
+ */
+function cellOf(connectionId: string, edit: Edit): string | null {
+  if (edit.type !== "updateCell" && edit.type !== "setDefault") return null;
+  return JSON.stringify([connectionId, edit.target, edit.column, edit.key]);
+}
 
 type CrudResult = { success: boolean; error?: string; queued?: boolean };
+type InsertResult = CrudResult & { lastInsertId?: number };
 
-/** Without a `castType`, text-like, user-defined and array columns bind without a cast. */
-const UNCAST_TYPES = new Set(["text", "character varying", "user-defined", "array"]);
+/** The refusal for an edit whose connection is disconnected or was removed. */
+const NO_CONNECTION: CrudResult = { success: false, error: "No connection established" };
 
-/**
- * Types information_schema reports without their length. `CAST(… AS bit)`
- * is bit(1) and `CAST(… AS character)` is char(1), which truncate the value,
- * so a key compared that way matches no row. The unbounded types compare
- * (and assign) at the column's own length. Postgres only: no other engine
- * gets a cast map (see `buildCastMap`).
- */
-const UNBOUNDED_CAST: Record<string, string> = { bit: "bit varying", character: "bpchar" };
+/** What `submit` came to: queued, applied (with its insert id and DDL flag), or an error. */
+type Submitted = InsertResult & { ddl?: boolean };
 
 /**
- * Column name → type for Postgres, whose builders wrap bind placeholders in
- * `CAST($N AS type)`. Columns that need no cast are absent.
- * The Rust dialects also cast primary-key placeholders with it (update,
- * set default, delete), so uuid/date/timestamp keys sent as text compare.
+ * The grid's edits as a view model over the connection's `EditService`
+ * (phase 5c): each edit is an intent (a table, the key picked out of the
+ * row, a column and a value; `./edit-service/intents`) that Core plans
+ * and runs with the connection's dialect, after reading the table's
+ * metadata and checking the key against its primary key.
  *
- * A column with a `castType` (Postgres reports one for every column from its
- * catalog: enums and arrays by their real type, user types schema-qualified)
- * casts to it as it is; the builders interpolate it into the SQL, so it must
- * never come from user input. Without one, the type comes from `type` by the rules above.
- */
-export function castMapForColumns(columns: readonly SchemaColumn[]): CastMap {
-  return Object.fromEntries(
-    columns.flatMap((c): [string, string][] => {
-      if (c.castType) return [[c.name, c.castType]];
-      const type = c.type.toLowerCase();
-      return UNCAST_TYPES.has(type) ? [] : [[c.name, UNBOUNDED_CAST[type] ?? c.type]];
-    }),
-  );
-}
-
-/**
- * The result of a keyed edit (update, set default, delete) that ran: an
- * error naming the table and key when it matched no row, so a stale key
- * doesn't lose the edit silently.
- */
-function matchedRow(
-  sourceTable: { schema: string; name: string; primaryKeys: string[] },
-  row: Record<string, unknown>,
-  rowsAffected: number,
-): CrudResult {
-  if (rowsAffected !== 0) return { success: true };
-  const key = Object.fromEntries(sourceTable.primaryKeys.map((pk) => [pk, row[pk]]));
-  const error = noRowMatchedMessage(sourceTable.schema, sourceTable.name, key);
-  void log.error(`Keyed edit matched no row: ${error}`);
-  return { success: false, error };
-}
-
-/**
- * Handles CRUD operations (insert, update, delete) and raw query execution.
- * Extracted from QueryExecutionManager for readability.
+ * With pending changes on, `db.planEdits` fills the queue entry (a repeated
+ * edit of a cell replaces the queued one); otherwise `db.applyChanges` runs
+ * it at once as one change. A keyed edit that matched no row fails with the
+ * translated "no row matched" naming the table and key. Every edit runs on
+ * the saved connection it's given (the one its row came from), looked up
+ * again after each await, never on whichever connection is active.
  */
 export class QueryCrudManager {
   /**
-   * Table metadata loaded for cast maps (see `buildCastMap`), per connection,
-   * then by provider connection id, schema and table. Holds the promise, so
-   * concurrent edits share one load; a failed load is dropped so the next
-   * edit retries. Keying by the provider connection id forgets everything on
-   * reconnect and disconnect; `forgetLoadedColumns` does it on schema reloads.
+   * The latest queued edit of each cell (connection, table, column, key):
+   * a plan that lands after a later edit of the same cell is dropped, so
+   * two quick edits can't queue out of order.
    */
-  private loadedColumns = new Map<string, Map<string, Promise<TableMetadata>>>();
+  private cellEdits = new Map<string, number>();
+  private editSeq = 0;
 
   constructor(
     private state: DatabaseState,
     private providers: ProviderRegistry,
     private pendingChanges: PendingChangesManager,
+    private editServiceFor: (connection: DatabaseConnection) => Promise<EditService> = (c) =>
+      getEditService(c, state, providers),
   ) {}
 
-  /** Drop the metadata loaded for cast maps on a connection, e.g. when its schema reloads. */
-  forgetLoadedColumns(connectionId: string): void {
-    this.loadedColumns.delete(connectionId);
+  /**
+   * A saved connection as it is now, with its Core id: `null` when it was
+   * removed or is disconnected. Read at the time of each edit (and again
+   * after each await before it's sent), so a reconnect's new Core id is
+   * used and an edit never goes to whichever connection is active.
+   */
+  private lookUp(
+    connectionId: string,
+  ): { connection: DatabaseConnection; providerConnectionId: string } | null {
+    const connection = this.state.connections.find((c) => c.id === connectionId);
+    const providerConnectionId = connection?.providerConnectionId;
+    return connection && providerConnectionId ? { connection, providerConnectionId } : null;
   }
 
   /**
-   * The cast map for a table on the active connection (see `castMapForColumns`).
-   *
-   * When the schema cache doesn't have the table's columns yet (not loaded, or
-   * the table isn't listed), a Rust-engine connection loads them first (once;
-   * see `loadedColumns`) and puts them in the schema cache if its entry still
-   * has none: without casts, typed keys don't compare (`uuid = text`) and a
-   * NULL doesn't assign to jsonb, enum or array columns. `undefined` without an
-   * active connection, or when that load fails.
-   *
-   * Only Postgres gets a cast map. SQLite would wrap values in
-   * `CAST(? AS <declared type>)`, and its affinity rules turn DATETIME, DATE,
-   * BOOLEAN, JSON, UUID and NUMERIC(…) casts numeric (`'2024-01-01 10:00'`
-   * becomes 2024, `'{"a":1}'` becomes 0) and the BLOB fallback turns text into
-   * a blob. MySQL, MariaDB, MSSQL and DuckDB ignore casts.
+   * Queue `edit` (pending changes on) or apply it now, on `connectionId`.
+   * `target` is the queue entry's (the grid's overlays) and names the table
+   * and key in the "no row matched" error.
    */
-  async buildCastMap(schema: string, tableName: string): Promise<CastMap | undefined> {
-    const connectionId = this.state.activeConnectionId;
-    const connection = this.state.activeConnection;
-    if (!connectionId || !connection || connection.type !== "postgres") return undefined;
-    const findTable = () =>
-      (this.state.schemas[connectionId] ?? []).find(
-        (t) => t.name === tableName && t.schema === schema,
-      );
-    const table = findTable();
-    if (table && (table.columns.length > 0 || !usesRustEngine(connection))) {
-      return castMapForColumns(table.columns);
-    }
-    if (!usesRustEngine(connection)) return undefined;
-
-    const byConnection =
-      this.loadedColumns.get(connectionId) ?? new Map<string, Promise<TableMetadata>>();
-    this.loadedColumns.set(connectionId, byConnection);
-    const key = JSON.stringify([connection.providerConnectionId ?? null, schema, tableName]);
-    let load = byConnection.get(key);
-    if (!load) {
-      load = getEngineClient(connection, this.state).tableMetadata(schema, tableName);
-      byConnection.set(key, load);
-    }
-
+  private async submit(
+    connectionId: string,
+    edit: Edit,
+    origin: PendingChangeOrigin,
+    target: PendingChangeTarget,
+    options: { confirmed?: boolean } = {},
+  ): Promise<Submitted> {
+    const found = this.lookUp(connectionId);
+    if (!found) return NO_CONNECTION;
+    let service: EditService;
     try {
-      const { columns, indexes } = await load;
-      // Only fill an entry that still has no columns: a schema refresh may
-      // have stored newer ones while this was loading.
-      const current = findTable();
-      if (current && current.columns.length === 0) {
-        storeTableMetadata(this.state, connectionId, { ...current, columns, indexes });
-      }
-      return castMapForColumns(columns);
+      service = await this.editServiceFor(found.connection);
     } catch (error) {
-      if (byConnection.get(key) === load) byConnection.delete(key);
-      void log.debug(
-        `No cast map for ${schema}.${tableName}: loading its columns failed: ${extractErrorMessage(error)}`,
-      );
-      return undefined;
+      return { success: false, error: callErrorText(error) };
     }
+    // The connection as it is after the await (a reconnect, a disconnect).
+    const now = this.lookUp(connectionId);
+    if (!now || now.connection.type !== found.connection.type) return NO_CONNECTION;
+
+    if (this.pendingChanges.isEnabled()) {
+      const cell = cellOf(connectionId, edit);
+      const seq = ++this.editSeq;
+      if (cell) this.cellEdits.set(cell, seq);
+      let planned;
+      let failed: string | null = null;
+      try {
+        [planned] = await service.plan({ connectionId: now.providerConnectionId, edits: [edit] });
+      } catch (error) {
+        failed = callErrorText(error);
+      }
+      // A later edit of the same cell was made meanwhile: it replaces this one.
+      if (cell && this.cellEdits.get(cell) !== seq) return { success: true, queued: true };
+      if (cell) this.cellEdits.delete(cell);
+      if (failed !== null) return { success: false, error: failed };
+      if (!planned) return { success: false, error: "The edit wasn't planned" };
+      // The plan awaited: the connection may have gone meanwhile.
+      if (!this.lookUp(connectionId)) return NO_CONNECTION;
+      this.pendingChanges.addPlanned(connectionId, edit, planned, origin, target);
+      return { success: true, queued: true };
+    }
+
+    let outcome;
+    try {
+      outcome = await service.apply({
+        connectionId: now.providerConnectionId,
+        changes: [{ type: "edit", id: crypto.randomUUID(), edit }],
+        ...(options.confirmed ? { confirmed: true } : {}),
+      });
+    } catch (error) {
+      return { success: false, error: callErrorText(error) };
+    }
+    if (outcome.outcome === "confirmRequired") {
+      // Grid edits aren't destructive and the sidebar sends `confirmed`.
+      return { success: false, error: errorText(CONFIRM_REQUIRED, "") };
+    }
+    const { failed } = outcome;
+    if (failed) {
+      if (failed.code === NO_ROWS_AFFECTED && target.primaryKeyValues) {
+        // The table only: the key is row data.
+        void log.error(`Keyed edit of ${target.schema}.${target.table} matched no row`);
+        return {
+          success: false,
+          error: noRowMatchedMessage(target.schema, target.table, target.primaryKeyValues),
+        };
+      }
+      void log.error(`Edit of ${target.schema}.${target.table} failed: ${failed.code}`);
+      return { success: false, error: errorText(failed.code, failed.message) };
+    }
+    const lastInsertId = outcome.results[0]?.lastInsertId;
+    return {
+      success: true,
+      ddl: outcome.ddl,
+      ...(lastInsertId === undefined ? {} : { lastInsertId }),
+    };
+  }
+
+  /** The row's primary-key values, for the queue entry and the "no row matched" error. */
+  private keyValues(table: EditTable, row: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(table.primaryKeys.map((pk) => [pk, row[pk]]));
   }
 
   /**
-   * The default expression Set to default assigns on SQLite, which has no
-   * `DEFAULT` in `UPDATE`: the column's `defaultValue` (the SQL text of its
-   * DEFAULT clause), or `"NULL"` for a column without one. Read from fresh
-   * metadata, since the schema cache may predate a change to the default.
-   * `undefined` for every other engine, whose dialects write `DEFAULT`.
-   */
-  private async setDefaultExpression(
-    schema: string,
-    table: string,
-    column: string,
-  ): Promise<string | undefined> {
-    const connection = this.state.activeConnection;
-    if (!connection || connection.type !== "sqlite" || !usesRustEngine(connection)) {
-      return undefined;
-    }
-    const { columns } = await getEngineClient(connection, this.state).tableMetadata(schema, table);
-    const found = columns.find((c) => c.name === column);
-    if (!found) throw new Error(`Column "${column}" not found in "${table}"`);
-    return found.defaultValue ?? "NULL";
-  }
-
-  /**
-   * Update a single cell value directly.
-   * Used by the data viewer for inline cell editing and by updateCell (query tab version).
+   * Update one cell, on the saved connection `connectionId` (the one the row
+   * came from, never the active one). A queued edit of the same cell is
+   * replaced.
    */
   async updateCellDirect(
-    sourceTable: { schema: string; name: string; primaryKeys: string[] },
+    connectionId: string,
+    sourceTable: EditTable,
     row: Record<string, unknown>,
     column: string,
     newValue: unknown,
-    options?: { deduplicatePending?: boolean },
   ): Promise<CrudResult> {
     if (sourceTable.primaryKeys.length === 0) {
       return { success: false, error: "No primary key found" };
     }
-
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) {
-      return { success: false, error: "No connection established" };
-    }
-
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      const client = getEngineClient(connection, this.state);
-      const casts = await this.buildCastMap(sourceTable.schema, sourceTable.name);
-      const { sql: query, bindValues } = await client.buildUpdate(
-        sourceTable.schema,
-        sourceTable.name,
+    const { success, error, queued } = await this.submit(
+      connectionId,
+      updateCellEdit(sourceTable, row, column, newValue),
+      "inline-edit",
+      {
+        schema: sourceTable.schema,
+        table: sourceTable.name,
         column,
+        primaryKeyValues: this.keyValues(sourceTable, row),
         newValue,
-        sourceTable.primaryKeys,
-        row,
-        casts,
-      );
-
-      if (this.pendingChanges.isEnabled()) {
-        const pkValues = Object.fromEntries(sourceTable.primaryKeys.map((pk) => [pk, row[pk]]));
-        const target: PendingChangeTarget = {
-          schema: sourceTable.schema,
-          table: sourceTable.name,
-          column,
-          primaryKeyValues: pkValues,
-          newValue,
-        };
-
-        if (options?.deduplicatePending) {
-          const existingChange = this.pendingChanges.findForCell(
-            connection.id,
-            sourceTable.schema,
-            sourceTable.name,
-            column,
-            pkValues,
-          );
-          if (existingChange) {
-            this.pendingChanges.update(connection.id, existingChange.id, {
-              sql: query,
-              bindValues,
-              target,
-              description: describePendingChange(query, "inline-edit"),
-            });
-            return { success: true, queued: true };
-          }
-        }
-
-        this.pendingChanges.add(
-          connection.id,
-          query,
-          "update",
-          "inline-edit",
-          undefined,
-          bindValues,
-          target,
-        );
-        return { success: true, queued: true };
-      }
-
-      const { rowsAffected } = await provider.execute(
-        connection.providerConnectionId,
-        query,
-        bindValues,
-      );
-      return matchedRow(sourceTable, row, rowsAffected);
-    } catch (error) {
-      return { success: false, error: extractErrorMessage(error) };
-    }
+      },
+    );
+    return { success, error, queued };
   }
 
-  /**
-   * Set a cell to its column DEFAULT directly.
-   * Used by the data viewer and by setCellDefault (query tab version).
-   */
+  /** Set one cell to its column's default, on the saved connection `connectionId`. */
   async setCellDefaultDirect(
-    sourceTable: { schema: string; name: string; primaryKeys: string[] },
+    connectionId: string,
+    sourceTable: EditTable,
     row: Record<string, unknown>,
     column: string,
-    options?: { deduplicatePending?: boolean },
   ): Promise<CrudResult> {
     if (sourceTable.primaryKeys.length === 0) {
       return { success: false, error: "No primary key found" };
     }
-
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) {
-      return { success: false, error: "No connection established" };
-    }
-
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      const client = getEngineClient(connection, this.state);
-      const columnDefault = await this.setDefaultExpression(
-        sourceTable.schema,
-        sourceTable.name,
+    const { success, error, queued } = await this.submit(
+      connectionId,
+      setDefaultEdit(sourceTable, row, column),
+      "set-default",
+      {
+        schema: sourceTable.schema,
+        table: sourceTable.name,
         column,
-      );
-      const { sql: query, bindValues } = await client.buildSetDefault(
-        sourceTable.schema,
-        sourceTable.name,
-        column,
-        sourceTable.primaryKeys,
-        row,
-        await this.buildCastMap(sourceTable.schema, sourceTable.name),
-        ...(columnDefault === undefined ? [] : [columnDefault]),
-      );
-
-      if (this.pendingChanges.isEnabled()) {
-        const pkV = Object.fromEntries(sourceTable.primaryKeys.map((pk) => [pk, row[pk]]));
-        const t: PendingChangeTarget = {
-          schema: sourceTable.schema,
-          table: sourceTable.name,
-          column,
-          primaryKeyValues: pkV,
-        };
-
-        if (options?.deduplicatePending) {
-          const existingChange = this.pendingChanges.findForCell(
-            connection.id,
-            sourceTable.schema,
-            sourceTable.name,
-            column,
-            pkV,
-          );
-          if (existingChange) {
-            this.pendingChanges.update(connection.id, existingChange.id, {
-              sql: query,
-              bindValues,
-              target: t,
-              description: describePendingChange(query, "set-default"),
-            });
-            return { success: true, queued: true };
-          }
-        }
-
-        this.pendingChanges.add(
-          connection.id,
-          query,
-          "update",
-          "set-default",
-          undefined,
-          bindValues,
-          t,
-        );
-        return { success: true, queued: true };
-      }
-
-      const { rowsAffected } = await provider.execute(
-        connection.providerConnectionId,
-        query,
-        bindValues,
-      );
-      return matchedRow(sourceTable, row, rowsAffected);
-    } catch (error) {
-      return { success: false, error: extractErrorMessage(error) };
-    }
+        primaryKeyValues: this.keyValues(sourceTable, row),
+      },
+    );
+    return { success, error, queued };
   }
 
-  /**
-   * Insert a new row into the database.
-   */
+  /** Insert a row into the table on the saved connection `connectionId`. */
   async insertRow(
+    connectionId: string,
     sourceTable: { schema: string; name: string },
     values: Record<string, unknown>,
-  ): Promise<{ success: boolean; error?: string; lastInsertId?: number; queued?: boolean }> {
-    const columns = Object.keys(values);
-    if (columns.length === 0) {
+  ): Promise<InsertResult> {
+    if (Object.keys(values).length === 0) {
       return { success: false, error: "No values provided" };
     }
-
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) {
-      return { success: false, error: "No connection established" };
-    }
-
-    void log.debug(`Row insert on ${connection?.id}`);
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      const client = getEngineClient(connection, this.state);
-      const casts = await this.buildCastMap(sourceTable.schema, sourceTable.name);
-      const { sql: query, bindValues } = await client.buildInsert(
-        sourceTable.schema,
-        sourceTable.name,
-        values,
-        casts,
-      );
-
-      if (this.pendingChanges.isEnabled()) {
-        const target: PendingChangeTarget = {
-          schema: sourceTable.schema,
-          table: sourceTable.name,
-          insertValues: values,
-        };
-        this.pendingChanges.add(
-          connection.id,
-          query,
-          "insert",
-          "insert-row",
-          undefined,
-          bindValues,
-          target,
-        );
-        return { success: true, queued: true };
-      }
-
-      const result = await provider.execute(connection.providerConnectionId, query, bindValues);
-      return { success: true, lastInsertId: result?.lastInsertId };
-    } catch (error) {
-      return { success: false, error: extractErrorMessage(error) };
-    }
+    void log.debug(`Row insert on ${connectionId}`);
+    const { success, error, queued, lastInsertId } = await this.submit(
+      connectionId,
+      insertRowEdit(sourceTable, values),
+      "insert-row",
+      { schema: sourceTable.schema, table: sourceTable.name, insertValues: values },
+    );
+    return {
+      success,
+      error,
+      queued,
+      ...(lastInsertId === undefined ? {} : { lastInsertId }),
+    };
   }
 
-  /**
-   * Delete a row from the database.
-   */
+  /** Delete a row from the table on the saved connection `connectionId`. */
   async deleteRow(
-    sourceTable: { schema: string; name: string; primaryKeys: string[] },
+    connectionId: string,
+    sourceTable: EditTable,
     row: Record<string, unknown>,
   ): Promise<CrudResult> {
     if (sourceTable.primaryKeys.length === 0) {
       return { success: false, error: "No primary key found" };
     }
-
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) {
-      return { success: false, error: "No connection established" };
-    }
-
-    void log.debug(`Row delete on ${connection?.id}`);
-    try {
-      const provider = await this.providers.getForType(connection.type);
-      const client = getEngineClient(connection, this.state);
-      const { sql: query, bindValues } = await client.buildDelete(
-        sourceTable.schema,
-        sourceTable.name,
-        sourceTable.primaryKeys,
-        row,
-        await this.buildCastMap(sourceTable.schema, sourceTable.name),
-      );
-
-      if (this.pendingChanges.isEnabled()) {
-        const delPk = Object.fromEntries(sourceTable.primaryKeys.map((pk) => [pk, row[pk]]));
-        const delTgt: PendingChangeTarget = {
-          schema: sourceTable.schema,
-          table: sourceTable.name,
-          primaryKeyValues: delPk,
-        };
-        this.pendingChanges.add(
-          connection.id,
-          query,
-          "delete",
-          "delete-row",
-          undefined,
-          bindValues,
-          delTgt,
-        );
-        return { success: true, queued: true };
-      }
-
-      const { rowsAffected } = await provider.execute(
-        connection.providerConnectionId,
-        query,
-        bindValues,
-      );
-      return matchedRow(sourceTable, row, rowsAffected);
-    } catch (error) {
-      return { success: false, error: extractErrorMessage(error) };
-    }
+    void log.debug(`Row delete on ${connectionId}`);
+    const { success, error, queued } = await this.submit(
+      connectionId,
+      deleteRowEdit(sourceTable, row),
+      "delete-row",
+      {
+        schema: sourceTable.schema,
+        table: sourceTable.name,
+        primaryKeyValues: this.keyValues(sourceTable, row),
+      },
+    );
+    return { success, error, queued };
   }
 
   /**
-   * Execute a raw query and return results directly.
-   * Used by statistics dashboard and other features that need raw query results.
+   * The sidebar's DROP (Decision 11): an intent Core builds with the
+   * dialect. Queued with pending changes on; otherwise applied, confirmed
+   * (the sidebar's own dialog asked). Throws the error when it fails.
    */
-  async executeRaw(query: string): Promise<Record<string, unknown>[]> {
-    const connection = this.state.activeConnection;
-    const isConnected = !!connection?.providerConnectionId;
-    if (!connection || !isConnected) {
-      throw new Error("Not connected to database");
-    }
+  async dropObject(
+    connectionId: string,
+    table: { schema: string; name: string },
+    kind: ObjectKind,
+  ): Promise<{ queued?: boolean }> {
+    const result = await this.submit(
+      connectionId,
+      dropObjectEdit(table, kind),
+      kind === "table" ? "drop-table" : "drop-view",
+      { schema: table.schema, table: table.name },
+      { confirmed: true },
+    );
+    if (!result.success) throw new Error(result.error);
+    return result.queued ? { queued: true } : {};
+  }
 
-    const provider = await this.providers.getForType(connection.type);
-    return await provider.select<Record<string, unknown>>(connection.providerConnectionId!, query);
+  /**
+   * The sidebar's TRUNCATE (Decision 11; SQLite's is a `DELETE FROM`, which
+   * Core builds). Queued or applied like `dropObject`.
+   */
+  async truncateTable(
+    connectionId: string,
+    table: { schema: string; name: string },
+  ): Promise<{ queued?: boolean }> {
+    const result = await this.submit(
+      connectionId,
+      truncateTableEdit(table),
+      "truncate-table",
+      { schema: table.schema, table: table.name },
+      { confirmed: true },
+    );
+    if (!result.success) throw new Error(result.error);
+    return result.queued ? { queued: true } : {};
+  }
+
+  /**
+   * Statements the table editor generated (`createTable`/`alterTable`), as
+   * typed changes: queued one per statement with pending changes on,
+   * otherwise applied in one call, confirmed (the user asked for the
+   * change in the editor; an ALTER may drop a column). DDL applies in order
+   * and stops at the first failure.
+   */
+  async applyStatements(
+    connectionId: string,
+    statements: string[],
+    origin: PendingChangeOrigin,
+  ): Promise<{ queued: true } | { queued: false; applied: number; error?: string }> {
+    const found = this.lookUp(connectionId);
+    if (!found) return { queued: false, applied: 0, error: NO_CONNECTION.error };
+    if (this.pendingChanges.isEnabled()) {
+      for (const sql of statements) {
+        this.pendingChanges.addSql(connectionId, sql, [], "other", origin);
+      }
+      return { queued: true };
+    }
+    let service: EditService;
+    try {
+      service = await this.editServiceFor(found.connection);
+    } catch (error) {
+      return { queued: false, applied: 0, error: callErrorText(error) };
+    }
+    const now = this.lookUp(connectionId);
+    if (!now || now.connection.type !== found.connection.type) {
+      return { queued: false, applied: 0, error: NO_CONNECTION.error };
+    }
+    try {
+      const outcome = await service.apply({
+        connectionId: now.providerConnectionId,
+        changes: statements.map((sql) => ({
+          type: "sql" as const,
+          id: crypto.randomUUID(),
+          sql,
+          params: [],
+        })),
+        confirmed: true,
+      });
+      if (outcome.outcome === "confirmRequired") {
+        // Sent confirmed: Core shouldn't ask.
+        return { queued: false, applied: 0, error: errorText(CONFIRM_REQUIRED, "") };
+      }
+      const { failed, applied } = outcome;
+      if (failed) {
+        void log.error(`Table editor statements stopped at ${failed.index ?? "?"}: ${failed.code}`);
+        return { queued: false, applied, error: errorText(failed.code, failed.message) };
+      }
+      return { queued: false, applied };
+    } catch (error) {
+      return { queued: false, applied: 0, error: callErrorText(error) };
+    }
   }
 
   /**
    * Run one query in the read-only mode the database enforces
    * (`DatabaseProvider.selectReadOnly`). The only way AI and dashboard SQL
-   * reaches a database; never use `executeRaw` for it.
+   * reaches a database.
    *
    * Runs on `connectionId`, whatever is active. The connection is looked up
    * on every call, so it follows `reconnect()` (which replaces the object and
@@ -526,32 +425,5 @@ export class QueryCrudManager {
     if (refusal) throw new Error(refusal);
 
     return await provider.selectReadOnly(providerConnectionId, sql, signal, maxRows);
-  }
-
-  /**
-   * Execute a raw DDL/write statement on the active connection.
-   * Used for CREATE TABLE, DROP TABLE, ALTER TABLE, TRUNCATE, etc.
-   */
-  async executeRawDdl(query: string): Promise<{ queued?: boolean }> {
-    const connection = this.state.activeConnection;
-    if (!connection?.providerConnectionId) {
-      throw new Error("Not connected to database");
-    }
-
-    if (this.pendingChanges.isEnabled()) {
-      const upper = query.trimStart().toUpperCase();
-      let origin: PendingChangeOrigin;
-      if (upper.startsWith("TRUNCATE")) origin = "truncate-table";
-      else if (upper.startsWith("ALTER TABLE")) origin = "alter-table";
-      else if (upper.startsWith("CREATE TABLE")) origin = "create-table";
-      else if (upper.startsWith("DROP TABLE")) origin = "drop-table";
-      else origin = "query-editor";
-      this.pendingChanges.add(connection.id, query, "other", origin);
-      return { queued: true };
-    }
-
-    const provider = await this.providers.getForType(connection.type);
-    await provider.execute(connection.providerConnectionId, query);
-    return {};
   }
 }

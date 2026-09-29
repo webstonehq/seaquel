@@ -543,6 +543,30 @@ describe("the connection string and the fields", () => {
     expect(state.connections[0]).toMatchObject({ databaseName: "other", connectionString: "" });
   });
 
+  it("loads saved connections without waiting for a keychain read", async () => {
+    persistedRows = [
+      {
+        id: "saved-secret",
+        name: "Saved secret",
+        type: "postgres",
+        host: "localhost",
+        port: 5432,
+        databaseName: "app",
+        username: "me",
+        savePassword: true,
+        projectId: "p1",
+      },
+    ];
+    vaultPassword.mockImplementation(() => new Promise(() => {}));
+    const { manager, state } = setup();
+
+    await manager.initializePersistedConnections();
+
+    expect(state.connectionsLoading).toBe(false);
+    expect(state.connections[0]).toMatchObject({ id: "saved-secret", password: "" });
+    expect(vaultPassword).not.toHaveBeenCalled();
+  });
+
   it("drops an old rebuilt string at load and saves the row once", async () => {
     persistedRows = [
       {

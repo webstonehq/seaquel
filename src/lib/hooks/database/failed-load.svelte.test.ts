@@ -51,7 +51,6 @@ const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { resetLoadGuardToast } = await import("$lib/storage/load-guard");
-const { QueryHistoryManager } = await import("./query-history.svelte.js");
 
 /** Writes that replace or delete stored rows. */
 const REPLACING = [
@@ -203,34 +202,6 @@ describe("a load that is still running blocks the save too", () => {
 });
 
 describe("query history has no replacing save to guard", () => {
-  it("a failed history load doesn't stop appends", async () => {
-    const { state, persistence } = setup();
-    state.activeConnectionId = "c1";
-    const history = new QueryHistoryManager(
-      state,
-      () => [],
-      () => "c1",
-    );
-
-    expect(await persistence.loadConnectionData("c1")).toEqual({ queryHistory: [] });
-    history.addToHistory("SELECT 1", {
-      columns: [],
-      rows: [],
-      rowCount: 0,
-      totalRows: 0,
-      executionTime: 1,
-      page: 1,
-      pageSize: 100,
-      totalPages: 1,
-    });
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(calls).toContain("queryHistory.append");
-    expect(replacingWrites()).toEqual([]);
-    // Nothing is refused, so nothing is toasted.
-    expect(toasts).toEqual([]);
-  });
-
   it("flush writes no history", async () => {
     failLoads = false;
     const { state, persistence } = setup();

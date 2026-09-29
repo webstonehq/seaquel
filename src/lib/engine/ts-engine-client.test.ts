@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DatabaseAdapter } from "$lib/db";
+import { getAdapter, type DatabaseAdapter } from "$lib/db";
 import type { DatabaseProvider } from "$lib/providers/types";
 import type { CreateTableDefinition } from "$lib/types";
 import { TsEngineClient } from "./ts-engine-client";
@@ -17,7 +17,7 @@ function fakeProvider(answers: Record<string, Rows | Error> = {}) {
   return { provider, select };
 }
 
-/** The CRUD builders as standalone spies (so assertions don't reference unbound methods). */
+/** The adapter's CRUD builders (the demo's `TsEditService` calls them, not the engine client). */
 function builderSpies() {
   return {
     buildUpdateSql: vi.fn<DatabaseAdapter["buildUpdateSql"]>(() => ({
@@ -213,53 +213,7 @@ describe("TsEngineClient.explain", () => {
   });
 });
 
-describe("TsEngineClient SQL builders", () => {
-  it("paginate calls paginateQuery", async () => {
-    const { provider } = fakeProvider();
-    expect(await client(fakeAdapter(), provider).paginate("SELECT 1", 101, 200)).toBe(
-      "SELECT 1 LIMIT 101 OFFSET 200",
-    );
-  });
-
-  it("buildUpdate passes everything but the casts through", async () => {
-    const { provider } = fakeProvider();
-    const spies = builderSpies();
-    const adapter = fakeAdapter(spies);
-    const row = { id: 10n, name: "x" };
-    const out = await client(adapter, provider).buildUpdate("main", "t", "name", "y", ["id"], row, {
-      id: "bigint",
-    });
-    expect(out).toEqual({ sql: "UPDATE", bindValues: [1] });
-    expect(spies.buildUpdateSql).toHaveBeenCalledWith("main", "t", "name", "y", ["id"], row);
-  });
-
-  it("buildSetDefault, buildInsert and buildDelete call their adapter builders", async () => {
-    const { provider } = fakeProvider();
-    const spies = builderSpies();
-    const c = client(fakeAdapter(spies), provider);
-    expect(await c.buildSetDefault("s", "t", "c", ["id"], { id: 1 })).toEqual({
-      sql: "SET DEFAULT",
-      bindValues: [2],
-    });
-    expect(spies.buildSetDefaultSql).toHaveBeenCalledWith("s", "t", "c", ["id"], { id: 1 });
-
-    expect(await c.buildInsert("s", "t", { a: 1 }, { a: "int" })).toEqual({
-      sql: "INSERT",
-      bindValues: [3],
-    });
-    expect(spies.buildInsertSql).toHaveBeenCalledWith("s", "t", { a: 1 });
-
-    expect(await c.buildDelete("s", "t", ["id"], { id: 1 })).toEqual({ sql: "DELETE" });
-    expect(spies.buildDeleteSql).toHaveBeenCalledWith("s", "t", ["id"], { id: 1 });
-  });
-
-  it("builders work without a provider connection id", async () => {
-    const { provider } = fakeProvider();
-    const c = client(fakeAdapter(), provider, { id: null });
-    expect(await c.paginate("q", 1, 0)).toBe("q LIMIT 1 OFFSET 0");
-    expect(await c.buildDelete("s", "t", ["id"], { id: 1 })).toEqual({ sql: "DELETE" });
-  });
-
+describe("TsEngineClient DDL builders", () => {
   it("createTable and alterTable call the DDL generators", async () => {
     const { provider } = fakeProvider();
     const generateCreateTableSql = vi.fn(() => "CREATE");
@@ -281,14 +235,12 @@ describe("TsEngineClient default adapter", () => {
       getConnectionId: () => "pc",
       getProvider: () => Promise.resolve(provider),
     });
-    expect(await c.paginate("SELECT 1", 10, 20)).toBe("SELECT 1 LIMIT 10 OFFSET 20");
+    expect(await c.columnTypes()).toEqual(getAdapter("duckdb").getColumnTypes());
   });
 
   it("can be made for an engine without an adapter, and throws on first use", async () => {
     const c = new TsEngineClient({ type: "sqlite", getConnectionId: () => "pc" });
-    await expect(c.paginate("SELECT 1", 10, 20)).rejects.toThrow(
-      'Database type "sqlite" is not supported yet',
-    );
+    await expect(c.columnTypes()).rejects.toThrow('Database type "sqlite" is not supported yet');
   });
 });
 

@@ -17,7 +17,11 @@ pub fn status_for(code: &str) -> StatusCode {
         | "CREDENTIALS_REQUIRED"
         | "INVALID_CONNECTION"
         | "QUERY_ERROR"
-        | "EXECUTE_ERROR" => StatusCode::BAD_REQUEST,
+        | "EXECUTE_ERROR"
+        // The edits service (phase 5c): an edit Core won't build (no such
+        // table, no primary key, a key that isn't the primary key). Its
+        // limits (`WEB_EDIT_LIMITS`) refuse with `INVALID_ARGUMENT`.
+        | "NOT_EDITABLE" => StatusCode::BAD_REQUEST,
         // Secrets (the web workspace has no store), SSH tunnels, and calls
         // an engine has no Rust implementation for.
         NOT_SUPPORTED => StatusCode::NOT_IMPLEMENTED,
@@ -31,11 +35,20 @@ pub fn status_for(code: &str) -> StatusCode {
         "RESULT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
         // A transaction statement matched fewer rows than it expected (a
         // stale key); the transaction was rolled back. Or the workspace was
-        // evicted while this call ran.
-        "NO_ROWS_AFFECTED" | "WORKSPACE_CLOSED" => StatusCode::CONFLICT,
+        // evicted while this call ran. Or the call needs the user's
+        // confirmation first (`db.applyChanges` answers that as an outcome,
+        // 200; the code is mapped for any call that refuses with it).
+        // Or a transaction opened by hand is already open on the
+        // connection (`TRANSACTION_OPEN`, SQL Server and DuckDB).
+        "NO_ROWS_AFFECTED" | "WORKSPACE_CLOSED" | "CONFIRM_REQUIRED" | "TRANSACTION_OPEN" => {
+            StatusCode::CONFLICT
+        }
         // The user holds as many connections as the web server allows
-        // (`WEB_CONNECTION_LIMITS`).
-        seaquel_core::TOO_MANY_CONNECTIONS => StatusCode::TOO_MANY_REQUESTS,
+        // (`WEB_CONNECTION_LIMITS`), or has as many calls in flight
+        // (`MAX_IN_FLIGHT_BYTES_PER_USER`, `MAX_EDIT_CALLS_PER_USER`).
+        seaquel_core::TOO_MANY_CONNECTIONS | crate::routes::rpc::TOO_MANY_REQUESTS => {
+            StatusCode::TOO_MANY_REQUESTS
+        }
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -53,8 +66,15 @@ mod tests {
         assert_eq!(status_for("NOT_SUPPORTED"), StatusCode::NOT_IMPLEMENTED);
         assert_eq!(status_for("NO_ROWS_AFFECTED"), StatusCode::CONFLICT);
         assert_eq!(status_for("WORKSPACE_CLOSED"), StatusCode::CONFLICT);
+        assert_eq!(status_for("CONFIRM_REQUIRED"), StatusCode::CONFLICT);
+        assert_eq!(status_for("TRANSACTION_OPEN"), StatusCode::CONFLICT);
+        assert_eq!(status_for("NOT_EDITABLE"), StatusCode::BAD_REQUEST);
         assert_eq!(
             status_for("TOO_MANY_CONNECTIONS"),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            status_for("TOO_MANY_REQUESTS"),
             StatusCode::TOO_MANY_REQUESTS
         );
         assert_eq!(status_for("AUTH_ERROR"), StatusCode::BAD_REQUEST);

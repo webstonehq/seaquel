@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { XCircleIcon, TableIcon, ZapIcon } from "@lucide/svelte";
+	import XCircleIcon from "@lucide/svelte/icons/x-circle";
+	import TableIcon from "@lucide/svelte/icons/table";
+	import ZapIcon from "@lucide/svelte/icons/zap";
 	import { m } from "$lib/paraglide/messages.js";
 	import { cn } from "$lib/utils.js";
 	import type { StatementResult } from "$lib/types";

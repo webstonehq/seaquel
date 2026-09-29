@@ -81,6 +81,43 @@ pub async fn append(st: &Storage, item: &PersistedQueryHistoryItem) -> Result<()
     Ok(())
 }
 
+/// Adds `items` in order and prunes each connection they name once, as
+/// [`append`] does, all in one transaction: every row or none. An applied
+/// batch of pending changes records one row per change this way (phase 5c,
+/// Decision 8). Nothing to add is a no-op. Fails, adding nothing, when a
+/// connection isn't saved or an id is taken.
+pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> Result<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut tx = begin(st).await?;
+    let insert = insert_sql("query_history", &COLUMNS);
+    for item in items {
+        bind_item(sqlx::query(&insert), item)
+            .execute(&mut *tx)
+            .await?;
+    }
+    let mut pruned: Vec<&str> = Vec::new();
+    for item in items {
+        let connection_id = item.connection_id.as_str();
+        if pruned.contains(&connection_id) {
+            continue;
+        }
+        pruned.push(connection_id);
+        sqlx::query(
+            "DELETE FROM query_history WHERE connection_id = ?1 AND favorite IS NOT 1 AND rowid IN (\
+               SELECT rowid FROM query_history WHERE connection_id = ?1 \
+               ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?2)",
+        )
+        .bind(connection_id)
+        .bind(HISTORY_KEEP as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Sets (not toggles) a row's favourite flag, so two writes queued in
 /// either order agree. An unknown id changes nothing.
 pub async fn set_favorite(st: &Storage, id: &str, favorite: bool) -> Result<()> {

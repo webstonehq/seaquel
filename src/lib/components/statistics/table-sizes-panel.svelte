@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { TableSizeInfo } from '$lib/types';
-	import { ArrowUpDown as ArrowUpDownIcon } from '@lucide/svelte';
+	import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
 	import { Button } from '$lib/components/ui/button';
 
 	interface Props {

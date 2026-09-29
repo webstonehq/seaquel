@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import { RefreshCwIcon, XIcon } from '@lucide/svelte';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { QueryResultViewToggle, QueryExportMenu } from './index.js';
 	import VisualizeLayoutPopover from './visualize-layout-popover.svelte';
 	import { ChartConfigPopover } from '$lib/components/charts/index.js';

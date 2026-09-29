@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { StatisticsTab } from '$lib/types';
-	import { RefreshCw as RefreshCwIcon, Loader2 as Loader2Icon } from '@lucide/svelte';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
 	import { Button } from '$lib/components/ui/button';
 	import { useDatabase } from '$lib/hooks/database.svelte';
 	import DatabaseOverviewPanel from './database-overview-panel.svelte';

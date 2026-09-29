@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { ListEndIcon } from "@lucide/svelte";
+	import ListEndIcon from "@lucide/svelte/icons/list-end";
 
 	type Props = {
 		data: {

@@ -47,6 +47,8 @@ plist = "1"
 # The scratch dir of the stand-in workspace `db` calls use when storage
 # can't open (DesktopWorkspace::db).
 tempfile = "3"
+reqwest = { workspace = true, features = ["blocking"] }
+sha2 = "0.10"
 tauri-plugin-deep-link = "2"
 tauri-plugin-log = "2"
 log = { version = "0.4", features = ["kv"] }
@@ -54,4 +56,3 @@ log = { version = "0.4", features = ["kv"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-

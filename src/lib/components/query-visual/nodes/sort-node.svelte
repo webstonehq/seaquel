@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { ArrowUpDownIcon, ArrowUpIcon, ArrowDownIcon } from "@lucide/svelte";
+	import ArrowUpDownIcon from "@lucide/svelte/icons/arrow-up-down";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
 	import type { QueryOrderBy } from "$lib/types";
 
 	type Props = {

@@ -3,7 +3,10 @@
  * reaches Rust byte for byte, and Rust's status and body come back as-is.
  */
 
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withClientRequest } from "$shared/client-request.js";
+import { RPC_BODY_LIMIT, RPC_USER_BUDGET, rpcBytesInFlight } from "$lib/server/body-limit";
 import { POST } from "./+server";
 
 type Handler = typeof POST;
@@ -26,7 +29,8 @@ function rpcEvent(
         ...headers,
       },
       body,
-    }),
+      duplex: "half",
+    } as RequestInit),
     url: new URL("http://localhost/api/rpc"),
   } as unknown as Event;
 }
@@ -39,6 +43,26 @@ async function statusOf(promise: ReturnType<Handler>): Promise<number> {
     return (e as { status: number }).status;
   }
   throw new Error("expected the handler to throw");
+}
+
+/** A Node request whose socket a test can close, as adapter-node's `platform.req`. */
+function fakeNodeRequest() {
+  const socket = Object.assign(new EventEmitter(), { destroyed: false });
+  return { socket, close: () => ((socket.destroyed = true), socket.emit("close")) };
+}
+
+/** A fetch that answers only when its signal aborts (then it rejects). */
+function hangingFetch() {
+  const fetchMock = vi.fn(
+    (_url: string, init: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function stubFetch(response: () => Response) {
@@ -152,6 +176,192 @@ describe("/api/rpc proxy", () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(ok);
+  });
+
+  // Probe I1: SvelteKit's `request.signal` only aborts before the body is
+  // read, so the route watches the client's socket itself, or an aborted
+  // apply would run (and commit) on.
+  it("aborts the call to Rust when the client's socket closes (adapter-node)", async () => {
+    const fetchMock = hangingFetch();
+    const node = fakeNodeRequest();
+    const event = rpcEvent("user-1", BODY);
+    (event as unknown as { platform: unknown }).platform = { req: node };
+
+    const pending = POST(event);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const signal = fetchMock.mock.calls[0][1].signal!;
+    expect(signal.aborted).toBe(false);
+    node.close();
+    expect(signal.aborted).toBe(true);
+    const res = (await pending) as Response;
+    expect(res.status).toBe(499);
+  });
+
+  it("aborts it in the Vite dev server too, through the dev plugin's request", async () => {
+    const fetchMock = hangingFetch();
+    const node = fakeNodeRequest();
+
+    const pending = withClientRequest(node as never, () => POST(rpcEvent("user-1", BODY)));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    node.close();
+    expect(fetchMock.mock.calls[0][1].signal!.aborted).toBe(true);
+    expect(((await pending) as Response).status).toBe(499);
+  });
+
+  it("doesn't call Rust when the client is already gone", async () => {
+    const fetchMock = stubFetch(() => new Response("{}"));
+    const node = fakeNodeRequest();
+    node.close();
+    const event = rpcEvent("user-1", BODY);
+    (event as unknown as { platform: unknown }).platform = { req: node };
+
+    const res = (await POST(event)) as Response;
+    expect(res.status).toBe(499);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stops watching the socket once Rust answers (keep-alive sockets are reused)", async () => {
+    stubFetch(() => new Response("{}"));
+    const node = fakeNodeRequest();
+    const event = rpcEvent("user-1", BODY);
+    (event as unknown as { platform: unknown }).platform = { req: node };
+
+    const res = (await POST(event)) as Response;
+    expect(res.status).toBe(200);
+    // A later close (the keep-alive socket ends) aborts nothing.
+    const signal = vi.mocked(fetch).mock.calls[0][1]!.signal!;
+    node.close();
+    expect(signal.aborted).toBe(false);
+  });
+
+  // Probe I2: `/api/rpc` takes up to RPC_BODY_LIMIT (the hook enforces it
+  // while the body streams in); past it the GUI gets an RpcError it shows.
+  it("answers a body past the limit with 413 INVALID_ARGUMENT naming the limit", async () => {
+    const fetchMock = stubFetch(() => new Response("{}"));
+    const big = new Uint8Array(RPC_BODY_LIMIT + 1);
+
+    const res = (await POST(rpcEvent("user-1", big))) as Response;
+
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_ARGUMENT");
+    expect(body.message).toContain("20 MiB");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Probe review, M4 (b): Node holds every body it reads, so a user's
+  // calls in flight may hold at most RPC_USER_BUDGET of bodies; past it the
+  // route answers 429 before reading.
+  it("holds a user's bodies in flight to the budget and answers 429 past it", async () => {
+    expect(RPC_USER_BUDGET).toBe(40 * 1024 * 1024);
+    const fetchMock = hangingFetch();
+    const size = 900 * 1024;
+    const nodes = Array.from({ length: 200 }, () => fakeNodeRequest());
+    const calls = nodes.map((node) => {
+      const event = rpcEvent("user-1", new Uint8Array(size), { "content-length": String(size) });
+      (event as unknown as { platform: unknown }).platform = { req: node };
+      return POST(event) as Promise<Response>;
+    });
+    const fits = Math.floor(RPC_USER_BUDGET / size);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(fits));
+    // Everyone else was refused without a call to Rust.
+    const settled = await Promise.all(
+      calls.map((c) => Promise.race([c, new Promise((r) => setTimeout(() => r(null), 50))])),
+    );
+    const refused = settled.filter((r) => r !== null) as Response[];
+    expect(refused).toHaveLength(200 - fits);
+    for (const res of refused) {
+      expect(res.status).toBe(429);
+      expect((await res.json()).code).toBe("TOO_MANY_REQUESTS");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(fits);
+
+    // Another user isn't held up.
+    stubFetch(() => new Response("{}"));
+    expect(((await POST(rpcEvent("user-2", BODY))) as Response).status).toBe(200);
+    // Every path releases: the held calls end when their clients leave.
+    hangingFetch();
+    nodes.forEach((n) => n.close());
+    await Promise.all(calls);
+    expect(rpcBytesInFlight("user-1")).toBe(0);
+    expect(rpcBytesInFlight("user-2")).toBe(0);
+  });
+
+  it("always admits a small call, even with the budget full, and counts it", async () => {
+    const fetchMock = hangingFetch();
+    const nodes = [fakeNodeRequest(), fakeNodeRequest()];
+    const sizes = [RPC_BODY_LIMIT, RPC_USER_BUDGET - RPC_BODY_LIMIT];
+    const pending = nodes.map((node, i) => {
+      const held = rpcEvent("user-4", new Uint8Array(sizes[i]), {
+        "content-length": String(sizes[i]),
+      });
+      (held as unknown as { platform: unknown }).platform = { req: node };
+      return POST(held) as Promise<Response>;
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // A storage save under 64 KiB, declared or streamed, still goes through.
+    stubFetch(() => new Response("{}"));
+    const small = 64 * 1024 - 1;
+    const declared = rpcEvent("user-4", new Uint8Array(small), { "content-length": String(small) });
+    expect(((await POST(declared)) as Response).status).toBe(200);
+    const streamed = rpcEvent(
+      "user-4",
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new Uint8Array(small));
+          c.close();
+        },
+      }),
+    );
+    expect(((await POST(streamed)) as Response).status).toBe(200);
+    // One at 64 KiB isn't small.
+    const edge = 64 * 1024;
+    const big = rpcEvent("user-4", new Uint8Array(edge), { "content-length": String(edge) });
+    expect(((await POST(big)) as Response).status).toBe(429);
+
+    // A small call counts while it runs.
+    hangingFetch();
+    const node = fakeNodeRequest();
+    const counted = rpcEvent("user-4", new Uint8Array(small), { "content-length": String(small) });
+    (counted as unknown as { platform: unknown }).platform = { req: node };
+    const waiting = POST(counted) as Promise<Response>;
+    await vi.waitFor(() => expect(rpcBytesInFlight("user-4")).toBe(RPC_USER_BUDGET + small));
+
+    [...nodes, node].forEach((n) => n.close());
+    await Promise.all([...pending, waiting]);
+    expect(rpcBytesInFlight("user-4")).toBe(0);
+  });
+
+  it("counts a body sent without Content-Length as it arrives", async () => {
+    const fetchMock = hangingFetch();
+    // Two held calls fill the budget but for 1 KiB.
+    const nodes = [fakeNodeRequest(), fakeNodeRequest()];
+    const sizes = [RPC_BODY_LIMIT, RPC_USER_BUDGET - RPC_BODY_LIMIT - 1024];
+    const pending = nodes.map((node, i) => {
+      const held = rpcEvent("user-3", new Uint8Array(sizes[i]), {
+        "content-length": String(sizes[i]),
+      });
+      (held as unknown as { platform: unknown }).platform = { req: node };
+      return POST(held) as Promise<Response>;
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const chunk = new Uint8Array(64 * 1024);
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < 4; i++) c.enqueue(chunk);
+        c.close();
+      },
+    });
+    const chunked = rpcEvent("user-3", stream);
+    const res = (await POST(chunked)) as Response;
+    expect(res.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    nodes.forEach((n) => n.close());
+    await Promise.all(pending);
+    expect(rpcBytesInFlight("user-3")).toBe(0);
   });
 
   it("answers 502 with RpcError JSON when Rust is unreachable", async () => {

@@ -4,7 +4,7 @@
  * is a cache, trimmed by the same rule `seaquel-storage` applies to the file.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { PersistedQueryHistoryItem, QueryHistoryItem, QueryResult } from "$lib/types";
+import type { PersistedQueryHistoryItem, QueryHistoryItem } from "$lib/types";
 
 /** Every storage call, as `repo.method` with its arguments. */
 const calls: Array<{ call: string; args: unknown[] }> = [];
@@ -60,18 +60,6 @@ function setup() {
   return { state, history };
 }
 
-const result = (overrides: Partial<QueryResult> = {}): QueryResult => ({
-  columns: ["a"],
-  rows: [[1]],
-  rowCount: 1,
-  totalRows: 7,
-  executionTime: 12.5,
-  page: 1,
-  pageSize: 100,
-  totalPages: 1,
-  ...overrides,
-});
-
 function cached(id: string, n: number, favorite = false): QueryHistoryItem {
   return {
     id,
@@ -99,61 +87,23 @@ beforeEach(() => {
 });
 
 describe("QueryHistoryManager", () => {
-  it("a run appends one row and never replaces the list", async () => {
+  it("a recorded row goes on top of the cache and writes nothing", async () => {
     const { state, history } = setup();
     state.queryHistoryByConnection = { c1: [cached("old", 1)] };
-
-    history.addToHistory("SELECT {{x}}", result({ affectedRows: 3 }));
-    await settle();
-
-    expect(writes()).toEqual(["queryHistory.append"]);
-    const item = calls[0].args[0] as PersistedQueryHistoryItem;
-    expect(item).toEqual({
-      id: expect.stringMatching(/^hist-[0-9a-f-]{36}$/),
-      query: "SELECT {{x}}",
-      timestamp: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
-      executionTime: 12.5,
-      rowCount: 3,
+    history.insertRecorded({
+      id: "hist-new",
+      query: "SELECT 1",
+      timestamp: "2026-10-03T00:00:00.000Z",
+      executionTime: 1,
+      rowCount: 1,
       connectionId: "c1",
       favorite: false,
       connectionLabelsSnapshot: LABELS,
       connectionNameSnapshot: "Prod DB",
     });
-    // The cache gets the same row on top, with the same instant.
-    const top = state.queryHistoryByConnection.c1[0];
-    expect(top.id).toBe(item.id);
-    expect(top.timestamp.toISOString()).toBe(item.timestamp);
-    expect(state.queryHistoryByConnection.c1.map((h) => h.id)).toEqual([item.id, "old"]);
-    expect(recordQuery).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses totalRows when nothing was affected", async () => {
-    const { history } = setup();
-    history.addToHistory("SELECT 1", result());
-    await settle();
-    expect((calls[0].args[0] as PersistedQueryHistoryItem).rowCount).toBe(7);
-  });
-
-  it("does nothing without an active connection", async () => {
-    const { state, history } = setup();
-    state.activeConnectionId = null;
-    history.addToHistory("SELECT 1", result());
     await settle();
     expect(calls).toEqual([]);
-  });
-
-  it("logs a failed append without the SQL and drops the row from the cache", async () => {
-    failAppend = true;
-    const { state, history } = setup();
-    state.queryHistoryByConnection = { c1: [cached("old", 1)] };
-    history.addToHistory("SELECT secret_column FROM t", result());
-    // Shown at once, gone once the write fails: a row that was never stored
-    // can't be starred.
-    expect(state.queryHistoryByConnection.c1).toHaveLength(2);
-    await settle();
-    expect(state.queryHistoryByConnection.c1.map((h) => h.id)).toEqual(["old"]);
-    expect(logged).toHaveLength(1);
-    expect(JSON.stringify(logged)).not.toContain("secret_column");
+    expect(state.queryHistoryByConnection.c1.map((h) => h.id)).toEqual(["hist-new", "old"]);
   });
 
   it("the favourite toggle sends setFavorite for that id", async () => {
@@ -189,11 +139,21 @@ describe("QueryHistoryManager", () => {
     );
     state.queryHistoryByConnection = { c1: list };
 
-    history.addToHistory("SELECT 1", result());
+    const appended = "hist-appended";
+    history.insertRecorded({
+      id: appended,
+      query: "SELECT 1",
+      timestamp: "2026-10-03T00:00:00.000Z",
+      executionTime: 1,
+      rowCount: 1,
+      connectionId: "c1",
+      favorite: false,
+      connectionLabelsSnapshot: LABELS,
+      connectionNameSnapshot: "Prod DB",
+    });
     await settle();
 
     const ids = state.queryHistoryByConnection.c1.map((h) => h.id);
-    const appended = (calls[0].args[0] as PersistedQueryHistoryItem).id;
     // The new row and the 499 newest after it, then the favourite past them.
     expect(HISTORY_KEEP).toBe(500);
     expect(ids).toEqual([appended, ...list.slice(0, 499).map((h) => h.id), "h505"]);

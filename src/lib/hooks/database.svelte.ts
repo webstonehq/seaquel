@@ -36,6 +36,7 @@ import { SharedDashboardManager } from "./database/shared-dashboard-manager.svel
 import { AIChatManager } from "./database/ai-chat-manager.svelte.js";
 import { PaneManager } from "./database/pane-manager.svelte.js";
 import { PendingChangesManager } from "./database/pending-changes.svelte.js";
+import { getEditService } from "./database/edit-service/index.js";
 import { ProviderRegistry } from "$lib/providers";
 import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 import { storageGate } from "$lib/storage/storage-gate.svelte";
@@ -186,9 +187,14 @@ class UseDatabase {
       this.tabs,
       scheduleProjectPersistence,
       setActiveView,
-      async (query: string) => {
-        const result = await this.queries.executeRaw(query);
-        return result;
+      async (connectionId, action) => {
+        const connection = this.state.connections.find((c) => c.id === connectionId);
+        if (!connection?.providerConnectionId) throw new Error("Not connected to database");
+        const service = await getEditService(connection, this.state, providers);
+        // Looked up again after the await: a reconnect gives a new Core id.
+        const now = this.state.connections.find((c) => c.id === connectionId);
+        if (!now?.providerConnectionId) throw new Error("Not connected to database");
+        return await service.duckdbExtension(now.providerConnectionId, action);
       },
     );
     this.workflowTabs = new WorkflowTabManager(
@@ -221,11 +227,11 @@ class UseDatabase {
       this.tabs,
       scheduleProjectPersistence,
       setActiveView,
-      providers,
       async (connectionId: string) => {
         await this.connections.refreshSchema(connectionId);
       },
       () => this.pendingChanges,
+      () => this.queries.crud,
     );
 
     // Workflow
@@ -234,9 +240,9 @@ class UseDatabase {
       this.state,
       this.workflowState,
       scheduleProjectPersistence,
-      async (query: string) => {
-        return await this.queries.executeRaw(query);
-      },
+      // Read-only, on the node's own connection (phase 5c, Decision 10).
+      (connectionId, sql, signal, maxRows) =>
+        this.queries.executeReadOnly(connectionId, sql, signal, undefined, maxRows),
     );
 
     // Query-related
@@ -263,9 +269,15 @@ class UseDatabase {
       activated: (id) => this.queries.activeTabChanged(id),
     });
     this.projects.setLifecycleListener({
-      removed: (id) => this.queries.forgetProject(id),
+      removed: (id) => {
+        this.queries.forgetProject(id);
+        this.dataTabs.cancelProject(id);
+      },
       activated: () => this.queries.activeTabChanged(null),
-      reloading: (id) => this.queries.cancelProject(id),
+      reloading: (id) => {
+        this.queries.cancelProject(id);
+        this.dataTabs.cancelProject(id);
+      },
     });
     this.dataTabs = new DataTabManager(
       this.state,
@@ -275,6 +287,11 @@ class UseDatabase {
       this.queries,
       providers,
     );
+    // After an apply: the schema after DDL, and the connection's data tabs.
+    this.pendingChanges.setEffects({
+      reloadSchema: (connectionId) => this.connections.refreshSchema(connectionId),
+      refreshDataTabs: (connectionId) => this.dataTabs.refreshAllForConnection(connectionId),
+    });
 
     // Shared query library
     this.sharedRepos = new SharedRepoManager(this.state, () =>
@@ -301,11 +318,8 @@ class UseDatabase {
       this._stateRestoration,
       this.tabs,
       providers,
-      (connectionId: string, schemas: SchemaTable[], client: EngineClient) => {
-        // Every schema (re)load passes here: columns loaded for cast maps may be stale.
-        this.queries.crud.forgetLoadedColumns(connectionId);
-        return this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, client);
-      },
+      (connectionId: string, schemas: SchemaTable[], client: EngineClient) =>
+        this.schemaTabs.loadTableMetadataInBackground(connectionId, schemas, client),
       () => {
         this.queryTabs.add();
         this.ui.setActiveView("query");

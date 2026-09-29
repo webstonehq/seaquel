@@ -6,14 +6,12 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
-	import {
-		RefreshCwIcon,
-		ArrowDownIcon,
-		ArrowUpIcon,
-		GitCommitIcon,
-		Loader2Icon,
-		ChevronDownIcon
-	} from "@lucide/svelte";
+	import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+	import GitCommitIcon from "@lucide/svelte/icons/git-commit";
+	import Loader2Icon from "@lucide/svelte/icons/loader-2";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {

@@ -26,7 +26,7 @@
  * rate-limit guards and the session purge for revoked users stay here.
  */
 
-import { error, json, type RequestHandler } from "@sveltejs/kit";
+import { error, isHttpError, json, type RequestHandler } from "@sveltejs/kit";
 
 import { isOriginTrusted, openAuthDb } from "$lib/server/auth";
 import { checkRateLimit } from "$lib/server/rate-limit";
@@ -88,7 +88,9 @@ export const POST: RequestHandler = async (event) => {
   let envelopeBytes: Uint8Array;
   try {
     envelopeBytes = new Uint8Array(await request.arrayBuffer());
-  } catch {
+  } catch (e) {
+    // The body-limit hook's 413 for a body past the limit stays a 413.
+    if (isHttpError(e)) throw e;
     throw error(400, "could not read request body");
   }
 

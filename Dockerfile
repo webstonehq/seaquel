@@ -170,6 +170,10 @@ USER node
 # BETTER_AUTH_URL: canonical URL Better Auth uses for absolute links, and
 #   the origin the CSRF checks trust. Set it for an install on a domain.
 # SEAQUEL_COOKIE_DOMAIN: set for cross-subdomain cookies, e.g. .seaquel.app
+# BODY_SIZE_LIMIT: the largest request body (default 512K; K, M, G or
+#   Infinity), for every route but /api/rpc, which always takes up to 20 MiB
+#   (a large pending-changes apply). server.js applies it per route, so
+#   raising it isn't needed for big applies.
 #
 # See README.md ("Required environment variables" table) for the full set
 # including licensing knobs (SEAQUEL_CONTROL_URL, SEAQUEL_LICENSE_SOFT_TTL,

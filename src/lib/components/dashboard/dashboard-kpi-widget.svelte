@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DashboardWidget } from '$lib/types';
-	import { Loader2Icon, AlertCircleIcon } from '@lucide/svelte';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
 	import { cellText, toNumber } from '$lib/values';
 
 	interface Props {

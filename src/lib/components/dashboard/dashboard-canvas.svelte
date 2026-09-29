@@ -2,7 +2,7 @@
 	import type { Dashboard, DashboardWidget } from '$lib/types';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import { SvelteFlow, Background, Controls, MiniMap, type ColorMode, type Node, type Viewport } from '@xyflow/svelte';
-	import { LayoutDashboardIcon } from '@lucide/svelte';
+	import LayoutDashboardIcon from '@lucide/svelte/icons/layout-dashboard';
 	import '@xyflow/svelte/dist/style.css';
 	import { mode } from 'mode-watcher';
 	import { dashboardNodeTypes } from './nodes';

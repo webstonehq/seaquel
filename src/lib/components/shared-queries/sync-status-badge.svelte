@@ -2,15 +2,13 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import type { RepoSyncStatus, SyncState } from "$lib/types";
-	import {
-		CheckCircle2Icon,
-		ArrowUpIcon,
-		ArrowDownIcon,
-		AlertTriangleIcon,
-		AlertCircleIcon,
-		CircleDashedIcon,
-		Loader2Icon
-	} from "@lucide/svelte";
+	import CheckCircle2Icon from "@lucide/svelte/icons/check-circle-2";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
+	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
+	import AlertCircleIcon from "@lucide/svelte/icons/alert-circle";
+	import CircleDashedIcon from "@lucide/svelte/icons/circle-dashed";
+	import Loader2Icon from "@lucide/svelte/icons/loader-2";
 
 	interface Props {
 		status: RepoSyncStatus;

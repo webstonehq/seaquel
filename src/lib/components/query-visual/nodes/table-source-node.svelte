@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { TableIcon, FileSearchIcon } from "@lucide/svelte";
+	import TableIcon from "@lucide/svelte/icons/table";
+	import FileSearchIcon from "@lucide/svelte/icons/file-search";
 	import type { QuerySource } from "$lib/types";
 
 	type Props = {

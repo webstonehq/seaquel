@@ -2,14 +2,13 @@
     import { onMount, onDestroy } from "svelte";
     import { SidebarInset } from "$lib/components/ui/sidebar";
     import SidebarLeft from "$lib/components/sidebar-left.svelte";
-    import AIAssistant from "$lib/components/ai-assistant.svelte";
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { useShortcuts } from "$lib/shortcuts/index.js";
     import { useSidebar } from "$lib/components/ui/sidebar/context.svelte.js";
     import PaneContainer from "$lib/components/pane-container.svelte";
-    import PendingChangesSheet from "$lib/components/pending-changes-sheet.svelte";
     import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
+    import { m } from "$lib/paraglide/messages.js";
 
     const db = useDatabase();
     const shortcuts = useShortcuts();
@@ -50,7 +49,9 @@
 
 <SidebarInset class="flex flex-col h-full overflow-hidden min-w-0">
     {#if db.state.connectionsLoading || db.state.projectsLoading}
-        <!-- Loading state - show nothing to prevent flash -->
+        <div class="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
+            {m.ext_loading()}
+        </div>
     {:else}
         <div class="flex-1 min-h-0 flex flex-col">
             <PaneContainer />
@@ -68,9 +69,13 @@
 >
     <Sidebar.Root side="right" collapsible="offcanvas" class="top-(--header-height) h-[calc(100svh-var(--header-height))]">
         {#if db.state.activeRightPanel === "pendingChanges"}
-            <PendingChangesSheet />
+            {#await import("$lib/components/pending-changes-sheet.svelte") then module}
+                <module.default />
+            {/await}
         {:else if db.state.activeRightPanel === "ai"}
-            <AIAssistant />
+            {#await import("$lib/components/ai-assistant.svelte") then module}
+                <module.default />
+            {/await}
         {/if}
     </Sidebar.Root>
 </Sidebar.Provider>

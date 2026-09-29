@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DashboardWidget } from '$lib/types';
-	import { RefreshCwIcon, Loader2Icon } from '@lucide/svelte';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
 	import { Button } from '$lib/components/ui/button';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import QueryChart from '$lib/components/charts/query-chart.svelte';

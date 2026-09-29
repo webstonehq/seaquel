@@ -7,7 +7,11 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { isTauri } from "$lib/utils/environment";
 	import { getFeatures } from "$lib/features";
-	import { PlusIcon, DownloadIcon, DatabaseIcon, PlugIcon, LoaderIcon } from "@lucide/svelte";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import DownloadIcon from "@lucide/svelte/icons/download";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
+	import PlugIcon from "@lucide/svelte/icons/plug";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
 	import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
 	import ImportSharedProjectDialog from "../import-shared-project-dialog.svelte";
 	import { toast } from "svelte-sonner";

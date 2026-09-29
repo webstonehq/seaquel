@@ -918,7 +918,7 @@ Probe fixes are budgeted separately.
 - **Effort log:** the totals.
 - **The full check list,** as 5a's checkpoint, the oxlint type check included.
 
-**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5b cost", the execution notes, release notes, checkpoint, manual checks and follow-ups below, and the effort log's totals are written. The full check list ran: everything passes except the three MSSQL `tls_server_name` live tests, which can't load the macOS platform certificates inside the Bash sandbox (error -36), the known environment issue; see "Checkpoint". The manual checks below are the owner's.
+**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5b cost", the execution notes, release notes, checkpoint, manual checks and follow-ups below, and the effort log's totals are written. The full check list ran: everything passes except the three MSSQL `tls_server_name` live tests, which can't load the macOS platform certificates inside the Bash sandbox (error -36), the known environment issue; see "Checkpoint". The owner ran the manual checks below on 2026-10-02; all pass.
 
 ## Manual checks
 
@@ -1054,7 +1054,7 @@ Fixed during Task 8, docs only: the `CoreBuilder::run_limits` doc comment (it na
 
 CI doesn't run oxfmt. On the files 5b touched, `oxfmt --check` flags only the design doc, the 5a plan and this plan, which were already unformatted (tables and lists in the plans' own style); formatting this plan would fold the "Settled" list into one paragraph, so it's left as it is. CLAUDE.md passes.
 
-**Manual checks:** pending (the owner).
+**Manual checks:** all pass (the owner, 2026-10-02).
 
 **Not run:** the release workflow and a signed build.
 

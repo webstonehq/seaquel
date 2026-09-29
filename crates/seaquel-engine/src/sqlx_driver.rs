@@ -302,7 +302,11 @@ macro_rules! impl_sqlx_driver {
                 })
             }
 
-            async fn transaction(&self, statements: Vec<$crate::BatchStatement>) -> Result<(), $crate::DbError> {
+            /// A failure names its statement (`TransactionError`):
+            /// the statement the database refused, whose parameters didn't
+            /// bind, or that fell short of `expect_rows`. Acquiring a
+            /// connection, BEGIN and COMMIT name none.
+            async fn transaction(&self, statements: Vec<$crate::BatchStatement>) -> Result<Vec<u64>, $crate::TransactionError> {
                 use sqlx::{Acquire, Executor};
 
                 let mut conn = self
@@ -321,26 +325,29 @@ macro_rules! impl_sqlx_driver {
                 // the connection goes back to the pool clean; if that fails,
                 // the shortfall is still what's returned (dropping `tx` tries
                 // again).
+                let mut affected = Vec::with_capacity(statements.len());
                 for (index, stmt) in statements.iter().enumerate() {
+                    let at = |e| $crate::TransactionError::at(index, e);
                     let query = sqlx::query(&stmt.sql);
-                    let query = bind_params(query, &stmt.params)?;
+                    let query = bind_params(query, &stmt.params).map_err(at)?;
                     let result = tx
                         .execute(query)
                         .await
-                        .map_err($crate::DbError::execute_error)?;
+                        .map_err(|e| at($crate::DbError::execute_error(e)))?;
                     if let Err(e) = stmt.check_affected(index, result.rows_affected()) {
                         if let Err(rollback) = tx.rollback().await {
                             $crate::__private::log::warn!(activity = "db.transaction"; "Rollback after {} failed: {rollback}", e.code);
                         }
-                        return Err(e);
+                        return Err(at(e));
                     }
+                    affected.push(result.rows_affected());
                 }
 
                 tx.commit()
                     .await
                     .map_err($crate::DbError::execute_error)?;
 
-                Ok(())
+                Ok(affected)
             }
 
             async fn close(&self) -> Result<(), $crate::DbError> {

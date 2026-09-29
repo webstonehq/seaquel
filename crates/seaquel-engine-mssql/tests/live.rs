@@ -211,6 +211,10 @@ async fn failed_transactions_roll_back_and_leave_the_connection_usable() {
             } else {
                 "EXECUTE_ERROR"
             };
+            // Every failure is the second statement's, even when the
+            // server ended the transaction itself.
+            assert_eq!(err.index, Some(1), "{name}: {}", err.error.message);
+            let err = err.error;
             assert_eq!(err.code, expected_code, "{name}: {}", err.message);
             assert_eq!(
                 ids(driver, &table).await,

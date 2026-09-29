@@ -1,0 +1,3057 @@
+/**
+ * Phase 5c, Task 2: records today's grid edits, pending-changes apply, data
+ * tab queries and change descriptions into the edit parity fixtures,
+ * `crates/seaquel-workspace/tests/fixtures/edits/*.json`.
+ *
+ * This reference copy is `docs/plans/artifacts/2026-10-03-record-edit-fixtures.test.ts.txt`.
+ * To run it, build the dialect helper (below), copy this file into the tree,
+ * run it with vitest, then delete the copy:
+ *
+ *   cp docs/plans/artifacts/2026-10-03-record-edit-fixtures.test.ts.txt \
+ *      src/lib/hooks/database/record-edits.test.ts
+ *   FREEZE_EDITS=1 SEAQUEL_DIALECT_HELPER=/path/to/p5c-dialect-helper \
+ *     SEAQUEL_WASM_PREBUILT=1 mise exec -- npx vitest run src/lib/hooks/database/record-edits.test.ts
+ *   rm src/lib/hooks/database/record-edits.test.ts
+ *
+ * Without FREEZE_EDITS it records every case and writes nothing.
+ * FREEZE_EDITS_OUT points the output at another directory (to check that two
+ * runs agree).
+ *
+ * What runs unmodified:
+ * - `QueryExecutionManager` (`updateCell`, `setCellDefault`, `deleteRowAt`,
+ *   `resolveEditTarget`) and `QueryCrudManager` (`query-crud.svelte.ts`):
+ *   routing, the cast map, SQLite's default expression, the stale-key rule,
+ *   queueing and dedupe;
+ * - `DataTabManager` (`updateCell`, `setCellDefault`, `deleteRow`,
+ *   `saveNewRow`, `refresh`, `buildQuery`), after Task 1's fixes;
+ * - `PendingChangesManager` (`add`, `findForCell`, `update`, `executeAll`)
+ *   and `describePendingChange`;
+ * - `RustEngineClient` (`getEngineClient`, with `isTauri()` true) and
+ *   `CoreProvider`, over a scripted `CoreClient`: the driver log is the `db`
+ *   calls today's desktop GUI sends Core (`engine`, `execute`, `query`);
+ * - every `$lib/sql` function, through the real seaquel-wasm (the query
+ *   tab's `sourceTable`/`columnSources` are resolved from the module's
+ *   `extractTableFromSelect`/`columnRefs` with `sourceTableFromRef` and
+ *   `columnSourcesFromRefs`, as the run manager does).
+ *
+ * What is stubbed:
+ * - the `CoreClient`: `db.execute` and the data tab's `db.query` calls are
+ *   answered from the case, `db.engine tableMetadata` from the case's
+ *   `metadata` (the table as the database has it), and a case fails on a
+ *   call it didn't expect or an answer left over;
+ * - `db.engine buildUpdate`/`buildSetDefault`/`buildInsert`/`buildDelete`
+ *   are answered by the real Rust dialects through a helper binary
+ *   (`SEAQUEL_DIALECT_HELPER`, source below), which calls the same
+ *   `Dialect` methods `seaquel_rpc::dispatch_on` does. So the SQL and binds
+ *   are what Core builds today, not a copy of the `crud.json` fixtures;
+ * - toasts and the logger (captured or silenced), the pending-changes setting
+ *   (a plain object), `crypto.randomUUID` (a counter, so ids are stable) and
+ *   `QueryHistoryManager.addToHistory` (spied; its row count is
+ *   `affectedRows ?? totalRows`, as the real one computes it);
+ * - the query tab's rerun after an immediate Set default
+ *   (`QueryExecutionManager.execute`, counted, not run: it is a `db.run`,
+ *   pinned by the run fixtures);
+ * - the sidebar's DROP and TRUNCATE SQL is built here the way
+ *   `components/sidebar/manage/schema-tab.svelte` builds it (the component
+ *   isn't rendered), then goes through the real `executeRawDdl`.
+ *
+ * The dialect helper is a standalone crate outside the repo (a path
+ * dependency on the engine crates, the repo's Cargo.lock copied next to it):
+ *
+ *   # Cargo.toml
+ *   [package]
+ *   name = "p5c-dialect-helper"
+ *   version = "0.0.0"
+ *   edition = "2021"
+ *   [workspace]
+ *   [dependencies]
+ *   seaquel-engine = { path = "<repo>/crates/seaquel-engine" }
+ *   seaquel-types = { path = "<repo>/crates/seaquel-types" }
+ *   seaquel-engine-postgres = { path = "<repo>/crates/seaquel-engine-postgres" }
+ *   seaquel-engine-mysql = { path = "<repo>/crates/seaquel-engine-mysql" }
+ *   seaquel-engine-sqlite = { path = "<repo>/crates/seaquel-engine-sqlite" }
+ *   seaquel-engine-mssql = { path = "<repo>/crates/seaquel-engine-mssql" }
+ *   seaquel-engine-duckdb = { path = "<repo>/crates/seaquel-engine-duckdb" }
+ *   serde = { version = "1", features = ["derive"] }
+ *   serde_json = "1"
+ *
+ *   // src/main.rs: one {"engine", "request": EngineRequest} per stdin line,
+ *   // one SqlWithBindings per stdout line.
+ *   use seaquel_engine::{CastMap, Dialect, RowValues};
+ *   use seaquel_types::Value;
+ *   use serde::Deserialize;
+ *   use std::io::{BufRead, Write};
+ *   #[derive(Deserialize)]
+ *   #[serde(tag = "method", content = "params", rename_all = "camelCase")]
+ *   enum Req {
+ *       BuildUpdate { schema: String, table: String, column: String, value: Value,
+ *           primary_keys: Vec<String>, row: RowValues, #[serde(default)] casts: Option<CastMap> },
+ *       BuildSetDefault { schema: String, table: String, column: String,
+ *           #[serde(default)] column_default: Option<String>, primary_keys: Vec<String>,
+ *           row: RowValues, #[serde(default)] casts: Option<CastMap> },
+ *       BuildInsert { schema: String, table: String, values: RowValues,
+ *           #[serde(default)] casts: Option<CastMap> },
+ *       BuildDelete { schema: String, table: String, primary_keys: Vec<String>, row: RowValues,
+ *           #[serde(default)] casts: Option<CastMap> },
+ *   }
+ *   #[derive(Deserialize)]
+ *   struct Line { engine: String, request: Req }
+ *   fn dialect(engine: &str) -> Box<dyn Dialect> {
+ *       match engine {
+ *           "postgres" => Box::new(seaquel_engine_postgres::PostgresDialect),
+ *           "mysql" | "mariadb" => Box::new(seaquel_engine_mysql::MysqlDialect),
+ *           "sqlite" => Box::new(seaquel_engine_sqlite::SqliteDialect),
+ *           "mssql" => Box::new(seaquel_engine_mssql::MssqlDialect),
+ *           _ => Box::new(seaquel_engine_duckdb::DuckdbDialect),
+ *       }
+ *   }
+ *   fn main() {
+ *       let mut out = std::io::stdout().lock();
+ *       for line in std::io::stdin().lock().lines() {
+ *           let l: Line = serde_json::from_str(&line.unwrap()).unwrap();
+ *           let d = dialect(&l.engine);
+ *           let r = match l.request {
+ *               Req::BuildUpdate { schema, table, column, value, primary_keys, row, casts } =>
+ *                   d.build_update(&schema, &table, &column, value, &primary_keys, &row, casts.as_ref()),
+ *               Req::BuildSetDefault { schema, table, column, column_default, primary_keys, row, casts } =>
+ *                   d.build_set_default_expr(&schema, &table, &column, column_default.as_deref(),
+ *                       &primary_keys, &row, casts.as_ref()),
+ *               Req::BuildInsert { schema, table, values, casts } =>
+ *                   d.build_insert(&schema, &table, &values, casts.as_ref()),
+ *               Req::BuildDelete { schema, table, primary_keys, row, casts } =>
+ *                   d.build_delete(&schema, &table, &primary_keys, &row, casts.as_ref()),
+ *           };
+ *           writeln!(out, "{}", serde_json::to_string(&r).unwrap()).unwrap();
+ *       }
+ *   }
+ *
+ * The fixtures README says what each field means.
+ */
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import type {
+  DataFilter,
+  DataSort,
+  DataTab,
+  DatabaseType,
+  PendingChange,
+  PendingChangeTarget,
+  SchemaColumn,
+  SchemaIndex,
+  SchemaTable,
+  StatementResult,
+} from "$lib/types";
+import type { DatabaseState } from "./state.svelte.js";
+import type { QueryHistoryManager } from "./query-history.svelte.js";
+import type { TabOrderingManager } from "./tab-ordering.svelte.js";
+import type { ProviderRegistry } from "$lib/providers";
+import type { CoreClient } from "$lib/core";
+
+const rec = vi.hoisted(() => ({
+  toasts: [] as { kind: string; message: string }[],
+  settings: { enabled: false },
+}));
+
+vi.mock("svelte-sonner", () => {
+  const push = (kind: string) => (message: unknown) => {
+    rec.toasts.push({ kind, message: String(message) });
+  };
+  return {
+    toast: { info: push("info"), success: push("success"), warning: push("warning"), error: push("error") },
+  };
+});
+vi.mock("$lib/utils/toast", () => ({
+  errorToast: (message: unknown) => {
+    rec.toasts.push({ kind: "error", message: String(message) });
+  },
+}));
+vi.mock("$lib/utils/logger", () => ({
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
+vi.mock("$lib/stores/pending-changes-settings.svelte.js", () => ({
+  pendingChangesSettingsStore: rec.settings,
+}));
+// Desktop: `getEngineClient` gives `RustEngineClient`, and `usesRustEngine` is true.
+vi.mock("$lib/utils/environment", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("$lib/utils/environment")>()),
+  isTauri: () => true,
+}));
+
+const { QueryExecutionManager } = await import("./query-execution.svelte.js");
+const { DataTabManager } = await import("./data-tabs.svelte.js");
+const { PendingChangesManager } = await import("./pending-changes.svelte.js");
+const { castMapForColumns } = await import("./query-crud.svelte.js");
+const { describePendingChange } = await import("./pending-change-description.js");
+const { CoreProvider } = await import("$lib/providers/core-provider");
+const { setCoreClient } = await import("$lib/core");
+const { CoreCallError } = await import("$lib/storage/rust-client");
+const { decodeCell, encodeParam } = await import("$lib/values");
+const { getEngineClient } = await import("$lib/engine");
+const sql = await import("$lib/sql");
+
+// ---------------------------------------------------------------- helpers
+
+type Wire = unknown;
+type RpcErr = { code: string; message: string };
+type Meta = { schema: string; table: string; columns: SchemaColumn[]; indexes: SchemaIndex[] };
+
+let uuidSeq = 0;
+vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(
+  () => `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, "0")}` as `${string}-${string}-${string}-${string}-${string}`,
+);
+
+/** JS → the cell wire format (`undefined` is a missing value: NULL). */
+function wire(v: unknown): Wire {
+  if (v === undefined) return null;
+  return JSON.parse(JSON.stringify(encodeParam(v)));
+}
+function wireRecord(r: Record<string, unknown> | undefined): Record<string, Wire> | undefined {
+  if (!r) return undefined;
+  return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, wire(v)]));
+}
+/** The wire format → JS, as the providers decode rows. */
+const js = (v: Wire): unknown => decodeCell(structuredClone(v));
+
+function col(
+  name: string,
+  type: string,
+  o: { pk?: boolean; castType?: string; default?: string; nullable?: boolean } = {},
+): SchemaColumn {
+  return {
+    name,
+    type,
+    ...(o.castType === undefined ? {} : { castType: o.castType }),
+    nullable: o.nullable ?? !o.pk,
+    ...(o.default === undefined ? {} : { defaultValue: o.default }),
+    isPrimaryKey: !!o.pk,
+    isForeignKey: false,
+  };
+}
+function tbl(schema: string, name: string, columns: SchemaColumn[], indexes: SchemaIndex[] = []): SchemaTable {
+  return { name, schema, type: "table", columns, indexes } as unknown as SchemaTable;
+}
+function metaOf(t: SchemaTable): Meta {
+  return { schema: t.schema, table: t.name, columns: t.columns, indexes: t.indexes ?? [] };
+}
+const pkIndex = (table: string, ...columns: string[]): SchemaIndex => ({
+  name: `${table}_pkey`,
+  columns,
+  unique: true,
+  type: "btree",
+});
+
+const HELPER = process.env.SEAQUEL_DIALECT_HELPER;
+/** The real Rust dialect's answer to one engine RPC builder call. */
+function dialectBuild(engine: string, request: unknown): { sql: string; bindValues?: Wire[] } {
+  if (!HELPER) throw new Error("set SEAQUEL_DIALECT_HELPER to the dialect helper binary");
+  const r = spawnSync(HELPER, [], { input: JSON.stringify({ engine, request }) + "\n", encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`dialect helper failed: ${r.stderr}`);
+  const out = JSON.parse(r.stdout) as { sql: string; bindValues?: Wire[]; error?: string };
+  if (out.error) throw new Error(`dialect helper: ${out.error}`);
+  return { sql: out.sql, ...(out.bindValues ? { bindValues: out.bindValues } : {}) };
+}
+
+// ---------------------------------------------------------------- the client
+
+type Answer =
+  | { op: "execute"; rowsAffected?: number; lastInsertId?: number; error?: RpcErr }
+  | { op: "tableMetadata"; error: RpcErr };
+
+interface DriverOp {
+  op: string;
+  [k: string]: unknown;
+}
+
+const BUILDERS = new Set(["buildUpdate", "buildSetDefault", "buildInsert", "buildDelete"]);
+
+/** How `db.query` calls are answered: a data tab's page and count. */
+interface PageSource {
+  columns: string[];
+  /** Every row the filters match, in order; a page is a slice. */
+  matching: Wire[][];
+  page: number;
+  pageSize: number;
+  countCell?: Wire;
+  countError?: RpcErr;
+  pageError?: RpcErr;
+}
+
+class ScriptedClient {
+  log: DriverOp[] = [];
+  failures: string[] = [];
+  /** Data tab refreshes answered without logging (plan and apply cases). */
+  quietQueries = 0;
+  quiet = false;
+  constructor(
+    private engine: string,
+    private answers: Answer[],
+    private metadata: Meta[],
+    public pageSource: PageSource | null,
+  ) {}
+
+  left(): Answer[] {
+    return this.answers;
+  }
+
+  private fail(msg: string): never {
+    this.failures.push(msg);
+    throw new CoreCallError({ code: "RECORDER", message: msg });
+  }
+
+  private next<O extends Answer["op"]>(op: O, what: string): Extract<Answer, { op: O }> {
+    const a = this.answers[0];
+    if (!a || a.op !== op) this.fail(`unexpected ${op} (${what}); expected ${a ? a.op : "no call"}`);
+    this.answers.shift();
+    return a as Extract<Answer, { op: O }>;
+  }
+
+  async call(request: { method: string; params: { method: string; params: Record<string, unknown> } }) {
+    const { method, params } = request.params;
+    const res = (result: unknown) => ({ method: "db", result: { method, result } });
+    if (method === "engine") {
+      const req = params.request as { method: string; params: Record<string, unknown> };
+      if (req.method === "tableMetadata") {
+        const { schema, table } = req.params as { schema: string; table: string };
+        if (this.answers[0]?.op === "tableMetadata") {
+          const a = this.next("tableMetadata", `${schema}.${table}`);
+          this.log.push({ op: "tableMetadata", schema, table, answer: { error: a.error } });
+          throw new CoreCallError(a.error);
+        }
+        const m = this.metadata.find((t) => t.schema === schema && t.table === table);
+        if (!m) this.fail(`no metadata for ${schema}.${table}`);
+        const answer = { columns: m.columns, indexes: m.indexes };
+        this.log.push({ op: "tableMetadata", schema, table, answer: structuredClone(answer) });
+        return res({ kind: "tableMetadata", data: structuredClone(answer) });
+      }
+      if (BUILDERS.has(req.method)) {
+        const out = dialectBuild(this.engine, req);
+        this.log.push({
+          op: "build",
+          method: req.method,
+          params: structuredClone(req.params),
+          answer: structuredClone(out),
+        });
+        return res({ kind: "sqlWithBindings", data: structuredClone(out) });
+      }
+      this.fail(`unexpected engine call ${req.method}`);
+    }
+    if (method === "execute") {
+      const text = params.sql as string;
+      const a = this.next("execute", text);
+      const { op: _op, ...answer } = a;
+      this.log.push({ op: "execute", sql: text, params: structuredClone(params.params), answer });
+      if (a.error) throw new CoreCallError(a.error);
+      return res({ rows_affected: a.rowsAffected ?? 0, last_insert_id: a.lastInsertId ?? null });
+    }
+    if (method === "query") {
+      const text = params.sql as string;
+      const binds = structuredClone(params.params) as Wire[];
+      const src = this.pageSource;
+      if (!src) this.fail(`unexpected query (${text})`);
+      const isCount = text.startsWith("SELECT COUNT(*) FROM");
+      let answer: Record<string, unknown>;
+      if (isCount) {
+        answer = src.countError
+          ? { error: src.countError }
+          : { columns: ["count"], rows: [[src.countCell ?? src.matching.length]] };
+      } else {
+        const offset = (src.page - 1) * src.pageSize;
+        answer = src.pageError
+          ? { error: src.pageError }
+          : {
+              columns: src.columns,
+              rows: src.matching.slice(offset, offset + src.pageSize),
+            };
+      }
+      if (this.quiet) this.quietQueries++;
+      else this.log.push({ op: isCount ? "count" : "page", sql: text, params: binds, answer });
+      if (answer.error) throw new CoreCallError(answer.error as RpcErr);
+      return res(structuredClone({ columns: answer.columns, rows: answer.rows }));
+    }
+    this.fail(`unexpected db.${method}`);
+  }
+
+  // eslint-disable-next-line require-yield
+  async *stream() {
+    this.failures.push("unexpected stream");
+  }
+
+  events() {
+    return () => {};
+  }
+}
+
+// ---------------------------------------------------------------- the world
+
+function world(engine: DatabaseType, cache: SchemaTable[], metadata: Meta[], answers: Answer[]) {
+  rec.toasts.length = 0;
+  uuidSeq = 0;
+  const client = new ScriptedClient(engine, structuredClone(answers), metadata, null);
+  setCoreClient(client as unknown as CoreClient);
+  const provider = new CoreProvider(() => client as unknown as CoreClient);
+  const connection = { id: "conn-1", type: engine, name: "Local", providerConnectionId: "pc-1" };
+  const state = {
+    activeProjectId: "p",
+    activeConnectionId: "conn-1",
+    activeConnection: connection,
+    connections: [connection],
+    schemas: { "conn-1": structuredClone(cache) },
+    dataTabsByProject: {} as Record<string, DataTab[]>,
+    activeDataTabIdByProject: {} as Record<string, string | null>,
+    queryTabsByProject: { p: [] as unknown[] },
+    pendingChangesByConnection: {} as Record<string, PendingChange[]>,
+    isPendingChangesOpen: false,
+  } as unknown as DatabaseState;
+  const providers = { getForType: async () => provider } as unknown as ProviderRegistry;
+  const historyCalls: { query: string; rowCount: number | undefined }[] = [];
+  const history = {
+    addToHistory: (query: string, r: { affectedRows?: number; totalRows: number }) => {
+      historyCalls.push({ query, rowCount: r.affectedRows ?? r.totalRows });
+    },
+  } as unknown as QueryHistoryManager;
+  const pending = new PendingChangesManager(state, providers, history);
+  const queries = new QueryExecutionManager(state, history, providers, pending);
+  let reruns = 0;
+  (queries as unknown as { execute: () => Promise<void> }).execute = async () => {
+    reruns++;
+  };
+  const dataTabs = new DataTabManager(
+    state,
+    { add: () => {} } as unknown as TabOrderingManager,
+    () => {},
+    () => {},
+    queries,
+    providers,
+  );
+  return {
+    client,
+    state,
+    pending,
+    queries,
+    dataTabs,
+    historyCalls,
+    reruns: () => reruns,
+    queue: () => state.pendingChangesByConnection["conn-1"] ?? [],
+  };
+}
+
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+/** Stable names for change ids, in order of first appearance. */
+function idNames() {
+  const names = new Map<string, string>();
+  return (id: string | undefined) => {
+    if (id === undefined) return undefined;
+    let n = names.get(id);
+    if (!n) {
+      n = `c${names.size + 1}`;
+      names.set(id, n);
+    }
+    return n;
+  };
+}
+
+function targetOut(t: PendingChangeTarget | undefined) {
+  if (!t) return null;
+  return {
+    schema: t.schema,
+    table: t.table,
+    ...(t.column !== undefined ? { column: t.column } : {}),
+    ...(t.primaryKeyValues ? { primaryKeyValues: wireRecord(t.primaryKeyValues) } : {}),
+    ...("newValue" in t ? { newValue: wire(t.newValue) } : {}),
+    ...(t.insertValues ? { insertValues: wireRecord(t.insertValues) } : {}),
+  };
+}
+
+/** The edit intent (Decision 1) the GUI will send for a builder call it made today. */
+function intentFrom(op: DriverOp) {
+  const p = op.params as {
+    schema: string;
+    table: string;
+    column?: string;
+    value?: Wire;
+    primary_keys?: string[];
+    row?: [string, Wire][];
+    values?: [string, Wire][];
+  };
+  const target = { schema: p.schema, table: p.table };
+  const key = () =>
+    (p.primary_keys ?? []).map((k) => [k, (p.row ?? []).find(([c]) => c === k)?.[1] ?? null]);
+  switch (op.method) {
+    case "buildUpdate":
+      return { type: "updateCell", target, key: key(), column: p.column, value: p.value ?? null };
+    case "buildSetDefault":
+      return { type: "setDefault", target, key: key(), column: p.column };
+    case "buildInsert":
+      return { type: "insertRow", target, values: p.values };
+    case "buildDelete":
+      return { type: "deleteRow", target, key: key() };
+  }
+  throw new Error(`no intent for ${String(op.method)}`);
+}
+
+/** The code of a failure: the `CODE: ` prefix, or NO_ROWS_AFFECTED for the stale-key message. */
+function codeOf(error: string | undefined, stale: boolean): string | undefined {
+  if (error === undefined) return undefined;
+  if (stale) return "NO_ROWS_AFFECTED";
+  const m = /^([A-Z][A-Z0-9_]*): /.exec(error);
+  return m ? m[1] : undefined;
+}
+const STALE_PREFIX = "No row in ";
+
+// ---------------------------------------------------------------- summaries
+
+/** `describePendingChange`'s fallback text per origin: no summary. */
+const FALLBACKS = new Set([
+  "Update cell",
+  "Insert row",
+  "Delete row",
+  "Set column default",
+  "Create table",
+  "Alter table",
+  "Drop table",
+  "Truncate table",
+]);
+const SUMMARY_PATTERNS: [RegExp, string, boolean][] = [
+  [/^Insert row into (.+)$/s, "insert", false],
+  [/^Update (.+)$/s, "update", true],
+  [/^Delete row from (.+)$/s, "delete", false],
+  [/^Create table (.+)$/s, "createTable", false],
+  [/^Create index (.+)$/s, "createIndex", false],
+  [/^Drop table (.+)$/s, "dropTable", false],
+  [/^Drop index (.+)$/s, "dropIndex", false],
+  [/^Drop view (.+)$/s, "dropView", false],
+  [/^Truncate table (.+)$/s, "truncate", false],
+  [/^Alter table (.+)$/s, "alterTable", false],
+];
+/**
+ * The `ChangeSummary` a description stands for (Decision 12), for the Rust
+ * side, which compares these fields and never the English text. Derived from
+ * the description; `null` where it is the SQL itself or an origin fallback.
+ * For an index, `table` holds the index's name. The table and column are
+ * split at the first `.` (no case has one inside a name).
+ */
+function summaryOf(description: string, origin: PendingChange["origin"]) {
+  if (FALLBACKS.has(description)) return null;
+  void origin;
+  for (const [re, verb, hasColumn] of SUMMARY_PATTERNS) {
+    const m = re.exec(description);
+    if (!m) continue;
+    if (!hasColumn) return { verb, table: m[1], column: null };
+    const dot = m[1].indexOf(".");
+    return dot < 0
+      ? { verb, table: m[1], column: null }
+      : { verb, table: m[1].slice(0, dot), column: m[1].slice(dot + 1) };
+  }
+  return null;
+}
+
+/** Decision 5's rule: every intent but truncate/drop is DML (a SQLite truncate is too), and typed insert/update/delete. */
+function dmlOf(change: { type: string; edit?: { type: string } | null; sql?: string }, engine: DatabaseType) {
+  if (change.type === "edit") {
+    const t = change.edit?.type;
+    if (t === "dropObject") return false;
+    if (t === "truncateTable") return engine === "sqlite";
+    return true;
+  }
+  const q = sql.detectQueryType(change.sql ?? "", engine);
+  return q === "insert" || q === "update" || q === "delete";
+}
+
+// ---------------------------------------------------------------- change specs
+
+interface ChangeSpec {
+  decision: string;
+  why: string;
+  /** Top-level fields of the recorded case as Core should produce them. */
+  expected: (recorded: Record<string, unknown>) => Record<string, unknown>;
+}
+const changes: Record<string, { decision: string; why: string; expected: Record<string, unknown> }> = {};
+
+// ---------------------------------------------------------------- plan cases
+
+type Step =
+  | { action: "updateCell"; row: number; column: string; value: Wire }
+  | { action: "setDefault"; row: number; column: string }
+  | { action: "deleteRow"; row: number }
+  | { action: "insertRow"; values: Record<string, Wire> };
+
+interface PlanCase {
+  file: string;
+  name: string;
+  engine: DatabaseType;
+  notes?: string;
+  pending: boolean;
+  cache: SchemaTable[];
+  /** The tables as the database has them; defaults to the cache. */
+  metadata?: Meta[];
+  via: "dataTab" | "queryTab";
+  /** Data tab: its table. */
+  table?: { schema: string; name: string };
+  /** Query tab: the SELECT the result came from. */
+  query?: string;
+  columns: string[];
+  rows: Wire[][];
+  steps: Step[];
+  answers?: Answer[];
+  change?: ChangeSpec;
+}
+
+const planCases: PlanCase[] = [];
+const plan = (c: PlanCase) => planCases.push(c);
+const ok = (rowsAffected = 1, lastInsertId?: number): Answer =>
+  lastInsertId === undefined
+    ? { op: "execute", rowsAffected }
+    : { op: "execute", rowsAffected, lastInsertId };
+const execErr = (message: string, code = "EXECUTE_ERROR"): Answer => ({
+  op: "execute",
+  error: { code, message },
+});
+const bigint = (v: string) => ({ $sq: "bigint", v });
+const decimal = (v: string) => ({ $sq: "decimal", v });
+const bytes = (v: string) => ({ $sq: "bytes", v });
+const json = (v: unknown) => ({ $sq: "json", v });
+
+/** `describePendingChange` for a queued entry, fixed where the regexes misread a quoted name. */
+function describedAs(descriptions: string[], origins?: string[]): ChangeSpec["expected"] {
+  return (r) => ({
+    queue: (r.queue as { description: string; origin: string }[]).map((q, i) => {
+      const origin = origins?.[i] ?? q.origin;
+      return {
+        ...q,
+        description: descriptions[i],
+        origin,
+        summary: summaryOf(descriptions[i], origin as PendingChange["origin"]),
+      };
+    }),
+  });
+}
+
+/**
+ * The fixed expectation for a JSON column's values (the new Decision 19):
+ * Core binds a value for a json/jsonb/JSON column as `Json`, from the
+ * column's type in the metadata. `binds[i]` lists the bind positions of step
+ * i (and of queue entry i) that are such values.
+ */
+function jsonBound(binds: number[][]): ChangeSpec["expected"] {
+  const tag = (v: unknown) =>
+    v !== null && typeof v === "object" && (v as { $sq?: string }).$sq === "json" ? v : { $sq: "json", v };
+  const fix = (list: unknown[] | undefined, at: number[]) =>
+    list?.map((v, i) => (at.includes(i) ? tag(v) : v));
+  return (r) => ({
+    steps: (r.steps as Record<string, unknown>[]).map((step, i) => ({
+      ...step,
+      driver: (step.driver as DriverOp[]).map((o) =>
+        o.op === "build"
+          ? { ...o, answer: { ...(o.answer as object), bindValues: fix((o.answer as { bindValues?: unknown[] }).bindValues, binds[i]) } }
+          : o,
+      ),
+    })),
+    queue: (r.queue as Record<string, unknown>[]).map((q, i) => ({ ...q, params: fix(q.params as unknown[], binds[i]) })),
+  });
+}
+const JSON_WHY =
+  "An array, number or bool bound to a json/jsonb/JSON column binds as JSON (Decision 19: Core tags it from the column's type in the metadata). Today a JSON cell that decoded to an array is sent as a SQL array and a number as a number: queued here, so nothing ran; run, each fails. Text stays text, so the database parses it as today: the grid sends typed JSON as a string, and a decoded JSON string (`\"abc\"`) can't be told apart from it (a quirk, kept).";
+
+// ---- Postgres
+const pgUsers = tbl("public", "users", [
+  col("id", "bigint", { pk: true, castType: "bigint" }),
+  col("name", "text", { castType: "text" }),
+  col("email", "character varying", { castType: "character varying" }),
+  col("balance", "numeric", { castType: "numeric(12,2)", default: "0" }),
+  col("meta", "jsonb", { castType: "jsonb" }),
+  col("mood", "USER-DEFINED", { castType: "public.mood" }),
+  col("tags", "ARRAY", { castType: "text[]" }),
+  col("code", "character", { castType: "bpchar" }),
+  col("created", "date", { castType: "date", default: "CURRENT_DATE" }),
+], [pkIndex("users", "id")]);
+const pgUserCols = ["id", "name", "email", "balance", "meta", "mood", "tags", "code", "created"];
+const pgUserRow = (id: Wire, name = "ann"): Wire[] => [
+  id,
+  name,
+  "ann@example.com",
+  decimal("10.50"),
+  json({ a: 1 }),
+  "happy",
+  ["x", "y"],
+  "A",
+  "2024-01-02",
+];
+const pgRegion = tbl("inventory", "region_stock", [
+  col("region", "text", { pk: true, castType: "text" }),
+  col("sku", "character varying", { pk: true, castType: "character varying" }),
+  col("qty", "integer", { castType: "integer", default: "0" }),
+], [pkIndex("region_stock", "region", "sku")]);
+const pgEvents = tbl("public", "events", [
+  col("id", "uuid", { pk: true, castType: "uuid" }),
+  col("day", "date", { pk: true, castType: "date" }),
+  col("note", "text", { castType: "text" }),
+], [pkIndex("events", "id", "day")]);
+const pgOrders = tbl("public", "orders", [
+  col("id", "integer", { pk: true, castType: "integer" }),
+  col("total", "numeric", { castType: "numeric" }),
+  col("customer_id", "integer", { castType: "integer" }),
+], [pkIndex("orders", "id")]);
+const pgCustomers = tbl("public", "customers", [
+  col("id", "integer", { pk: true, castType: "integer" }),
+  col("name", "text", { castType: "text" }),
+], [pkIndex("customers", "id")]);
+const pgDocs = tbl("public", "docs", [
+  col("doc", "jsonb", { pk: true, castType: "jsonb" }),
+  col("title", "text", { castType: "text" }),
+], [pkIndex("docs", "doc")]);
+{
+  const file = "plan-postgres";
+  plan({
+    file,
+    name: "pg/data-tab-update-immediate",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "updateCell", row: 0, column: "name", value: "bea" }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-update-queued",
+    engine: "postgres",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "updateCell", row: 0, column: "balance", value: decimal("12.00") }],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-update-typed-values",
+    engine: "postgres",
+    notes: "NULL into jsonb, an enum, an array and a character column: each value placeholder is cast",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(bigint("9007199254740993"))],
+    steps: [
+      { action: "updateCell", row: 0, column: "meta", value: null },
+      { action: "updateCell", row: 0, column: "mood", value: "sad" },
+      { action: "updateCell", row: 0, column: "tags", value: ["z"] },
+      { action: "updateCell", row: 0, column: "code", value: "B" },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-update-json-value",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(2)],
+    steps: [{ action: "updateCell", row: 0, column: "meta", value: json({ b: [1, 2], c: null }) }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-set-default-immediate",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "setDefault", row: 0, column: "balance" }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-insert-immediate",
+    engine: "postgres",
+    notes: "Postgres reports no last insert id",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [
+      {
+        action: "insertRow",
+        values: { name: "cy", balance: decimal("1.25"), meta: json({ k: "v" }), created: "2024-02-03" },
+      },
+    ],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-delete-queued",
+    engine: "postgres",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1), pgUserRow(2, "bob")],
+    steps: [{ action: "deleteRow", row: 1 }],
+  });
+  plan({
+    file,
+    name: "pg/composite-key",
+    engine: "postgres",
+    pending: true,
+    cache: [pgRegion],
+    via: "dataTab",
+    table: { schema: "inventory", name: "region_stock" },
+    columns: ["region", "sku", "qty"],
+    rows: [["eu", "A-1", 12]],
+    steps: [
+      { action: "updateCell", row: 0, column: "qty", value: 40 },
+      { action: "deleteRow", row: 0 },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/uuid-and-date-key",
+    engine: "postgres",
+    notes: "Key placeholders are cast too (uuid, date), so keys sent as text compare",
+    pending: false,
+    cache: [pgEvents],
+    via: "dataTab",
+    table: { schema: "public", name: "events" },
+    columns: ["id", "day", "note"],
+    rows: [["0b9d2f5e-8c1a-4f6e-9d3b-2a7c5e1f4b60", "2024-03-01", "n"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "note", value: "m" },
+      { action: "setDefault", row: 0, column: "note" },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(), ok(), ok()],
+  });
+  plan({
+    file,
+    name: "pg/json-key",
+    engine: "postgres",
+    pending: true,
+    cache: [pgDocs],
+    via: "dataTab",
+    table: { schema: "public", name: "docs" },
+    columns: ["doc", "title"],
+    rows: [[json({ id: 7 }), "t"]],
+    steps: [{ action: "updateCell", row: 0, column: "title", value: "u" }],
+  });
+  plan({
+    file,
+    name: "pg/decimal-key",
+    engine: "postgres",
+    pending: true,
+    cache: [
+      tbl("public", "prices", [
+        col("amount", "numeric", { pk: true, castType: "numeric(6,2)" }),
+        col("label", "text", { castType: "text" }),
+      ], [pkIndex("prices", "amount")]),
+    ],
+    via: "dataTab",
+    table: { schema: "public", name: "prices" },
+    columns: ["amount", "label"],
+    rows: [[decimal("12.50"), "a"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "label", value: "b" },
+      { action: "deleteRow", row: 0 },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/json-top-level-values",
+    engine: "postgres",
+    notes: "JSON cells whose value is an array, a string and a number (as the grid holds them after decoding), and an insert of an array",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1), pgUserRow(2, "bo"), pgUserRow(3, "cy")],
+    steps: [
+      { action: "updateCell", row: 0, column: "meta", value: json([1, 2]) },
+      { action: "updateCell", row: 1, column: "meta", value: json("abc") },
+      { action: "updateCell", row: 2, column: "meta", value: json(5) },
+      { action: "insertRow", values: { name: "j", meta: json([true]) } },
+    ],
+    change: { decision: "19", why: JSON_WHY, expected: jsonBound([[0], [], [0], [1]]) },
+  });
+  plan({
+    file,
+    name: "pg/json-typed-text",
+    engine: "postgres",
+    notes: "The grid sends typed JSON as a string (`editedCellValue`): it binds as text and the database parses it. Not a change: Decision 19 leaves text alone",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1), pgUserRow(2, "bo")],
+    steps: [
+      { action: "updateCell", row: 0, column: "meta", value: '{"a":1}' },
+      { action: "updateCell", row: 1, column: "meta", value: "[1,2]" },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/key-order-differs-from-primary-key",
+    engine: "postgres",
+    notes: "The schema cache lists `sku` before `region`, so the key arrives as (sku, region); the primary key is (region, sku). Core accepts the same set of columns and builds the WHERE in the key's order, as today",
+    pending: false,
+    cache: [
+      tbl("inventory", "region_stock", [pgRegion.columns[1], pgRegion.columns[0], pgRegion.columns[2]], [
+        pkIndex("region_stock", "region", "sku"),
+      ]),
+    ],
+    metadata: [metaOf(pgRegion)],
+    via: "dataTab",
+    table: { schema: "inventory", name: "region_stock" },
+    columns: ["sku", "region", "qty"],
+    rows: [["A-1", "eu", 12]],
+    steps: [
+      { action: "updateCell", row: 0, column: "qty", value: 13 },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(), ok()],
+  });
+  plan({
+    file,
+    name: "pg/insert-columns-not-cached",
+    engine: "postgres",
+    notes: "The cache lists the table without columns: the cast map loads its metadata first (and stores it in the cache)",
+    pending: true,
+    cache: [tbl("public", "users", [])],
+    metadata: [metaOf(pgUsers)],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "insertRow", values: { name: "dee", meta: json({ n: 1 }) } }],
+  });
+  plan({
+    file,
+    name: "pg/insert-metadata-fails",
+    engine: "postgres",
+    notes: "The metadata load fails: no cast map, the insert is built without casts",
+    pending: true,
+    cache: [tbl("public", "users", [])],
+    metadata: [metaOf(pgUsers)],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "insertRow", values: { name: "dee" } }],
+    answers: [{ op: "tableMetadata", error: { code: "QUERY_ERROR", message: "permission denied" } }],
+    change: {
+      decision: "3",
+      why: "Core reads the table's metadata for every edit call; when that fails the call fails with its error, instead of building without casts.",
+      expected: (r) => {
+        const steps = r.steps as Record<string, unknown>[];
+        const driver = (steps[0].driver as DriverOp[]).filter((o) => o.op === "tableMetadata");
+        return {
+          steps: [{ ...steps[0], driver, outcome: { saved: false, code: "QUERY_ERROR" } }],
+          queue: [],
+        };
+      },
+    },
+  });
+  plan({
+    file,
+    name: "pg/stale-key-immediate",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(5)],
+    steps: [
+      { action: "updateCell", row: 0, column: "name", value: "x" },
+      { action: "setDefault", row: 0, column: "balance" },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(0), ok(0), ok(0)],
+  });
+  plan({
+    file,
+    name: "pg/database-error-immediate",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "updateCell", row: 0, column: "email", value: "dup@example.com" }],
+    answers: [execErr('duplicate key value violates unique constraint "users_email_key"')],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-repeated-edit-replaced",
+    engine: "postgres",
+    notes: "The data tab replaces a queued edit of the same cell (`deduplicatePending`)",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [
+      { action: "updateCell", row: 0, column: "name", value: "b1" },
+      { action: "updateCell", row: 0, column: "name", value: "b2" },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/data-tab-edit-then-set-default-replaced",
+    engine: "postgres",
+    notes: "Set default replaces the queued edit of the same cell, but `update` keeps the entry's first origin (`inline-edit`)",
+    pending: true,
+    cache: [pgUsers],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [
+      { action: "updateCell", row: 0, column: "balance", value: decimal("3.00") },
+      { action: "setDefault", row: 0, column: "balance" },
+    ],
+    change: {
+      decision: "6",
+      why: "A replaced queued change is the new change whole: it takes the Set default's origin (`set-default`).",
+      expected: (r) => ({
+        queue: (r.queue as Record<string, unknown>[]).map((q) => ({ ...q, origin: "set-default" })),
+      }),
+    },
+  });
+  plan({
+    file,
+    name: "pg/query-tab-repeated-edit-queued-twice",
+    engine: "postgres",
+    notes: "Today the query tab doesn't dedupe: two UPDATEs of one cell are queued",
+    pending: true,
+    cache: [pgUsers],
+    via: "queryTab",
+    query: "SELECT id, name FROM users",
+    columns: ["id", "name"],
+    rows: [[1, "ann"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "name", value: "b1" },
+      { action: "updateCell", row: 0, column: "name", value: "b2" },
+    ],
+    change: {
+      decision: "6",
+      why: "The query tab dedupes a repeated edit of the same cell the way the data tab does: one queued change, holding the second value.",
+      expected: (r) => {
+        const q = r.queue as Record<string, unknown>[];
+        const change = q[1].change as Record<string, unknown>;
+        return { queue: [{ ...q[1], id: q[0].id, change: { ...change, id: q[0].id } }] };
+      },
+    },
+  });
+  plan({
+    file,
+    name: "pg/query-tab-alias-and-join",
+    engine: "postgres",
+    notes: "`order_id` routes to orders.id through the column refs; customers' key isn't in the result, so its column can't be edited",
+    pending: true,
+    cache: [pgOrders, pgCustomers],
+    via: "queryTab",
+    query: "SELECT o.id AS order_id, o.total, c.name FROM public.orders o JOIN customers c ON c.id = o.customer_id",
+    columns: ["order_id", "total", "name"],
+    rows: [[3, decimal("9.50"), "ann"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "total", value: decimal("10.00") },
+      { action: "updateCell", row: 0, column: "name", value: "bo" },
+      { action: "deleteRow", row: 0 },
+    ],
+  });
+  plan({
+    file,
+    name: "pg/query-tab-set-default-immediate-reruns",
+    engine: "postgres",
+    pending: false,
+    cache: [pgUsers],
+    via: "queryTab",
+    query: "SELECT id, balance FROM users WHERE id = 1",
+    columns: ["id", "balance"],
+    rows: [[1, decimal("10.50")]],
+    steps: [{ action: "setDefault", row: 0, column: "balance" }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/query-tab-select-star-delete",
+    engine: "postgres",
+    notes: "`SELECT *` has no column refs: the delete keys the row by display names and the result's source table",
+    pending: false,
+    cache: [pgUsers],
+    via: "queryTab",
+    query: "SELECT * FROM users",
+    columns: pgUserCols,
+    rows: [pgUserRow(4)],
+    steps: [{ action: "deleteRow", row: 0 }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "pg/key-not-primary-key",
+    engine: "postgres",
+    notes: "A stale schema cache says `email` is the key; the table's primary key is `id`. Today the UPDATE runs keyed by email",
+    pending: false,
+    cache: [
+      tbl("public", "users", pgUsers.columns.map((c) => ({ ...c, isPrimaryKey: c.name === "email" }))),
+    ],
+    metadata: [metaOf(pgUsers)],
+    via: "dataTab",
+    table: { schema: "public", name: "users" },
+    columns: pgUserCols,
+    rows: [pgUserRow(1)],
+    steps: [{ action: "updateCell", row: 0, column: "name", value: "x" }],
+    answers: [ok(1)],
+    change: {
+      decision: "4",
+      why: "The key's columns must be exactly the table's primary key from the metadata: the edit is refused with NOT_EDITABLE before anything runs.",
+      expected: (r) => {
+        const steps = r.steps as Record<string, unknown>[];
+        return {
+          steps: [
+            {
+              ...Object.fromEntries(Object.entries(steps[0]).filter(([k]) => k !== "refreshed")),
+              driver: [],
+              outcome: { success: false, code: "NOT_EDITABLE" },
+            },
+          ],
+        };
+      },
+    },
+  });
+}
+
+// ---- MySQL
+const myItems = tbl("shop", "items", [
+  col("id", "int", { pk: true }),
+  col("name", "varchar(64)"),
+  col("price", "decimal(10,2)", { default: "0.00" }),
+  col("sku", "binary(16)"),
+], [pkIndex("items", "id")]);
+const myTokens = tbl("shop", "tokens", [
+  col("token", "binary(16)", { pk: true }),
+  col("label", "varchar(64)", { default: "'none'" }),
+], [pkIndex("tokens", "token")]);
+{
+  const file = "plan-mysql";
+  const desc = "The regexes don't read backticked names, so the description is the SQL itself (Decision 12 reads them).";
+  plan({
+    file,
+    name: "mysql/update-queued",
+    engine: "mysql",
+    pending: true,
+    cache: [myItems],
+    via: "dataTab",
+    table: { schema: "shop", name: "items" },
+    columns: ["id", "name", "price", "sku"],
+    rows: [[1, "a", decimal("1.00"), bytes("AAECAwQFBgcICQoLDA0ODw==")]],
+    steps: [
+      { action: "updateCell", row: 0, column: "price", value: decimal("2.50") },
+      { action: "setDefault", row: 0, column: "name" },
+    ],
+    change: { decision: "12", why: desc, expected: describedAs(["Update items.price", "Update items.name"]) },
+  });
+  plan({
+    file,
+    name: "mysql/insert-last-insert-id",
+    engine: "mysql",
+    pending: false,
+    cache: [myItems],
+    via: "dataTab",
+    table: { schema: "shop", name: "items" },
+    columns: ["id", "name", "price", "sku"],
+    rows: [[1, "a", decimal("1.00"), null]],
+    steps: [{ action: "insertRow", values: { name: "b", price: decimal("3.00") } }],
+    answers: [ok(1, 42)],
+  });
+  plan({
+    file,
+    name: "mysql/bytes-key",
+    engine: "mysql",
+    pending: true,
+    cache: [myTokens],
+    via: "dataTab",
+    table: { schema: "shop", name: "tokens" },
+    columns: ["token", "label"],
+    rows: [[bytes("3q2+7w=="), "x"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "label", value: "y" },
+      { action: "deleteRow", row: 0 },
+    ],
+    change: { decision: "12", why: desc, expected: describedAs(["Update tokens.label", "Delete row from tokens"]) },
+  });
+  plan({
+    file,
+    name: "mysql/stale-key-counts-matched-rows",
+    engine: "mysql",
+    notes: "MySQL counts matched rows (CLIENT_FOUND_ROWS), so 0 means no row matched",
+    pending: false,
+    cache: [myItems],
+    via: "queryTab",
+    query: "SELECT id, name FROM shop.items",
+    columns: ["id", "name"],
+    rows: [[9, "z"]],
+    steps: [{ action: "updateCell", row: 0, column: "name", value: "q" }],
+    answers: [ok(0)],
+  });
+  plan({
+    file,
+    name: "mysql/insert-queued",
+    engine: "mysql",
+    pending: true,
+    cache: [myItems],
+    via: "dataTab",
+    table: { schema: "shop", name: "items" },
+    columns: ["id", "name", "price", "sku"],
+    rows: [[1, "a", decimal("1.00"), null]],
+    steps: [{ action: "insertRow", values: { name: "c" } }],
+    change: { decision: "12", why: desc, expected: describedAs(["Insert row into items"]) },
+  });
+  const myDocs = tbl("shop", "docs", [col("id", "int", { pk: true }), col("doc", "json")], [pkIndex("docs", "id")]);
+  plan({
+    file,
+    name: "mysql/json-typed-text",
+    engine: "mysql",
+    notes: "The grid sends typed JSON as a string: it binds as text and MySQL parses it. Not a Decision 19 change",
+    pending: true,
+    cache: [myDocs],
+    via: "dataTab",
+    table: { schema: "shop", name: "docs" },
+    columns: ["id", "doc"],
+    rows: [[1, json({ a: 1 })], [2, json({ a: 2 })]],
+    steps: [
+      { action: "updateCell", row: 0, column: "doc", value: '{"a":1}' },
+      { action: "updateCell", row: 1, column: "doc", value: "[1,2]" },
+    ],
+    change: {
+      decision: "12",
+      why: "The regexes don't read backticked names, so the description is the SQL itself (Decision 12 reads them).",
+      expected: describedAs(["Update docs.doc", "Update docs.doc"]),
+    },
+  });
+  plan({
+    file,
+    name: "mysql/json-top-level-values",
+    engine: "mysql",
+    notes: "JSON cells whose value is an array, a string and a number, and an insert of an array",
+    pending: true,
+    cache: [myDocs],
+    via: "dataTab",
+    table: { schema: "shop", name: "docs" },
+    columns: ["id", "doc"],
+    rows: [[1, json({ a: 1 })], [2, json({ a: 2 })], [3, json({ a: 3 })]],
+    steps: [
+      { action: "updateCell", row: 0, column: "doc", value: json([1, 2]) },
+      { action: "updateCell", row: 1, column: "doc", value: json("abc") },
+      { action: "updateCell", row: 2, column: "doc", value: json(5) },
+      { action: "insertRow", values: { id: 4, doc: json([true]) } },
+    ],
+    change: {
+      decision: "12, 19",
+      why: `${JSON_WHY} ${desc}`,
+      expected: (r) => {
+        const fixed = jsonBound([[0], [], [0], [1]])(r);
+        return {
+          ...fixed,
+          ...describedAs(["Update docs.doc", "Update docs.doc", "Update docs.doc", "Insert row into docs"])({
+            ...r,
+            ...fixed,
+          }),
+        };
+      },
+    },
+  });
+}
+
+// ---- MariaDB
+{
+  const file = "plan-mariadb";
+  const desc = "The regexes don't read backticked names, so the description is the SQL itself (Decision 12 reads them).";
+  const big = tbl("app", "events", [
+    col("id", "bigint(20) unsigned", { pk: true }),
+    col("kind", "varchar(16)", { default: "'x'" }),
+  ], [pkIndex("events", "id")]);
+  plan({
+    file,
+    name: "mariadb/bigint-key-queued",
+    engine: "mariadb",
+    pending: true,
+    cache: [big],
+    via: "dataTab",
+    table: { schema: "app", name: "events" },
+    columns: ["id", "kind"],
+    rows: [[bigint("18446744073709551615"), "a"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "kind", value: "b" },
+      { action: "setDefault", row: 0, column: "kind" },
+    ],
+    change: {
+      decision: "6, 12",
+      why: `${desc} And a replaced queued change is the new change whole, so it takes the Set default's origin (Decision 6).`,
+      expected: describedAs(["Update events.kind"], ["set-default"]),
+    },
+  });
+  plan({
+    file,
+    name: "mariadb/immediate-edits",
+    engine: "mariadb",
+    pending: false,
+    cache: [big],
+    via: "dataTab",
+    table: { schema: "app", name: "events" },
+    columns: ["id", "kind"],
+    rows: [[1, "a"]],
+    steps: [
+      { action: "insertRow", values: { kind: "n" } },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(1, 2), ok(1)],
+  });
+  plan({
+    file,
+    name: "mariadb/query-tab-aliased-delete",
+    engine: "mariadb",
+    notes: "The delete reads the key through the column refs (Task 1), so the alias binds",
+    pending: true,
+    cache: [big],
+    via: "queryTab",
+    query: "SELECT e.id AS event_id, e.kind FROM app.events e",
+    columns: ["event_id", "kind"],
+    rows: [[7, "a"]],
+    steps: [{ action: "deleteRow", row: 0 }],
+    change: { decision: "12", why: desc, expected: describedAs(["Delete row from events"]) },
+  });
+}
+
+// ---- SQLite
+const liteNotes = tbl("main", "notes", [
+  col("id", "INTEGER", { pk: true }),
+  col("body", "TEXT", { default: "'empty'" }),
+  col("created", "DATETIME", { default: "CURRENT_TIMESTAMP" }),
+  col("tag", "TEXT"),
+], [pkIndex("notes", "id")]);
+const liteCodes = tbl("main", "codes", [
+  col("code", "TEXT", { pk: true, nullable: true }),
+  col("v", "INTEGER"),
+], [pkIndex("codes", "code")]);
+{
+  const file = "plan-sqlite";
+  plan({
+    file,
+    name: "sqlite/set-default-expression",
+    engine: "sqlite",
+    notes: "SQLite has no DEFAULT in UPDATE: Set default reads the column's default from fresh metadata",
+    pending: true,
+    cache: [liteNotes],
+    via: "dataTab",
+    table: { schema: "main", name: "notes" },
+    columns: ["id", "body", "created", "tag"],
+    rows: [[1, "b", "2024-01-01 10:00:00", "t"]],
+    steps: [
+      { action: "setDefault", row: 0, column: "body" },
+      { action: "setDefault", row: 0, column: "created" },
+    ],
+  });
+  plan({
+    file,
+    name: "sqlite/set-default-no-default",
+    engine: "sqlite",
+    notes: "A column without a default is set to NULL",
+    pending: false,
+    cache: [liteNotes],
+    via: "dataTab",
+    table: { schema: "main", name: "notes" },
+    columns: ["id", "body", "created", "tag"],
+    rows: [[1, "b", "2024-01-01 10:00:00", "t"]],
+    steps: [{ action: "setDefault", row: 0, column: "tag" }],
+    answers: [ok()],
+  });
+  plan({
+    file,
+    name: "sqlite/set-default-fresh-metadata",
+    engine: "sqlite",
+    notes: "The cache's default is stale; the metadata's is used",
+    pending: true,
+    cache: [tbl("main", "notes", liteNotes.columns.map((c) => (c.name === "body" ? { ...c, defaultValue: "'old'" } : c)))],
+    metadata: [metaOf(liteNotes)],
+    via: "dataTab",
+    table: { schema: "main", name: "notes" },
+    columns: ["id", "body", "created", "tag"],
+    rows: [[1, "b", "2024-01-01 10:00:00", "t"]],
+    steps: [{ action: "setDefault", row: 0, column: "body" }],
+  });
+  plan({
+    file,
+    name: "sqlite/edits-immediate",
+    engine: "sqlite",
+    pending: false,
+    cache: [liteNotes],
+    via: "dataTab",
+    table: { schema: "main", name: "notes" },
+    columns: ["id", "body", "created", "tag"],
+    rows: [[1, "b", "2024-01-01 10:00:00", null]],
+    steps: [
+      { action: "updateCell", row: 0, column: "body", value: "c" },
+      { action: "insertRow", values: { body: "d", tag: null } },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(), ok(1, 2), ok()],
+  });
+  plan({
+    file,
+    name: "sqlite/null-key",
+    engine: "sqlite",
+    notes: "SQLite allows NULL in a non-INTEGER primary key; `code = NULL` matches nothing, so the edit is stale",
+    pending: false,
+    cache: [liteCodes],
+    via: "dataTab",
+    table: { schema: "main", name: "codes" },
+    columns: ["code", "v"],
+    rows: [[null, 1]],
+    steps: [{ action: "updateCell", row: 0, column: "v", value: 2 }],
+    answers: [ok(0)],
+  });
+  plan({
+    file,
+    name: "sqlite/set-default-metadata-fails",
+    engine: "sqlite",
+    pending: false,
+    cache: [liteNotes],
+    via: "dataTab",
+    table: { schema: "main", name: "notes" },
+    columns: ["id", "body", "created", "tag"],
+    rows: [[1, "b", "2024-01-01 10:00:00", "t"]],
+    steps: [{ action: "setDefault", row: 0, column: "body" }],
+    answers: [{ op: "tableMetadata", error: { code: "QUERY_ERROR", message: "database is locked" } }],
+  });
+}
+
+// ---- SQL Server
+const msOrders = tbl("dbo", "orders", [
+  col("id", "int", { pk: true }),
+  col("placed", "datetimeoffset"),
+  col("amount", "money", { default: "((0))" }),
+  col("note", "nvarchar(max)"),
+], [pkIndex("orders", "id")]);
+const msLines = tbl("sales", "order_lines", [
+  col("order_id", "int", { pk: true }),
+  col("line_no", "smallint", { pk: true }),
+  col("qty", "int"),
+], [pkIndex("order_lines", "order_id", "line_no")]);
+{
+  const file = "plan-mssql";
+  const desc = "The regexes don't read bracketed names, so the description is the SQL itself (Decision 12 reads them).";
+  plan({
+    file,
+    name: "mssql/update-and-set-default-queued",
+    engine: "mssql",
+    pending: true,
+    cache: [msOrders],
+    via: "dataTab",
+    table: { schema: "dbo", name: "orders" },
+    columns: ["id", "placed", "amount", "note"],
+    rows: [[1, "2024-01-02 03:04:05.5 +01:00", decimal("9.9900"), "n"]],
+    steps: [
+      { action: "updateCell", row: 0, column: "note", value: "n'2" },
+      { action: "setDefault", row: 0, column: "amount" },
+    ],
+    change: { decision: "12", why: desc, expected: describedAs(["Update orders.note", "Update orders.amount"]) },
+  });
+  plan({
+    file,
+    name: "mssql/composite-key-immediate",
+    engine: "mssql",
+    notes: "SQL Server counts trigger rows too; the answer here is 1",
+    pending: false,
+    cache: [msLines],
+    via: "dataTab",
+    table: { schema: "sales", name: "order_lines" },
+    columns: ["order_id", "line_no", "qty"],
+    rows: [[10, 2, 5]],
+    steps: [
+      { action: "updateCell", row: 0, column: "qty", value: 6 },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(), ok()],
+  });
+  plan({
+    file,
+    name: "mssql/insert-identity",
+    engine: "mssql",
+    pending: false,
+    cache: [msOrders],
+    via: "dataTab",
+    table: { schema: "dbo", name: "orders" },
+    columns: ["id", "placed", "amount", "note"],
+    rows: [[1, null, decimal("0.0000"), null]],
+    steps: [{ action: "insertRow", values: { amount: decimal("5.2500"), note: "é" } }],
+    answers: [ok(1, 11)],
+  });
+  plan({
+    file,
+    name: "mssql/datetimeoffset-key-stale",
+    engine: "mssql",
+    pending: false,
+    cache: [
+      tbl("dbo", "readings", [col("at", "datetimeoffset", { pk: true }), col("v", "float")], [
+        pkIndex("readings", "at"),
+      ]),
+    ],
+    via: "dataTab",
+    table: { schema: "dbo", name: "readings" },
+    columns: ["at", "v"],
+    rows: [["2024-01-02 03:04:05.1234567 +00:00", 1.5]],
+    steps: [{ action: "updateCell", row: 0, column: "v", value: 2.5 }],
+    answers: [ok(0)],
+  });
+  plan({
+    file,
+    name: "mssql/query-tab-delete-queued",
+    engine: "mssql",
+    pending: true,
+    cache: [msLines],
+    via: "queryTab",
+    query: "SELECT l.order_id, l.line_no AS n, l.qty FROM sales.order_lines l",
+    columns: ["order_id", "n", "qty"],
+    rows: [[10, 3, 1]],
+    steps: [{ action: "deleteRow", row: 0 }],
+    change: { decision: "12", why: desc, expected: describedAs(["Delete row from order_lines"]) },
+  });
+}
+
+// ---- DuckDB
+const duckT = tbl("cat.main", "t", [
+  col("id", "BIGINT", { pk: true }),
+  col("v", "VARCHAR", { default: "'d'" }),
+  col("j", "JSON"),
+], [pkIndex("t", "id")]);
+const duckMain = tbl("main", "m", [
+  col("k", "INTEGER", { pk: true }),
+  col("h", "HUGEINT"),
+  col("s", "STRUCT(a INTEGER)"),
+], [pkIndex("m", "k")]);
+{
+  const file = "plan-duckdb";
+  const desc = "The regexes take `\"cat\".\"main\"` as the schema and table, so the table reads as `main` (Decision 12 reads the last part).";
+  plan({
+    file,
+    name: "duckdb/attached-catalog-queued",
+    engine: "duckdb",
+    notes: "An attached catalog's schema is listed as `cat.main` and quoted as two names",
+    pending: true,
+    cache: [duckT],
+    via: "dataTab",
+    table: { schema: "cat.main", name: "t" },
+    columns: ["id", "v", "j"],
+    rows: [[bigint("9007199254740993"), "a", json({ x: 1 })]],
+    steps: [
+      { action: "updateCell", row: 0, column: "j", value: json({ x: 2 }) },
+      { action: "setDefault", row: 0, column: "v" },
+      { action: "insertRow", values: { id: 5, v: "b" } },
+      { action: "deleteRow", row: 0 },
+    ],
+    change: {
+      decision: "12",
+      why: desc,
+      expected: describedAs(["Update t.j", "Update t.v", "Insert row into t", "Delete row from t"]),
+    },
+  });
+  plan({
+    file,
+    name: "duckdb/default-catalog-immediate",
+    engine: "duckdb",
+    pending: false,
+    cache: [duckMain],
+    via: "dataTab",
+    table: { schema: "main", name: "m" },
+    columns: ["k", "h", "s"],
+    rows: [[1, bigint("170141183460469231731687303715884105727"), json({ a: 1 })]],
+    steps: [
+      { action: "updateCell", row: 0, column: "h", value: bigint("-5") },
+      { action: "updateCell", row: 0, column: "s", value: json({ a: 2 }) },
+    ],
+    answers: [ok(), ok()],
+  });
+  plan({
+    file,
+    name: "duckdb/query-tab-edit-and-stale-delete",
+    engine: "duckdb",
+    pending: false,
+    cache: [duckMain],
+    via: "queryTab",
+    query: "SELECT k, h FROM main.m",
+    columns: ["k", "h"],
+    rows: [[2, null]],
+    steps: [
+      { action: "updateCell", row: 0, column: "h", value: 3 },
+      { action: "deleteRow", row: 0 },
+    ],
+    answers: [ok(), ok(0)],
+  });
+}
+
+async function runPlan(c: PlanCase): Promise<Record<string, unknown>> {
+  const metadata = c.metadata ?? c.cache.map(metaOf);
+  const w = world(c.engine, c.cache, metadata, c.answers ?? []);
+  rec.settings.enabled = c.pending;
+  const names = idNames();
+  const grid = c.rows.map((r) => r.map(js));
+
+  let tabId = "tab-1";
+  let result: StatementResult | undefined;
+  if (c.via === "dataTab") {
+    const t = c.table!;
+    const cached = c.cache.find((x) => x.schema === t.schema && x.name === t.name);
+    w.client.pageSource = { columns: c.columns, matching: c.rows, page: 1, pageSize: 100 };
+    w.client.quiet = true;
+    tabId = w.dataTabs.addWithoutRefresh(cached ?? tbl(t.schema, t.name, []))!;
+    await w.dataTabs.refresh(tabId);
+    result = w.state.dataTabsByProject.p!.find((x) => x.id === tabId)!.results;
+  } else {
+    const query = c.query!;
+    const cache = w.state.schemas["conn-1"];
+    result = {
+      columns: c.columns,
+      rows: grid,
+      rowCount: grid.length,
+      totalRows: grid.length,
+      executionTime: 0,
+      queryType: "select",
+      page: 1,
+      pageSize: 100,
+      totalPages: 1,
+      statementIndex: 0,
+      statementSql: query,
+      isError: false,
+      connectionId: "conn-1",
+      sourceTable: sql.sourceTableFromRef(sql.extractTableFromSelect(query, c.engine), cache),
+      columnSources: sql.columnSourcesFromRefs(sql.columnRefs(query, c.engine), cache),
+    };
+    (w.state.queryTabsByProject as Record<string, unknown[]>).p = [
+      { id: tabId, query, results: [result], activeResultIndex: 0 },
+    ];
+    w.client.pageSource = null;
+  }
+  const sourceTable = result?.sourceTable;
+  if (!sourceTable && c.steps.some((s) => s.action !== "insertRow")) {
+    throw new Error(`${c.name}: the result has no source table, so the grid can't edit it`);
+  }
+
+  const changeOf = new Map<string, unknown>();
+  const steps: Record<string, unknown>[] = [];
+  for (const step of c.steps) {
+    const before = new Map(w.queue().map((q) => [q.id, q.sql + JSON.stringify(targetOut(q.target))]));
+    const from = w.client.log.length;
+    const quietBefore = w.client.quietQueries;
+    const rerunsBefore = w.reruns();
+    let outcome: Record<string, unknown>;
+    if (c.via === "dataTab") {
+      const tab = () => w.state.dataTabsByProject.p!.find((x) => x.id === tabId)!;
+      if (step.action === "updateCell") {
+        outcome = await w.dataTabs.updateCell(tabId, step.row, step.column, js(step.value));
+      } else if (step.action === "setDefault") {
+        outcome = await w.dataTabs.setCellDefault(tabId, step.row, step.column);
+      } else if (step.action === "deleteRow") {
+        outcome = await w.dataTabs.deleteRow(tabId, tab().results!.rows[step.row]);
+      } else {
+        const values = Object.fromEntries(Object.entries(step.values).map(([k, v]) => [k, js(v)]));
+        w.dataTabs.addNewRow(tabId);
+        const saved = await w.dataTabs.saveNewRow(tabId, 0, values);
+        outcome = { saved };
+      }
+    } else {
+      const st = sourceTable!;
+      if (step.action === "updateCell") {
+        outcome = await w.queries.updateCell(tabId, 0, step.row, step.column, js(step.value), st);
+      } else if (step.action === "setDefault") {
+        outcome = await w.queries.setCellDefault(tabId, 0, step.row, step.column, st);
+      } else if (step.action === "deleteRow") {
+        outcome = await w.queries.deleteRowAt(tabId, 0, step.row, st);
+      } else {
+        throw new Error("a query tab has no insert");
+      }
+    }
+    await settle();
+    const ops = w.client.log.slice(from);
+    const build = ops.find((o) => o.op === "build");
+    // A step that failed on the metadata read before the builder ran (SQLite
+    // Set default) still sends its intent to Core, which fails the same way.
+    const metadataFailed = ops.some((o) => o.op === "tableMetadata" && "error" in (o.answer as object));
+    const edit = build
+      ? intentFrom(build)
+      : metadataFailed && c.via === "dataTab" && step.action !== "insertRow" && sourceTable
+        ? {
+            type: step.action === "setDefault" ? "setDefault" : step.action,
+            target: { schema: sourceTable.schema, table: sourceTable.name },
+            key: sourceTable.primaryKeys.map((k) => [k, c.rows[step.row][c.columns.indexOf(k)] ?? null]),
+            ...("column" in step ? { column: step.column } : {}),
+            ...("value" in step ? { value: step.value } : {}),
+          }
+        : null;
+    for (const q of w.queue()) {
+      if (before.get(q.id) !== q.sql + JSON.stringify(targetOut(q.target))) {
+        changeOf.set(q.id, edit);
+      }
+    }
+    const stale =
+      typeof outcome.error === "string" && (outcome.error as string).startsWith(STALE_PREFIX);
+    const out: Record<string, unknown> = { ...outcome };
+    const code = codeOf(outcome.error as string | undefined, stale);
+    if (code) out.code = code;
+    steps.push({
+      ...step,
+      edit,
+      driver: ops,
+      outcome: out,
+      ...(w.client.quietQueries !== quietBefore ? { refreshed: true } : {}),
+      ...(w.reruns() !== rerunsBefore ? { reran: true } : {}),
+    });
+  }
+
+  if (w.client.left().length) w.client.failures.push(`${w.client.left().length} answers left over`);
+  expect(w.client.failures, c.name).toEqual([]);
+
+  const queue = w.queue().map((q) => {
+    const change = { type: "edit", id: names(q.id), edit: changeOf.get(q.id) ?? null };
+    return {
+      id: names(q.id),
+      change,
+      sql: q.sql,
+      params: (q.bindValues ?? []).map(wire),
+      queryType: q.queryType,
+      dml: dmlOf(change as never, c.engine),
+      summary: summaryOf(q.description, q.origin),
+      description: q.description,
+      origin: q.origin,
+      target: targetOut(q.target),
+    };
+  });
+
+  return {
+    name: c.name,
+    engine: c.engine,
+    ...(c.notes ? { notes: c.notes } : {}),
+    input: {
+      via: c.via,
+      pending: c.pending,
+      ...(c.table ? { table: { schema: c.table.schema, table: c.table.name } } : {}),
+      ...(c.query ? { query: c.query } : {}),
+      result: {
+        columns: c.columns,
+        rows: c.rows,
+        sourceTable: result?.sourceTable ?? null,
+        columnSources: result?.columnSources ?? null,
+      },
+      schemaCache: c.cache,
+    },
+    metadata,
+    steps,
+    queue,
+    toasts: [...rec.toasts],
+  };
+}
+
+// ---------------------------------------------------------------- cast map
+
+const castCases: { name: string; notes?: string; columns: SchemaColumn[] }[] = [
+  {
+    name: "cast/catalog-cast-types",
+    notes: "Every column with a castType casts to it as it is",
+    columns: [
+      col("id", "integer", { castType: "integer" }),
+      col("mood", "USER-DEFINED", { castType: "myschema.mood" }),
+      col("moods", "ARRAY", { castType: "myschema.mood[]" }),
+      col("n", "numeric", { castType: "numeric(10,2)" }),
+      col("name", "text", { castType: "text" }),
+      col("c", "character", { castType: "bpchar" }),
+      col("b", "bit", { castType: '"bit"' }),
+    ],
+  },
+  {
+    name: "cast/text-like-uncast",
+    notes: "Without a castType, text-like, user-defined and array columns bind without a cast",
+    columns: [
+      col("a", "text"),
+      col("b", "character varying"),
+      col("c", "USER-DEFINED"),
+      col("d", "ARRAY"),
+      col("e", "TEXT"),
+    ],
+  },
+  {
+    name: "cast/bit-and-character-widened",
+    columns: [col("b", "bit"), col("c", "character"), col("B", "BIT"), col("C", "Character")],
+  },
+  {
+    name: "cast/plain-types",
+    columns: [
+      col("id", "bigint"),
+      col("u", "uuid"),
+      col("d", "date"),
+      col("ts", "timestamp with time zone"),
+      col("j", "jsonb"),
+      col("x", "xml"),
+      col("m", "money"),
+      col("bool", "boolean"),
+    ],
+  },
+  {
+    name: "cast/domain",
+    notes: "A domain over text: information_schema reports the base type, the catalog the domain",
+    columns: [col("email", "text", { castType: "public.email_address" }), col("email2", "text")],
+  },
+  {
+    name: "cast/case-kept",
+    notes: "A type without a castType is interpolated as reported, case kept",
+    columns: [col("a", "INTEGER"), col("b", "Numeric(5, 1)"), col("c", "Double Precision")],
+  },
+  {
+    name: "cast/empty",
+    columns: [],
+  },
+  {
+    name: "cast/quoted-and-odd-names",
+    columns: [
+      col('we"ird', "integer"),
+      col("sp ace", "date", { castType: "date" }),
+      col("", "text"),
+      col("東京", "smallint"),
+    ],
+  },
+  {
+    name: "cast/array-and-enum-without-cast-type",
+    notes: "Older metadata without castType: arrays and enums bind uncast",
+    columns: [col("tags", "ARRAY"), col("mood", "USER-DEFINED"), col("ids", "integer[]")],
+  },
+  {
+    name: "cast/character-varying-with-cast-type",
+    columns: [
+      col("v", "character varying", { castType: "character varying" }),
+      col("c", "character", { castType: "bpchar" }),
+      col("bv", "bit varying", { castType: '"bit varying"' }),
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- apply
+
+type QItem =
+  | { edit: "updateCell"; table: SchemaTable; row: Record<string, Wire>; column: string; value: Wire }
+  | { edit: "setDefault"; table: SchemaTable; row: Record<string, Wire>; column: string }
+  | { edit: "deleteRow"; table: SchemaTable; row: Record<string, Wire> }
+  | { edit: "insertRow"; table: SchemaTable; values: Record<string, Wire> }
+  | { typed: string; params?: Wire[] }
+  | { sidebar: "truncate" | "drop"; table: SchemaTable; kind?: "table" | "view" | "materialized-view" };
+
+interface ApplyCase {
+  name: string;
+  engine: DatabaseType;
+  notes?: string;
+  /** Decision 5's mode for this queue (not recorded: the TS has none). */
+  mode: "single" | "atomic" | "inOrder";
+  cache: SchemaTable[];
+  metadata?: Meta[];
+  queue: QItem[];
+  answers: Answer[];
+  /** What the sheet sends as `confirmed` (it always asks first, so true unless a case says). */
+  confirmed?: boolean;
+  change?: ChangeSpec;
+}
+const applyCases: ApplyCase[] = [];
+const apply = (c: ApplyCase) => applyCases.push(c);
+
+const pgK = tbl("public", "k", [
+  col("a", "integer", { pk: true, castType: "integer" }),
+  col("b", "text", { pk: true, castType: "text" }),
+  col("v", "text", { castType: "text", default: "'d'" }),
+], [pkIndex("k", "a", "b")]);
+const u1 = { id: 1 };
+const u2 = { id: 2 };
+const u3 = { id: 3 };
+
+type Rec = Record<string, unknown>;
+const outcomeOf = (r: Rec) => r.outcome as Rec;
+const queueIds = (r: Rec) => (r.queue as Rec[]).map((q) => q.id);
+const histFor = (r: Rec, rows: (number | null)[]) =>
+  (r.queue as Rec[])
+    .map((q, i) => ({ query: q.sql, rowCount: rows[i] }))
+    .filter((h) => h.rowCount !== null);
+/** An atomic batch that failed at `index`: nothing applied, the queue whole, no history. */
+/** Refused unconfirmed: the one destructive statement (change 0) listed, nothing run. */
+const confirmRequired = (text: string, engine: DatabaseType) => (r: Rec) => {
+  const found = sql.findDestructiveStatements(sql.splitSqlStatementsOrThrow(text, engine), engine);
+  expect(found.length, `${text} is destructive`).toBe(1);
+  return {
+    driver: [],
+    outcome: {
+      confirmRequired: true,
+      destructive: [{ index: 0, sql: text, reason: JSON.parse(JSON.stringify(found[0].reason)) }],
+      destructiveTotal: 1,
+    },
+    queueAfter: queueIds(r),
+    history: [],
+  };
+};
+const atomicFailure = (index: number, code: string) => (r: Rec) => ({
+  outcome: {
+    ...outcomeOf(r),
+    executed: 0,
+    failed: 1,
+    failedAt: index,
+    failedChangeId: queueIds(r)[index],
+    code,
+    hasDdl: false,
+  },
+  queueAfter: queueIds(r),
+  history: [],
+});
+
+apply({
+  name: "apply/pg-all-edits-succeed",
+  engine: "postgres",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { edit: "setDefault", table: pgUsers, row: u2, column: "balance" },
+    { edit: "deleteRow", table: pgUsers, row: u3 },
+  ],
+  answers: [ok(), ok(), ok()],
+});
+apply({
+  name: "apply/pg-stale-first",
+  engine: "postgres",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { edit: "updateCell", table: pgUsers, row: u2, column: "name", value: "b" },
+    { edit: "deleteRow", table: pgUsers, row: u3 },
+  ],
+  answers: [ok(0)],
+});
+apply({
+  name: "apply/pg-stale-middle",
+  engine: "postgres",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { edit: "updateCell", table: pgUsers, row: u2, column: "name", value: "b" },
+    { edit: "deleteRow", table: pgUsers, row: u3 },
+  ],
+  answers: [ok(), ok(0)],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the stale key (expect_rows min 1) rolls the first edit back too, the queue stays whole, and nothing is recorded.",
+    expected: atomicFailure(1, "NO_ROWS_AFFECTED"),
+  },
+});
+apply({
+  name: "apply/pg-stale-last",
+  engine: "postgres",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { edit: "insertRow", table: pgUsers, values: { name: "n" } },
+    { edit: "deleteRow", table: pgUsers, row: u3 },
+  ],
+  answers: [ok(), ok(), ok(0)],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the stale delete at the end rolls back all three.",
+    expected: atomicFailure(2, "NO_ROWS_AFFECTED"),
+  },
+});
+apply({
+  name: "apply/pg-database-error-middle",
+  engine: "postgres",
+  mode: "atomic",
+  cache: [pgUsers, pgK],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "email", value: "x@example.com" },
+    { edit: "updateCell", table: pgK, row: { a: 1, b: "x" }, column: "v", value: "w" },
+    { edit: "updateCell", table: pgUsers, row: u2, column: "name", value: "b" },
+  ],
+  answers: [ok(), execErr('new row for relation "k" violates check constraint "k_v_check"')],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the failing second statement rolls the first back; the driver names its index.",
+    expected: atomicFailure(1, "EXECUTE_ERROR"),
+  },
+});
+apply({
+  name: "apply/pg-typed-dml-rows-affected",
+  engine: "postgres",
+  notes: "Typed DML from the editor: a multi-row UPDATE and a DELETE matching nothing (not a keyed edit, so no stale check)",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { typed: "UPDATE users SET balance = balance * 2 WHERE balance < $1", params: [decimal("5.00")] },
+    { typed: "DELETE FROM users WHERE id = 99" },
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+  ],
+  answers: [ok(7), ok(0), ok(1)],
+  change: {
+    decision: "8",
+    why: "History rows carry the rows each change affected (and Core's time), not 1.",
+    expected: (r) => ({ history: histFor(r, [7, 0, 1]) }),
+  },
+});
+apply({
+  name: "apply/pg-ddl-in-order-stops",
+  engine: "postgres",
+  mode: "inOrder",
+  cache: [pgUsers],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { typed: "CREATE TABLE z (i int)" },
+    { edit: "updateCell", table: pgUsers, row: u2, column: "name", value: "b" },
+    { edit: "deleteRow", table: pgUsers, row: u3 },
+  ],
+  answers: [ok(), ok(0), ok(0)],
+  change: {
+    decision: "8",
+    why: "In order, the two that ran are recorded, each with its own rows affected (the CREATE TABLE's 0).",
+    expected: (r) => ({ history: histFor(r, [1, 0, null, null]) }),
+  },
+});
+apply({
+  name: "apply/mysql-single-insert",
+  engine: "mysql",
+  notes: "A batch of one runs through execute, which keeps lastInsertId (Core returns it in `results`)",
+  mode: "single",
+  cache: [myItems],
+  queue: [{ edit: "insertRow", table: myItems, values: { name: "z", price: decimal("1.00") } }],
+  answers: [ok(1, 42)],
+});
+apply({
+  name: "apply/pg-single-stale",
+  engine: "postgres",
+  mode: "single",
+  cache: [pgUsers],
+  queue: [{ edit: "setDefault", table: pgUsers, row: u1, column: "balance" }],
+  answers: [ok(0)],
+});
+apply({
+  name: "apply/sqlite-truncate-is-dml",
+  engine: "sqlite",
+  notes: "The sidebar truncates a SQLite table with DELETE FROM. `executeRawDdl` queues it as `other` with origin `query-editor` (its guess doesn't know DELETE), so it counts as DDL",
+  mode: "atomic",
+  cache: [liteNotes],
+  queue: [
+    { edit: "updateCell", table: liteNotes, row: { id: 1 }, column: "body", value: "x" },
+    { sidebar: "truncate", table: liteNotes },
+  ],
+  answers: [ok(1), ok(12)],
+  change: {
+    decision: "5",
+    why: "A SQLite truncate is a `truncateTable` intent built as DELETE FROM, and counts as DML (Decisions 5 and 11): the batch is atomic and `ddl` is false. History takes each change's rows affected (Decision 8).",
+    expected: (r) => ({
+      outcome: { ...outcomeOf(r), hasDdl: false },
+      history: histFor(r, [1, 12]),
+    }),
+  },
+});
+apply({
+  name: "apply/pg-truncate-and-drop-in-order",
+  engine: "postgres",
+  mode: "inOrder",
+  cache: [pgUsers, pgK, tbl("public", "v_users", pgUsers.columns.slice(0, 2))],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    { sidebar: "truncate", table: pgK },
+    { sidebar: "drop", table: tbl("public", "v_users", []), kind: "view" },
+  ],
+  answers: [ok(1), ok(0), ok(0)],
+  change: {
+    decision: "8",
+    why: "History rows carry each change's rows affected: TRUNCATE and DROP VIEW report 0.",
+    expected: (r) => ({ history: histFor(r, [1, 0, 0]) }),
+  },
+});
+apply({
+  name: "apply/pg-typed-merge-in-order",
+  engine: "postgres",
+  notes: "MERGE is query type `other`, so the batch applies in order",
+  mode: "inOrder",
+  cache: [pgUsers],
+  queue: [
+    {
+      typed:
+        "MERGE INTO users u USING staged s ON u.id = s.id WHEN MATCHED THEN UPDATE SET name = s.name",
+    },
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+  ],
+  answers: [ok(3), ok(1)],
+  change: {
+    decision: "8",
+    why: "History rows carry each change's rows affected: the MERGE's 3.",
+    expected: (r) => ({ history: histFor(r, [3, 1]) }),
+  },
+});
+apply({
+  name: "apply/mysql-ddl-mixed-in-order",
+  engine: "mysql",
+  notes: "MySQL commits DDL implicitly, which is why a batch with DDL applies in order: the insert and the ALTER stay applied when the last insert fails",
+  mode: "inOrder",
+  cache: [myItems],
+  queue: [
+    { typed: "INSERT INTO items (name) VALUES (?)", params: ["q"] },
+    { typed: "ALTER TABLE items ADD COLUMN note TEXT" },
+    { typed: "INSERT INTO items (id, name) VALUES (1, 'dup')" },
+  ],
+  answers: [ok(1, 7), ok(0), execErr("Duplicate entry '1' for key 'PRIMARY'")],
+  change: {
+    decision: "8",
+    why: "History rows carry each change's rows affected: the ALTER's 0.",
+    expected: (r) => ({ history: histFor(r, [1, 0, null]) }),
+  },
+});
+apply({
+  name: "apply/pg-destructive-unconfirmed",
+  engine: "postgres",
+  notes: "The sheet always asks before applying, but lists nothing; here Core is called without `confirmed`",
+  mode: "atomic",
+  confirmed: false,
+  cache: [pgK],
+  queue: [
+    { typed: "DELETE FROM k" },
+    { edit: "updateCell", table: pgK, row: { a: 1, b: "x" }, column: "v", value: "w" },
+  ],
+  answers: [ok(2), ok(1)],
+  change: {
+    decision: "7",
+    why: "An unconfirmed apply holding a statement `destructive_reason` flags is refused with confirmRequired, listing it; nothing runs.",
+    expected: confirmRequired("DELETE FROM k", "postgres"),
+  },
+});
+apply({
+  name: "apply/pg-destructive-confirmed",
+  engine: "postgres",
+  mode: "atomic",
+  confirmed: true,
+  cache: [pgK],
+  queue: [
+    { typed: "DELETE FROM k" },
+    { edit: "updateCell", table: pgK, row: { a: 1, b: "x" }, column: "v", value: "w" },
+  ],
+  answers: [ok(2), ok(1)],
+  change: {
+    decision: "8",
+    why: "Confirmed, it applies; history rows carry each change's rows affected (the DELETE's 2).",
+    expected: (r) => ({ history: histFor(r, [2, 1]) }),
+  },
+});
+apply({
+  name: "apply/mssql-edits-atomic",
+  engine: "mssql",
+  mode: "atomic",
+  cache: [msOrders, msLines],
+  queue: [
+    { edit: "updateCell", table: msOrders, row: { id: 1 }, column: "note", value: "a" },
+    { edit: "deleteRow", table: msLines, row: { order_id: 10, line_no: 2 } },
+    { edit: "insertRow", table: msLines, values: { order_id: 10, line_no: 3, qty: 1 } },
+  ],
+  answers: [ok(), ok(), ok(1)],
+});
+apply({
+  name: "apply/duckdb-catalog-atomic",
+  engine: "duckdb",
+  mode: "atomic",
+  cache: [duckT],
+  queue: [
+    { edit: "updateCell", table: duckT, row: { id: 1 }, column: "v", value: "x" },
+    { edit: "setDefault", table: duckT, row: { id: 2 }, column: "v" },
+  ],
+  answers: [ok(), ok()],
+});
+apply({
+  name: "apply/pg-key-not-primary-key-refuses-batch",
+  engine: "postgres",
+  notes: "The second edit was queued from a stale cache that keyed users by email",
+  mode: "atomic",
+  cache: [pgUsers, tbl("public", "users2", pgUsers.columns.map((c) => ({ ...c, isPrimaryKey: c.name === "email" })))],
+  metadata: [metaOf(pgUsers), metaOf(tbl("public", "users2", pgUsers.columns, [pkIndex("users2", "id")]))],
+  queue: [
+    { edit: "updateCell", table: pgUsers, row: u1, column: "name", value: "a" },
+    {
+      edit: "updateCell",
+      table: tbl("public", "users2", pgUsers.columns.map((c) => ({ ...c, isPrimaryKey: c.name === "email" }))),
+      row: { email: "e@example.com" },
+      column: "name",
+      value: "b",
+    },
+  ],
+  answers: [ok(), ok()],
+  change: {
+    decision: "4",
+    why: "Validation comes first: the second edit's key isn't the table's primary key (NOT_EDITABLE), so nothing runs and the queue stays whole.",
+    expected: (r) => ({
+      driver: [],
+      outcome: { ...atomicFailure(1, "NOT_EDITABLE")(r).outcome, error: undefined },
+      queueAfter: queueIds(r),
+      history: [],
+    }),
+  },
+});
+apply({
+  name: "apply/pg-typed-binds",
+  engine: "postgres",
+  notes: "A deferred INSERT from the editor keeps its `$n` binds",
+  mode: "atomic",
+  cache: [pgUsers],
+  queue: [
+    { typed: "INSERT INTO users (name, meta) VALUES ($1, $2)", params: ["n", json({ a: [1] })] },
+    { typed: "UPDATE users SET name = $1 WHERE id = $2", params: ["m", bigint("9007199254740993")] },
+  ],
+  answers: [ok(1), ok(1)],
+});
+apply({
+  name: "apply/sqlite-ddl-first-fails",
+  engine: "sqlite",
+  mode: "inOrder",
+  cache: [liteNotes],
+  queue: [
+    { typed: 'ALTER TABLE notes ADD COLUMN "x" TEXT' },
+    { edit: "updateCell", table: liteNotes, row: { id: 1 }, column: "body", value: "x" },
+  ],
+  answers: [execErr("duplicate column name: x")],
+});
+
+// Sidebar DROP and TRUNCATE on every server engine, and DuckDB's catalog.schema.
+const pgMv = tbl("public", "mv_totals", []);
+const zeroHistory = (why: string, rows: number[]): ChangeSpec => ({
+  decision: "8",
+  why,
+  expected: (r) => ({ history: histFor(r, rows) }),
+});
+apply({
+  name: "apply/pg-sidebar-drops-and-truncate",
+  engine: "postgres",
+  mode: "inOrder",
+  cache: [pgUsers, pgK],
+  queue: [
+    { sidebar: "drop", table: tbl("public", "old_users", []), kind: "table" },
+    { sidebar: "drop", table: tbl("public", "v_users", []), kind: "view" },
+    { sidebar: "drop", table: pgMv, kind: "materialized-view" },
+    { sidebar: "truncate", table: pgK },
+  ],
+  answers: [ok(0), ok(0), ok(0), ok(0)],
+  change: zeroHistory("History rows carry each change's rows affected: DROP and TRUNCATE report 0.", [0, 0, 0, 0]),
+});
+apply({
+  name: "apply/mysql-sidebar-truncate-and-drop",
+  engine: "mysql",
+  mode: "inOrder",
+  cache: [myItems],
+  queue: [
+    { sidebar: "truncate", table: myItems },
+    { sidebar: "drop", table: myItems, kind: "table" },
+    { sidebar: "drop", table: tbl("shop", "v_items", []), kind: "view" },
+  ],
+  answers: [ok(0), ok(0), ok(0)],
+  change: zeroHistory("History rows carry each change's rows affected: 0 for each.", [0, 0, 0]),
+});
+apply({
+  name: "apply/mssql-sidebar-truncate-and-drop",
+  engine: "mssql",
+  mode: "inOrder",
+  cache: [msOrders, msLines],
+  queue: [
+    { sidebar: "truncate", table: msLines },
+    { sidebar: "drop", table: tbl("dbo", "v_orders", []), kind: "view" },
+    { sidebar: "drop", table: msOrders, kind: "table" },
+  ],
+  answers: [ok(0), ok(0), ok(0)],
+  change: zeroHistory("History rows carry each change's rows affected: 0 for each.", [0, 0, 0]),
+});
+apply({
+  name: "apply/duckdb-sidebar-catalog-truncate-and-drop",
+  engine: "duckdb",
+  notes: "An attached catalog's table: `cat.main` is quoted as two names",
+  mode: "inOrder",
+  cache: [duckT, duckMain],
+  queue: [
+    { sidebar: "truncate", table: duckT },
+    { sidebar: "drop", table: tbl("cat.main", "v", []), kind: "view" },
+    { sidebar: "drop", table: duckT, kind: "table" },
+    { sidebar: "drop", table: duckMain, kind: "table" },
+  ],
+  answers: [ok(3), ok(0), ok(0), ok(0)],
+  change: zeroHistory("History rows carry each change's rows affected (DuckDB's TRUNCATE reports the rows it deleted).", [3, 0, 0, 0]),
+});
+apply({
+  name: "apply/pg-sidebar-truncate-unconfirmed",
+  engine: "postgres",
+  notes: "A queued sidebar TRUNCATE applied without `confirmed`",
+  mode: "single",
+  confirmed: false,
+  cache: [pgK],
+  queue: [{ sidebar: "truncate", table: pgK }],
+  answers: [ok(0)],
+  change: {
+    decision: "7",
+    why: "An unconfirmed apply holding a statement `destructive_reason` flags is refused with confirmRequired, listing it; nothing runs.",
+    expected: confirmRequired('TRUNCATE TABLE "public"."k"', "postgres"),
+  },
+});
+// Atomic failures on SQL Server and DuckDB.
+apply({
+  name: "apply/mssql-stale-middle",
+  engine: "mssql",
+  mode: "atomic",
+  cache: [msOrders, msLines],
+  queue: [
+    { edit: "updateCell", table: msOrders, row: { id: 1 }, column: "note", value: "a" },
+    { edit: "deleteRow", table: msLines, row: { order_id: 10, line_no: 2 } },
+    { edit: "updateCell", table: msOrders, row: { id: 2 }, column: "note", value: "b" },
+  ],
+  answers: [ok(), ok(0)],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction on the held session: the stale delete rolls the first edit back.",
+    expected: atomicFailure(1, "NO_ROWS_AFFECTED"),
+  },
+});
+apply({
+  name: "apply/mssql-error-middle",
+  engine: "mssql",
+  mode: "atomic",
+  cache: [msOrders, msLines],
+  queue: [
+    { edit: "insertRow", table: msLines, values: { order_id: 10, line_no: 4, qty: 1 } },
+    { edit: "updateCell", table: msLines, row: { order_id: 10, line_no: 3 }, column: "qty", value: -1 },
+    { edit: "deleteRow", table: msOrders, row: { id: 3 } },
+  ],
+  answers: [ok(1), execErr('The UPDATE statement conflicted with the CHECK constraint "CK_qty".')],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the failing second statement rolls the insert back; the driver names its index.",
+    expected: atomicFailure(1, "EXECUTE_ERROR"),
+  },
+});
+apply({
+  name: "apply/duckdb-stale-middle",
+  engine: "duckdb",
+  mode: "atomic",
+  cache: [duckT],
+  queue: [
+    { edit: "updateCell", table: duckT, row: { id: 1 }, column: "v", value: "x" },
+    { edit: "deleteRow", table: duckT, row: { id: 2 } },
+    { edit: "insertRow", table: duckT, values: { id: 9, v: "n" } },
+  ],
+  answers: [ok(), ok(0)],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the stale delete rolls the first edit back.",
+    expected: atomicFailure(1, "NO_ROWS_AFFECTED"),
+  },
+});
+apply({
+  name: "apply/duckdb-error-middle",
+  engine: "duckdb",
+  mode: "atomic",
+  cache: [duckT],
+  queue: [
+    { edit: "updateCell", table: duckT, row: { id: 1 }, column: "v", value: "x" },
+    { edit: "insertRow", table: duckT, values: { id: 1, v: "dup" } },
+    { edit: "deleteRow", table: duckT, row: { id: 3 } },
+  ],
+  answers: [ok(), execErr('Constraint Error: Duplicate key "id: 1" violates primary key constraint.')],
+  change: {
+    decision: "5",
+    why: "A DML batch applies in one transaction: the failing insert rolls the first edit back; the driver names its index.",
+    expected: atomicFailure(1, "EXECUTE_ERROR"),
+  },
+});
+
+function isDml(item: QItem, engine: DatabaseType): boolean {
+  if ("edit" in item) return true;
+  if ("sidebar" in item) return item.sidebar === "truncate" && engine === "sqlite";
+  const t = sql.detectQueryType(item.typed, engine);
+  return t === "insert" || t === "update" || t === "delete";
+}
+
+async function runApply(c: ApplyCase): Promise<Record<string, unknown>> {
+  const metadata = c.metadata ?? c.cache.map(metaOf);
+  const w = world(c.engine, c.cache, metadata, c.answers);
+  const names = idNames();
+  rec.settings.enabled = true;
+
+  const expectedMode =
+    c.queue.length === 1 ? "single" : c.queue.every((i) => isDml(i, c.engine)) ? "atomic" : "inOrder";
+  expect(c.mode, `${c.name}: Decision 5's mode`).toBe(expectedMode);
+
+  const changeOf = new Map<string, unknown>();
+  const connection = w.state.connections[0];
+  for (const item of c.queue) {
+    const before = new Set(w.queue().map((q) => q.id));
+    const from = w.client.log.length;
+    let change: (id: string) => unknown;
+    if ("edit" in item) {
+      const t = item.table;
+      const st = {
+        schema: t.schema,
+        name: t.name,
+        primaryKeys: t.columns.filter((x) => x.isPrimaryKey).map((x) => x.name),
+      };
+      const decode = (r: Record<string, Wire>) =>
+        Object.fromEntries(Object.entries(r).map(([k, v]) => [k, js(v)]));
+      let res: { success: boolean; error?: string };
+      if (item.edit === "updateCell") {
+        res = await w.queries.crud.updateCellDirect("conn-1", st, decode(item.row), item.column, js(item.value));
+      } else if (item.edit === "setDefault") {
+        res = await w.queries.crud.setCellDefaultDirect("conn-1", st, decode(item.row), item.column);
+      } else if (item.edit === "deleteRow") {
+        res = await w.queries.crud.deleteRow("conn-1", st, decode(item.row));
+      } else {
+        res = await w.queries.crud.insertRow("conn-1", st, decode(item.values));
+      }
+      if (!res.success) throw new Error(`${c.name}: queueing failed: ${res.error}`);
+      const build = w.client.log.slice(from).find((o) => o.op === "build")!;
+      const edit = intentFrom(build);
+      change = (id) => ({ type: "edit", id, edit });
+    } else if ("typed" in item) {
+      const binds = (item.params ?? []).map(js);
+      // `statementDeferred`: the substituted SQL, its query type, the binds.
+      w.pending.add(
+        "conn-1",
+        item.typed,
+        sql.detectQueryType(item.typed, c.engine),
+        "query-editor",
+        "tab-1",
+        binds.length > 0 ? binds : undefined,
+      );
+      const params = item.params ?? [];
+      change = (id) => ({ type: "sql", id, sql: item.typed, params });
+    } else {
+      // components/sidebar/manage/schema-tab.svelte, handleDropTable/handleTruncateTable.
+      const from = getEngineClient(connection, w.state).qualifiedTable(item.table.schema, item.table.name);
+      const target = { schema: item.table.schema, table: item.table.name };
+      let text: string;
+      if (item.sidebar === "truncate") {
+        text = c.engine === "sqlite" ? `DELETE FROM ${from}` : `TRUNCATE TABLE ${from}`;
+        change = (id) => ({ type: "edit", id, edit: { type: "truncateTable", target } });
+      } else {
+        const kind = item.kind ?? "table";
+        const keyword =
+          kind === "materialized-view" ? "MATERIALIZED VIEW" : kind === "view" ? "VIEW" : "TABLE";
+        text = `DROP ${keyword} ${from}`;
+        const objectKind = kind === "materialized-view" ? "materializedView" : kind;
+        change = (id) => ({ type: "edit", id, edit: { type: "dropObject", target, kind: objectKind } });
+      }
+      const res = await w.queries.executeRawDdl("conn-1", text);
+      if (!res.queued) throw new Error(`${c.name}: not queued`);
+    }
+    const added = w.queue().filter((q) => !before.has(q.id));
+    if (added.length !== 1) throw new Error(`${c.name}: ${added.length} changes queued for one item`);
+    changeOf.set(added[0].id, change(names(added[0].id)!));
+  }
+
+  const queue = w.queue().map((q) => ({
+    id: names(q.id),
+    change: changeOf.get(q.id),
+    sql: q.sql,
+    params: (q.bindValues ?? []).map(wire),
+    queryType: q.queryType,
+    dml: dmlOf(changeOf.get(q.id) as never, c.engine),
+    summary: summaryOf(q.description, q.origin),
+    description: q.description,
+    origin: q.origin,
+    target: targetOut(q.target),
+  }));
+
+  w.client.log.length = 0;
+  const staleAnswer = (i: number | undefined) => {
+    if (i === undefined) return false;
+    const a = c.answers[i];
+    return a?.op === "execute" && !a.error && (a.rowsAffected ?? 0) === 0;
+  };
+  const r = await w.pending.executeAll("conn-1");
+  // The sheet's rule (`pending-changes-sheet.svelte`): a full success clears the queue.
+  if (r.failed === 0) w.pending.clear("conn-1");
+  const ops = w.client.log.splice(0);
+  if (w.client.left().length) w.client.failures.push(`${w.client.left().length} answers left over`);
+  expect(w.client.failures, c.name).toEqual([]);
+
+  const stale = r.error !== undefined && staleAnswer(r.failedAt) && r.error.startsWith(STALE_PREFIX);
+  const outcome: Record<string, unknown> = {
+    executed: r.executed,
+    failed: r.failed,
+    ...(r.failedAt !== undefined ? { failedAt: r.failedAt } : {}),
+    ...(r.failedChangeId !== undefined ? { failedChangeId: names(r.failedChangeId) } : {}),
+    ...(r.error !== undefined ? { error: r.error, code: codeOf(r.error, stale) } : {}),
+    hasDdl: r.hasDdl ?? false,
+  };
+
+  return {
+    name: c.name,
+    engine: c.engine,
+    ...(c.notes ? { notes: c.notes } : {}),
+    mode: c.mode,
+    input: { confirmed: c.confirmed ?? true },
+    metadata,
+    queue,
+    driver: ops,
+    outcome,
+    queueAfter: w.queue().map((q) => names(q.id)),
+    history: w.historyCalls.map((h) => ({ ...h })),
+    toasts: [...rec.toasts],
+  };
+}
+
+// ---------------------------------------------------------------- table pages
+
+interface PageCase {
+  file: string;
+  name: string;
+  engine: DatabaseType;
+  notes?: string;
+  cache: SchemaTable[];
+  table: { schema: string; name: string };
+  filters?: Partial<DataFilter>[];
+  logic?: "AND" | "OR";
+  sort?: DataSort[];
+  page?: number;
+  pageSize?: number;
+  columns: string[];
+  matching: Wire[][];
+  countCell?: Wire;
+  countError?: RpcErr;
+  pageError?: RpcErr;
+}
+const pageCases: PageCase[] = [];
+const tp = (c: PageCase) => pageCases.push(c);
+const nums = (n: number, from = 1): Wire[][] =>
+  Array.from({ length: n }, (_, i) => [from + i, `r${from + i}`]);
+const f = (column: string, operator: DataFilter["operator"], value = "", enabled = true) => ({
+  column,
+  operator,
+  value,
+  enabled,
+});
+
+const pgItems = tbl("public", "items", [
+  col("id", "integer", { pk: true, castType: "integer" }),
+  col("name", "text", { castType: "text" }),
+], [pkIndex("items", "id")]);
+{
+  const file = "table-page-postgres";
+  const base = { file, engine: "postgres" as const, cache: [pgItems], table: { schema: "public", name: "items" }, columns: ["id", "name"] };
+  tp({ ...base, name: "tp/pg-no-filters-partial", matching: nums(3) });
+  tp({ ...base, name: "tp/pg-full-page", pageSize: 5, matching: nums(12) });
+  tp({ ...base, name: "tp/pg-middle-page", page: 2, pageSize: 5, matching: nums(12) });
+  tp({ ...base, name: "tp/pg-last-partial-page", page: 3, pageSize: 5, matching: nums(12) });
+  tp({ ...base, name: "tp/pg-eq", filters: [f("name", "=", "r1")], matching: [[1, "r1"]] });
+  tp({ ...base, name: "tp/pg-ne", filters: [f("name", "!=", "r1")], matching: nums(2, 2) });
+  tp({
+    ...base,
+    name: "tp/pg-ranges-compare-text",
+    notes: "`>`/`<`/`>=`/`<=` compare the column cast to text with the value (kept; a follow-up types them)",
+    filters: [f("id", ">", "9"), f("id", "<", "50"), f("id", ">=", "10"), f("id", "<=", "49")],
+    matching: [[10, "r10"]],
+  });
+  tp({ ...base, name: "tp/pg-like", filters: [f("name", "LIKE", "r1%")], matching: [[1, "r1"], [10, "r10"]] });
+  tp({ ...base, name: "tp/pg-not-like", filters: [f("name", "NOT LIKE", "%9")], matching: nums(2) });
+  tp({ ...base, name: "tp/pg-in-with-spaces", filters: [f("id", "IN", " 1, 2 ,3 ,")], matching: nums(3) });
+  tp({ ...base, name: "tp/pg-not-in", filters: [f("id", "NOT IN", "1,2")], matching: [[3, "r3"]] });
+  tp({ ...base, name: "tp/pg-is-null", filters: [f("name", "IS NULL")], matching: [[4, null]] });
+  tp({ ...base, name: "tp/pg-is-not-null", filters: [f("name", "IS NOT NULL", "ignored")], matching: nums(2) });
+  tp({
+    ...base,
+    name: "tp/pg-in-numbering-after-filters",
+    notes: "Placeholders number on across filters: `=` takes $1, `IN` $2 and $3, `NOT IN` $4, `LIKE` $5",
+    filters: [
+      f("name", "=", "a"),
+      f("id", "IN", "1,2"),
+      f("name", "IS NOT NULL"),
+      f("id", "NOT IN", "3"),
+      f("name", "LIKE", "%x%"),
+    ],
+    matching: [],
+  });
+  tp({
+    ...base,
+    name: "tp/pg-or-with-disabled-and-blank-filters",
+    notes: "A disabled filter and one with no column are left out",
+    filters: [f("name", "=", "a"), f("name", "=", "zzz", false), f("", "=", "b"), f("id", "=", "2")],
+    logic: "OR",
+    matching: [[2, "r2"]],
+  });
+  tp({ ...base, name: "tp/pg-and", filters: [f("name", "LIKE", "r%"), f("id", "!=", "2")], logic: "AND", matching: [[1, "r1"], [3, "r3"]] });
+  tp({ ...base, name: "tp/pg-sort-asc", sort: [{ column: "name", direction: "ASC" }], matching: nums(2) });
+  tp({
+    ...base,
+    name: "tp/pg-sort-desc-two-columns",
+    sort: [
+      { column: "id", direction: "DESC" },
+      { column: "name", direction: "ASC" },
+    ],
+    filters: [f("id", ">", "0")],
+    matching: [[2, "r2"], [1, "r1"]],
+  });
+  tp({ ...base, name: "tp/pg-count-fails-full-page", pageSize: 5, matching: nums(12), countError: { code: "QUERY_ERROR", message: "canceling statement due to statement timeout" } });
+  tp({ ...base, name: "tp/pg-count-fails-partial-page", matching: nums(2), countError: { code: "QUERY_ERROR", message: "canceling statement due to statement timeout" } });
+  tp({ ...base, name: "tp/pg-count-as-bigint", pageSize: 5, matching: nums(6), countCell: bigint("6") });
+  tp({ ...base, name: "tp/pg-empty-page-columns-from-cache", matching: [] });
+  tp({ ...base, name: "tp/pg-page-query-fails", filters: [f("nope", "=", "1")], matching: [], pageError: { code: "QUERY_ERROR", message: 'column "nope" does not exist' } });
+  tp({ ...base, name: "tp/pg-empty-in-list", notes: "Nothing is sent: the tab shows the error", filters: [f("id", "IN", " , ")], matching: [] });
+  tp({
+    ...base,
+    name: "tp/pg-quoted-names",
+    cache: [tbl("My Schema", 'we"ird', [col("Col A", "text", { pk: true })], [pkIndex("w", "Col A")])],
+    table: { schema: "My Schema", name: 'we"ird' },
+    columns: ["Col A"],
+    filters: [f("Col A", "=", "x")],
+    sort: [{ column: "Col A", direction: "DESC" }],
+    matching: [["x"]],
+  });
+}
+{
+  const file = "table-page-mysql";
+  const base = { file, engine: "mysql" as const, cache: [myItems], table: { schema: "shop", name: "items" }, columns: ["id", "name", "price", "sku"] };
+  const r = (id: number): Wire[] => [id, `n${id}`, decimal("1.00"), null];
+  tp({ ...base, name: "tp/mysql-filters-char-and-question-marks", filters: [f("name", "LIKE", "n%"), f("id", "IN", "1, 2"), f("price", ">=", "1")], matching: [r(1), r(2)] });
+  tp({ ...base, name: "tp/mysql-sort-and-page", sort: [{ column: "price", direction: "DESC" }], page: 2, pageSize: 2, matching: [r(1), r(2), r(3), r(4), r(5)] });
+  tp({ ...base, name: "tp/mysql-not-in-or", filters: [f("id", "NOT IN", "1"), f("name", "IS NULL")], logic: "OR", matching: [r(2)] });
+}
+{
+  const file = "table-page-mariadb";
+  const big = tbl("app", "events", [col("id", "bigint(20) unsigned", { pk: true }), col("kind", "varchar(16)")], [pkIndex("events", "id")]);
+  const base = { file, engine: "mariadb" as const, cache: [big], table: { schema: "app", name: "events" }, columns: ["id", "kind"] };
+  tp({ ...base, name: "tp/mariadb-in-and-sort", filters: [f("kind", "IN", "a,b")], sort: [{ column: "id", direction: "ASC" }], matching: [[bigint("18446744073709551615"), "a"]] });
+  tp({ ...base, name: "tp/mariadb-full-page", pageSize: 2, matching: [[1, "a"], [2, "b"], [3, "c"]] });
+}
+{
+  const file = "table-page-sqlite";
+  const base = { file, engine: "sqlite" as const, cache: [liteNotes], table: { schema: "main", name: "notes" }, columns: ["id", "body", "created", "tag"] };
+  const r = (id: number): Wire[] => [id, `b${id}`, "2024-01-01 10:00:00", null];
+  tp({ ...base, name: "tp/sqlite-filters", filters: [f("body", "!=", "x"), f("tag", "IS NULL"), f("id", "NOT IN", "4, 5")], matching: [r(1), r(2)] });
+  tp({ ...base, name: "tp/sqlite-last-page", page: 2, pageSize: 3, sort: [{ column: "created", direction: "DESC" }], matching: [r(1), r(2), r(3), r(4)] });
+}
+{
+  const file = "table-page-mssql";
+  const variant = tbl("dbo", "odd", [
+    col("id", "int", { pk: true }),
+    col("v", "sql_variant"),
+    col("g", "geography"),
+    col("name", "nvarchar(50)"),
+  ], [pkIndex("odd", "id")]);
+  const base = { file, engine: "mssql" as const, cache: [msOrders], table: { schema: "dbo", name: "orders" }, columns: ["id", "placed", "amount", "note"] };
+  const r = (id: number): Wire[] => [id, null, decimal("1.0000"), `n${id}`];
+  tp({ ...base, name: "tp/mssql-no-sort-order-by-select-null", matching: [r(1), r(2)] });
+  tp({ ...base, name: "tp/mssql-sort-middle-page", sort: [{ column: "amount", direction: "DESC" }], page: 2, pageSize: 2, matching: [r(1), r(2), r(3), r(4), r(5)] });
+  tp({
+    ...base,
+    name: "tp/mssql-filters-at-p",
+    notes: "`@pN` numbering on across filters, the column cast to NVARCHAR(MAX)",
+    filters: [f("note", "LIKE", "n%"), f("id", "IN", "1,2,3"), f("note", "=", "n1")],
+    matching: [r(1)],
+  });
+  tp({
+    ...base,
+    name: "tp/mssql-sql-variant-columns-cast",
+    notes: "tiberius can't read sql_variant or geography metadata: those columns are listed and cast",
+    cache: [variant],
+    table: { schema: "dbo", name: "odd" },
+    columns: ["id", "v", "g", "name"],
+    filters: [f("name", "=", "a")],
+    matching: [[1, "12", "POINT (1 2)", "a"]],
+  });
+  tp({
+    ...base,
+    name: "tp/mssql-sql-variant-full-page",
+    notes: "A full page, so Core counts over the listed, cast columns",
+    cache: [variant],
+    table: { schema: "dbo", name: "odd" },
+    columns: ["id", "v", "g", "name"],
+    filters: [f("name", "LIKE", "a%")],
+    pageSize: 1,
+    matching: [[1, "12", "POINT (1 2)", "a"], [2, "x", null, "ab"]],
+  });
+  tp({
+    ...base,
+    name: "tp/mssql-full-page-count",
+    pageSize: 2,
+    matching: [r(1), r(2), r(3)],
+  });
+}
+{
+  const file = "table-page-duckdb";
+  const base = { file, engine: "duckdb" as const, cache: [duckT], table: { schema: "cat.main", name: "t" }, columns: ["id", "v", "j"] };
+  tp({ ...base, name: "tp/duckdb-attached-catalog", filters: [f("v", "=", "a"), f("id", "IN", "1,2")], sort: [{ column: "v", direction: "ASC" }], matching: [[1, "a", json({ x: 1 })]] });
+  tp({
+    ...base,
+    name: "tp/duckdb-default-catalog-full-page",
+    cache: [duckMain],
+    table: { schema: "main", name: "m" },
+    columns: ["k", "h", "s"],
+    pageSize: 1,
+    matching: [[1, null, json({ a: 1 })], [2, null, json({ a: 2 })]],
+  });
+}
+
+/** The TS page SQL split into the base SELECT and the paging it appended. */
+function splitPaging(engine: string, text: string) {
+  if (engine === "mssql") {
+    const m = /^([\s\S]*?)( ORDER BY \(SELECT NULL\))? OFFSET (\d+) ROWS FETCH NEXT (\d+) ROWS ONLY$/.exec(text);
+    if (!m) throw new Error(`no paging in ${text}`);
+    return { base: m[1], limit: Number(m[4]), offset: Number(m[3]) };
+  }
+  const m = /^([\s\S]*) LIMIT (\d+) OFFSET (\d+)$/.exec(text);
+  if (!m) throw new Error(`no paging in ${text}`);
+  return { base: m[1], limit: Number(m[2]), offset: Number(m[3]) };
+}
+
+/**
+ * Placeholders as the engine's `crud.rs` builders write them: `@P1` on SQL
+ * Server and `?` on DuckDB, where the data tab writes `@p1` and `$1`. (The
+ * cases hold no `@p`/`$` inside names or strings.)
+ */
+const crudPlaceholders = (engine: string, text: string) =>
+  engine === "mssql"
+    ? text.replace(/@p(\d+)/g, "@P$1")
+    : engine === "duckdb"
+      ? text.replace(/\$\d+/g, "?")
+      : text;
+
+async function runPage(c: PageCase): Promise<Record<string, unknown>> {
+  const w = world(c.engine, c.cache, c.cache.map(metaOf), []);
+  const page = c.page ?? 1;
+  const pageSize = c.pageSize ?? 100;
+  w.client.pageSource = {
+    columns: c.columns,
+    matching: c.matching,
+    page,
+    pageSize,
+    countCell: c.countCell,
+    countError: c.countError,
+    pageError: c.pageError,
+  };
+  const cached = c.cache.find((x) => x.schema === c.table.schema && x.name === c.table.name)!;
+  const tabId = w.dataTabs.addWithoutRefresh(cached)!;
+  const filters: DataFilter[] = (c.filters ?? []).map((x, i) => ({
+    id: `f${i + 1}`,
+    column: x.column ?? "",
+    operator: x.operator ?? "=",
+    value: x.value ?? "",
+    enabled: x.enabled ?? true,
+  }));
+  const tabs = w.state.dataTabsByProject.p!;
+  tabs[0] = { ...tabs[0], filters, filterLogic: c.logic ?? "AND", sortColumns: c.sort ?? [], page, pageSize };
+  await w.dataTabs.refresh(tabId);
+  const ops = w.client.log.splice(0);
+  expect(w.client.failures, c.name).toEqual([]);
+
+  const tab = w.state.dataTabsByProject.p!.find((x) => x.id === tabId)!;
+  const res = tab.results!;
+  const countOp = ops.find((o) => o.op === "count");
+  const pageOp = ops.find((o) => o.op === "page");
+  const split = pageOp ? splitPaging(c.engine, pageOp.sql as string) : null;
+  if (split) {
+    expect(split.offset, `${c.name}: offset`).toBe((page - 1) * pageSize);
+    expect(split.limit, `${c.name}: limit`).toBe(pageSize);
+  }
+
+  const tableQuery = {
+    target: { schema: c.table.schema, table: c.table.name },
+    filters: filters.filter((x) => x.enabled && x.column).map((x) => ({ column: x.column, op: x.operator, value: x.value })),
+    logic: c.logic ?? "AND",
+    sort: (c.sort ?? []).map((s) => ({ column: s.column, direction: s.direction })),
+  };
+
+  const recorded: Record<string, unknown> = {
+    name: c.name,
+    engine: c.engine,
+    ...(c.notes ? { notes: c.notes } : {}),
+    input: {
+      tableQuery,
+      page,
+      pageSize,
+      filters,
+      schemaCache: c.cache,
+      columns: c.columns,
+      matching: c.matching,
+      ...(c.countCell !== undefined ? { countCell: c.countCell } : {}),
+      ...(c.countError ? { countError: c.countError } : {}),
+      ...(c.pageError ? { pageError: c.pageError } : {}),
+    },
+    driver: ops,
+    select: split ? { sql: split.base, params: pageOp!.params } : null,
+    paging: split ? { limit: split.limit, offset: split.offset } : null,
+    count: countOp ? { sql: countOp.sql, params: countOp.params } : null,
+    result: {
+      columns: res.columns,
+      rows: res.rows.map((row) => row.map(wire)),
+      rowCount: res.rowCount,
+      totalRows: res.totalRows,
+      page: res.page,
+      pageSize: res.pageSize,
+      totalPages: res.totalPages,
+      error: res.error ?? null,
+      sourceTable: res.sourceTable ?? null,
+    },
+  };
+
+  // Decision 9's rules, where Core differs.
+  if (split) {
+    const offset = (page - 1) * pageSize;
+    const fetched = c.pageError ? [] : c.matching.slice(offset, offset + pageSize + 1);
+    const full = !c.pageError && fetched.length > pageSize;
+    const selectSql = crudPlaceholders(c.engine, split.base);
+    const rowsShown = Math.min(fetched.length, pageSize);
+    const totalRows = c.pageError
+      ? 0
+      : !full
+        ? offset + rowsShown
+        : c.countError
+          ? offset + pageSize + 1
+          : Number(js(c.countCell ?? c.matching.length));
+    const expected: Record<string, unknown> = {};
+    const why: string[] = [];
+    if (!full && countOp) {
+      expected.count = null;
+      why.push(
+        c.pageError
+          ? "The page runs first and fails, so no count runs."
+          : "A partial page runs no count: its total is `offset + rows`.",
+      );
+    }
+    if (full && c.countError) {
+      why.push("The page was full and the count failed: the total is estimated (`offset + pageSize + 1`) and flagged, not 0.");
+    } else if (!full && c.countError) {
+      why.push("Today the failed count shows a total of 0; Core runs no count for a partial page, so the total is exact.");
+    }
+    if (selectSql !== split.base) {
+      expected.select = { sql: selectSql, params: pageOp!.params };
+      why.push(
+        c.engine === "mssql"
+          ? "The builder writes SQL Server placeholders as crud.rs does, `@P1…` (the data tab writes `@p1`)."
+          : "The builder writes DuckDB placeholders as crud.rs does, `?` (the data tab writes `$1`).",
+      );
+    }
+    const result = recorded.result as Record<string, unknown>;
+    if (!c.pageError && (result.totalRows !== totalRows || (full && c.countError))) {
+      expected.result = {
+        ...result,
+        totalRows,
+        totalPages: Math.max(1, Math.ceil(totalRows / pageSize)),
+        countEstimated: !!(full && c.countError),
+      };
+    }
+    if (why.length > 0) {
+      changes[c.name] = { decision: "9", why: why.join(" "), expected };
+    }
+  }
+  return recorded;
+}
+
+// ---------------------------------------------------------------- descriptions
+
+interface SummaryCase {
+  name: string;
+  engine: DatabaseType;
+  origin: PendingChange["origin"];
+  sql: string;
+  notes?: string;
+  /** Decision 12: the description Core's `change_summary` gives, where the regexes misread. */
+  fixed?: string;
+}
+const summaryCases: SummaryCase[] = [];
+const sc = (c: SummaryCase) => summaryCases.push(c);
+{
+  // Every branch of describePendingChange.
+  sc({ name: "sum/insert", engine: "postgres", origin: "insert-row", sql: 'INSERT INTO "public"."users" ("name") VALUES ($1)' });
+  sc({ name: "sum/insert-unqualified-lower", engine: "sqlite", origin: "query-editor", sql: "insert into notes (body) values ('x')" });
+  sc({ name: "sum/insert-no-into", engine: "mssql", origin: "query-editor", sql: "INSERT (1)", notes: "No table: the SQL itself" });
+  sc({ name: "sum/update-table-and-column", engine: "postgres", origin: "inline-edit", sql: 'UPDATE "public"."users" SET "name" = $1 WHERE "id" = $2' });
+  sc({ name: "sum/update-odd-spacing", engine: "postgres", origin: "query-editor", sql: "UPDATE\n   users\t SET   name=1" });
+  sc({ name: "sum/update-expression-column", engine: "postgres", origin: "query-editor", sql: "UPDATE users SET (a, b) = (1, 2)", notes: "No column read: table only" });
+  sc({ name: "sum/update-no-table", engine: "postgres", origin: "inline-edit", sql: "UPDATE", notes: "Nothing to read: the SQL itself" });
+  sc({ name: "sum/delete", engine: "postgres", origin: "delete-row", sql: 'DELETE FROM "public"."users" WHERE "id" = $1' });
+  sc({ name: "sum/delete-no-from", engine: "mssql", origin: "query-editor", sql: "DELETE", notes: "No table: the SQL itself" });
+  sc({ name: "sum/create-table", engine: "postgres", origin: "create-table", sql: 'CREATE TABLE "public"."t" (id int)' });
+  sc({ name: "sum/create-index", engine: "postgres", origin: "query-editor", sql: "CREATE INDEX IF NOT EXISTS idx_a ON t (a)" });
+  sc({ name: "sum/create-unique-index", engine: "sqlite", origin: "query-editor", sql: 'CREATE UNIQUE INDEX "idx_b" ON t (b)' });
+  sc({ name: "sum/drop-table", engine: "postgres", origin: "drop-table", sql: 'DROP TABLE "public"."t"' });
+  sc({ name: "sum/drop-index", engine: "postgres", origin: "query-editor", sql: "DROP INDEX IF EXISTS idx_a" });
+  sc({ name: "sum/drop-view", engine: "postgres", origin: "query-editor", sql: 'DROP VIEW IF EXISTS "public"."v"' });
+  sc({ name: "sum/truncate-table", engine: "postgres", origin: "truncate-table", sql: 'TRUNCATE TABLE "public"."t"' });
+  sc({ name: "sum/truncate-bare", engine: "postgres", origin: "query-editor", sql: "TRUNCATE t" });
+  sc({ name: "sum/alter-table", engine: "postgres", origin: "alter-table", sql: 'ALTER TABLE "public"."t" ADD COLUMN "c" int' });
+  // The origin fallbacks.
+  sc({ name: "sum/fallback-inline-edit", engine: "postgres", origin: "inline-edit", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-insert-row", engine: "postgres", origin: "insert-row", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-delete-row", engine: "postgres", origin: "delete-row", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-set-default", engine: "postgres", origin: "set-default", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-create-table", engine: "postgres", origin: "create-table", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-alter-table", engine: "postgres", origin: "alter-table", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-drop-table", engine: "postgres", origin: "drop-table", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-truncate-table", engine: "postgres", origin: "truncate-table", sql: "CALL refresh_totals()" });
+  sc({ name: "sum/fallback-query-editor", engine: "postgres", origin: "query-editor", sql: "VACUUM ANALYZE t" });
+  sc({
+    name: "sum/fallback-long-sql-truncated",
+    engine: "postgres",
+    origin: "query-editor",
+    sql: "CALL do_something_rather_long('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')",
+  });
+  sc({ name: "sum/sqlite-truncate-as-delete", engine: "sqlite", origin: "query-editor", sql: 'DELETE FROM "main"."notes"', notes: "The sidebar's SQLite truncate, as `executeRawDdl` queues it" });
+  // Where the regexes misread a quoted or qualified name (Decision 12).
+  sc({ name: "sum/mysql-backticks", engine: "mysql", origin: "inline-edit", sql: "UPDATE `shop`.`items` SET `price` = ? WHERE `id` = ?", fixed: "Update items.price" });
+  sc({ name: "sum/mysql-backtick-insert", engine: "mysql", origin: "insert-row", sql: "INSERT INTO `shop`.`items` (`name`) VALUES (?)", fixed: "Insert row into items" });
+  sc({ name: "sum/mssql-brackets", engine: "mssql", origin: "delete-row", sql: "DELETE FROM [dbo].[orders] WHERE [id] = @P1", fixed: "Delete row from orders" });
+  sc({ name: "sum/mssql-bracket-drop", engine: "mssql", origin: "drop-table", sql: "DROP TABLE [dbo].[order lines]", fixed: "Drop table order lines" });
+  sc({ name: "sum/duckdb-three-part", engine: "duckdb", origin: "inline-edit", sql: 'UPDATE "cat"."main"."t" SET "v" = $1 WHERE "id" = $2', fixed: "Update t.v" });
+  sc({ name: "sum/pg-quoted-with-space", engine: "postgres", origin: "inline-edit", sql: 'UPDATE "public"."my table" SET "Mixed Case" = $1 WHERE "id" = $2', fixed: "Update my table.Mixed Case" });
+  sc({ name: "sum/pg-quoted-column-with-space", engine: "postgres", origin: "inline-edit", sql: 'UPDATE "public"."t" SET "first name" = $1 WHERE "id" = $2', fixed: "Update t.first name" });
+  sc({ name: "sum/pg-escaped-quote", engine: "postgres", origin: "insert-row", sql: 'INSERT INTO "public"."we""ird" ("a") VALUES ($1)', fixed: 'Insert row into we"ird' });
+  sc({ name: "sum/unicode-name", engine: "postgres", origin: "query-editor", sql: "UPDATE café SET prix = 1", fixed: "Update café.prix" });
+  sc({ name: "sum/leading-comment", engine: "postgres", origin: "query-editor", sql: "-- tidy up\nDELETE FROM t WHERE a = 1", fixed: "Delete row from t" });
+  sc({ name: "sum/leading-block-comment", engine: "mysql", origin: "query-editor", sql: "/* x */ INSERT INTO t VALUES (1)", fixed: "Insert row into t" });
+  sc({ name: "sum/create-table-if-not-exists", engine: "postgres", origin: "create-table", sql: "CREATE TABLE IF NOT EXISTS audit (id int)", fixed: "Create table audit" });
+  sc({ name: "sum/drop-table-if-exists", engine: "sqlite", origin: "drop-table", sql: 'DROP TABLE IF EXISTS "main"."old"', fixed: "Drop table old" });
+  sc({ name: "sum/alter-table-only", engine: "postgres", origin: "alter-table", sql: "ALTER TABLE ONLY public.t ADD COLUMN c int", fixed: "Alter table t" });
+  // The sidebar's DROP and TRUNCATE text on each engine.
+  sc({ name: "sum/mysql-sidebar-truncate", engine: "mysql", origin: "truncate-table", sql: "TRUNCATE TABLE `shop`.`items`", fixed: "Truncate table items", notes: "The TRUNCATE fallback reads `TABLE` as the table" });
+  sc({ name: "sum/mssql-sidebar-truncate", engine: "mssql", origin: "truncate-table", sql: "TRUNCATE TABLE [sales].[order_lines]", fixed: "Truncate table order_lines" });
+  sc({ name: "sum/duckdb-sidebar-truncate-catalog", engine: "duckdb", origin: "truncate-table", sql: 'TRUNCATE TABLE "cat"."main"."t"', fixed: "Truncate table t" });
+  sc({ name: "sum/mysql-sidebar-drop-table", engine: "mysql", origin: "drop-table", sql: "DROP TABLE `shop`.`items`", fixed: "Drop table items" });
+  sc({ name: "sum/mssql-sidebar-drop-view", engine: "mssql", origin: "query-editor", sql: "DROP VIEW [dbo].[v_orders]", fixed: "Drop view v_orders" });
+  sc({ name: "sum/duckdb-sidebar-drop-view-catalog", engine: "duckdb", origin: "query-editor", sql: 'DROP VIEW "cat"."main"."v"', fixed: "Drop view v" });
+  sc({ name: "sum/duckdb-sidebar-drop-table-catalog", engine: "duckdb", origin: "drop-table", sql: 'DROP TABLE "cat"."main"."t"', fixed: "Drop table t" });
+  sc({ name: "sum/pg-sidebar-drop-materialized-view", engine: "postgres", origin: "query-editor", sql: 'DROP MATERIALIZED VIEW "public"."mv_totals"', notes: "No branch reads it, and `executeRawDdl`'s origin guess gives `query-editor`: the SQL itself (kept)" });
+  sc({ name: "sum/set-qualified-column", engine: "mysql", origin: "query-editor", sql: "UPDATE t SET t.c = 1", fixed: "Update t.c" });
+}
+
+function runSummary(c: SummaryCase): Record<string, unknown> {
+  const description = describePendingChange(c.sql, c.origin);
+  if (c.fixed !== undefined) {
+    expect(c.fixed, `${c.name}: the fix changes nothing`).not.toBe(description);
+    changes[c.name] = {
+      decision: "12",
+      why: "The regexes misread a quoted, qualified or commented name; `change_summary` reads the statement with the scanner.",
+      expected: { description: c.fixed },
+    };
+  }
+  if (c.fixed !== undefined) {
+    changes[c.name].expected.summary = summaryOf(c.fixed, c.origin);
+  }
+  return {
+    name: c.name,
+    engine: c.engine,
+    ...(c.notes ? { notes: c.notes } : {}),
+    origin: c.origin,
+    sql: c.sql,
+    description,
+    summary: summaryOf(description, c.origin),
+  };
+}
+
+// ---------------------------------------------------------------- recording
+
+const recorded = new Map<string, Record<string, unknown>[]>();
+const push = (file: string, out: Record<string, unknown>) => {
+  const list = recorded.get(file) ?? [];
+  list.push(out);
+  recorded.set(file, list);
+};
+
+describe("record edit fixtures", () => {
+  for (const c of planCases) {
+    it(c.name, async () => {
+      const out = await runPlan(c);
+      push(c.file, out);
+      if (c.change) {
+        changes[c.name] = { decision: c.change.decision, why: c.change.why, expected: c.change.expected(out) };
+      }
+    });
+  }
+  for (const c of castCases) {
+    it(c.name, () => {
+      push("cast-map", {
+        name: c.name,
+        ...(c.notes ? { notes: c.notes } : {}),
+        columns: c.columns,
+        casts: castMapForColumns(c.columns),
+      });
+    });
+  }
+  for (const c of applyCases) {
+    it(c.name, async () => {
+      const out = await runApply(c);
+      push("apply", out);
+      if (c.change) {
+        changes[c.name] = { decision: c.change.decision, why: c.change.why, expected: c.change.expected(out) };
+      }
+    });
+  }
+  for (const c of pageCases) {
+    it(c.name, async () => {
+      push(c.file, await runPage(c));
+    });
+  }
+  for (const c of summaryCases) {
+    it(c.name, () => {
+      push("summary", runSummary(c));
+    });
+  }
+
+  it("has unique names", () => {
+    const all = [...planCases, ...castCases, ...applyCases, ...pageCases, ...summaryCases].map((c) => c.name);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  afterAll(() => {
+    if (!process.env.FREEZE_EDITS) return;
+    const total = planCases.length + castCases.length + applyCases.length + pageCases.length + summaryCases.length;
+    if ([...recorded.values()].flat().length !== total) {
+      throw new Error("not every case recorded; nothing written");
+    }
+    const dir =
+      process.env.FREEZE_EDITS_OUT ?? join(process.cwd(), "crates/seaquel-workspace/tests/fixtures/edits");
+    mkdirSync(dir, { recursive: true });
+    const engines = ["postgres", "mysql", "mariadb", "sqlite", "mssql", "duckdb"];
+    const files = [
+      ...engines.map((e) => `plan-${e}`),
+      "cast-map",
+      "apply",
+      ...engines.map((e) => `table-page-${e}`),
+      "summary",
+    ];
+    // Keep each file's cases in definition order.
+    const order = new Map(
+      [...planCases, ...castCases, ...applyCases, ...pageCases, ...summaryCases].map((c, i) => [c.name, i]),
+    );
+    for (const file of files) {
+      const list = (recorded.get(file) ?? []).sort(
+        (a, b) => order.get(a.name as string)! - order.get(b.name as string)!,
+      );
+      writeFileSync(join(dir, `${file}.json`), JSON.stringify(list, null, 2) + "\n");
+    }
+    const sorted = Object.fromEntries(Object.keys(changes).sort().map((k) => [k, changes[k]]));
+    writeFileSync(join(dir, "changes.json"), JSON.stringify(sorted, null, 2) + "\n");
+  });
+});

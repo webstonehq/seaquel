@@ -1,15 +1,13 @@
 <script lang="ts">
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-	import {
-		ChevronDownIcon,
-		ChevronLeftIcon,
-		ChevronRightIcon,
-		ChevronsLeftIcon,
-		ChevronsRightIcon,
-		LoaderIcon,
-		XIcon
-	} from "@lucide/svelte";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+	import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import ChevronsLeftIcon from "@lucide/svelte/icons/chevrons-left";
+	import ChevronsRightIcon from "@lucide/svelte/icons/chevrons-right";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
+	import XIcon from "@lucide/svelte/icons/x";
 	import { m } from "$lib/paraglide/messages.js";
 
 	type Props = {

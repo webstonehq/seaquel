@@ -15,7 +15,7 @@ use futures::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use seaquel_engine::{
     CappedResult, ConnectConfig, DbError, Dialect, Driver, Engine, ExecuteResult, OpenOptions,
-    QueryResult,
+    QueryResult, SchemaColumn, SchemaIndex, TransactionError,
 };
 use seaquel_engine_postgres::PostgresDialect;
 use seaquel_server::{
@@ -67,6 +67,8 @@ pub struct Calls {
     pub read_only: AtomicUsize,
     pub execute: AtomicUsize,
     pub transaction: AtomicUsize,
+    /// `table_metadata` reads (the edits' metadata, Decision 3).
+    pub metadata: AtomicUsize,
     /// Queries that were started and are hanging (`hang` in the SQL).
     pub hanging: AtomicUsize,
     /// Hanging queries whose future was dropped (cancelled).
@@ -145,20 +147,42 @@ impl Driver for FakeDriver {
         }
         Ok(one_cell("sql", sql))
     }
-    async fn execute(&self, _sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
+    /// Three rows affected, or hangs until dropped when the SQL says `hang`.
+    async fn execute(&self, sql: &str, _params: Vec<Value>) -> Result<ExecuteResult, DbError> {
         self.0.execute.fetch_add(1, Ordering::SeqCst);
+        self.maybe_hang(sql).await;
         Ok(ExecuteResult {
             rows_affected: 3,
             last_insert_id: None,
         })
     }
-    async fn transaction(&self, _statements: Vec<BatchStatement>) -> Result<(), DbError> {
+    async fn transaction(
+        &self,
+        statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
         self.0.transaction.fetch_add(1, Ordering::SeqCst);
-        Ok(())
+        Ok(vec![0; statements.len()])
     }
     async fn close(&self) -> Result<(), DbError> {
         self.0.closed.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+    /// Every table has `id integer` (the primary key) and `name text`.
+    async fn table_metadata(
+        &self,
+        _schema: &str,
+        _table: &str,
+    ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
+        self.0.metadata.fetch_add(1, Ordering::SeqCst);
+        let column = |name: &str, ty: &str, pk: bool| -> SchemaColumn {
+            serde_json::from_value(json!({"name": name, "type": ty, "nullable": !pk,
+                "isPrimaryKey": pk, "isForeignKey": false}))
+            .unwrap()
+        };
+        Ok((
+            vec![column("id", "integer", true), column("name", "text", false)],
+            Vec::new(),
+        ))
     }
     async fn query_read_only(
         &self,
@@ -238,6 +262,7 @@ impl Env {
             .connect_policy(web_connect_policy())
             .connection_limits(WEB_CONNECTION_LIMITS)
             .run_limits(seaquel_server::WEB_RUN_LIMITS)
+            .edit_limits(seaquel_server::WEB_EDIT_LIMITS)
             .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build();
         Self::with_core(Arc::new(core), capacity, calls)
@@ -378,6 +403,22 @@ pub fn start_page(
     json!({"op": "start", "streamId": stream_id, "request": db("page", json!({
         "connectionId": connection_id, "streamId": stream_id,
         "source": {"sql": sql, "params": []}, "page": page, "pageSize": page_size,
+    }))})
+}
+
+/// A `start` frame for a `db.tablePage` of `public.<table>` with these
+/// filters on `connection_id`.
+pub fn start_table_page(
+    stream_id: &str,
+    connection_id: &str,
+    table: &str,
+    filters: Json,
+    page: u32,
+    page_size: u32,
+) -> Json {
+    json!({"op": "start", "streamId": stream_id, "request": db("tablePage", json!({
+        "connectionId": connection_id, "streamId": stream_id, "page": page, "pageSize": page_size,
+        "query": {"target": {"schema": "public", "table": table}, "filters": filters},
     }))})
 }
 

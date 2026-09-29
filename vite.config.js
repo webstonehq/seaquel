@@ -3,6 +3,7 @@ import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { withClientRequest } from "./shared/client-request.js";
 import { attachRpcStreamProxy } from "./shared/rpc-stream-proxy.js";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -44,6 +45,16 @@ export default defineConfig(async ({ mode }) => {
                 attachRpcStreamProxy(server.httpServer, {
                   rustUrl: process.env.SEAQUEL_RUST_URL ?? "http://127.0.0.1:8788",
                 });
+              },
+            },
+            // The dev server passes routes no `platform.req`, so /api/rpc
+            // reads the Node request from here to abort its call to Rust
+            // when the browser's connection closes (shared/client-request.js).
+            {
+              name: "seaquel-client-request",
+              /** @param {import("vite").ViteDevServer} server */
+              configureServer(server) {
+                server.middlewares.use((req, _res, next) => withClientRequest(req, next));
               },
             },
           ]

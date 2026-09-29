@@ -64,10 +64,14 @@ export function createCellEditing(ctx: QueryEditorContext) {
     deletingRowIndex = pendingDeleteRow.index;
     showDeleteConfirm = false;
 
-    // CRUD helpers still take Record<string, unknown>; materialize here.
-    const result = await db.queries.deleteRow(
+    // On the connection the result came from, keyed through its column
+    // sources (an aliased key column binds).
+    const { connectionId } = activeResult;
+    const result = await db.queries.deleteRowAt(
+      activeTabId,
+      ctx.getActiveResultIndex(),
+      pendingDeleteRow.index,
       activeResult.sourceTable,
-      rowToObject(pendingDeleteRow.row, activeResult.columns),
     );
 
     if (result.success) {
@@ -75,7 +79,7 @@ export function createCellEditing(ctx: QueryEditorContext) {
         toast.info("Delete added to pending changes");
       } else {
         toast.success(m.query_row_deleted());
-        await db.queries.execute(activeTabId);
+        await db.queries.execute(activeTabId, { connectionId });
       }
     } else {
       errorToast(m.query_row_delete_failed({ error: result.error || "" }));

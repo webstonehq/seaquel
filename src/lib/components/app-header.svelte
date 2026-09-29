@@ -14,7 +14,6 @@
     import NetworkIcon from "@lucide/svelte/icons/network";
     import SettingsIcon from "@lucide/svelte/icons/settings";
     import FolderGit2Icon from "@lucide/svelte/icons/folder-git-2";
-    import ImportSharedProjectDialog from "./import-shared-project-dialog.svelte";
     import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
     import { toast } from "svelte-sonner";
     import { errorToast } from "$lib/utils/toast";
@@ -35,7 +34,6 @@
     import { isTauri, isWeb } from "$lib/utils/environment";
     import LogOutIcon from "@lucide/svelte/icons/log-out";
     import UsersIcon from "@lucide/svelte/icons/users";
-    import { getAuthClient } from "$lib/auth-client";
     import { page } from "$app/state";
     import { resolve } from "$app/paths";
     import UpdateBadge from "./update-badge.svelte";
@@ -371,6 +369,7 @@
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
                             onclick={async () => {
+                                const { getAuthClient } = await import("$lib/auth-client");
                                 await getAuthClient().signOut();
                                 window.location.href = "/login";
                             }}
@@ -424,5 +423,8 @@
     onconfirm={handleRemoveProject}
 />
 
-<!-- Import Shared Project Dialog -->
-<ImportSharedProjectDialog />
+{#if sharedProjectImportStore.isOpen}
+    {#await import("./import-shared-project-dialog.svelte") then module}
+        <module.default />
+    {/await}
+{/if}

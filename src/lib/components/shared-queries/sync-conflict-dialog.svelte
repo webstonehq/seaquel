@@ -8,13 +8,11 @@
 import { errorToast } from "$lib/utils/toast";
 	import { resolveConflict, getConflictContent } from "$lib/services/git.js";
 	import type { ConflictContent } from "$lib/types";
-	import {
-		Loader2Icon,
-		AlertTriangleIcon,
-		CheckIcon,
-		ChevronRightIcon,
-		FileTextIcon
-	} from "@lucide/svelte";
+	import Loader2Icon from "@lucide/svelte/icons/loader-2";
+	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
+	import CheckIcon from "@lucide/svelte/icons/check";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import FileTextIcon from "@lucide/svelte/icons/file-text";
 	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {

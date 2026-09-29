@@ -271,7 +271,8 @@ async fn smoke_body(driver: &dyn Driver, table: &str, spec: &SmokeSpec) {
         .transaction(vec![insert(2, "two"), insert(3, "three")])
         .await;
     if spec.supports_transactions {
-        ok.expect("transaction");
+        let affected = ok.expect("transaction");
+        assert_eq!(affected, [1, 1], "each statement's affected rows");
         assert_eq!(count(driver, table).await, 3);
         let dup = driver
             .transaction(vec![insert(4, "four"), insert(1, "dup")])
@@ -284,10 +285,9 @@ async fn smoke_body(driver: &dyn Driver, table: &str, spec: &SmokeSpec) {
         );
         run_expect_rows(driver, table, p).await;
     } else {
-        assert_eq!(
-            ok.expect_err("transaction").code,
-            "TRANSACTION_NOT_SUPPORTED"
-        );
+        let err = ok.expect_err("transaction");
+        assert_eq!(err.error.code, "TRANSACTION_NOT_SUPPORTED");
+        assert_eq!(err.index, None);
     }
 
     // Streaming.
@@ -348,8 +348,13 @@ async fn run_expect_rows(driver: &dyn Driver, table: &str, p: fn(usize) -> Strin
             .transaction(vec![set_label(2, "TWO"), stale])
             .await
             .expect_err("a keyed statement matching no row must fail the transaction");
-        assert_eq!(err.code, "NO_ROWS_AFFECTED", "{}", err.message);
-        assert!(err.message.contains("(index 1)"), "{}", err.message);
+        assert_eq!(err.error.code, "NO_ROWS_AFFECTED", "{}", err.error.message);
+        assert!(
+            err.error.message.contains("(index 1)"),
+            "{}",
+            err.error.message
+        );
+        assert_eq!(err.index, Some(1));
         // Rolled back, and the connection still works.
         assert_eq!(
             label_of(2).await,
@@ -397,6 +402,158 @@ async fn count(driver: &dyn Driver, table: &str) -> i64 {
         .await
         .expect("COUNT");
     as_i64(&r.rows[0][0])
+}
+
+// ── Transactions ─────────────────────────────────────────────────────────────
+
+/// One of the `Driver::transaction` checks every engine runs (see
+/// [`run_transaction_case`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionCase {
+    /// A statement the database refuses (a duplicate key, at index 2), and
+    /// a parameter that can't bind (at index 1), each roll the whole batch
+    /// back and name that statement's index.
+    FailingStatementNamesItsIndex,
+    /// A keyed statement that matches no row rolls back with
+    /// `NO_ROWS_AFFECTED`, its index, and the message it always had.
+    ShortExpectRowsRollsBack,
+    /// Every statement commits, keyed ones included.
+    AllStatementsCommit,
+}
+
+/// Run `case` against a scratch table `(id INTEGER PRIMARY KEY, label
+/// VARCHAR(50))` that is dropped afterwards even if an assertion fails.
+/// Each case ends by checking that the connection still works.
+pub async fn run_transaction_case(
+    engine: &dyn Engine,
+    config: &ConnectConfig,
+    spec: &SmokeSpec,
+    case: TransactionCase,
+) {
+    let driver = engine.open(config).await.expect("open");
+    let table = scratch_name("seaquel_tx_");
+    driver
+        .execute(
+            &format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY, label VARCHAR(50))"),
+            vec![],
+        )
+        .await
+        .expect("CREATE TABLE");
+    let outcome = AssertUnwindSafe(transaction_case_body(&*driver, &table, spec, case))
+        .catch_unwind()
+        .await;
+    let _ = driver.execute(&format!("DROP TABLE {table}"), vec![]).await;
+    driver.close().await.expect("close");
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+async fn transaction_case_body(
+    driver: &dyn Driver,
+    table: &str,
+    spec: &SmokeSpec,
+    case: TransactionCase,
+) {
+    let p = spec.placeholder;
+    let insert = |id: i64, label: &str| BatchStatement {
+        sql: format!(
+            "INSERT INTO {table} (id, label) VALUES ({}, {})",
+            p(1),
+            p(2)
+        ),
+        params: vec![Value::Int(id), Value::from(label)],
+        expect_rows: None,
+    };
+    let set_label = |id: i64, label: &str| BatchStatement {
+        sql: format!("UPDATE {table} SET label = {} WHERE id = {}", p(1), p(2)),
+        params: vec![Value::from(label), Value::Int(id)],
+        expect_rows: Some(ExpectRows { min: 1 }),
+    };
+
+    match case {
+        TransactionCase::FailingStatementNamesItsIndex => {
+            let err = driver
+                .transaction(vec![insert(1, "one"), insert(2, "two"), insert(1, "dup")])
+                .await
+                .expect_err("a duplicate key must fail the transaction");
+            assert_eq!(err.index, Some(2), "{}", err.error.message);
+            assert_eq!(err.error.code, "EXECUTE_ERROR", "{}", err.error.message);
+            assert_eq!(
+                count(driver, table).await,
+                0,
+                "statements 0 and 1 roll back"
+            );
+
+            // Arrays never bind as a column value here: engines without
+            // array parameters refuse any, the others a mixed one. Only the
+            // sqlx engines bind statement by statement, so only there does
+            // `count == 0` below prove a rollback; DuckDB and SQL Server bind
+            // the whole batch before BEGIN, and nothing ran. The duplicate
+            // key above is the rollback proof on every engine.
+            let unbindable = BatchStatement {
+                sql: format!("SELECT {}", p(1)),
+                params: vec![Value::Array(vec![Value::Int(1), Value::from("x")])],
+                expect_rows: None,
+            };
+            let err = driver
+                .transaction(vec![insert(1, "one"), unbindable, insert(2, "two")])
+                .await
+                .expect_err("a parameter that can't bind must fail the transaction");
+            assert_eq!(err.index, Some(1), "{}", err.error.message);
+            assert_eq!(count(driver, table).await, 0, "statement 0 rolls back");
+        }
+        TransactionCase::ShortExpectRowsRollsBack => {
+            let err = driver
+                .transaction(vec![insert(1, "one"), set_label(99, "none")])
+                .await
+                .expect_err("a keyed statement matching no row must fail");
+            assert_eq!(err.index, Some(1));
+            assert_eq!(err.error.code, "NO_ROWS_AFFECTED");
+            assert_eq!(
+                err.error.message,
+                "Statement 2 (index 1) affected 0 rows, expected at least 1. \
+                 The transaction was rolled back."
+            );
+            assert_eq!(count(driver, table).await, 0, "statement 0 rolls back");
+        }
+        TransactionCase::AllStatementsCommit => {
+            driver
+                .transaction(vec![
+                    insert(1, "one"),
+                    insert(2, "two"),
+                    set_label(1, "ONE"),
+                ])
+                .await
+                .expect("every statement commits");
+            let r = driver
+                .query(
+                    &format!("SELECT id, label FROM {table} ORDER BY id"),
+                    vec![],
+                )
+                .await
+                .expect("SELECT");
+            let rows: Vec<(i64, Value)> = r
+                .rows
+                .iter()
+                .map(|row| (as_i64(&row[0]), row[1].clone()))
+                .collect();
+            assert_eq!(rows, vec![(1, Value::from("ONE")), (2, Value::from("two"))]);
+        }
+    }
+
+    // The connection is still usable, and nothing is left open.
+    driver
+        .transaction(vec![insert(10, "ten")])
+        .await
+        .expect("a transaction after the case");
+    driver
+        .execute(
+            &format!("DELETE FROM {table} WHERE id = {}", p(1)),
+            vec![Value::Int(10)],
+        )
+        .await
+        .expect("DELETE after the case");
 }
 
 /// Engines decode integers differently (`Int`, or `Decimal`/`Text` digits

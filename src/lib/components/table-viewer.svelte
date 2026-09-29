@@ -4,7 +4,11 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Separator } from "$lib/components/ui/separator";
-	import { KeyIcon, DatabaseIcon, ListIcon, PencilIcon, ArrowUpRightIcon } from "@lucide/svelte";
+	import KeyIcon from "@lucide/svelte/icons/key";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
+	import ListIcon from "@lucide/svelte/icons/list";
+	import PencilIcon from "@lucide/svelte/icons/pencil";
+	import ArrowUpRightIcon from "@lucide/svelte/icons/arrow-up-right";
 	import { m } from "$lib/paraglide/messages.js";
 
 	let { tabId: propTabId = undefined }: { tabId?: string } = $props();

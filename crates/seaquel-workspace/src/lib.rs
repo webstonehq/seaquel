@@ -5,10 +5,12 @@
 //! secrets into a `ConnectConfig`, a port of the TypeScript in
 //! `connection-manager.svelte.ts`, `connection-string.ts` and `wire.ts`.
 //! Phase 5 moves the GUI's services here: [`run`] plans the editor's runs
-//! (phase 5b). Interfaces reach it only through
+//! (phase 5b), and [`edits`] the grid's edits and the data tab's query
+//! (phase 5c). Interfaces reach it only through
 //! Core's `workspace` feature (`seaquel_core::domain`), and it may not name
 //! an engine crate (`scripts/check-crate-deps.mjs`).
 
 pub mod connection_string;
 pub mod connections;
+pub mod edits;
 pub mod run;

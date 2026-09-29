@@ -12,14 +12,12 @@
 	import * as Select from "$lib/components/ui/select/index.js";
 	import * as Collapsible from "$lib/components/ui/collapsible/index.js";
 	import { dndzone } from "svelte-dnd-action";
-	import {
-		PlusIcon,
-		TrashIcon,
-		CopyIcon,
-		PlayIcon,
-		ChevronRightIcon,
-		GripVerticalIcon,
-	} from "@lucide/svelte";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import TrashIcon from "@lucide/svelte/icons/trash";
+	import CopyIcon from "@lucide/svelte/icons/copy";
+	import PlayIcon from "@lucide/svelte/icons/play";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import GripVerticalIcon from "@lucide/svelte/icons/grip-vertical";
 	import type {
 		CreateTableColumn,
 		CreateTableDefinition,

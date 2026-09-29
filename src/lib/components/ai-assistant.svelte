@@ -2,7 +2,14 @@
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { Button } from "$lib/components/ui/button";
 	import { Textarea } from "$lib/components/ui/textarea";
-	import { ChevronRightIcon, SendIcon, SparklesIcon, PlusIcon, ChevronDownIcon, Trash2Icon, ListIcon, SquareIcon } from "@lucide/svelte";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import SendIcon from "@lucide/svelte/icons/send";
+	import SparklesIcon from "@lucide/svelte/icons/sparkles";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
+	import ListIcon from "@lucide/svelte/icons/list";
+	import SquareIcon from "@lucide/svelte/icons/square";
 	import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
 	import { marked } from "marked";
 	import DOMPurify from "dompurify";

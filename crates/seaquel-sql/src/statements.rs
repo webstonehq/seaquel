@@ -555,6 +555,165 @@ pub fn table_from_select(sql: &str, engine: SqlEngine) -> Option<TableRef> {
     }
 }
 
+/// What a pending change does, for the sheet's description (phase 5c,
+/// Decision 12): [`change_summary`]'s verb.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeVerb {
+    Insert,
+    Update,
+    Delete,
+    CreateTable,
+    CreateIndex,
+    DropTable,
+    DropIndex,
+    DropView,
+    Truncate,
+    AlterTable,
+}
+
+/// A statement read for the pending-changes sheet: what it does and to
+/// which object. `table` is the object's own name (the last part of a
+/// qualified name, unquoted; an index's name for the index verbs), and
+/// `column` the first SET target's own name for an UPDATE.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ChangeSummary {
+    pub verb: ChangeVerb,
+    pub table: String,
+    pub column: Option<String>,
+}
+
+/// What `sql` changes, read with the scanner (quoted names, comments and a
+/// MySQL executable comment as code), for the sheet's description. `None`
+/// when the statement is none of [`ChangeVerb`]'s, or names no object where
+/// the verb needs one (`INSERT (1)`, a bare `UPDATE`); the GUI then falls
+/// back to the change's origin or the SQL. Replaces the TypeScript's
+/// regexes, which misread quoted and qualified names (phase 5c, Decision
+/// 12).
+///
+/// - `INSERT … INTO name`, `DELETE … FROM name` (the first INTO or FROM
+///   outside parentheses);
+/// - `UPDATE [ONLY] name … SET col =` (`column` is `None` for `SET (a, b)
+///   = …`);
+/// - `CREATE TABLE [IF NOT EXISTS] name`, `CREATE [UNIQUE] INDEX [IF NOT
+///   EXISTS] name`;
+/// - `DROP TABLE|INDEX|VIEW [IF EXISTS] name` (not `DROP MATERIALIZED
+///   VIEW`, which the TypeScript never described either);
+/// - `TRUNCATE [TABLE] [ONLY] name`, `ALTER TABLE [IF EXISTS] [ONLY] name`.
+pub fn change_summary(sql: &str, engine: SqlEngine) -> Option<ChangeSummary> {
+    let t = Tokens::new(sql, code_tokens(sql, engine));
+    let summary = |verb, (table, _): (String, usize)| ChangeSummary {
+        verb,
+        table,
+        column: None,
+    };
+    let name = |k: usize| qualified_name(&t, k, engine);
+    let skip_if_exists = |k: usize| match (t.word(k), t.word(k + 1), t.word(k + 2)) {
+        (Some("IF"), Some("NOT"), Some("EXISTS")) => k + 3,
+        (Some("IF"), Some("EXISTS"), _) => k + 2,
+        _ => k,
+    };
+    // `ONLY` before a name (Postgres), not a table called `only`.
+    let skip_only = |k: usize| {
+        if t.word(k) == Some("ONLY") && is_name(sql, t.get(k + 1), engine) {
+            k + 1
+        } else {
+            k
+        }
+    };
+    let top_level_word = |word: &str| {
+        (1..t.len())
+            .find(|&k| t.get(k).is_some_and(|tok| tok.depth == 0) && t.word(k) == Some(word))
+    };
+    match t.word(0)? {
+        "INSERT" => Some(summary(
+            ChangeVerb::Insert,
+            name(top_level_word("INTO")? + 1)?,
+        )),
+        "DELETE" => Some(summary(
+            ChangeVerb::Delete,
+            name(top_level_word("FROM")? + 1)?,
+        )),
+        "UPDATE" => {
+            let (table, after) = name(skip_only(1))?;
+            let column = (after..t.len())
+                .find(|&k| t.get(k).is_some_and(|tok| tok.depth == 0) && t.word(k) == Some("SET"))
+                .and_then(|set| name(set + 1))
+                .filter(|(_, next)| t.is(t.get(*next), b'='))
+                .map(|(column, _)| column);
+            Some(ChangeSummary {
+                verb: ChangeVerb::Update,
+                table,
+                column,
+            })
+        }
+        "CREATE" => match (t.word(1), t.word(2)) {
+            (Some("TABLE"), _) => Some(summary(ChangeVerb::CreateTable, name(skip_if_exists(2))?)),
+            (Some("INDEX"), _) => {
+                index_summary(&t, skip_if_exists(2), engine, ChangeVerb::CreateIndex)
+            }
+            (Some("UNIQUE"), Some("INDEX")) => {
+                index_summary(&t, skip_if_exists(3), engine, ChangeVerb::CreateIndex)
+            }
+            _ => None,
+        },
+        "DROP" => match t.word(1)? {
+            "TABLE" => Some(summary(ChangeVerb::DropTable, name(skip_if_exists(2))?)),
+            "INDEX" => index_summary(&t, skip_if_exists(2), engine, ChangeVerb::DropIndex),
+            "VIEW" => Some(summary(ChangeVerb::DropView, name(skip_if_exists(2))?)),
+            _ => None,
+        },
+        "TRUNCATE" => {
+            let k = if t.word(1) == Some("TABLE") { 2 } else { 1 };
+            Some(summary(ChangeVerb::Truncate, name(skip_only(k))?))
+        }
+        "ALTER" if t.word(1) == Some("TABLE") => Some(summary(
+            ChangeVerb::AlterTable,
+            name(skip_only(skip_if_exists(2)))?,
+        )),
+        _ => None,
+    }
+}
+
+/// An index verb's summary: the index's own name, never `ON` (Postgres's
+/// `CREATE INDEX ON t (a)` has none).
+fn index_summary(
+    t: &Tokens,
+    k: usize,
+    engine: SqlEngine,
+    verb: ChangeVerb,
+) -> Option<ChangeSummary> {
+    if t.word(k) == Some("ON") {
+        return None;
+    }
+    let (table, _) = qualified_name(t, k, engine)?;
+    Some(ChangeSummary {
+        verb,
+        table,
+        column: None,
+    })
+}
+
+/// The name starting at token `k`, qualified or not (`a.b.c`): its last
+/// part unquoted, and the token after it. `None` when `k` holds no name or
+/// the last part is empty.
+fn qualified_name(t: &Tokens, k: usize, engine: SqlEngine) -> Option<(String, usize)> {
+    let mut k = k;
+    loop {
+        if !is_name(t.sql, t.get(k), engine) {
+            return None;
+        }
+        let part = unquote_name(t.sql, t.get(k)?, engine, false)?;
+        if t.is(t.get(k + 1), b'.') && is_name(t.sql, t.get(k + 2), engine) {
+            k += 2;
+            continue;
+        }
+        return (!part.is_empty()).then_some((part, k + 1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,6 +790,101 @@ mod tests {
         assert_eq!(t("SELECT * FROM f(1)", PG), None);
         assert_eq!(t("SELECT * FROM a.b.c", PG), None);
         assert_eq!(t("SELECT * FROM 'x'", PG), None);
+    }
+
+    #[test]
+    fn change_summaries_read_quoted_and_qualified_names() {
+        let s =
+            |sql: &str, e: SqlEngine| change_summary(sql, e).map(|c| (c.verb, c.table, c.column));
+        use ChangeVerb::*;
+        let some = |v, t: &str, c: Option<&str>| Some((v, t.to_string(), c.map(String::from)));
+        assert_eq!(
+            s(
+                "UPDATE `shop`.`items` SET `price` = ? WHERE `id` = ?",
+                SqlEngine::Mysql
+            ),
+            some(Update, "items", Some("price"))
+        );
+        assert_eq!(
+            s(
+                "DELETE FROM [dbo].[order lines] WHERE [id] = @P1",
+                SqlEngine::Mssql
+            ),
+            some(Delete, "order lines", None)
+        );
+        assert_eq!(
+            s(
+                "INSERT INTO \"cat\".\"main\".\"we\"\"ird\" (a) VALUES (1)",
+                SqlEngine::Duckdb
+            ),
+            some(Insert, "we\"ird", None)
+        );
+        assert_eq!(
+            s("UPDATE t SET (a, b) = (1, 2)", PG),
+            some(Update, "t", None)
+        );
+        assert_eq!(
+            s("UPDATE ONLY t SET a = 1", PG),
+            some(Update, "t", Some("a"))
+        );
+        assert_eq!(
+            s("ALTER TABLE IF EXISTS ONLY s.t ADD c int", PG),
+            some(AlterTable, "t", None)
+        );
+        assert_eq!(
+            s("TRUNCATE TABLE `a`.`b`", SqlEngine::Mysql),
+            some(Truncate, "b", None)
+        );
+        assert_eq!(s("TRUNCATE b", PG), some(Truncate, "b", None));
+        assert_eq!(
+            s("CREATE UNIQUE INDEX IF NOT EXISTS \"i\" ON t (a)", PG),
+            some(CreateIndex, "i", None)
+        );
+        assert_eq!(
+            s("DROP INDEX IF EXISTS s.i", PG),
+            some(DropIndex, "i", None)
+        );
+        assert_eq!(
+            s("/*!40000 DELETE FROM t */", SqlEngine::Mysql),
+            some(Delete, "t", None)
+        );
+        for none in [
+            "INSERT (1)",
+            "UPDATE",
+            "DELETE",
+            "CREATE INDEX ON t (a)",
+            "DROP MATERIALIZED VIEW v",
+            "CALL p()",
+            "SELECT 1",
+            "UPDATE \"\" SET a = 1",
+            "",
+        ] {
+            assert_eq!(s(none, PG), None, "{none:?}");
+        }
+    }
+
+    #[test]
+    fn change_summaries_never_panic() {
+        let words = [
+            "INSERT", "INTO", "UPDATE", "SET", "DELETE", "FROM", "CREATE", "TABLE", "INDEX",
+            "UNIQUE", "DROP", "VIEW", "TRUNCATE", "ALTER", "IF", "NOT", "EXISTS", "ONLY", "ON",
+            ".", "=", "(", ")", "\"", "`", "[", "]", "t", "'", ";", "--", "/*",
+        ];
+        let mut seed: u64 = 0xc4a9;
+        let mut next = move || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (seed >> 33) as usize
+        };
+        for _ in 0..20_000 {
+            let len = next() % 12;
+            let sql: Vec<&str> = (0..len).map(|_| words[next() % words.len()]).collect();
+            let sql = sql.join(if next() % 2 == 0 { " " } else { "" });
+            for engine in SqlEngine::ALL {
+                let _ = change_summary(&sql, engine);
+            }
+        }
     }
 
     #[test]

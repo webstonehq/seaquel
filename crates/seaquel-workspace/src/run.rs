@@ -383,7 +383,7 @@ impl fmt::Debug for PageSource {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum StatementKind {
     /// A SELECT, paged: `pageSize + 1` rows, and a count when the page was
-    /// full.
+    /// full, or empty past the first page.
     Page,
     /// A SELECT streamed whole: page size 0, or its own row limit.
     Stream,

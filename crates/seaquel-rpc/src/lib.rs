@@ -10,8 +10,10 @@
 //! - The engine RPC, below.
 //!
 //! The engine RPC: one request/response pair for every dialect-dependent call
-//! the frontend makes (introspection, EXPLAIN, and SQL generation), and a
-//! dispatcher onto Core.
+//! the frontend makes (introspection, EXPLAIN, and the table editor's DDL),
+//! and a dispatcher onto Core. Paging and the grid's CRUD statements aren't
+//! here any more: Core builds them for `db.tablePage`, `db.planEdits` and
+//! `db.applyChanges` (phase 5c, Decision 14).
 //!
 //! The GUIs reach it as `db.engine`: an [`EngineRequest`] on one of the
 //! workspace's connections, run through [`dispatch_on`].
@@ -23,9 +25,7 @@
 //! {"kind":"tableMetadata","data":{"columns":[…],"indexes":[…]}}
 //! ```
 //!
-//! Values use the tagged `Value` wire format from `seaquel-types`. A row
-//! ([`RowValues`]) is an array of `[column, value]` pairs, so its column order
-//! survives JSON (serde_json objects don't keep key order).
+//! Values use the tagged `Value` wire format from `seaquel-types`.
 
 mod db;
 mod git;
@@ -51,16 +51,14 @@ pub use workspace::{
 };
 
 use seaquel_core::ConnectionHandle;
-use seaquel_engine::{CastMap, RowValues};
 use seaquel_types::{
     ColumnTypeInfo, CreateTableDefinition, DatabaseStatistics, DbError, ExplainResult,
-    SchemaColumn, SchemaIndex, SchemaTable, SqlWithBindings, Value,
+    SchemaColumn, SchemaIndex, SchemaTable, Value,
 };
 use serde::{Deserialize, Serialize};
 
 /// What to run. `{"method": <camelCase variant>, "params": {…}}`; variants
-/// without fields have no `params`. Field names are the Rust ones
-/// (`primary_keys`).
+/// without fields have no `params`. Field names are the Rust ones.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -79,65 +77,6 @@ pub enum EngineRequest {
         analyze: bool,
     },
     ColumnTypes,
-    Paginate {
-        sql: String,
-        // ts-rs maps u64 to `bigint`, but serde_json reads plain numbers.
-        #[cfg_attr(feature = "ts", ts(type = "number"))]
-        limit: u64,
-        #[cfg_attr(feature = "ts", ts(type = "number"))]
-        offset: u64,
-    },
-    BuildUpdate {
-        schema: String,
-        table: String,
-        column: String,
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        value: Value,
-        primary_keys: Vec<String>,
-        #[cfg_attr(feature = "ts", ts(type = "Array<[string, unknown]>"))]
-        row: RowValues,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        casts: Option<CastMap>,
-    },
-    BuildSetDefault {
-        schema: String,
-        table: String,
-        column: String,
-        /// The column's default expression from its metadata (`defaultValue`,
-        /// or `NULL` when it has none). SQLite, which has no `DEFAULT` in
-        /// `UPDATE`, assigns it; other engines ignore it.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        column_default: Option<String>,
-        primary_keys: Vec<String>,
-        #[cfg_attr(feature = "ts", ts(type = "Array<[string, unknown]>"))]
-        row: RowValues,
-        /// Casts for the primary-key placeholders (bug fix 6).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        casts: Option<CastMap>,
-    },
-    BuildInsert {
-        schema: String,
-        table: String,
-        #[cfg_attr(feature = "ts", ts(type = "Array<[string, unknown]>"))]
-        values: RowValues,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        casts: Option<CastMap>,
-    },
-    BuildDelete {
-        schema: String,
-        table: String,
-        primary_keys: Vec<String>,
-        #[cfg_attr(feature = "ts", ts(type = "Array<[string, unknown]>"))]
-        row: RowValues,
-        /// Casts for the primary-key placeholders (bug fix 6).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        casts: Option<CastMap>,
-    },
     CreateTable {
         definition: CreateTableDefinition,
     },
@@ -163,7 +102,6 @@ pub enum EngineResponse {
     Explain(Box<ExplainResult>),
     ColumnTypes(Vec<ColumnTypeInfo>),
     Sql(String),
-    SqlWithBindings(SqlWithBindings),
 }
 
 /// Run one call on the connection `handle` names. From `Workspace::engine`,
@@ -193,70 +131,6 @@ pub async fn dispatch_on(
             .await
             .map(|plan| Res::Explain(Box::new(plan))),
         Req::ColumnTypes => core.with_dialect(|d| Res::ColumnTypes(d.column_types())),
-        Req::Paginate { sql, limit, offset } => {
-            core.with_dialect(|d| Res::Sql(d.paginate(&sql, limit, offset)))
-        }
-        Req::BuildUpdate {
-            schema,
-            table,
-            column,
-            value,
-            primary_keys,
-            row,
-            casts,
-        } => core.with_dialect(|d| {
-            Res::SqlWithBindings(d.build_update(
-                &schema,
-                &table,
-                &column,
-                value,
-                &primary_keys,
-                &row,
-                casts.as_ref(),
-            ))
-        }),
-        Req::BuildSetDefault {
-            schema,
-            table,
-            column,
-            column_default,
-            primary_keys,
-            row,
-            casts,
-        } => core.with_dialect(|d| {
-            Res::SqlWithBindings(d.build_set_default_expr(
-                &schema,
-                &table,
-                &column,
-                column_default.as_deref(),
-                &primary_keys,
-                &row,
-                casts.as_ref(),
-            ))
-        }),
-        Req::BuildInsert {
-            schema,
-            table,
-            values,
-            casts,
-        } => core.with_dialect(|d| {
-            Res::SqlWithBindings(d.build_insert(&schema, &table, &values, casts.as_ref()))
-        }),
-        Req::BuildDelete {
-            schema,
-            table,
-            primary_keys,
-            row,
-            casts,
-        } => core.with_dialect(|d| {
-            Res::SqlWithBindings(d.build_delete(
-                &schema,
-                &table,
-                &primary_keys,
-                &row,
-                casts.as_ref(),
-            ))
-        }),
         Req::CreateTable { definition } => {
             core.with_dialect(|d| Res::Sql(d.create_table(&definition)))
         }

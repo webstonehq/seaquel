@@ -116,6 +116,20 @@ seaquel_engine::impl_sqlx_driver!(
             );
             let mut columns = introspect::parse_columns(&columns?, self.flavor);
             let indexes = introspect::parse_indexes(&indexes?);
+            // MariaDB's JSON columns are `longtext` with a `json_valid`
+            // check. A server without CHECK_CONSTRAINTS (before 10.2)
+            // keeps `longtext`.
+            if self.flavor == introspect::Flavor::Mariadb {
+                let checks = self
+                    .query(
+                        introspect::MARIADB_COLUMN_CHECKS_SQL,
+                        vec![Value::from(schema), Value::from(table)],
+                    )
+                    .await;
+                if let Ok(checks) = checks {
+                    introspect::apply_mariadb_json(&mut columns, &checks);
+                }
+            }
             // Task 18: UNIQUE from the indexes (the parse stays the TS's).
             seaquel_engine::introspect::apply_unique_indexes(&mut columns, &indexes);
             Ok((columns, indexes))

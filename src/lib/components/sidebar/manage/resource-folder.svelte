@@ -2,7 +2,7 @@
 	import type { Snippet, Component } from "svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Badge } from "$lib/components/ui/badge";
-	import { ChevronRightIcon } from "@lucide/svelte";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 
 	interface Props {

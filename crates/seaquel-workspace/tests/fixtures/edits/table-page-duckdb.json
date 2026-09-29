@@ -1,0 +1,380 @@
+[
+  {
+    "name": "tp/duckdb-attached-catalog",
+    "engine": "duckdb",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "cat.main",
+          "table": "t"
+        },
+        "filters": [
+          {
+            "column": "v",
+            "op": "=",
+            "value": "a"
+          },
+          {
+            "column": "id",
+            "op": "IN",
+            "value": "1,2"
+          }
+        ],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "v",
+            "direction": "ASC"
+          }
+        ]
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "v",
+          "operator": "=",
+          "value": "a",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "id",
+          "operator": "IN",
+          "value": "1,2",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "t",
+          "schema": "cat.main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "BIGINT",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "v",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'d'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "j",
+              "type": "JSON",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "t_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "v",
+        "j"
+      ],
+      "matching": [
+        [
+          1,
+          "a",
+          {
+            "$sq": "json",
+            "v": {
+              "x": 1
+            }
+          }
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"cat\".\"main\".\"t\" WHERE CAST(\"v\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3)",
+        "params": [
+          "a",
+          "1",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"cat\".\"main\".\"t\" WHERE CAST(\"v\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) ORDER BY \"v\" ASC LIMIT 100 OFFSET 0",
+        "params": [
+          "a",
+          "1",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "v",
+            "j"
+          ],
+          "rows": [
+            [
+              1,
+              "a",
+              {
+                "$sq": "json",
+                "v": {
+                  "x": 1
+                }
+              }
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"cat\".\"main\".\"t\" WHERE CAST(\"v\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) ORDER BY \"v\" ASC",
+      "params": [
+        "a",
+        "1",
+        "2"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"cat\".\"main\".\"t\" WHERE CAST(\"v\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3)",
+      "params": [
+        "a",
+        "1",
+        "2"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "v",
+        "j"
+      ],
+      "rows": [
+        [
+          1,
+          "a",
+          {
+            "$sq": "json",
+            "v": {
+              "x": 1
+            }
+          }
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "cat.main",
+        "name": "t",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/duckdb-default-catalog-full-page",
+    "engine": "duckdb",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "main",
+          "table": "m"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 1,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "m",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "k",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "h",
+              "type": "HUGEINT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "s",
+              "type": "STRUCT(a INTEGER)",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "m_pkey",
+              "columns": [
+                "k"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "k",
+        "h",
+        "s"
+      ],
+      "matching": [
+        [
+          1,
+          null,
+          {
+            "$sq": "json",
+            "v": {
+              "a": 1
+            }
+          }
+        ],
+        [
+          2,
+          null,
+          {
+            "$sq": "json",
+            "v": {
+              "a": 2
+            }
+          }
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"main\".\"m\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"main\".\"m\" LIMIT 1 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "k",
+            "h",
+            "s"
+          ],
+          "rows": [
+            [
+              1,
+              null,
+              {
+                "$sq": "json",
+                "v": {
+                  "a": 1
+                }
+              }
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"main\".\"m\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 1,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"main\".\"m\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "k",
+        "h",
+        "s"
+      ],
+      "rows": [
+        [
+          1,
+          null,
+          {
+            "$sq": "json",
+            "v": {
+              "a": 1
+            }
+          }
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 1,
+      "totalPages": 2,
+      "error": null,
+      "sourceTable": {
+        "schema": "main",
+        "name": "m",
+        "primaryKeys": [
+          "k"
+        ]
+      }
+    }
+  }
+]

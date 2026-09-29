@@ -1,25 +1,47 @@
-import type { DataTab, DataFilter, DataSort, SchemaTable, ActiveViewType } from "$lib/types";
+import type {
+  ActiveViewType,
+  DatabaseConnection,
+  DataFilter,
+  DataSort,
+  DataTab,
+  SchemaTable,
+  StatementResult,
+} from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
 import type { QueryExecutionManager } from "./query-execution.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
-import { getEngineClient } from "$lib/engine";
+import { rowToObject, dedupeColumnNames } from "$lib/utils/row-access";
+import { decodeRows } from "$lib/values";
+import { CANCELLED } from "$lib/core/client";
+import { log } from "$lib/utils/logger";
+import { callErrorText, errorText } from "./error-text.js";
+import { getEditService, type EditService, type TableQuery } from "./edit-service/index.js";
 
-// Dialect-specific placeholder syntax and CAST-to-string type for filter
-// conditions. MySQL/MariaDB reject `$N` placeholders and `CAST(... AS TEXT)`;
-// SQL Server disallows TEXT as a CAST target ("Explicit conversion ... not allowed").
-function filterDialect(dbType: string, paramIndex: number): { paramRef: string; textType: string } {
-  if (dbType === "mssql") return { paramRef: `@p${paramIndex}`, textType: "NVARCHAR(MAX)" };
-  if (dbType === "mysql" || dbType === "mariadb") return { paramRef: "?", textType: "CHAR" };
-  return { paramRef: `$${paramIndex}`, textType: "TEXT" };
+type EditResult = { success: boolean; error?: string; queued?: boolean };
+
+/** A data tab's refresh in flight: a new one, closing the tab or a project reload cancels it. */
+interface Refresh {
+  controller: AbortController;
+  projectId: string;
 }
 
 /**
- * Manages data viewer tabs: add, remove, set active.
- * Handles query building with filters, sorting, and pagination.
+ * Data viewer tabs: one table's rows, filtered, sorted and paged, with
+ * inline edits.
+ *
+ * A page is `db.tablePage` through the connection's `EditService` (phase
+ * 5c, Decision 9): the tab sends its table, enabled filters, logic, sort,
+ * page and page size, and Core quotes, binds, casts, pages and counts. A tab
+ * has one refresh at a time: a new one cancels the one in flight (so pages
+ * clicked quickly can't land out of order), and closing the tab or reloading
+ * its project cancels it too.
  */
 export class DataTabManager extends BaseTabManager<DataTab> {
+  /** Each tab's refresh in flight. */
+  private refreshes = new Map<string, Refresh>();
+
   constructor(
     state: DatabaseState,
     tabOrdering: TabOrderingManager,
@@ -27,6 +49,7 @@ export class DataTabManager extends BaseTabManager<DataTab> {
     setActiveView: (view: ActiveViewType) => void,
     private queryExecution: QueryExecutionManager,
     private providers?: ProviderRegistry,
+    private editServiceFor?: (connection: DatabaseConnection) => Promise<EditService>,
   ) {
     super(state, tabOrdering, schedulePersistence, setActiveView);
   }
@@ -38,6 +61,24 @@ export class DataTabManager extends BaseTabManager<DataTab> {
       getActiveId: () => this.state.activeDataTabIdByProject,
       setActiveId: (r) => (this.state.activeDataTabIdByProject = r),
     };
+  }
+
+  override remove(id: string): void {
+    this.cancel(id);
+    super.remove(id);
+  }
+
+  /** Cancel the tab's refresh in flight, in Core too. */
+  cancel(tabId: string): void {
+    this.refreshes.get(tabId)?.controller.abort();
+    this.refreshes.delete(tabId);
+  }
+
+  /** A project's tabs are about to be replaced or were deleted: cancel their refreshes. */
+  cancelProject(projectId: string): void {
+    for (const [tabId, refresh] of this.refreshes) {
+      if (refresh.projectId === projectId) this.cancel(tabId);
+    }
   }
 
   /**
@@ -108,108 +149,174 @@ export class DataTabManager extends BaseTabManager<DataTab> {
     return this.appendTab(tab);
   }
 
+  /** A tab of `projectId`, whatever project is active now. */
+  private tabIn(projectId: string, tabId: string): DataTab | undefined {
+    return this.state.dataTabsByProject[projectId]?.find((t) => t.id === tabId);
+  }
+
+  /** Update a tab of `projectId`, whatever project is active now. */
+  private updateTabIn(projectId: string, tabId: string, updater: (tab: DataTab) => DataTab): void {
+    const tabs = this.state.dataTabsByProject[projectId];
+    if (!tabs?.some((t) => t.id === tabId)) return;
+    this.state.dataTabsByProject = {
+      ...this.state.dataTabsByProject,
+      [projectId]: tabs.map((t) => (t.id === tabId ? updater(t) : t)),
+    };
+  }
+
+  private serviceFor(connection: DatabaseConnection): Promise<EditService> {
+    if (this.editServiceFor) return this.editServiceFor(connection);
+    return getEditService(connection, this.state, this.providers!);
+  }
+
+  /** The tab's query as `db.tablePage` takes it: enabled filters with a column only. */
+  private tableQuery(tab: DataTab): TableQuery {
+    return {
+      target: { schema: tab.schemaName, table: tab.tableName },
+      filters: tab.filters
+        .filter((f) => f.enabled && f.column)
+        .map((f) => ({ column: f.column, op: f.operator, value: f.value })),
+      logic: tab.filterLogic,
+      sort: tab.sortColumns.map((s) => ({ column: s.column, direction: s.direction })),
+    };
+  }
+
   /**
-   * Re-execute the query with current filters/sort/page.
+   * Load the tab's page with its filters, sort and page, on the tab's own
+   * connection. Cancels the tab's refresh in flight; only the latest one
+   * updates the tab.
    */
   async refresh(tabId: string): Promise<void> {
-    const tab = this.getProjectTabs().find((t) => t.id === tabId);
-    if (!tab) return;
+    const projectId = this.state.activeProjectId;
+    const tab = projectId ? this.tabIn(projectId, tabId) : undefined;
+    if (!projectId || !tab) return;
 
-    const connection = this.state.connections.find((c) => c.id === tab.connectionId);
-    if (!connection?.providerConnectionId) return;
+    this.refreshes.get(tabId)?.controller.abort();
+    const op: Refresh = { controller: new AbortController(), projectId };
+    this.refreshes.set(tabId, op);
+    const current = () => this.refreshes.get(tabId) === op && !op.controller.signal.aborted;
 
-    this.updateTab(tabId, (t) => ({ ...t, isLoading: true }));
+    const lookUp = () => this.state.connections.find((c) => c.id === tab.connectionId);
+    const connection = lookUp();
+    if (!connection?.providerConnectionId || !(this.providers || this.editServiceFor)) {
+      this.refreshes.delete(tabId);
+      if (tab.isLoading) this.updateTabIn(projectId, tabId, (t) => ({ ...t, isLoading: false }));
+      return;
+    }
 
+    this.updateTabIn(projectId, tabId, (t) => ({ ...t, isLoading: true }));
+    const query = this.tableQuery(tab);
+    const { page, pageSize } = tab;
+
+    let columns: string[] | null = null;
+    let rows: unknown[][] = [];
+    let statementSql = "";
+    let totalRows = 0;
+    let totalPages = 1;
+    let countEstimated = false;
+    let executionTime = 0;
+    let error: string | null = null;
+    let finished = false;
     try {
-      // DuckDB lists an attached catalog's schemas as `catalog.schema`: the
-      // engine client quotes that as two identifiers.
-      const client = getEngineClient(connection, this.state);
-      const from = client.qualifiedTable(tab.schemaName, tab.tableName);
-      const q = (name: string) => client.quoteIdent(name);
-      const { sql, params } = this.buildQuery(tab, connection.type, from, q);
-      const { sql: countSql, params: countParams } = this.buildCountQuery(
-        tab,
-        connection.type,
-        from,
-        q,
-      );
-
-      if (!this.providers) return;
-      const provider = await this.providers.getForType(connection.type);
-
-      // Execute count query for total rows
-      let totalRows = 0;
-      try {
-        const countResult = await provider.select<Record<string, number>>(
-          connection.providerConnectionId,
-          countSql,
-          countParams,
-        );
-        totalRows = Number(Object.values(countResult[0] ?? {})[0] ?? 0);
-      } catch {
-        // Count query failed, proceed without total
+      const service = await this.serviceFor(connection);
+      // After the await: a reconnect gives a new Core id, a disconnect none.
+      const now = lookUp();
+      if (!now?.providerConnectionId || now.type !== connection.type) {
+        throw new Error("No connection established");
       }
-
-      // Execute data query
-      const rowObjects = await provider.select<Record<string, unknown>>(
-        connection.providerConnectionId,
-        sql,
-        params,
-      );
-
-      const columns =
-        rowObjects.length > 0 ? Object.keys(rowObjects[0]) : this.getTableColumnNames(tab);
-      const primaryKeys = this.getTablePrimaryKeys(tab);
-
-      // Convert provider's row-object shape into the columnar `unknown[][]`
-      // that `StatementResult.rows` now stores. Data-tab pages are always
-      // paginated (≤ pageSize rows), so this is cheap.
-      const columnarRows: unknown[][] = rowObjects.map((r) => columns.map((c) => r[c]));
-
-      this.updateTab(tabId, (t) => ({
-        ...t,
-        isLoading: false,
-        totalRows,
-        results: {
-          columns,
-          rows: columnarRows,
-          rowCount: columnarRows.length,
-          totalRows,
-          page: t.page,
-          pageSize: t.pageSize,
-          totalPages: Math.max(1, Math.ceil(totalRows / t.pageSize)),
-          executionTime: 0,
-          queryType: "select" as const,
-          sourceTable:
-            primaryKeys.length > 0
-              ? { schema: t.schemaName, name: t.tableName, primaryKeys }
-              : undefined,
-          statementIndex: 0,
-          statementSql: sql,
-          isError: false,
+      const events = service.tablePage(
+        {
+          connectionId: now.providerConnectionId,
+          streamId: crypto.randomUUID(),
+          query,
+          page,
+          pageSize,
         },
-      }));
-    } catch (error) {
-      this.updateTab(tabId, (t) => ({
-        ...t,
-        isLoading: false,
-        results: {
+        op.controller.signal,
+      );
+      for await (const event of events) {
+        if (!current()) continue;
+        switch (event.type) {
+          case "statementStart":
+            statementSql = event.source.sql;
+            break;
+          case "batch":
+            if (event.columns) columns = dedupeColumnNames(event.columns);
+            rows = rows.concat(decodeRows(event.rows));
+            break;
+          case "statementDone":
+            totalRows = event.totalRows;
+            totalPages = event.totalPages;
+            countEstimated = event.countEstimated;
+            executionTime = event.elapsedMs;
+            finished = true;
+            break;
+          case "statementError":
+            error = errorText(event.code, event.message);
+            break;
+          case "error":
+            if (event.code !== CANCELLED) error = errorText(event.code, event.message);
+            break;
+          default:
+            break;
+        }
+      }
+    } catch (e) {
+      error = callErrorText(e);
+    } finally {
+      if (this.refreshes.get(tabId) === op) this.refreshes.delete(tabId);
+    }
+    if (op.controller.signal.aborted) return;
+    if (!error && !finished) error = "The page ended without an answer";
+    if (error) void log.warn(`Data tab page on ${tab.connectionId} failed`);
+
+    const latest = this.tabIn(projectId, tabId);
+    if (!latest) return;
+    const shownColumns = columns ?? this.getTableColumnNames(latest);
+    const primaryKeys = this.getTablePrimaryKeys(latest);
+    const results: StatementResult = error
+      ? {
           columns: [],
           rows: [],
           rowCount: 0,
           totalRows: 0,
-          page: t.page,
-          pageSize: t.pageSize,
+          page,
+          pageSize,
           totalPages: 1,
           executionTime: 0,
-          queryType: "select" as const,
+          queryType: "select",
           statementIndex: 0,
-          statementSql: "",
+          statementSql,
+          connectionId: latest.connectionId,
           isError: true,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      }));
-    }
+          error,
+        }
+      : {
+          columns: shownColumns,
+          rows,
+          rowCount: rows.length,
+          totalRows,
+          page,
+          pageSize,
+          totalPages,
+          ...(countEstimated ? { countEstimated: true } : {}),
+          executionTime,
+          queryType: "select",
+          sourceTable:
+            primaryKeys.length > 0
+              ? { schema: latest.schemaName, name: latest.tableName, primaryKeys }
+              : undefined,
+          statementIndex: 0,
+          statementSql,
+          connectionId: latest.connectionId,
+          isError: false,
+        };
+    this.updateTabIn(projectId, tabId, (t) => ({
+      ...t,
+      isLoading: false,
+      totalRows: results.totalRows,
+      results,
+    }));
   }
 
   /**
@@ -289,7 +396,74 @@ export class DataTabManager extends BaseTabManager<DataTab> {
   }
 
   /**
-   * Save a pending new row via INSERT.
+   * The row at `rowIndex` of the tab's page and the table it came from, for
+   * an edit. Edits always go to the tab's own connection, whatever is active
+   * in the sidebar.
+   */
+  private editTarget(tabId: string, rowIndex: number) {
+    const tab = this.getProjectTabs().find((t) => t.id === tabId);
+    const results = tab?.results;
+    const row = results?.rows[rowIndex];
+    if (!tab || !results?.sourceTable || !row) return null;
+    return {
+      tab,
+      sourceTable: results.sourceTable,
+      row: rowToObject(row, results.columns),
+    };
+  }
+
+  /** After an edit that ran (not queued), reload the page to show it. */
+  private refreshAfter(tabId: string, result: EditResult): EditResult {
+    if (result.success && !result.queued) void this.refresh(tabId);
+    return result;
+  }
+
+  /** Set one cell of the tab's page, on the tab's connection. */
+  async updateCell(
+    tabId: string,
+    rowIndex: number,
+    column: string,
+    newValue: unknown,
+  ): Promise<EditResult> {
+    const target = this.editTarget(tabId, rowIndex);
+    if (!target) return { success: false, error: "Row not found" };
+    const result = await this.queryExecution.updateCellDirect(
+      target.tab.connectionId,
+      target.sourceTable,
+      target.row,
+      column,
+      newValue,
+    );
+    return this.refreshAfter(tabId, result);
+  }
+
+  /** Set one cell of the tab's page to its column's default, on the tab's connection. */
+  async setCellDefault(tabId: string, rowIndex: number, column: string): Promise<EditResult> {
+    const target = this.editTarget(tabId, rowIndex);
+    if (!target) return { success: false, error: "Row not found" };
+    const result = await this.queryExecution.setCellDefaultDirect(
+      target.tab.connectionId,
+      target.sourceTable,
+      target.row,
+      column,
+    );
+    return this.refreshAfter(tabId, result);
+  }
+
+  /** Delete a row of the tab's page (columnar, as the grid holds it), on the tab's connection. */
+  async deleteRow(tabId: string, row: unknown[]): Promise<EditResult> {
+    const tab = this.getProjectTabs().find((t) => t.id === tabId);
+    if (!tab?.results?.sourceTable) return { success: false, error: "Row not found" };
+    const result = await this.queryExecution.deleteRow(
+      tab.connectionId,
+      tab.results.sourceTable,
+      rowToObject(row, tab.results.columns),
+    );
+    return this.refreshAfter(tabId, result);
+  }
+
+  /**
+   * Save a pending new row via INSERT, on the tab's connection.
    */
   async saveNewRow(
     tabId: string,
@@ -300,6 +474,7 @@ export class DataTabManager extends BaseTabManager<DataTab> {
     if (!tab) return false;
 
     const result = await this.queryExecution.insertRow(
+      tab.connectionId,
       { schema: tab.schemaName, name: tab.tableName },
       values,
     );
@@ -329,108 +504,6 @@ export class DataTabManager extends BaseTabManager<DataTab> {
   }
 
   /**
-   * Build a SELECT query from the tab's current state. `from` is the quoted
-   * table (`EngineClient.qualifiedTable`), `q` quotes a column
-   * (`EngineClient.quoteIdent`).
-   */
-  buildQuery(
-    tab: DataTab,
-    dbType: string,
-    from: string,
-    q: (name: string) => string,
-  ): { sql: string; params: unknown[] } {
-    const selectClause = this.buildSelectClause(tab, dbType, q);
-    const base = `SELECT ${selectClause} FROM ${from}`;
-    const params: unknown[] = [];
-
-    // WHERE clause from enabled filters
-    const activeFilters = tab.filters.filter((f) => f.enabled && f.column);
-    let where = "";
-    if (activeFilters.length > 0) {
-      const conditions = activeFilters.map((f) => {
-        const col = q(f.column);
-        if (f.operator === "IS NULL") return `${col} IS NULL`;
-        if (f.operator === "IS NOT NULL") return `${col} IS NOT NULL`;
-        params.push(f.value);
-        const { paramRef, textType } = filterDialect(dbType, params.length);
-        return `CAST(${col} AS ${textType}) ${f.operator} ${paramRef}`;
-      });
-      where = ` WHERE ${conditions.join(` ${tab.filterLogic} `)}`;
-    }
-
-    // ORDER BY
-    let orderBy = "";
-    if (tab.sortColumns.length > 0) {
-      const sorts = tab.sortColumns.map((s) => `${q(s.column)} ${s.direction}`);
-      orderBy = ` ORDER BY ${sorts.join(", ")}`;
-    }
-
-    // PAGINATION
-    const offset = (tab.page - 1) * tab.pageSize;
-    let pagination: string;
-    if (dbType === "mssql") {
-      if (!orderBy) orderBy = " ORDER BY (SELECT NULL)";
-      pagination = ` OFFSET ${offset} ROWS FETCH NEXT ${tab.pageSize} ROWS ONLY`;
-    } else {
-      pagination = ` LIMIT ${tab.pageSize} OFFSET ${offset}`;
-    }
-
-    return { sql: `${base}${where}${orderBy}${pagination}`, params };
-  }
-
-  /**
-   * Build a COUNT query for the current filters.
-   */
-  private buildCountQuery(
-    tab: DataTab,
-    dbType: string,
-    from: string,
-    q: (name: string) => string,
-  ): { sql: string; params: unknown[] } {
-    const base = `SELECT COUNT(*) FROM ${from}`;
-    const params: unknown[] = [];
-
-    const activeFilters = tab.filters.filter((f) => f.enabled && f.column);
-    if (activeFilters.length === 0) return { sql: base, params };
-
-    const conditions = activeFilters.map((f) => {
-      const col = q(f.column);
-      if (f.operator === "IS NULL") return `${col} IS NULL`;
-      if (f.operator === "IS NOT NULL") return `${col} IS NOT NULL`;
-      params.push(f.value);
-      const { paramRef, textType } = filterDialect(dbType, params.length);
-      return `CAST(${col} AS ${textType}) ${f.operator} ${paramRef}`;
-    });
-
-    return { sql: `${base} WHERE ${conditions.join(` ${tab.filterLogic} `)}`, params };
-  }
-
-  /**
-   * Build the SELECT column clause, handling MSSQL types that hang tiberius.
-   *
-   * tiberius 0.12.3 panics via `todo!()` when it encounters SQL_VARIANT or UDT
-   * columns (token_col_metadata.rs:174/204). The panic aborts the async task
-   * and the query future never resolves, so the UI spinner never clears.
-   * Work around it by explicitly listing columns and CASTing the problematic
-   * ones to NVARCHAR(MAX).
-   */
-  private buildSelectClause(tab: DataTab, dbType: string, q: (name: string) => string): string {
-    if (dbType !== "mssql") return "*";
-    const columns = this.getTableColumns(tab);
-    if (columns.length === 0) return "*";
-    const isTiberiusHanging = (type: string): boolean =>
-      /^(sql_variant|geography|geometry|hierarchyid)$/i.test(type.trim());
-    if (!columns.some((c) => isTiberiusHanging(c.type))) return "*";
-    return columns
-      .map((c) =>
-        isTiberiusHanging(c.type)
-          ? `CAST(${q(c.name)} AS NVARCHAR(MAX)) AS ${q(c.name)}`
-          : q(c.name),
-      )
-      .join(", ");
-  }
-
-  /**
    * Get all columns (with type info) for a table from the schema cache.
    */
   private getTableColumns(tab: DataTab): Array<{ name: string; type: string }> {
@@ -440,7 +513,8 @@ export class DataTabManager extends BaseTabManager<DataTab> {
   }
 
   /**
-   * Get all column names for a table from the schema cache.
+   * Get all column names for a table from the schema cache (an empty page
+   * that brought none).
    */
   private getTableColumnNames(tab: DataTab): string[] {
     return this.getTableColumns(tab).map((c) => c.name);

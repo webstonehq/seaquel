@@ -3,7 +3,21 @@
 	import { dndzone } from "svelte-dnd-action";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button";
-	import { ChevronRightIcon, PlusIcon, PlugIcon, UnplugIcon, TagIcon, BarChart3Icon, NetworkIcon, WorkflowIcon, MoreHorizontalIcon, GitBranchIcon, PencilIcon, LoaderIcon, LayoutDashboardIcon, Trash2Icon, PuzzleIcon } from "@lucide/svelte";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import PlugIcon from "@lucide/svelte/icons/plug";
+	import UnplugIcon from "@lucide/svelte/icons/unplug";
+	import TagIcon from "@lucide/svelte/icons/tag";
+	import BarChart3Icon from "@lucide/svelte/icons/bar-chart-3";
+	import NetworkIcon from "@lucide/svelte/icons/network";
+	import WorkflowIcon from "@lucide/svelte/icons/workflow";
+	import MoreHorizontalIcon from "@lucide/svelte/icons/more-horizontal";
+	import GitBranchIcon from "@lucide/svelte/icons/git-branch";
+	import PencilIcon from "@lucide/svelte/icons/pencil";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
+	import LayoutDashboardIcon from "@lucide/svelte/icons/layout-dashboard";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
+	import PuzzleIcon from "@lucide/svelte/icons/puzzle";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -12,7 +26,7 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { isDemo, getFeatures } from "$lib/features";
 	import ConnectionLabelPicker from "$lib/components/connection-label-picker.svelte";
-	import { LinkIcon } from "@lucide/svelte";
+	import LinkIcon from "@lucide/svelte/icons/link";
 
 	interface Props {
 		oncopyShareLink: (resource: { repoId?: string; filePath?: string; name?: string; folder?: string; id?: string }, resourceType: "connection") => Promise<void>;

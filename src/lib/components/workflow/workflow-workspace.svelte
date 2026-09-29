@@ -4,7 +4,8 @@
 	import "@xyflow/svelte/dist/style.css";
 	import { mode } from "mode-watcher";
 	import { workflowNodeTypes } from "./nodes";
-	import { DatabaseIcon, MousePointerIcon } from "@lucide/svelte";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
+	import MousePointerIcon from "@lucide/svelte/icons/mouse-pointer";
 	import type { WorkflowNodeData } from "$lib/types/workflow";
 	import { m } from "$lib/paraglide/messages.js";
 

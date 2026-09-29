@@ -66,18 +66,19 @@ export async function getUsername(): Promise<string> {
 
 // === Command line tool (MCP settings) ===
 
-/** The bundled `seaquel-cli` (`src-tauri/src/cli_info.rs`). */
+/** The downloaded `seaquel-cli` (`src-tauri/src/cli_info.rs`). */
 export interface CliInfo {
-  /** The sidecar next to the app's executable. */
-  sidecarPath: string;
-  sidecarExists: boolean;
-  /** The path an MCP host should run (an AppImage's stable copy, else the sidecar). */
+  /** The stable install path in the user's app data directory. */
+  binaryPath: string;
+  binaryExists: boolean;
+  binaryCurrent: boolean;
+  /** The path an MCP host should run. */
   commandPath: string;
   /** Whether `seaquel-cli` typed in a terminal runs this app's tool. */
   pathStatus: "installed" | "outdated" | "other" | "missing";
   /** What `seaquel-cli` resolves to, when found. */
   foundPath: string | null;
-  /** Whether the install button is offered (macOS, Linux AppImage). */
+  /** Whether the install button is offered on this desktop platform. */
   canInstall: boolean;
   appImage: boolean;
 }

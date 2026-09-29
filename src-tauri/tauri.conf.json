@@ -4,8 +4,8 @@
   "version": "2026.9.2",
   "identifier": "app.seaquel.desktop",
   "build": {
-    "beforeDevCommand": "node scripts/build-cli.mjs && npm run dev",
-    "beforeBuildCommand": "node scripts/build-cli.mjs && npm run build",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../build"
   },
@@ -28,7 +28,6 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": ["app", "dmg", "deb", "rpm", "appimage", "msi", "nsis"],
-    "externalBin": ["binaries/seaquel-cli"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

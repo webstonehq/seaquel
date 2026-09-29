@@ -21,10 +21,19 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { handler } from "./build-web/handler.js";
+import { moveBodyLimit } from "./shared/body-limit.js";
 import { attachRpcStreamProxy, isRpcStreamPath } from "./shared/rpc-stream-proxy.js";
 import { rustEnv } from "./shared/rust-env.js";
 import { CLIENT_IP_HEADER, parseTrustedProxies, resolveClientIp } from "./shared/client-ip.js";
+
+// Body limits (shared/body-limit.js): adapter-node applies one
+// BODY_SIZE_LIMIT to every route, and /api/rpc needs 20 MiB (an apply at
+// the web edit limits). So the operator's BODY_SIZE_LIMIT (512K by default)
+// moves to SEAQUEL_BODY_SIZE_LIMIT, adapter-node's becomes Infinity, and
+// hooks.server.ts enforces both per route. adapter-node reads the variable
+// when its handler loads, hence the dynamic import after this.
+moveBodyLimit(process.env);
+const { handler } = await import("./build-web/handler.js");
 
 const PORT = Number(process.env.PORT ?? 8787);
 const RUST_BIN = process.env.SEAQUEL_RUST_BIN ?? "./seaquel-server";

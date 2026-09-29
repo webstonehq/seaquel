@@ -7,7 +7,10 @@
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import DestructiveQueryConfirmDialog from "$lib/components/destructive-query-confirm-dialog.svelte";
-	import { PlayIcon, DatabaseIcon, NetworkIcon, ColumnsIcon } from "@lucide/svelte";
+	import PlayIcon from "@lucide/svelte/icons/play";
+	import DatabaseIcon from "@lucide/svelte/icons/database";
+	import NetworkIcon from "@lucide/svelte/icons/network";
+	import ColumnsIcon from "@lucide/svelte/icons/columns";
 	import SaveQueryDialog from "$lib/components/save-query-dialog.svelte";
 	import ParameterInputDialog from "$lib/components/parameter-input-dialog.svelte";
 	import MonacoEditor, { type MonacoEditorRef } from "$lib/components/monaco-editor.svelte";

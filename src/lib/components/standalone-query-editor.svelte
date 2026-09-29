@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { CopyIcon } from '@lucide/svelte';
+	import CopyIcon from '@lucide/svelte/icons/copy';
 	import { toast } from 'svelte-sonner';
 	import { errorToast } from '$lib/utils/toast';
 	import MonacoEditor from '$lib/components/monaco-editor.svelte';

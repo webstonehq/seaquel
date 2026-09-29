@@ -30,6 +30,7 @@ import type {
   SchemaTable,
   SourceTableInfo,
 } from "$lib/types";
+import type { ChangeSummary } from "$lib/types/generated/ChangeSummary";
 import type { ColumnRef } from "$lib/types/generated/ColumnRef";
 import type { DestructiveReason } from "$lib/types/generated/DestructiveReason";
 import type { ParsedQuery } from "$lib/types/generated/ParsedQuery";
@@ -44,6 +45,7 @@ import { ParameterSubstitutionError } from "./parameters";
 
 export { ParameterSubstitutionError, createDefaultParameters, coerceValue } from "./parameters";
 export type {
+  ChangeSummary,
   DestructiveReason,
   QueryType,
   TableRef,
@@ -346,6 +348,18 @@ export function hasRowLimit(sql: string, type: DatabaseType): boolean {
  */
 export function countQuery(sql: string, type: DatabaseType): string {
   return call<string>((m) => m.count_query(sql, type));
+}
+
+/**
+ * What a statement does and to which object, for the pending-changes
+ * sheet's description (phase 5c, Decision 12): `null` when it is none of
+ * `ChangeVerb`'s, and if the module fails (logged), which falls back to the
+ * change's origin.
+ */
+export function changeSummary(sql: string, dbType: DatabaseType): ChangeSummary | null {
+  return orFallback("changeSummary", null, () =>
+    call<ChangeSummary | null>((m) => m.change_summary(sql, dbType)),
+  );
 }
 
 /** `seaquel_sql::read_only`'s message, word for word the TS text. */

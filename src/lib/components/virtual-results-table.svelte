@@ -2,7 +2,15 @@
 	import EditableCell from "$lib/components/editable-cell.svelte";
 	import RowActions from "$lib/components/row-actions.svelte";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
-	import { CopyIcon, CircleOffIcon, RotateCcwIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, XIcon, KeyRoundIcon, ArrowUpRightIcon } from "@lucide/svelte";
+	import CopyIcon from "@lucide/svelte/icons/copy";
+	import CircleOffIcon from "@lucide/svelte/icons/circle-off";
+	import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import XIcon from "@lucide/svelte/icons/x";
+	import KeyRoundIcon from "@lucide/svelte/icons/key-round";
+	import ArrowUpRightIcon from "@lucide/svelte/icons/arrow-up-right";
 	import { m } from "$lib/paraglide/messages.js";
 	import { detectColumnTypes, getFormattedCellText, type BinaryStringEncoding } from "$lib/utils/cell-type";
 	import { cellText } from "$lib/values";

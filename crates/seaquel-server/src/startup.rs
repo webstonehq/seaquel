@@ -6,18 +6,39 @@ use std::net::SocketAddr;
 
 /// A minimal stderr logger, so `log` lines (the `/rpc` error log, startup
 /// messages) reach the container's output. Seaquel's own crates log at info
-/// and above; dependencies at warn and above, except sqlx's statement log
-/// (`sqlx::query`), which holds a statement's whole SQL and never passes
-/// (the drivers also turn it off).
+/// and above; dependencies at warn and above, except the targets in
+/// [`DROPPED_TARGETS`], which never pass.
 struct StderrLogger;
 
-/// sqlx's statement log target.
-const SQLX_QUERY_TARGET: &str = "sqlx::query";
+/// Log targets (and their submodules) that quote what a user's query sent,
+/// dropped at every level:
+/// - sqlx's statement log (`sqlx::query`, a statement's whole SQL; the
+///   drivers also turn it off);
+/// - Postgres notices (`sqlx::postgres::notice`, a `RAISE WARNING`'s text,
+///   which the query chooses and can fill with values; probe M5);
+/// - tiberius's token stream (`tiberius::tds::stream::token`): every SQL
+///   Server error at ERROR and every `PRINT`/info message at INFO, with the
+///   server's text, which quotes values ("Conversion failed … 'x'", a
+///   duplicate key, `THROW`'s text). tiberius's TLS warnings stay.
+pub const DROPPED_TARGETS: [&str; 3] = [
+    "sqlx::query",
+    "sqlx::postgres::notice",
+    "tiberius::tds::stream::token",
+];
+
+/// Whether `target` is one of [`DROPPED_TARGETS`] or inside one.
+fn dropped(target: &str) -> bool {
+    DROPPED_TARGETS.iter().any(|t| {
+        target
+            .strip_prefix(t)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
 
 /// Whether the server's logger writes a record with this metadata (see
 /// [`init_logging`]). Public so tests can check what reaches the log.
 pub fn logs(metadata: &log::Metadata) -> bool {
-    if metadata.target() == SQLX_QUERY_TARGET {
+    if dropped(metadata.target()) {
         return false;
     }
     let floor = if metadata.target().starts_with("seaquel") {
@@ -313,6 +334,14 @@ mod tests {
         }
         assert!(logs("sqlx::pool", log::Level::Warn));
         assert!(logs("seaquel_server::routes::rpc", log::Level::Info));
+        // Postgres notices carry text the query chose (`RAISE WARNING`).
+        for level in [log::Level::Error, log::Level::Warn, log::Level::Info] {
+            assert!(!logs("sqlx::postgres::notice", level), "{level}");
+            assert!(!logs("tiberius::tds::stream::token", level), "{level}");
+        }
+        assert!(logs("tiberius::client::tls_stream", log::Level::Warn));
+        assert!(!logs("tiberius::client::tls_stream", log::Level::Info));
+        assert!(logs("sqlx::query_builder", log::Level::Warn));
         assert!(!logs("hyper", log::Level::Info));
     }
 

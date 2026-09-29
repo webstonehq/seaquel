@@ -163,7 +163,10 @@ async fn a_transaction_refuses_to_nest_in_one_opened_by_hand() {
         }])
         .await
         .expect_err("nested transaction");
-    assert_eq!(err.code, "EXECUTE_ERROR");
+    // BEGIN failed, so no statement did.
+    assert_eq!(err.index, None);
+    let err = err.error;
+    assert_eq!(err.code, "TRANSACTION_OPEN");
     assert!(
         err.message
             .contains("a transaction is already open on this connection"),

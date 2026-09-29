@@ -7,7 +7,7 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 use seaquel_engine::{
     BatchStatement, CappedResult, ConnectConfig, DbError, Driver, ExecuteResult, ExpectRows,
     ExplainResult, OpenOptions, QueryResult, ReadOnlyOptions, RowCap, SchemaColumn, SchemaIndex,
-    SchemaTable, Value,
+    SchemaTable, TransactionError, Value, TRANSACTION_ALREADY_OPEN, TRANSACTION_OPEN,
 };
 
 use crate::introspect;
@@ -761,26 +761,30 @@ impl MssqlDriver {
     async fn run_transaction(
         session: &mut Session<'_>,
         requests: Vec<(Request, Option<ExpectRows>)>,
-    ) -> Result<(), DbError> {
+    ) -> Result<Vec<u64>, TransactionError> {
         if let Err(f) = session.run_batch(BEGIN, Keep::All).await {
             if f.server_code() == Some(ALREADY_IN_TRANSACTION) {
                 return Err(DbError {
-                    message: "Execute failed: a transaction is already open on this connection \
-                              (BEGIN TRANSACTION run by hand). Commit or roll it back first."
-                        .to_string(),
-                    code: "EXECUTE_ERROR".to_string(),
-                });
+                    message: TRANSACTION_ALREADY_OPEN.to_string(),
+                    code: TRANSACTION_OPEN.to_string(),
+                }
+                .into());
             }
-            return Err(f.into_db(Op::Execute));
+            return Err(f.into_db(Op::Execute).into());
         }
         session.hold_state();
 
         let mut outcome = Ok(());
+        let mut counts = Vec::with_capacity(requests.len());
         for (index, (request, expect)) in requests.into_iter().enumerate() {
             outcome = match session.execute(request).await {
-                Ok(affected) => expect.map_or(Ok(()), |e| e.check(index, affected)),
+                Ok(affected) => {
+                    counts.push(affected);
+                    expect.map_or(Ok(()), |e| e.check(index, affected))
+                }
                 Err(f) => Err(f.into_db(Op::Execute)),
-            };
+            }
+            .map_err(|e| TransactionError::at(index, e));
             if outcome.is_err() {
                 break;
             }
@@ -790,12 +794,12 @@ impl MssqlDriver {
                 .run_batch("COMMIT TRANSACTION", Keep::All)
                 .await
                 .map(|_| ())
-                .map_err(|f| f.into_db(Op::Execute));
+                .map_err(|f| f.into_db(Op::Execute).into());
         }
         match outcome {
             Ok(()) => {
                 session.release_state();
-                Ok(())
+                Ok(counts)
             }
             Err(e) => {
                 match session.run_batch(ROLLBACK, Keep::All).await {
@@ -864,21 +868,37 @@ impl Driver for MssqlDriver {
     /// the outcome: the transaction may already be committed (all of it).
     ///
     /// SQL Server transactions nest, so this refuses to start (with
-    /// `EXECUTE_ERROR`) while one is already open on the connection, e.g. a
+    /// `TRANSACTION_OPEN`) while one is already open on the connection, e.g. a
     /// `BEGIN TRANSACTION` run by hand: COMMIT would only decrement
     /// `@@TRANCOUNT`, and a rollback would undo the outer transaction too.
-    async fn transaction(&self, statements: Vec<BatchStatement>) -> Result<(), DbError> {
+    ///
+    /// A failure names its statement ([`TransactionError`]): the one the
+    /// server refused, whose parameters didn't bind, or that fell short of
+    /// `expect_rows`. Connecting, BEGIN (the refusal above included) and
+    /// COMMIT name none. The index is the statement the server reported the
+    /// error on, which may come after the one that doomed the transaction
+    /// (an error caught by TRY/CATCH leaves `XACT_STATE() = -1`, and only a
+    /// later statement fails).
+    async fn transaction(
+        &self,
+        statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
         let requests = statements
             .iter()
-            .map(|s| Ok((Request::new(&s.sql, &s.params)?, s.expect_rows)))
-            .collect::<Result<Vec<_>, DbError>>()?;
+            .enumerate()
+            .map(|(index, s)| {
+                let request =
+                    Request::new(&s.sql, &s.params).map_err(|e| TransactionError::at(index, e))?;
+                Ok((request, s.expect_rows))
+            })
+            .collect::<Result<Vec<_>, TransactionError>>()?;
         let mut session = self.session().await?;
         let result = Self::run_transaction(&mut session, requests).await;
         let sqls: Vec<&str> = statements.iter().map(|s| s.sql.as_str()).collect();
         self.restore_database(&mut session, &sqls).await;
         result
             .inspect_err(|e| {
-                error!(activity = "db.transaction", driver = "mssql", error_code = e.code.as_str(); "Transaction failed");
+                error!(activity = "db.transaction", driver = "mssql", error_code = e.error.code.as_str(); "Transaction failed");
             })
     }
 

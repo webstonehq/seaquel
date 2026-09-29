@@ -7,7 +7,9 @@
 	import { Input } from "$lib/components/ui/input";
 	import SyncButton from "$lib/components/shared-queries/sync-button.svelte";
 	import SyncStatusBadge from "$lib/components/shared-queries/sync-status-badge.svelte";
-	import { FolderOpenIcon, Trash2Icon, LinkIcon } from "@lucide/svelte";
+	import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
+	import LinkIcon from "@lucide/svelte/icons/link";
 	import SettingsIcon from "@lucide/svelte/icons/settings";
 	import UsersIcon from "@lucide/svelte/icons/users";
 	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";

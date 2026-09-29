@@ -28,19 +28,19 @@ use crate::{Connection, Core, Value, Workspace, CONNECTION_CLOSED};
 
 /// The code for a run on a Core without an executor, or on a connection
 /// whose SQL rules Core doesn't know.
-const NOT_SUPPORTED: &str = "NOT_SUPPORTED";
+pub(crate) const NOT_SUPPORTED: &str = "NOT_SUPPORTED";
 
 /// The largest page size: a page fetches one row more than it shows, and
 /// that row must stay within `max_query_rows()`.
-fn max_page_size() -> u32 {
+pub(crate) fn max_page_size() -> u32 {
     u32::try_from(seaquel_engine::max_query_rows().saturating_sub(1)).unwrap_or(u32::MAX)
 }
 
-fn one(event: RunEvent) -> BoxStream<'static, RunEvent> {
+pub(crate) fn one(event: RunEvent) -> BoxStream<'static, RunEvent> {
     Box::pin(futures::stream::once(std::future::ready(event)))
 }
 
-fn closed_event() -> RunEvent {
+pub(crate) fn closed_event() -> RunEvent {
     RunEvent::error(
         CONNECTION_CLOSED,
         "Connection was closed while the query was running",
@@ -57,7 +57,7 @@ fn kind_name(kind: StatementKind) -> &'static str {
 }
 
 /// Milliseconds between two clock readings, to 0.01 ms (as the TS rounded).
-fn elapsed_ms(start: Duration, end: Duration) -> f64 {
+pub(crate) fn elapsed_ms(start: Duration, end: Duration) -> f64 {
     let ms = end.saturating_sub(start).as_secs_f64() * 1000.0;
     (ms * 100.0).round() / 100.0
 }
@@ -366,14 +366,14 @@ impl Workspace {
     }
 }
 
-fn no_executor() -> RunEvent {
+pub(crate) fn no_executor() -> RunEvent {
     RunEvent::error(
         NOT_SUPPORTED,
         "Running queries isn't enabled here (no executor is set)",
     )
 }
 
-fn no_sql_rules() -> RunEvent {
+pub(crate) fn no_sql_rules() -> RunEvent {
     RunEvent::error(
         NOT_SUPPORTED,
         "Seaquel has no SQL rules for this connection's engine",
@@ -382,7 +382,7 @@ fn no_sql_rules() -> RunEvent {
 
 /// `fut`, unless `token` is cancelled first (then `None`, and `fut` is
 /// dropped, which is what cancels it).
-async fn until_cancelled<T>(
+pub(crate) async fn until_cancelled<T>(
     token: &CancellationToken,
     fut: impl std::future::Future<Output = T>,
 ) -> Option<T> {
@@ -411,7 +411,7 @@ fn count_of(result: &QueryResult) -> Option<u64> {
 /// `statementDone` or `statementError`. Ends with neither when `token` is
 /// cancelled; the driver's call is dropped before the stream ends.
 #[allow(clippy::too_many_arguments)]
-fn execute<'a>(
+pub(crate) fn execute<'a>(
     connection: &'a Connection,
     engine: SqlEngine,
     executor: &'a dyn Executor,
@@ -522,7 +522,12 @@ fn execute<'a>(
                     return;
                 }
                 let mut estimated = false;
-                let total = if rows.len() as u64 > size {
+                // A full page says there's more; an empty one past the start
+                // (a stale page number, rows deleted since) says nothing
+                // about the total: both count (probe M3). Any other page is
+                // the last, and its offset plus its rows is the total.
+                let full = rows.len() as u64 > size;
+                let total = if full || (rows.is_empty() && offset > 0) {
                     rows.truncate(page_size as usize);
                     let counted = until_cancelled(
                         token,
@@ -542,7 +547,13 @@ fn execute<'a>(
                         Err(code) => {
                             warn!(activity = "db.run.count", code = code.as_str(); "Row count failed; estimating");
                             estimated = true;
-                            offset.saturating_add(size).saturating_add(1)
+                            if full {
+                                offset.saturating_add(size).saturating_add(1)
+                            } else {
+                                // At most `offset` rows: the page before is
+                                // the last one there can be.
+                                offset
+                            }
                         }
                     }
                 } else {

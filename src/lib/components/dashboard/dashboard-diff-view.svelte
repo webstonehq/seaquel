@@ -4,7 +4,8 @@
 	import DashboardCanvas from './dashboard-canvas.svelte';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import { Button } from '$lib/components/ui/button';
-	import { XIcon, RotateCcwIcon } from '@lucide/svelte';
+	import XIcon from '@lucide/svelte/icons/x';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 
 	interface Props {
 		left: ResolvedDashboardVersion;

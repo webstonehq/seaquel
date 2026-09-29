@@ -194,6 +194,12 @@ export class DatabaseState {
 
   // === PENDING CHANGES STATE (per-connection) ===
   pendingChangesByConnection = $state<Record<string, PendingChange[]>>({});
+  /**
+   * Connections whose last apply ended without an answer (a dropped
+   * request, a closed socket): some of their queued changes may already
+   * have run. Cleared by the next apply that answers, or by clearing the queue.
+   */
+  pendingChangesInterrupted = $state<Record<string, boolean>>({});
 
   // === VIEW STATE ===
   activeView = $state<
@@ -256,8 +262,24 @@ export class DatabaseState {
 
   // === PENDING CHANGES DERIVED VALUES ===
 
+  /**
+   * The connection whose pending changes the sheet and the header badge
+   * show: the one the user is looking at. That's the focused data tab's
+   * connection, or the focused query result's, which can differ from the
+   * active one in the sidebar; otherwise the active connection.
+   */
+  pendingConnectionId = $derived.by((): string | null => {
+    if (this.activeView === "data" && this.activeDataTab) return this.activeDataTab.connectionId;
+    if (this.activeView === "query" && this.activeQueryResult?.connectionId) {
+      return this.activeQueryResult.connectionId;
+    }
+    return this.activeConnectionId;
+  });
+
   activePendingChanges = $derived(
-    this.activeConnectionId ? (this.pendingChangesByConnection[this.activeConnectionId] ?? []) : [],
+    this.pendingConnectionId
+      ? (this.pendingChangesByConnection[this.pendingConnectionId] ?? [])
+      : [],
   );
 
   activePendingChangesCount = $derived(this.activePendingChanges.length);

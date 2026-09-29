@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { SvelteFlow, Background, Controls, MiniMap } from "@xyflow/svelte";
 	import "@xyflow/svelte/dist/style.css";
-	import { AlertCircleIcon, NetworkIcon } from "@lucide/svelte";
+	import AlertCircleIcon from "@lucide/svelte/icons/alert-circle";
+	import NetworkIcon from "@lucide/svelte/icons/network";
 	import {
 		TableSourceNode,
 		JoinNode,

@@ -118,3 +118,89 @@ describe("handle", () => {
     expect(res.status).toBe(401);
   });
 });
+
+// Probe I2: adapter-node's BODY_SIZE_LIMIT is Infinity (server.js), and
+// the hook applies 20 MiB to /api/rpc and the operator's limit elsewhere.
+describe("body limits", () => {
+  function post(path: string, body: BodyInit, headers: Record<string, string> = {}) {
+    vi.mocked(client.gate).mockRejectedValue(new Error("must not be called"));
+    return run(path, {
+      method: "POST",
+      headers: { origin: "http://localhost", host: "localhost", ...headers },
+      body,
+      duplex: "half",
+    } as RequestInit);
+  }
+
+  it("refuses /api/rpc past 20 MiB by Content-Length, as an RpcError, reading nothing", async () => {
+    const { result, resolve } = post("/api/rpc", "{}", {
+      "content-length": String(20 * 1024 * 1024 + 1),
+    });
+    const res = await result;
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("refuses another route past the default 512K by Content-Length", async () => {
+    const { result, resolve } = post("/api/signup", "{}", {
+      "content-length": String(512 * 1024 + 1),
+    });
+    expect((await result).status).toBe(413);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("counts another route's body sent without Content-Length", async () => {
+    vi.mocked(client.gate).mockResolvedValue({
+      state: "unregistered",
+      tenant: null,
+      member: null,
+      hasTenant: false,
+      bundlePresent: false,
+    });
+    const chunk = new Uint8Array(256 * 1024);
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < 3; i++) c.enqueue(chunk);
+        c.close();
+      },
+    });
+    const url = new URL("http://localhost/login");
+    const event = {
+      url,
+      request: new Request(url, { method: "POST", body: stream, duplex: "half" } as RequestInit),
+      locals: {},
+    };
+    let read: unknown;
+    const resolve = vi.fn(async (e: { request: Request }) => {
+      read = await e.request.arrayBuffer().catch((err: unknown) => err);
+      return new Response("resolved");
+    });
+    await handle({ event, resolve } as never);
+    expect(resolve).toHaveBeenCalled();
+    expect(read).toMatchObject({ status: 413 });
+  });
+
+  it("lets a body under the limit through untouched", async () => {
+    vi.mocked(client.gate).mockResolvedValue({
+      state: "unregistered",
+      tenant: null,
+      member: null,
+      hasTenant: false,
+      bundlePresent: false,
+    });
+    const url = new URL("http://localhost/login");
+    const event = {
+      url,
+      request: new Request(url, { method: "POST", body: "hello" }),
+      locals: {},
+    };
+    let read = "";
+    const resolve = vi.fn(async (e: { request: Request }) => {
+      read = await e.request.text();
+      return new Response("resolved");
+    });
+    await handle({ event, resolve } as never);
+    expect(read).toBe("hello");
+  });
+});

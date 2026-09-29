@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
-use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, RunLimits};
+use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, EditLimits, RunLimits};
 use std::sync::Arc;
 
 mod error;
@@ -19,7 +19,10 @@ pub mod web_config;
 pub mod workspaces;
 
 pub use routes::internal_license::{is_loopback_peer, SECRET_HEADER};
-pub use routes::rpc::USER_HEADER;
+pub use routes::rpc::{
+    MAX_EDIT_CALLS_PER_USER, MAX_IN_FLIGHT_BYTES_PER_USER, SMALL_CALL_BYTES, TOO_MANY_REQUESTS,
+    USER_HEADER,
+};
 pub use workspaces::Workspaces;
 
 /// Application state shared across request handlers.
@@ -80,9 +83,26 @@ pub const WEB_RUN_LIMITS: RunLimits = RunLimits {
     max_param_bytes: Some(1024 * 1024),
 };
 
+/// What one edit call on the web may carry (phase 5c, Decision 17): 10,000
+/// changes per apply or plan touching at most 100 distinct tables (each is a
+/// metadata read), 2 MiB of typed SQL and 16 MiB of values
+/// among them; a data tab page with 100 filters (and 100 sort columns), 1,000
+/// `IN` items and 64 KiB per filter value. `/rpc`'s 64 MiB body limit stays
+/// the outer bound. Every check is linear in the request and runs before
+/// anything is planned, read or run.
+pub const WEB_EDIT_LIMITS: EditLimits = EditLimits {
+    max_changes: Some(10_000),
+    max_tables: Some(100),
+    max_sql_bytes: Some(2 * 1024 * 1024),
+    max_value_bytes: Some(16 * 1024 * 1024),
+    max_filters: Some(100),
+    max_in_values: Some(1_000),
+    max_filter_value_bytes: Some(64 * 1024),
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
-/// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`] and
-/// [`WEB_RUN_LIMITS`]. Core refuses any other driver on
+/// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`],
+/// [`WEB_RUN_LIMITS`] and [`WEB_EDIT_LIMITS`]. Core refuses any other driver on
 /// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
 /// Cargo unified into this build.
 pub fn web_core() -> Core {
@@ -90,6 +110,7 @@ pub fn web_core() -> Core {
         .connect_policy(web_connect_policy())
         .connection_limits(WEB_CONNECTION_LIMITS)
         .run_limits(WEB_RUN_LIMITS)
+        .edit_limits(WEB_EDIT_LIMITS)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build()
 }

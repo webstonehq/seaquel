@@ -4,16 +4,14 @@
 	import { Button } from "$lib/components/ui/button";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Input } from "$lib/components/ui/input";
-	import {
-		ChevronRightIcon,
-		PlusIcon,
-		ClockIcon,
-		SaveIcon,
-		FileIcon,
-		Trash2Icon,
-		CodeIcon,
-		PencilIcon,
-	} from "@lucide/svelte";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import ClockIcon from "@lucide/svelte/icons/clock";
+	import SaveIcon from "@lucide/svelte/icons/save";
+	import FileIcon from "@lucide/svelte/icons/file";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
+	import CodeIcon from "@lucide/svelte/icons/code";
+	import PencilIcon from "@lucide/svelte/icons/pencil";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
 	import { m } from "$lib/paraglide/messages.js";

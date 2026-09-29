@@ -5,9 +5,8 @@ import type { ExplainResult } from "./ExplainResult";
 import type { SchemaColumn } from "./SchemaColumn";
 import type { SchemaIndex } from "./SchemaIndex";
 import type { SchemaTable } from "./SchemaTable";
-import type { SqlWithBindings } from "./SqlWithBindings";
 
 /**
  * The result, as `{"kind": <camelCase variant>, "data": …}`.
  */
-export type EngineResponse = { "kind": "schemas", "data": Array<string> } | { "kind": "tables", "data": Array<SchemaTable> } | { "kind": "tableMetadata", "data": { columns: Array<SchemaColumn>, indexes: Array<SchemaIndex>, } } | { "kind": "statistics", "data": DatabaseStatistics } | { "kind": "explain", "data": ExplainResult } | { "kind": "columnTypes", "data": Array<ColumnTypeInfo> } | { "kind": "sql", "data": string } | { "kind": "sqlWithBindings", "data": SqlWithBindings };
+export type EngineResponse = { "kind": "schemas", "data": Array<string> } | { "kind": "tables", "data": Array<SchemaTable> } | { "kind": "tableMetadata", "data": { columns: Array<SchemaColumn>, indexes: Array<SchemaIndex>, } } | { "kind": "statistics", "data": DatabaseStatistics } | { "kind": "explain", "data": ExplainResult } | { "kind": "columnTypes", "data": Array<ColumnTypeInfo> } | { "kind": "sql", "data": string };

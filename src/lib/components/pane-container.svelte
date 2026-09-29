@@ -1,11 +1,21 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { useDatabase } from "$lib/hooks/database.svelte.js";
     import { PaneGroup, Pane, Handle } from "$lib/components/ui/resizable";
-    import PaneContent from "$lib/components/pane-content.svelte";
     import { setPaneDragState } from "$lib/components/pane-drag-context.svelte.js";
+    import { m } from "$lib/paraglide/messages.js";
 
     const db = useDatabase();
     setPaneDragState();
+    let PaneContent = $state<typeof import("$lib/components/pane-content.svelte").default | null>(null);
+
+    onMount(() => {
+        let mounted = true;
+        import("$lib/components/pane-content.svelte").then(({ default: component }) => {
+            if (mounted) PaneContent = component;
+        });
+        return () => { mounted = false; };
+    });
 
     // Create default pane layout if none exists (must be in $effect, not $derived, to avoid state_unsafe_mutation)
     $effect(() => {
@@ -25,7 +35,11 @@
     const panes = $derived(layout.panes);
 </script>
 
-{#if panes.length <= 1}
+{#if !PaneContent}
+    <div class="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
+        {m.ext_loading()}
+    </div>
+{:else if panes.length <= 1}
     <!-- Single pane: no resizable wrapper needed -->
     {#if panes[0]}
         <PaneContent

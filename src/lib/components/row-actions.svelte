@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-	import { MoreVerticalIcon, TrashIcon, LoaderIcon } from "@lucide/svelte";
+	import MoreVerticalIcon from "@lucide/svelte/icons/more-vertical";
+	import TrashIcon from "@lucide/svelte/icons/trash";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
 	import { m } from "$lib/paraglide/messages.js";
 
 	interface Props {

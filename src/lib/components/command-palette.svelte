@@ -5,42 +5,40 @@
 	import { EXECUTE_ACTIVE_QUERY_EVENT } from "$lib/components/query-editor/events.js";
 	import { goto } from "$app/navigation";
 	import { LESSONS, LESSON_SECTIONS } from "$lib/tutorial/lessons";
-	import {
-		Plus,
-		Play,
-		Save,
-		Table2,
-		Database,
-		Loader,
-		History,
-		FileText,
-		FileCode,
-		Sparkles,
-		PanelLeft,
-		Download,
-		Copy,
-		GitBranch,
-		Code,
-		BarChart3,
-		LayoutGrid,
-		LayoutDashboard,
-		BookOpen,
-		GraduationCap,
-		Keyboard,
-		Activity,
-		Network,
-		Workflow,
-		Cable,
-		Rocket,
-		Settings,
-		PlusSquare,
-		Puzzle,
-	} from "@lucide/svelte";
+	import Plus from "@lucide/svelte/icons/plus";
+	import Play from "@lucide/svelte/icons/play";
+	import Save from "@lucide/svelte/icons/save";
+	import Table2 from "@lucide/svelte/icons/table-2";
+	import Database from "@lucide/svelte/icons/database";
+	import Loader from "@lucide/svelte/icons/loader";
+	import History from "@lucide/svelte/icons/history";
+	import FileText from "@lucide/svelte/icons/file-text";
+	import FileCode from "@lucide/svelte/icons/file-code";
+	import Sparkles from "@lucide/svelte/icons/sparkles";
+	import PanelLeft from "@lucide/svelte/icons/panel-left";
+	import Download from "@lucide/svelte/icons/download";
+	import Copy from "@lucide/svelte/icons/copy";
+	import GitBranch from "@lucide/svelte/icons/git-branch";
+	import Code from "@lucide/svelte/icons/code";
+	import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
+	import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+	import LayoutDashboard from "@lucide/svelte/icons/layout-dashboard";
+	import BookOpen from "@lucide/svelte/icons/book-open";
+	import GraduationCap from "@lucide/svelte/icons/graduation-cap";
+	import Keyboard from "@lucide/svelte/icons/keyboard";
+	import Activity from "@lucide/svelte/icons/activity";
+	import Network from "@lucide/svelte/icons/network";
+	import Workflow from "@lucide/svelte/icons/workflow";
+	import Cable from "@lucide/svelte/icons/cable";
+	import Rocket from "@lucide/svelte/icons/rocket";
+	import Settings from "@lucide/svelte/icons/settings";
+	import PlusSquare from "@lucide/svelte/icons/plus-square";
+	import Puzzle from "@lucide/svelte/icons/puzzle";
 	import { m } from "$lib/paraglide/messages.js";
 	import { getKeySymbols } from "$lib/shortcuts/platform";
 
 	const keys = getKeySymbols();
-	import { Link } from "@lucide/svelte";
+	import Link from "@lucide/svelte/icons/link";
 	import { handleDeepLink } from "$lib/services/deep-link";
 	import { getExportContent } from "$lib/utils/export-formats";
 	import { getEngineClient, selectPreview } from "$lib/engine";
@@ -51,7 +49,7 @@
 	const db = useDatabase();
 	const shortcuts = useShortcuts();
 
-	let open = $state(false);
+	let { open = $bindable(false) }: { open?: boolean } = $props();
 
 	// Derived state for dynamic commands
 	const tables = $derived(
@@ -68,14 +66,6 @@
 	const hasQueryContent = $derived(hasActiveQueryTab && !!db.state.activeQueryTab?.query?.trim());
 	const dashboards = $derived(db.state.projectDashboards);
 	const hasConnections = $derived(connections.length > 0);
-
-	// Register shortcut handler
-	$effect(() => {
-		shortcuts.registerHandler("commandPalette", () => {
-			open = !open;
-		});
-		return () => shortcuts.unregisterHandler("commandPalette");
-	});
 
 	function runAndClose(action: () => void) {
 		action();

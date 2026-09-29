@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { TUTORIAL_SCHEMA } from '$lib/tutorial/schema';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { TableIcon, GripVerticalIcon, BracesIcon, LayersIcon } from '@lucide/svelte';
+	import TableIcon from '@lucide/svelte/icons/table';
+	import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical';
+	import BracesIcon from '@lucide/svelte/icons/braces';
+	import LayersIcon from '@lucide/svelte/icons/layers';
 	import { useDnD } from './dnd-provider.svelte';
 	import { useQueryBuilder } from '$lib/hooks/query-builder.svelte.js';
 	import type { QueryBuilderTable } from '$lib/types';

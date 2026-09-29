@@ -129,10 +129,12 @@ pub enum Request {
 
 /// A call's result: `{"method": <group>, "result": <the group's response>}`,
 /// where the group's response repeats its method.
+// Not `Deserialize`: responses only go out to the GUIs (the `db` group's
+// edit outcomes can't be read).
 // Requests and responses are built once and moved into or out of one call,
 // so their size doesn't matter; boxing the large rows would only add noise.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(tag = "method", content = "result", rename_all = "camelCase")]
 // `CoreResponse` in TypeScript, where `Response` is the DOM's.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "CoreResponse"))]

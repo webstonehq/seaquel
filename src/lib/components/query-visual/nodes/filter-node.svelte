@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { FilterIcon } from "@lucide/svelte";
+	import FilterIcon from "@lucide/svelte/icons/filter";
 	import type { QueryFilter } from "$lib/types";
 
 	type Props = {

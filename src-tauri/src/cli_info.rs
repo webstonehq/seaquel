@@ -1,7 +1,7 @@
-//! What the MCP settings panel needs to know about the bundled `seaquel-cli`,
+//! What the MCP settings panel needs to know about the installed `seaquel-cli`,
 //! and its install button. Two Tauri commands rather than a `core_call`
-//! group: the answers come from the app bundle (`current_exe`, the AppImage
-//! mount) and the install shows native dialogs through the `AppHandle`, none
+//! group: the answers come from the local CLI install and the install shows
+//! native dialogs through the `AppHandle`, none
 //! of which `seaquel-rpc` can reach, and a group would also need wire types,
 //! a web refusal and desktop routing for a desktop-only question.
 
@@ -10,15 +10,16 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::cli_download;
 use crate::cli_install;
 
 /// Whether `seaquel-cli`, typed in a terminal, runs this app's tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PathStatus {
-    /// It resolves to this app's sidecar (or, for an AppImage, to the copy of it).
+    /// It resolves to this version's installed CLI.
     Installed,
-    /// AppImage: it resolves to the copy, but the copy is from another version.
+    /// It resolves to a CLI installed for another app version.
     Outdated,
     /// It resolves to some other file.
     Other,
@@ -29,17 +30,16 @@ pub enum PathStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliInfo {
-    /// The sidecar next to the app's executable.
-    pub sidecar_path: String,
-    pub sidecar_exists: bool,
-    /// The path an MCP host should run: the sidecar, or for an AppImage the
-    /// stable copy the install makes (the image's mount path changes on every
-    /// run).
+    /// The stable CLI install path in the user's app data directory.
+    pub binary_path: String,
+    pub binary_exists: bool,
+    pub binary_current: bool,
+    /// The path an MCP host should run.
     pub command_path: String,
     pub path_status: PathStatus,
     /// What `seaquel-cli` resolves to, when found.
     pub found_path: Option<String>,
-    /// Whether the install button is offered (macOS, Linux AppImage).
+    /// Whether the install button is offered on this desktop platform.
     pub can_install: bool,
     pub app_image: bool,
 }
@@ -75,46 +75,26 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn same_contents(a: &Path, b: &Path) -> bool {
-    match (std::fs::read(a), std::fs::read(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
-}
-
-/// The status of `found` against the sidecar and, for an AppImage, its copy.
-pub fn path_status(found: Option<&Path>, sidecar: &Path, copy: Option<&Path>) -> PathStatus {
+/// The status of `found` against this version's installed CLI.
+pub fn path_status(found: Option<&Path>, binary: &Path, current: bool) -> PathStatus {
     let Some(found) = found else {
         return PathStatus::Missing;
     };
-    if same_file(found, sidecar) {
-        return PathStatus::Installed;
-    }
-    match copy {
-        Some(copy) if same_file(found, copy) => {
-            if same_contents(copy, sidecar) {
-                PathStatus::Installed
-            } else {
-                PathStatus::Outdated
-            }
+    if same_file(found, binary) {
+        if current {
+            PathStatus::Installed
+        } else {
+            PathStatus::Outdated
         }
-        _ => PathStatus::Other,
+    } else {
+        PathStatus::Other
     }
 }
 
 #[tauri::command]
 pub fn cli_info(app: tauri::AppHandle) -> Result<CliInfo, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("Couldn't find the app: {e}"))?;
-    let sidecar = exe
-        .parent()
-        .ok_or("The app's executable has no parent directory.")?
-        .join(exe_name());
+    let binary = cli_download::installed_path(&app.config().identifier)?;
     let app_image = cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some();
-    let copy = if app_image {
-        Some(cli_install::appimage_paths(&app)?.copy)
-    } else {
-        None
-    };
 
     let mut extra = Vec::new();
     if cfg!(target_os = "macos") {
@@ -129,12 +109,14 @@ pub fn cli_info(app: tauri::AppHandle) -> Result<CliInfo, String> {
         search_dirs(std::env::var_os("PATH").as_deref(), &extra),
         &exe_name(),
     );
+    let current = cli_download::is_current(&binary, cli_download::VERSION);
 
     Ok(CliInfo {
-        sidecar_path: sidecar.display().to_string(),
-        sidecar_exists: sidecar.is_file(),
-        command_path: copy.as_deref().unwrap_or(&sidecar).display().to_string(),
-        path_status: path_status(found.as_deref(), &sidecar, copy.as_deref()),
+        binary_path: binary.display().to_string(),
+        binary_exists: binary.is_file(),
+        binary_current: current,
+        command_path: binary.display().to_string(),
+        path_status: path_status(found.as_deref(), &binary, current),
         found_path: found.map(|p| p.display().to_string()),
         can_install: cli_install::available(),
         app_image,
@@ -181,37 +163,27 @@ mod tests {
     }
 
     #[test]
-    fn status_follows_links_and_compares_the_appimage_copy() {
+    fn status_follows_the_installed_binary_and_version() {
         let tmp = tempfile::tempdir().unwrap();
-        let sidecar = tmp.path().join("app dir/seaquel-cli");
-        let copy = tmp.path().join("data/bin/seaquel-cli");
+        let binary = tmp.path().join("data/bin/seaquel-cli");
         let link = tmp.path().join("bin/seaquel-cli");
         let other = tmp.path().join("other/seaquel-cli");
-        for p in [&sidecar, &copy, &link, &other] {
+        for p in [&binary, &link, &other] {
             fs::create_dir_all(p.parent().unwrap()).unwrap();
         }
-        fs::write(&sidecar, b"v2").unwrap();
+        fs::write(&binary, b"v2").unwrap();
         fs::write(&other, b"v2").unwrap();
 
-        assert_eq!(path_status(None, &sidecar, None), PathStatus::Missing);
-        std::os::unix::fs::symlink(&sidecar, &link).unwrap();
+        assert_eq!(path_status(None, &binary, true), PathStatus::Missing);
+        std::os::unix::fs::symlink(&binary, &link).unwrap();
         assert_eq!(
-            path_status(Some(&link), &sidecar, None),
+            path_status(Some(&link), &binary, true),
             PathStatus::Installed
         );
-        assert_eq!(path_status(Some(&other), &sidecar, None), PathStatus::Other);
-
-        fs::remove_file(&link).unwrap();
-        std::os::unix::fs::symlink(&copy, &link).unwrap();
-        fs::write(&copy, b"v1").unwrap();
+        assert_eq!(path_status(Some(&other), &binary, true), PathStatus::Other);
         assert_eq!(
-            path_status(Some(&link), &sidecar, Some(&copy)),
+            path_status(Some(&link), &binary, false),
             PathStatus::Outdated
-        );
-        fs::write(&copy, b"v2").unwrap();
-        assert_eq!(
-            path_status(Some(&link), &sidecar, Some(&copy)),
-            PathStatus::Installed
         );
     }
 }

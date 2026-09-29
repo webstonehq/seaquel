@@ -1,0 +1,1131 @@
+[
+  {
+    "name": "duckdb/attached-catalog-queued",
+    "engine": "duckdb",
+    "notes": "An attached catalog's schema is listed as `cat.main` and quoted as two names",
+    "input": {
+      "via": "dataTab",
+      "pending": true,
+      "table": {
+        "schema": "cat.main",
+        "table": "t"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "v",
+          "j"
+        ],
+        "rows": [
+          [
+            {
+              "$sq": "bigint",
+              "v": "9007199254740993"
+            },
+            "a",
+            {
+              "$sq": "json",
+              "v": {
+                "x": 1
+              }
+            }
+          ]
+        ],
+        "sourceTable": {
+          "schema": "cat.main",
+          "name": "t",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "t",
+          "schema": "cat.main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "BIGINT",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "v",
+              "type": "VARCHAR",
+              "nullable": true,
+              "defaultValue": "'d'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "j",
+              "type": "JSON",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "t_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "cat.main",
+        "table": "t",
+        "columns": [
+          {
+            "name": "id",
+            "type": "BIGINT",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "v",
+            "type": "VARCHAR",
+            "nullable": true,
+            "defaultValue": "'d'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "j",
+            "type": "JSON",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "t_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "j",
+        "value": {
+          "$sq": "json",
+          "v": {
+            "x": 2
+          }
+        },
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "cat.main",
+            "table": "t"
+          },
+          "key": [
+            [
+              "id",
+              {
+                "$sq": "bigint",
+                "v": "9007199254740993"
+              }
+            ]
+          ],
+          "column": "j",
+          "value": {
+            "$sq": "json",
+            "v": {
+              "x": 2
+            }
+          }
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "cat.main",
+              "table": "t",
+              "column": "j",
+              "value": {
+                "$sq": "json",
+                "v": {
+                  "x": 2
+                }
+              },
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  {
+                    "$sq": "bigint",
+                    "v": "9007199254740993"
+                  }
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"cat\".\"main\".\"t\" SET \"j\" = ? WHERE \"id\" = ?",
+              "bindValues": [
+                {
+                  "$sq": "json",
+                  "v": {
+                    "x": 2
+                  }
+                },
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      },
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "v",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "cat.main",
+            "table": "t"
+          },
+          "key": [
+            [
+              "id",
+              {
+                "$sq": "bigint",
+                "v": "9007199254740993"
+              }
+            ]
+          ],
+          "column": "v"
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "cat.main",
+              "table": "t",
+              "column": "v",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  {
+                    "$sq": "bigint",
+                    "v": "9007199254740993"
+                  }
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"cat\".\"main\".\"t\" SET \"v\" = DEFAULT WHERE \"id\" = ?",
+              "bindValues": [
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      },
+      {
+        "action": "insertRow",
+        "values": {
+          "id": 5,
+          "v": "b"
+        },
+        "edit": {
+          "type": "insertRow",
+          "target": {
+            "schema": "cat.main",
+            "table": "t"
+          },
+          "values": [
+            [
+              "id",
+              5
+            ],
+            [
+              "v",
+              "b"
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildInsert",
+            "params": {
+              "schema": "cat.main",
+              "table": "t",
+              "values": [
+                [
+                  "id",
+                  5
+                ],
+                [
+                  "v",
+                  "b"
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "INSERT INTO \"cat\".\"main\".\"t\" (\"id\", \"v\") VALUES (?, ?)",
+              "bindValues": [
+                5,
+                "b"
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "saved": true
+        }
+      },
+      {
+        "action": "deleteRow",
+        "row": 0,
+        "edit": {
+          "type": "deleteRow",
+          "target": {
+            "schema": "cat.main",
+            "table": "t"
+          },
+          "key": [
+            [
+              "id",
+              {
+                "$sq": "bigint",
+                "v": "9007199254740993"
+              }
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildDelete",
+            "params": {
+              "schema": "cat.main",
+              "table": "t",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  {
+                    "$sq": "bigint",
+                    "v": "9007199254740993"
+                  }
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "DELETE FROM \"cat\".\"main\".\"t\" WHERE \"id\" = ?",
+              "bindValues": [
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      }
+    ],
+    "queue": [
+      {
+        "id": "c1",
+        "change": {
+          "type": "edit",
+          "id": "c1",
+          "edit": {
+            "type": "updateCell",
+            "target": {
+              "schema": "cat.main",
+              "table": "t"
+            },
+            "key": [
+              [
+                "id",
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            ],
+            "column": "j",
+            "value": {
+              "$sq": "json",
+              "v": {
+                "x": 2
+              }
+            }
+          }
+        },
+        "sql": "UPDATE \"cat\".\"main\".\"t\" SET \"j\" = ? WHERE \"id\" = ?",
+        "params": [
+          {
+            "$sq": "json",
+            "v": {
+              "x": 2
+            }
+          },
+          {
+            "$sq": "bigint",
+            "v": "9007199254740993"
+          }
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": {
+          "verb": "update",
+          "table": "main",
+          "column": "j"
+        },
+        "description": "Update main.j",
+        "origin": "inline-edit",
+        "target": {
+          "schema": "cat.main",
+          "table": "t",
+          "column": "j",
+          "primaryKeyValues": {
+            "id": {
+              "$sq": "bigint",
+              "v": "9007199254740993"
+            }
+          },
+          "newValue": {
+            "$sq": "json",
+            "v": {
+              "x": 2
+            }
+          }
+        }
+      },
+      {
+        "id": "c2",
+        "change": {
+          "type": "edit",
+          "id": "c2",
+          "edit": {
+            "type": "setDefault",
+            "target": {
+              "schema": "cat.main",
+              "table": "t"
+            },
+            "key": [
+              [
+                "id",
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            ],
+            "column": "v"
+          }
+        },
+        "sql": "UPDATE \"cat\".\"main\".\"t\" SET \"v\" = DEFAULT WHERE \"id\" = ?",
+        "params": [
+          {
+            "$sq": "bigint",
+            "v": "9007199254740993"
+          }
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": {
+          "verb": "update",
+          "table": "main",
+          "column": "v"
+        },
+        "description": "Update main.v",
+        "origin": "set-default",
+        "target": {
+          "schema": "cat.main",
+          "table": "t",
+          "column": "v",
+          "primaryKeyValues": {
+            "id": {
+              "$sq": "bigint",
+              "v": "9007199254740993"
+            }
+          }
+        }
+      },
+      {
+        "id": "c3",
+        "change": {
+          "type": "edit",
+          "id": "c3",
+          "edit": {
+            "type": "insertRow",
+            "target": {
+              "schema": "cat.main",
+              "table": "t"
+            },
+            "values": [
+              [
+                "id",
+                5
+              ],
+              [
+                "v",
+                "b"
+              ]
+            ]
+          }
+        },
+        "sql": "INSERT INTO \"cat\".\"main\".\"t\" (\"id\", \"v\") VALUES (?, ?)",
+        "params": [
+          5,
+          "b"
+        ],
+        "queryType": "insert",
+        "dml": true,
+        "summary": {
+          "verb": "insert",
+          "table": "main",
+          "column": null
+        },
+        "description": "Insert row into main",
+        "origin": "insert-row",
+        "target": {
+          "schema": "cat.main",
+          "table": "t",
+          "insertValues": {
+            "id": 5,
+            "v": "b"
+          }
+        }
+      },
+      {
+        "id": "c4",
+        "change": {
+          "type": "edit",
+          "id": "c4",
+          "edit": {
+            "type": "deleteRow",
+            "target": {
+              "schema": "cat.main",
+              "table": "t"
+            },
+            "key": [
+              [
+                "id",
+                {
+                  "$sq": "bigint",
+                  "v": "9007199254740993"
+                }
+              ]
+            ]
+          }
+        },
+        "sql": "DELETE FROM \"cat\".\"main\".\"t\" WHERE \"id\" = ?",
+        "params": [
+          {
+            "$sq": "bigint",
+            "v": "9007199254740993"
+          }
+        ],
+        "queryType": "delete",
+        "dml": true,
+        "summary": {
+          "verb": "delete",
+          "table": "main",
+          "column": null
+        },
+        "description": "Delete row from main",
+        "origin": "delete-row",
+        "target": {
+          "schema": "cat.main",
+          "table": "t",
+          "primaryKeyValues": {
+            "id": {
+              "$sq": "bigint",
+              "v": "9007199254740993"
+            }
+          }
+        }
+      }
+    ],
+    "toasts": []
+  },
+  {
+    "name": "duckdb/default-catalog-immediate",
+    "engine": "duckdb",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "main",
+        "table": "m"
+      },
+      "result": {
+        "columns": [
+          "k",
+          "h",
+          "s"
+        ],
+        "rows": [
+          [
+            1,
+            {
+              "$sq": "bigint",
+              "v": "170141183460469231731687303715884105727"
+            },
+            {
+              "$sq": "json",
+              "v": {
+                "a": 1
+              }
+            }
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "m",
+          "primaryKeys": [
+            "k"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "m",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "k",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "h",
+              "type": "HUGEINT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "s",
+              "type": "STRUCT(a INTEGER)",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "m_pkey",
+              "columns": [
+                "k"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "m",
+        "columns": [
+          {
+            "name": "k",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "h",
+            "type": "HUGEINT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "s",
+            "type": "STRUCT(a INTEGER)",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "m_pkey",
+            "columns": [
+              "k"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "h",
+        "value": {
+          "$sq": "bigint",
+          "v": "-5"
+        },
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "main",
+            "table": "m"
+          },
+          "key": [
+            [
+              "k",
+              1
+            ]
+          ],
+          "column": "h",
+          "value": {
+            "$sq": "bigint",
+            "v": "-5"
+          }
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "main",
+              "table": "m",
+              "column": "h",
+              "value": {
+                "$sq": "bigint",
+                "v": "-5"
+              },
+              "primary_keys": [
+                "k"
+              ],
+              "row": [
+                [
+                  "k",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"m\" SET \"h\" = ? WHERE \"k\" = ?",
+              "bindValues": [
+                -5,
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"m\" SET \"h\" = ? WHERE \"k\" = ?",
+            "params": [
+              -5,
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      },
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "s",
+        "value": {
+          "$sq": "json",
+          "v": {
+            "a": 2
+          }
+        },
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "main",
+            "table": "m"
+          },
+          "key": [
+            [
+              "k",
+              1
+            ]
+          ],
+          "column": "s",
+          "value": {
+            "$sq": "json",
+            "v": {
+              "a": 2
+            }
+          }
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "main",
+              "table": "m",
+              "column": "s",
+              "value": {
+                "$sq": "json",
+                "v": {
+                  "a": 2
+                }
+              },
+              "primary_keys": [
+                "k"
+              ],
+              "row": [
+                [
+                  "k",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"m\" SET \"s\" = ? WHERE \"k\" = ?",
+              "bindValues": [
+                {
+                  "$sq": "json",
+                  "v": {
+                    "a": 2
+                  }
+                },
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"m\" SET \"s\" = ? WHERE \"k\" = ?",
+            "params": [
+              {
+                "$sq": "json",
+                "v": {
+                  "a": 2
+                }
+              },
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  },
+  {
+    "name": "duckdb/query-tab-edit-and-stale-delete",
+    "engine": "duckdb",
+    "input": {
+      "via": "queryTab",
+      "pending": false,
+      "query": "SELECT k, h FROM main.m",
+      "result": {
+        "columns": [
+          "k",
+          "h"
+        ],
+        "rows": [
+          [
+            2,
+            null
+          ]
+        ],
+        "sourceTable": {
+          "schema": "main",
+          "name": "m",
+          "primaryKeys": [
+            "k"
+          ]
+        },
+        "columnSources": [
+          {
+            "schema": "main",
+            "table": "m",
+            "primaryKeys": [
+              "k"
+            ],
+            "column": "k"
+          },
+          {
+            "schema": "main",
+            "table": "m",
+            "primaryKeys": [
+              "k"
+            ],
+            "column": "h"
+          }
+        ]
+      },
+      "schemaCache": [
+        {
+          "name": "m",
+          "schema": "main",
+          "type": "table",
+          "columns": [
+            {
+              "name": "k",
+              "type": "INTEGER",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "h",
+              "type": "HUGEINT",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            },
+            {
+              "name": "s",
+              "type": "STRUCT(a INTEGER)",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "m_pkey",
+              "columns": [
+                "k"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "main",
+        "table": "m",
+        "columns": [
+          {
+            "name": "k",
+            "type": "INTEGER",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "h",
+            "type": "HUGEINT",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          },
+          {
+            "name": "s",
+            "type": "STRUCT(a INTEGER)",
+            "nullable": true,
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "m_pkey",
+            "columns": [
+              "k"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "h",
+        "value": 3,
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "main",
+            "table": "m"
+          },
+          "key": [
+            [
+              "k",
+              2
+            ]
+          ],
+          "column": "h",
+          "value": 3
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "main",
+              "table": "m",
+              "column": "h",
+              "value": 3,
+              "primary_keys": [
+                "k"
+              ],
+              "row": [
+                [
+                  "k",
+                  2
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE \"main\".\"m\" SET \"h\" = ? WHERE \"k\" = ?",
+              "bindValues": [
+                3,
+                2
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "UPDATE \"main\".\"m\" SET \"h\" = ? WHERE \"k\" = ?",
+            "params": [
+              3,
+              2
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        }
+      },
+      {
+        "action": "deleteRow",
+        "row": 0,
+        "edit": {
+          "type": "deleteRow",
+          "target": {
+            "schema": "main",
+            "table": "m"
+          },
+          "key": [
+            [
+              "k",
+              2
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildDelete",
+            "params": {
+              "schema": "main",
+              "table": "m",
+              "primary_keys": [
+                "k"
+              ],
+              "row": [
+                [
+                  "k",
+                  2
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "DELETE FROM \"main\".\"m\" WHERE \"k\" = ?",
+              "bindValues": [
+                2
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "DELETE FROM \"main\".\"m\" WHERE \"k\" = ?",
+            "params": [
+              2
+            ],
+            "answer": {
+              "rowsAffected": 0
+            }
+          }
+        ],
+        "outcome": {
+          "success": false,
+          "error": "No row in main.m matched k = 2. It may have been changed or deleted since it was loaded; refresh and try again.",
+          "code": "NO_ROWS_AFFECTED"
+        }
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  }
+]

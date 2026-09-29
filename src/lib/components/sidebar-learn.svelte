@@ -4,7 +4,9 @@
 	import { resolve } from "$app/paths";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Badge } from "$lib/components/ui/badge";
-	import { ChevronRightIcon, BookOpenIcon, BoxIcon } from "@lucide/svelte";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import BookOpenIcon from "@lucide/svelte/icons/book-open";
+	import BoxIcon from "@lucide/svelte/icons/box";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
 	import { LESSONS, LESSON_SECTIONS } from "$lib/tutorial/lessons";

@@ -100,11 +100,10 @@ function setup(query = "SELECT 1 AS a", opts: { deferWrites?: boolean; runner?: 
       connectionLabels: [],
     }),
     insertRecorded: vi.fn(),
-    addToHistory: vi.fn(),
   };
   const pending = {
     isEnabled: () => !!opts.deferWrites,
-    add: vi.fn(),
+    addSql: vi.fn(),
     openSheet: vi.fn(),
   };
   const manager = new QueryExecutionManager(
@@ -478,7 +477,6 @@ describe("history and the nudge", () => {
     );
     await running;
     expect(history.insertRecorded).toHaveBeenCalledExactlyOnceWith(historyRow);
-    expect(history.addToHistory).not.toHaveBeenCalled();
     expect(recordQuery).toHaveBeenCalledOnce();
   });
 
@@ -717,7 +715,7 @@ describe("lifecycle", () => {
     await running;
     // The run was cancelled in Core, and nothing reached pending changes.
     expect(runner.runs[0].signal.aborted).toBe(true);
-    expect(pending.add).not.toHaveBeenCalled();
+    expect(pending.addSql).not.toHaveBeenCalled();
     expect(toast.info).not.toHaveBeenCalled();
     // A `done` that was already on its way still caches what Core stored.
     expect(history.insertRecorded).toHaveBeenCalledWith(historyRow);
@@ -875,13 +873,14 @@ describe("pending changes", () => {
       done(2),
     );
     await running;
-    expect(pending.add).toHaveBeenCalledExactlyOnceWith(
+    // The typed SQL as Core sent it, binds in the wire format (phase 5c, Decision 2).
+    expect(pending.addSql).toHaveBeenCalledExactlyOnceWith(
       "conn-1",
       "INSERT INTO t VALUES ($1)",
+      [{ $sq: "bigint", v: "5" }],
       "insert",
       "query-editor",
       "tab-1",
-      [5n],
     );
     expect(toast.info).toHaveBeenCalledWith("1 statement added to pending changes");
     expect(pending.openSheet).toHaveBeenCalledOnce();
@@ -1061,16 +1060,36 @@ describe("review fixes", () => {
       return env;
     }
 
-    it("refuses with a toast when the connection changed", async () => {
+    it("refuses with a toast when the refused run's connection reconnected or went", async () => {
+      for (const change of ["reconnected", "removed", "disconnected"] as const) {
+        vi.mocked(errorToast).mockClear();
+        const { manager, runner, state } = await refused();
+        const conn = state.connections[0];
+        if (change === "reconnected")
+          state.connections[0] = { ...conn, providerConnectionId: "pc-9" };
+        if (change === "disconnected") state.connections[0] = { ...conn, providerConnectionId: "" };
+        if (change === "removed") state.connections.splice(0, 1);
+        await manager.confirmPending("tab-1");
+        expect(runner.runs).toHaveLength(1);
+        expect(manager.pendingConfirm).toBeNull();
+        expect(errorToast).toHaveBeenCalledWith(
+          "The connection changed since you were asked, so nothing was run. Run the query again.",
+        );
+      }
+    });
+
+    it("confirms on the refused run's connection, not whichever is active now", async () => {
       const { manager, runner, state } = await refused();
       const other = { id: "conn-2", type: "duckdb", name: "Quick", providerConnectionId: "pc-2" };
+      state.connections.push(other);
       state.activeConnection = other;
-      await manager.confirmPending("tab-1");
-      expect(runner.runs).toHaveLength(1);
-      expect(manager.pendingConfirm).toBeNull();
-      expect(errorToast).toHaveBeenCalledWith(
-        "The connection changed since you were asked, so nothing was run. Run the query again.",
-      );
+      state.activeConnectionId = "conn-2";
+      const confirmed = manager.confirmPending("tab-1");
+      await settle();
+      expect(runner.runs).toHaveLength(2);
+      expect(runner.runs[1].params).toMatchObject({ connectionId: "pc-1", confirmed: true });
+      push(runner.runs[1].queue, done(1));
+      await confirmed;
     });
 
     it("a file drop for another connection clears it, so going back and confirming runs nothing", async () => {
@@ -1141,5 +1160,170 @@ describe("approval fixes", () => {
     expect(errorToast).toHaveBeenCalledWith("DuckDB didn't start");
     expect(state.queryTabsByProject.p[0].isExecuting).toBeFalsy();
     await manager.goToPage("tab-1", 2, 0);
+  });
+});
+
+describe("edits target the result's connection (phase 5c, Task 1)", () => {
+  const other = { id: "conn-2", type: "postgres", name: "Other", providerConnectionId: "pc-2" };
+
+  /** Run `SELECT id, total FROM orders` on conn-1, then make conn-2 active. */
+  async function ranThenSwitched() {
+    const env = setup("SELECT id, total FROM orders");
+    const running = env.manager.execute("tab-1");
+    await settle();
+    push(
+      env.runner.runs[0].queue,
+      start(0, "SELECT id, total FROM orders", "page", {
+        table: { table: "orders" },
+        columnRefs: [
+          { table: "orders", column: "id" },
+          { table: "orders", column: "total" },
+        ],
+      }),
+      batch(["id", "total"], [[1, 2]]),
+      stmtDone(0),
+      done(1),
+    );
+    await running;
+    env.state.connections.push(other);
+    env.state.activeConnection = other;
+    env.state.activeConnectionId = "conn-2";
+    return env;
+  }
+
+  it("every result a run makes records its connection", async () => {
+    const { manager, runner, results } = setup("SELECT 1;\nSELECT {{x}}");
+    const running = manager.execute("tab-1");
+    await settle();
+    push(
+      runner.runs[0].queue,
+      start(0, "SELECT 1", "page"),
+      batch(["a"], [[1]]),
+      stmtDone(0),
+      {
+        type: "statementError",
+        index: 1,
+        sql: "SELECT {{x}}",
+        code: "INVALID_PARAMETERS",
+        message: "x",
+        elapsedMs: 0,
+      },
+      done(2),
+    );
+    await running;
+    expect(results().map((r) => r.connectionId)).toEqual(["conn-1", "conn-1"]);
+
+    const failing = setup();
+    const failed = failing.manager.execute("tab-1");
+    await settle();
+    push(failing.runner.runs[0].queue, { type: "error", code: "UNKNOWN", message: "no" });
+    await failed;
+    expect(failing.results()[0]).toMatchObject({ isError: true, connectionId: "conn-1" });
+  });
+
+  it("an edit on an old query result goes to the connection it came from", async () => {
+    const { manager, results } = await ranThenSwitched();
+    expect(results()[0].connectionId).toBe("conn-1");
+    const update = vi.spyOn(manager.crud, "updateCellDirect").mockResolvedValue({ success: true });
+
+    const source = { schema: "public", name: "orders", primaryKeys: ["id"] };
+    expect(await manager.updateCell("tab-1", 0, 0, "total", 3, source)).toEqual({ success: true });
+    expect(update).toHaveBeenCalledWith("conn-1", source, { id: 1 }, "total", 3);
+    expect(results()[0].rows).toEqual([[1, 3]]);
+  });
+
+  it("Set default goes to the result's connection and reruns there", async () => {
+    const { manager, runner } = await ranThenSwitched();
+    const setDefault = vi
+      .spyOn(manager.crud, "setCellDefaultDirect")
+      .mockResolvedValue({ success: true });
+
+    const source = { schema: "public", name: "orders", primaryKeys: ["id"] };
+    const pending = manager.setCellDefault("tab-1", 0, 0, "total", source);
+    await settle();
+    await settle();
+    expect(setDefault).toHaveBeenCalledWith("conn-1", source, { id: 1 }, "total");
+    expect(runner.runs).toHaveLength(2);
+    expect(runner.runs[1].params).toMatchObject({
+      connectionId: "pc-1",
+      history: { connectionId: "conn-1" },
+    });
+    push(runner.runs[1].queue, done(0));
+    await pending;
+  });
+
+  it("paging an old result pages on its connection", async () => {
+    const { manager, runner } = await ranThenSwitched();
+    void manager.goToPage("tab-1", 1, 0);
+    await settle();
+    expect(runner.pages[0].params.connectionId).toBe("pc-1");
+    manager.cancelStream("tab-1");
+  });
+
+  it("an edit on a result whose connection is gone is refused, and nothing runs", async () => {
+    const { manager, state } = await ranThenSwitched();
+    state.connections.splice(0, 1);
+    const update = vi.spyOn(manager.crud, "updateCellDirect");
+    const source = { schema: "public", name: "orders", primaryKeys: ["id"] };
+    // The CRUD manager refuses a connection it can't find: nothing is built or run.
+    const result = await manager.updateCell("tab-1", 0, 0, "total", 3, source);
+    expect(result).toEqual({ success: false, error: "No connection established" });
+    expect(update).toHaveBeenCalledWith("conn-1", source, { id: 1 }, "total", 3);
+  });
+});
+
+describe("query tab row delete (phase 5c, Task 1 follow-up)", () => {
+  it("deletes by the key's column source, so an aliased key column binds", async () => {
+    const env = setup("SELECT id AS order_id, total FROM orders");
+    const running = env.manager.execute("tab-1");
+    await settle();
+    push(
+      env.runner.runs[0].queue,
+      start(0, "SELECT id AS order_id, total FROM orders", "page", {
+        table: { table: "orders" },
+        columnRefs: [
+          { table: "orders", column: "id" },
+          { table: "orders", column: "total" },
+        ],
+      }),
+      batch(["order_id", "total"], [[7, 2]]),
+      stmtDone(0),
+      done(1),
+    );
+    await running;
+    env.state.connections.push({
+      id: "conn-2",
+      type: "postgres",
+      name: "Other",
+      providerConnectionId: "pc-2",
+    });
+    env.state.activeConnectionId = "conn-2";
+    const del = vi.spyOn(env.manager.crud, "deleteRow").mockResolvedValue({ success: true });
+
+    const source = env.results()[0].sourceTable!;
+    expect(await env.manager.deleteRowAt("tab-1", 0, 0, source)).toEqual({ success: true });
+    expect(del).toHaveBeenCalledWith(
+      "conn-1",
+      { schema: "public", name: "orders", primaryKeys: ["id"] },
+      { id: 7 },
+    );
+  });
+
+  it("refuses a row that isn't there and a result without a connection", async () => {
+    const env = setup("SELECT 1");
+    const del = vi.spyOn(env.manager.crud, "deleteRow");
+    const source = { schema: "public", name: "orders", primaryKeys: ["id"] };
+    expect(await env.manager.deleteRowAt("tab-1", 0, 0, source)).toEqual({
+      success: false,
+      error: "Row not found",
+    });
+    env.tab()!.results = [
+      { columns: ["id"], rows: [[1]], isError: false } as unknown as StatementResult,
+    ];
+    expect(await env.manager.deleteRowAt("tab-1", 0, 0, source)).toEqual({
+      success: false,
+      error: "No connection established",
+    });
+    expect(del).not.toHaveBeenCalled();
   });
 });

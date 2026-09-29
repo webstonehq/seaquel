@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 mod common;
-use common::{next, open_stream, pg_form, send, start_run, Env};
+use common::{next, open_stream, pg_form, send, start_run, start_table_page, until_end, Env};
 
 static RECORDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -211,5 +211,150 @@ async fn stream_ids_are_checked_and_logged_ids_are_one_line() {
     );
     for record in &records {
         assert!(!record.contains('\n'), "{record}");
+    }
+}
+
+/// The edits service logs activity names, codes, counts and the group and
+/// method of a failed call, never a key, a value, typed SQL or a filter
+/// value.
+#[tokio::test]
+async fn apply_logs_code_group_and_method_only() {
+    capture_logs();
+    let env = Env::new(4);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let canary = format!("canaryEd{}", std::process::id());
+    let target = json!({"schema": "public", "table": "t"});
+
+    // A refused plan (the key isn't the primary key), its key a canary.
+    let (status, body) = env
+        .db(
+            "alice",
+            "planEdits",
+            json!({"connectionId": c, "edits": [
+                {"type": "updateCell", "target": target, "key": [["name", format!("{canary}-key")]],
+                 "column": "name", "value": format!("{canary}-value")}]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "NOT_EDITABLE");
+
+    // An apply with canaries in a key, a value, typed SQL and its params,
+    // and one refused in its outcome (two statements in one change).
+    let (status, body) = env
+        .db(
+            "alice",
+            "applyChanges",
+            json!({"connectionId": c, "changes": [
+                {"type": "edit", "id": "p1", "edit": {"type": "updateCell", "target": target,
+                 "key": [["id", format!("{canary}-key")]], "column": "name", "value": format!("{canary}-value")}},
+                {"type": "sql", "id": "p2", "sql": format!("UPDATE t SET name = '{canary}-sql' WHERE id = $1"),
+                 "params": [format!("{canary}-param")]},
+            ]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["result"]["applied"], 2, "{body}");
+    let (status, body) = env
+        .db(
+            "alice",
+            "applyChanges",
+            json!({"connectionId": c, "changes": [
+                {"type": "sql", "id": "p1", "sql": format!("DELETE FROM t WHERE a = '{canary}-1'; DELETE FROM t")},
+            ]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["result"]["failed"]["code"], "INVALID_ARGUMENT",
+        "{body}"
+    );
+
+    // A table page with a canary filter value.
+    let mut ws = open_stream(addr, "alice").await;
+    send(
+        &mut ws,
+        &start_table_page(
+            "t1",
+            &c,
+            "t",
+            json!([{"column": "name", "op": "=", "value": format!("{canary}-filter")}]),
+            1,
+            10,
+        ),
+    )
+    .await;
+    let got = until_end(&mut ws, "t1", &mut Vec::new()).await;
+    assert_eq!(got.last().unwrap()["event"]["type"], "done", "{got:?}");
+
+    let records = records();
+    assert!(
+        records.iter().any(|r| r.contains("activity=rpc.error")
+            && r.contains("code=NOT_EDITABLE")
+            && r.contains("group=db")
+            && r.contains("method=planEdits")),
+        "{records:#?}"
+    );
+    assert!(
+        records
+            .iter()
+            .any(|r| r.contains("activity=db.applyChanges")),
+        "{records:#?}"
+    );
+    for record in &records {
+        assert!(!record.contains(&canary), "{record}");
+    }
+}
+
+/// Review of the probe fixes: tiberius logs every SQL Server error token
+/// with its message (`tiberius::tds::stream::token`, ERROR), and that text
+/// can quote values (`THROW`'s text, a conversion error, a duplicate key).
+/// The server's logger drops the target, so a `THROW` marker never reaches
+/// the log. Live: runs only with `SEAQUEL_TEST_MSSQL` set (a ConnectConfig
+/// JSON with `host`, `port`, `username` and `password`).
+#[tokio::test]
+async fn sql_server_error_text_is_not_logged() {
+    let Ok(raw) = std::env::var("SEAQUEL_TEST_MSSQL") else {
+        return;
+    };
+    let config: serde_json::Value = serde_json::from_str(&raw).expect("a ConnectConfig JSON");
+    capture_logs();
+    let env = Env::with_core(
+        std::sync::Arc::new(seaquel_server::web_core()),
+        4,
+        std::sync::Arc::default(),
+    );
+    let form = json!({"type": "mssql", "name": "live", "host": config["host"],
+        "port": config["port"], "databaseName": "master", "username": config["username"],
+        "sslMode": "disable"});
+    let (status, body) = env
+        .db(
+            "alice",
+            "connect",
+            json!({"target": {"type": "form", "form": form}, "secrets": {"db": config["password"]}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let c = body["result"]["result"]["connectionId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let canary = format!("throwcanary{}", std::process::id());
+    for (method, sql) in [
+        ("execute", format!("THROW 50000, '{canary}-throw', 1")),
+        ("query", format!("SELECT CAST('{canary}-cast' AS int)")),
+        ("execute", format!("PRINT '{canary}-print'")),
+    ] {
+        let (_, body) = env
+            .db("alice", method, json!({"connectionId": c, "sql": sql}))
+            .await;
+        assert!(
+            body.to_string().contains(&canary) || method == "execute",
+            "{body}"
+        );
+    }
+    let records = records();
+    for record in &records {
+        assert!(!record.contains(&canary), "{record}");
     }
 }

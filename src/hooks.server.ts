@@ -9,6 +9,7 @@ import {
   originGateResponse,
 } from "$lib/server/api-gate";
 import { auth } from "$lib/server/auth";
+import { limitRequestBody } from "$lib/server/body-limit";
 import { gate as licenseGate, LicenseClientError } from "$lib/server/license-client";
 
 // No `init` hook needed: each server-side data store is now lazily
@@ -34,6 +35,19 @@ const handleParaglide: Handle = ({ event, resolve }) =>
         html.replace("%paraglide.lang%", locale).replace("%paraglide.dir%", dir),
     });
   });
+
+// Body limits (`$lib/server/body-limit`): adapter-node's BODY_SIZE_LIMIT is
+// `Infinity` (server.js moves the operator's value aside), so this applies
+// 20 MiB to `/api/rpc` and the operator's limit (512K by default) to every
+// other route. Runs first: a body declared too large is refused before any
+// session or license lookup, and nothing reads it.
+const handleBodyLimit: Handle = ({ event, resolve }) => {
+  if (import.meta.env.VITE_BUILD_TARGET !== "web" || building) return resolve(event);
+  const limited = limitRequestBody(event.request, event.url.pathname, process.env);
+  if (limited instanceof Response) return limited;
+  event.request = limited;
+  return resolve(event);
+};
 
 // CSRF: a state-changing `/api/*` call must come from a trusted Origin (the
 // install's own, or a configured one; `originGateResponse` in `api-gate.ts`).
@@ -148,6 +162,7 @@ const handleApiGate: Handle = async ({ event, resolve }) => {
 };
 
 export const handle: Handle = sequence(
+  handleBodyLimit,
   handleOriginGate,
   handleAuth,
   handleApiGate,

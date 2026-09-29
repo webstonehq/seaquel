@@ -5,7 +5,8 @@
 	import { deepLinkDialogStore } from "$lib/stores/deep-link-dialog.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
-	import { LinkIcon, LoaderIcon } from "@lucide/svelte";
+	import LinkIcon from "@lucide/svelte/icons/link";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
 
 	const db = useDatabase();
 

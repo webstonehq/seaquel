@@ -2,7 +2,12 @@
 	import type { ChartConfig, ChartType } from '$lib/types';
 	import { Label } from '$lib/components/ui/label';
 	import { Button } from '$lib/components/ui/button';
-	import { BarChartIcon, LineChartIcon, PieChartIcon, ScatterChartIcon, AreaChartIcon, RotateCcwIcon } from '@lucide/svelte';
+	import BarChartIcon from '@lucide/svelte/icons/bar-chart';
+	import LineChartIcon from '@lucide/svelte/icons/line-chart';
+	import PieChartIcon from '@lucide/svelte/icons/pie-chart';
+	import ScatterChartIcon from '@lucide/svelte/icons/scatter-chart';
+	import AreaChartIcon from '@lucide/svelte/icons/area-chart';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 
 	interface Props {
 		config: ChartConfig;

@@ -5,13 +5,21 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
-	import { TableIcon, ChevronRightIcon, FolderIcon, SearchIcon, PlusIcon, MoreHorizontalIcon, RefreshCwIcon, EyeIcon, LayoutGridIcon, Trash2Icon } from "@lucide/svelte";
+	import TableIcon from "@lucide/svelte/icons/table";
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import FolderIcon from "@lucide/svelte/icons/folder";
+	import SearchIcon from "@lucide/svelte/icons/search";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import MoreHorizontalIcon from "@lucide/svelte/icons/more-horizontal";
+	import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+	import EyeIcon from "@lucide/svelte/icons/eye";
+	import LayoutGridIcon from "@lucide/svelte/icons/layout-grid";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "$lib/components/ui/collapsible";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import { m } from "$lib/paraglide/messages.js";
-	import { getEngineClient } from "$lib/engine";
 
 	const db = useDatabase();
 
@@ -19,18 +27,17 @@
 	let schemaSearchQuery = $state("");
 	let isRefreshingSchema = $state(false);
 
-	// Drop/Truncate table state
-	let dropTableTarget = $state<{ schema: string; name: string; type: "table" | "view" | "materialized-view" } | null>(null);
+	// Drop/Truncate table state. `connectionId` is the connection whose
+	// schema the menu was opened on, so the statement runs there even if
+	// another connection becomes active before the dialog is confirmed.
+	let dropTableTarget = $state<{ connectionId: string; schema: string; name: string; type: "table" | "view" | "materialized-view" } | null>(null);
 	let showDropDialog = $state(false);
-	let truncateTableTarget = $state<{ schema: string; name: string } | null>(null);
+	let truncateTableTarget = $state<{ connectionId: string; schema: string; name: string } | null>(null);
 	let showTruncateDialog = $state(false);
 
-	/** The table as the engine quotes it (DuckDB's `catalog.schema` is two names). */
-	const qualifiedTable = (schema: string, name: string): string => {
-		const connection = db.state.activeConnection;
-		if (!connection) throw new Error("No active connection");
-		return getEngineClient(connection, db.state).qualifiedTable(schema, name);
-	};
+	/** What Core drops (phase 5c, Decision 11): it builds the statement with the dialect. */
+	const dropKind = (type: "table" | "view" | "materialized-view") =>
+		type === "materialized-view" ? "materializedView" : type;
 
 	const dropKeyword = (type: "table" | "view" | "materialized-view") =>
 		type === "materialized-view" ? "MATERIALIZED VIEW" : type === "view" ? "VIEW" : "TABLE";
@@ -39,15 +46,13 @@
 		type === "materialized-view" ? "Materialized View" : type === "view" ? "View" : "Table";
 
 	const handleDropTable = async () => {
-		if (!dropTableTarget || !db.state.activeConnectionId) return;
-		const { schema, name, type } = dropTableTarget;
+		if (!dropTableTarget) return;
+		const { connectionId, schema, name, type } = dropTableTarget;
 		const keyword = dropKeyword(type);
 		showDropDialog = false;
 		dropTableTarget = null;
 		try {
-			const result = await db.queries.executeRawDdl(
-				`DROP ${keyword} ${qualifiedTable(schema, name)}`,
-			);
+			const result = await db.queries.dropObject(connectionId, { schema, name }, dropKind(type));
 			if (result.queued) {
 				const { toast } = await import("svelte-sonner");
 				toast.info(`Drop ${keyword.toLowerCase()} "${name}" added to pending changes`);
@@ -55,21 +60,27 @@
 			}
 			// Close tabs referencing the dropped object
 			for (const tab of db.state.schemaTabs) {
-				if (tab.table.name === name && tab.table.schema === schema) {
+				if (tab.connectionId === connectionId && tab.table.name === name && tab.table.schema === schema) {
 					db.schemaTabs.remove(tab.id);
 				}
 			}
 			for (const tab of db.state.dataTabs) {
-				if (tab.tableName === name && tab.schemaName === schema) {
+				if (tab.connectionId === connectionId && tab.tableName === name && tab.schemaName === schema) {
 					db.dataTabs.remove(tab.id);
 				}
 			}
 			for (const tab of db.state.createTableTabs) {
-				if (tab.isEditMode && tab.name === name) {
+				const definition = tab.originalDefinition ?? tab.tableDefinition;
+				if (
+					tab.isEditMode &&
+					tab.connectionId === connectionId &&
+					tab.name === name &&
+					definition.schemaName === schema
+				) {
 					db.createTableTabs.remove(tab.id);
 				}
 			}
-			await db.connections.refreshSchema(db.state.activeConnectionId);
+			await db.connections.refreshSchema(connectionId);
 			const { toast } = await import("svelte-sonner");
 			toast.success(`${keyword} "${name}" dropped`);
 		} catch (error) {
@@ -79,16 +90,13 @@
 	};
 
 	const handleTruncateTable = async () => {
-		if (!truncateTableTarget || !db.state.activeConnectionId) return;
-		const schema = truncateTableTarget.schema;
-		const name = truncateTableTarget.name;
+		if (!truncateTableTarget) return;
+		const { connectionId, schema, name } = truncateTableTarget;
 		showTruncateDialog = false;
 		truncateTableTarget = null;
-		const isSqlite = db.state.activeConnection?.type === "sqlite";
 		try {
-			const from = qualifiedTable(schema, name);
-			const sql = isSqlite ? `DELETE FROM ${from}` : `TRUNCATE TABLE ${from}`;
-			const result = await db.queries.executeRawDdl(sql);
+			// Core truncates SQLite with DELETE FROM.
+			const result = await db.queries.truncateTable(connectionId, { schema, name });
 			if (result.queued) {
 				const { toast } = await import("svelte-sonner");
 				toast.info(`Truncate table "${name}" added to pending changes`);
@@ -247,7 +255,8 @@
 												{#if table.type === "table"}
 													<DropdownMenu.Separator />
 													<DropdownMenu.Item onclick={() => {
-														truncateTableTarget = { schema: table.schema, name: table.name };
+														if (!db.state.activeConnectionId) return;
+														truncateTableTarget = { connectionId: db.state.activeConnectionId, schema: table.schema, name: table.name };
 														showTruncateDialog = true;
 													}}>
 														<Trash2Icon class="size-4 me-2" />
@@ -257,7 +266,8 @@
 													<DropdownMenu.Separator />
 												{/if}
 												<DropdownMenu.Item class="text-destructive" onclick={() => {
-													dropTableTarget = { schema: table.schema, name: table.name, type: table.type };
+													if (!db.state.activeConnectionId) return;
+													dropTableTarget = { connectionId: db.state.activeConnectionId, schema: table.schema, name: table.name, type: table.type };
 													showDropDialog = true;
 												}}>
 													<Trash2Icon class="size-4 me-2" />

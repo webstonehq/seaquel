@@ -13,7 +13,7 @@ use sqlx::{
 use seaquel_engine::{
     BatchStatement, BoxStream, CancellationToken, CappedResult, ConnectConfig, DatabaseStatistics,
     DbError, Driver, ExecuteResult, ExplainResult, QueryResult, ReadOnlyOptions, RowCap,
-    SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, Value,
+    SchemaColumn, SchemaIndex, SchemaTable, StreamBatch, TransactionError, Value,
 };
 
 use crate::{introspect, read_only};
@@ -101,9 +101,12 @@ impl Driver for SqliteDriver {
         self.inner.execute(sql, params).await
     }
 
-    async fn transaction(&self, statements: Vec<BatchStatement>) -> Result<(), DbError> {
-        for statement in &statements {
-            refuse_nul(&statement.sql)?;
+    async fn transaction(
+        &self,
+        statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
+        for (index, statement) in statements.iter().enumerate() {
+            refuse_nul(&statement.sql).map_err(|e| TransactionError::at(index, e))?;
         }
         self.inner.transaction(statements).await
     }

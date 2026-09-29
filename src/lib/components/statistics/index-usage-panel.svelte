@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { IndexUsageInfo } from '$lib/types';
-	import { ArrowUpDown as ArrowUpDownIcon, AlertTriangle as AlertTriangleIcon } from '@lucide/svelte';
+	import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
+	import AlertTriangleIcon from '@lucide/svelte/icons/alert-triangle';
 	import { Button } from '$lib/components/ui/button';
 
 	interface Props {

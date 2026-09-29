@@ -22,7 +22,10 @@ use std::sync::{Mutex, PoisonError};
 
 use futures::channel::mpsc;
 
-use seaquel_engine::{BatchStatement, BoxStream, DbError, ExecuteResult, QueryResult};
+use seaquel_engine::{
+    BatchStatement, BoxStream, CancellationToken, DbError, ExecuteResult, QueryResult,
+    TransactionError,
+};
 #[cfg(feature = "secrets")]
 use seaquel_secrets::SecretStore;
 #[cfg(feature = "storage")]
@@ -161,6 +164,10 @@ pub struct Workspace {
     id: WorkspaceId,
     /// Set by [`Workspace::close_all`]: no new connection after it.
     closed: AtomicBool,
+    /// Cancelled by [`Workspace::close_all`], for the calls it must stop
+    /// that aren't streams (an apply's transaction, probe M1). Streams are
+    /// cancelled through their own tokens.
+    closing: CancellationToken,
     /// The receivers [`Workspace::events`] handed out; a dropped one is
     /// pruned on the next event.
     subscribers: Mutex<Vec<mpsc::UnboundedSender<WorkspaceEvent>>>,
@@ -184,6 +191,7 @@ impl Workspace {
         Ok(Self {
             id: WorkspaceId::random(),
             closed: AtomicBool::new(false),
+            closing: CancellationToken::new(),
             subscribers: Mutex::default(),
             connecting: Mutex::new(0),
             data_dir: spec.data_dir,
@@ -275,7 +283,7 @@ impl Workspace {
         core: &Core,
         connection_id: &str,
         statements: Vec<BatchStatement>,
-    ) -> Result<(), DbError> {
+    ) -> Result<Vec<u64>, TransactionError> {
         core.connection_handle_as(connection_id, Some(self.id))
             .transaction(statements)
             .await
@@ -327,8 +335,10 @@ impl Workspace {
             .map_err(|e| CoreError::new(e.code, e.message))
     }
 
-    /// Close everything this workspace owns: cancel its streams, and close
-    /// its connections and their SSH tunnels. For the web server's eviction.
+    /// Close everything this workspace owns: cancel its streams, stop its
+    /// applies in flight (an atomic one rolls back instead of committing, an
+    /// in-order one stops at the statement it runs), and close its
+    /// connections and their SSH tunnels. For the web server's eviction.
     /// Afterwards [`Workspace::connect`] fails with `WORKSPACE_CLOSED`, and a
     /// connect still in flight closes what it opened.
     ///
@@ -339,6 +349,9 @@ impl Workspace {
     /// (`CONNECTION_NOT_FOUND`) isn't: the GUI asked for that.
     pub async fn close_all(&self, core: &Core) {
         self.closed.store(true, Ordering::SeqCst);
+        // An apply in flight drops its transaction (a rollback) or stops at
+        // the statement it runs, before the connections close under it.
+        self.closing.cancel();
         core.cancel_streams_owned_by(self.id);
         let ids = core.connections_of(self.id);
         log::info!(activity = "workspace.close_all", connections = ids.len(); "Closing a workspace's connections");
@@ -397,6 +410,12 @@ impl Workspace {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|tx| tx.unbounded_send(event.clone()).is_ok());
+    }
+
+    /// Cancelled once [`Workspace::close_all`] runs.
+    #[cfg(feature = "workspace")]
+    pub(crate) fn closing(&self) -> &CancellationToken {
+        &self.closing
     }
 
     /// The ids of this workspace's open connections.

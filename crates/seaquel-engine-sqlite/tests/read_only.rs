@@ -440,7 +440,15 @@ async fn nul_bytes_are_refused_on_every_path() {
         };
         let batch = vec![statement("INSERT INTO t VALUES (1)"), statement(SQL)];
         let r = tokio::time::timeout(within, driver.transaction(batch)).await;
-        check("transaction", r);
+        check(
+            "transaction",
+            r.map(|r| {
+                r.map(drop).map_err(|e| {
+                    assert_eq!(e.index, Some(1), "the refusal names its statement");
+                    e.error
+                })
+            }),
+        );
         let stream = driver.query_stream(SQL.to_string(), vec![], CancellationToken::new());
         let r = tokio::time::timeout(within, stream.collect::<Vec<_>>()).await;
         let first = r.expect("query_stream hung").into_iter().next();

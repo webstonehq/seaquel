@@ -1,0 +1,692 @@
+[
+  {
+    "name": "mariadb/bigint-key-queued",
+    "engine": "mariadb",
+    "input": {
+      "via": "dataTab",
+      "pending": true,
+      "table": {
+        "schema": "app",
+        "table": "events"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "kind"
+        ],
+        "rows": [
+          [
+            {
+              "$sq": "bigint",
+              "v": "18446744073709551615"
+            },
+            "a"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "app",
+          "name": "events",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "events",
+          "schema": "app",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "bigint(20) unsigned",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "kind",
+              "type": "varchar(16)",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "events_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "app",
+        "table": "events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "bigint(20) unsigned",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "kind",
+            "type": "varchar(16)",
+            "nullable": true,
+            "defaultValue": "'x'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "events_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "updateCell",
+        "row": 0,
+        "column": "kind",
+        "value": "b",
+        "edit": {
+          "type": "updateCell",
+          "target": {
+            "schema": "app",
+            "table": "events"
+          },
+          "key": [
+            [
+              "id",
+              {
+                "$sq": "bigint",
+                "v": "18446744073709551615"
+              }
+            ]
+          ],
+          "column": "kind",
+          "value": "b"
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildUpdate",
+            "params": {
+              "schema": "app",
+              "table": "events",
+              "column": "kind",
+              "value": "b",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  {
+                    "$sq": "bigint",
+                    "v": "18446744073709551615"
+                  }
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE `app`.`events` SET `kind` = ? WHERE `id` = ?",
+              "bindValues": [
+                "b",
+                {
+                  "$sq": "decimal",
+                  "v": "18446744073709551615"
+                }
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      },
+      {
+        "action": "setDefault",
+        "row": 0,
+        "column": "kind",
+        "edit": {
+          "type": "setDefault",
+          "target": {
+            "schema": "app",
+            "table": "events"
+          },
+          "key": [
+            [
+              "id",
+              {
+                "$sq": "bigint",
+                "v": "18446744073709551615"
+              }
+            ]
+          ],
+          "column": "kind"
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildSetDefault",
+            "params": {
+              "schema": "app",
+              "table": "events",
+              "column": "kind",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  {
+                    "$sq": "bigint",
+                    "v": "18446744073709551615"
+                  }
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "UPDATE `app`.`events` SET `kind` = DEFAULT WHERE `id` = ?",
+              "bindValues": [
+                {
+                  "$sq": "decimal",
+                  "v": "18446744073709551615"
+                }
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      }
+    ],
+    "queue": [
+      {
+        "id": "c1",
+        "change": {
+          "type": "edit",
+          "id": "c1",
+          "edit": {
+            "type": "setDefault",
+            "target": {
+              "schema": "app",
+              "table": "events"
+            },
+            "key": [
+              [
+                "id",
+                {
+                  "$sq": "bigint",
+                  "v": "18446744073709551615"
+                }
+              ]
+            ],
+            "column": "kind"
+          }
+        },
+        "sql": "UPDATE `app`.`events` SET `kind` = DEFAULT WHERE `id` = ?",
+        "params": [
+          {
+            "$sq": "decimal",
+            "v": "18446744073709551615"
+          }
+        ],
+        "queryType": "update",
+        "dml": true,
+        "summary": null,
+        "description": "UPDATE `app`.`events` SET `kind` = DEFAULT WHERE `id` = ?",
+        "origin": "inline-edit",
+        "target": {
+          "schema": "app",
+          "table": "events",
+          "column": "kind",
+          "primaryKeyValues": {
+            "id": {
+              "$sq": "bigint",
+              "v": "18446744073709551615"
+            }
+          }
+        }
+      }
+    ],
+    "toasts": []
+  },
+  {
+    "name": "mariadb/immediate-edits",
+    "engine": "mariadb",
+    "input": {
+      "via": "dataTab",
+      "pending": false,
+      "table": {
+        "schema": "app",
+        "table": "events"
+      },
+      "result": {
+        "columns": [
+          "id",
+          "kind"
+        ],
+        "rows": [
+          [
+            1,
+            "a"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "app",
+          "name": "events",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": null
+      },
+      "schemaCache": [
+        {
+          "name": "events",
+          "schema": "app",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "bigint(20) unsigned",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "kind",
+              "type": "varchar(16)",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "events_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "app",
+        "table": "events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "bigint(20) unsigned",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "kind",
+            "type": "varchar(16)",
+            "nullable": true,
+            "defaultValue": "'x'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "events_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "insertRow",
+        "values": {
+          "kind": "n"
+        },
+        "edit": {
+          "type": "insertRow",
+          "target": {
+            "schema": "app",
+            "table": "events"
+          },
+          "values": [
+            [
+              "kind",
+              "n"
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildInsert",
+            "params": {
+              "schema": "app",
+              "table": "events",
+              "values": [
+                [
+                  "kind",
+                  "n"
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "INSERT INTO `app`.`events` (`kind`) VALUES (?)",
+              "bindValues": [
+                "n"
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "INSERT INTO `app`.`events` (`kind`) VALUES (?)",
+            "params": [
+              "n"
+            ],
+            "answer": {
+              "rowsAffected": 1,
+              "lastInsertId": 2
+            }
+          }
+        ],
+        "outcome": {
+          "saved": true
+        },
+        "refreshed": true
+      },
+      {
+        "action": "deleteRow",
+        "row": 0,
+        "edit": {
+          "type": "deleteRow",
+          "target": {
+            "schema": "app",
+            "table": "events"
+          },
+          "key": [
+            [
+              "id",
+              1
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildDelete",
+            "params": {
+              "schema": "app",
+              "table": "events",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  1
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "DELETE FROM `app`.`events` WHERE `id` = ?",
+              "bindValues": [
+                1
+              ]
+            }
+          },
+          {
+            "op": "execute",
+            "sql": "DELETE FROM `app`.`events` WHERE `id` = ?",
+            "params": [
+              1
+            ],
+            "answer": {
+              "rowsAffected": 1
+            }
+          }
+        ],
+        "outcome": {
+          "success": true
+        },
+        "refreshed": true
+      }
+    ],
+    "queue": [],
+    "toasts": []
+  },
+  {
+    "name": "mariadb/query-tab-aliased-delete",
+    "engine": "mariadb",
+    "notes": "The delete reads the key through the column refs (Task 1), so the alias binds",
+    "input": {
+      "via": "queryTab",
+      "pending": true,
+      "query": "SELECT e.id AS event_id, e.kind FROM app.events e",
+      "result": {
+        "columns": [
+          "event_id",
+          "kind"
+        ],
+        "rows": [
+          [
+            7,
+            "a"
+          ]
+        ],
+        "sourceTable": {
+          "schema": "app",
+          "name": "events",
+          "primaryKeys": [
+            "id"
+          ]
+        },
+        "columnSources": [
+          {
+            "schema": "app",
+            "table": "events",
+            "primaryKeys": [
+              "id"
+            ],
+            "column": "id"
+          },
+          {
+            "schema": "app",
+            "table": "events",
+            "primaryKeys": [
+              "id"
+            ],
+            "column": "kind"
+          }
+        ]
+      },
+      "schemaCache": [
+        {
+          "name": "events",
+          "schema": "app",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "bigint(20) unsigned",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "kind",
+              "type": "varchar(16)",
+              "nullable": true,
+              "defaultValue": "'x'",
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "events_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ]
+    },
+    "metadata": [
+      {
+        "schema": "app",
+        "table": "events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "bigint(20) unsigned",
+            "nullable": false,
+            "isPrimaryKey": true,
+            "isForeignKey": false
+          },
+          {
+            "name": "kind",
+            "type": "varchar(16)",
+            "nullable": true,
+            "defaultValue": "'x'",
+            "isPrimaryKey": false,
+            "isForeignKey": false
+          }
+        ],
+        "indexes": [
+          {
+            "name": "events_pkey",
+            "columns": [
+              "id"
+            ],
+            "unique": true,
+            "type": "btree"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "action": "deleteRow",
+        "row": 0,
+        "edit": {
+          "type": "deleteRow",
+          "target": {
+            "schema": "app",
+            "table": "events"
+          },
+          "key": [
+            [
+              "id",
+              7
+            ]
+          ]
+        },
+        "driver": [
+          {
+            "op": "build",
+            "method": "buildDelete",
+            "params": {
+              "schema": "app",
+              "table": "events",
+              "primary_keys": [
+                "id"
+              ],
+              "row": [
+                [
+                  "id",
+                  7
+                ]
+              ]
+            },
+            "answer": {
+              "sql": "DELETE FROM `app`.`events` WHERE `id` = ?",
+              "bindValues": [
+                7
+              ]
+            }
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "queued": true
+        }
+      }
+    ],
+    "queue": [
+      {
+        "id": "c1",
+        "change": {
+          "type": "edit",
+          "id": "c1",
+          "edit": {
+            "type": "deleteRow",
+            "target": {
+              "schema": "app",
+              "table": "events"
+            },
+            "key": [
+              [
+                "id",
+                7
+              ]
+            ]
+          }
+        },
+        "sql": "DELETE FROM `app`.`events` WHERE `id` = ?",
+        "params": [
+          7
+        ],
+        "queryType": "delete",
+        "dml": true,
+        "summary": null,
+        "description": "DELETE FROM `app`.`events` WHERE `id` = ?",
+        "origin": "delete-row",
+        "target": {
+          "schema": "app",
+          "table": "events",
+          "primaryKeyValues": {
+            "id": 7
+          }
+        }
+      }
+    ],
+    "toasts": []
+  }
+]

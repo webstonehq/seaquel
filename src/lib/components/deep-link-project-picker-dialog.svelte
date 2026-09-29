@@ -3,7 +3,8 @@
 	import { Button } from "$lib/components/ui/button";
 	import { deepLinkProjectPickerStore } from "$lib/stores/deep-link-project-picker.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { FolderIcon, LinkIcon } from "@lucide/svelte";
+	import FolderIcon from "@lucide/svelte/icons/folder";
+	import LinkIcon from "@lucide/svelte/icons/link";
 
 	const db = useDatabase();
 

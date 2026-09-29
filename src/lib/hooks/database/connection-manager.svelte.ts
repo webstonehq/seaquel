@@ -149,76 +149,58 @@ export class ConnectionManager {
   async initializePersistedConnections(): Promise<void> {
     try {
       const persistedConnections = await this.persistence.loadPersistedConnections();
-      const keyring = getKeyringService();
 
-      // Phase 1: Build connection objects + fetch keyring passwords in parallel
-      const connectionEntries = await Promise.all(
-        persistedConnections.map(async (persisted) => {
-          let password = "";
-          // Only pre-fetch when the keyring is *currently unlocked* — on
-          // desktop that's always true; on web it's true only if the
-          // user has already unlocked the vault in this tab. The web
-          // connect flow prompts to unlock on demand when the user
-          // actually hits Connect, so skipping here just avoids an
-          // unsolicited passphrase dialog on every page load.
-          if (persisted.savePassword && keyring.isUnlocked()) {
-            try {
-              const savedPassword = await keyring.getDbPassword(persisted.id);
-              if (savedPassword) {
-                password = savedPassword;
-              }
-            } catch (error) {
-              void log.warn("Failed to load password from keyring:", error);
+      // Register saved connections without waiting for the OS keychain. A
+      // keychain read can take seconds on macOS and Core reads saved desktop
+      // secrets itself when connecting. Web reads the vault on demand in
+      // heldSecrets, so neither target needs a startup secret fetch.
+      const connectionEntries = persistedConnections.map((persisted) => {
+        // Extract username from connection string if not stored separately (backwards compat)
+        let username = persisted.username ?? "";
+        if (!username && persisted.connectionString) {
+          try {
+            const connStr = persisted.connectionString.replace("postgresql://", "postgres://");
+            // SQLite and DuckDB use file-based connection strings, not URLs
+            if (!connStr.startsWith("sqlite") && !connStr.startsWith("duckdb")) {
+              const url = new URL(connStr);
+              username = url.username ? decodeURIComponent(url.username) : "";
             }
+          } catch {
+            // Ignore parsing errors
           }
+        }
 
-          // Extract username from connection string if not stored separately (backwards compat)
-          let username = persisted.username ?? "";
-          if (!username && persisted.connectionString) {
-            try {
-              const connStr = persisted.connectionString.replace("postgresql://", "postgres://");
-              // SQLite and DuckDB use file-based connection strings, not URLs
-              if (!connStr.startsWith("sqlite") && !connStr.startsWith("duckdb")) {
-                const url = new URL(connStr);
-                username = url.username ? decodeURIComponent(url.username) : "";
-              }
-            } catch {
-              // Ignore parsing errors
-            }
-          }
-
-          const connection: DatabaseConnection = {
-            id: persisted.id,
-            name: persisted.name,
-            type: persisted.type,
-            host: persisted.host,
-            port: persisted.port,
-            databaseName: persisted.databaseName,
-            username,
-            password,
-            sslMode: persisted.sslMode,
-            connectionString: persisted.connectionString,
-            lastConnected: persisted.lastConnected ? new Date(persisted.lastConnected) : undefined,
-            // A stored JSON `null` loads as `null`.
-            sshTunnel: persisted.sshTunnel ?? undefined,
-            savePassword: persisted.savePassword,
-            saveSshPassword: persisted.saveSshPassword,
-            saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
-            projectId: persisted.projectId || DEFAULT_PROJECT_ID,
-            labelIds: persisted.labelIds || [],
-            isLocalOnly: persisted.isLocalOnly,
-            sharedConnectionId: persisted.sharedConnectionId,
-            // Every field a save writes back must be carried over here, or
-            // the first save of this object (the migration below, a label
-            // change) would clear it.
-            aiShareSchema: persisted.aiShareSchema,
-            aiShareData: persisted.aiShareData,
-            activeAIProviderId: persisted.activeAIProviderId,
-            activeAIModel: persisted.activeAIModel,
-          };
-          return connection;
-        }),
-      );
+        const connection: DatabaseConnection = {
+          id: persisted.id,
+          name: persisted.name,
+          type: persisted.type,
+          host: persisted.host,
+          port: persisted.port,
+          databaseName: persisted.databaseName,
+          username,
+          password: "",
+          sslMode: persisted.sslMode,
+          connectionString: persisted.connectionString,
+          lastConnected: persisted.lastConnected ? new Date(persisted.lastConnected) : undefined,
+          // A stored JSON `null` loads as `null`.
+          sshTunnel: persisted.sshTunnel ?? undefined,
+          savePassword: persisted.savePassword,
+          saveSshPassword: persisted.saveSshPassword,
+          saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
+          projectId: persisted.projectId || DEFAULT_PROJECT_ID,
+          labelIds: persisted.labelIds || [],
+          isLocalOnly: persisted.isLocalOnly,
+          sharedConnectionId: persisted.sharedConnectionId,
+          // Every field a save writes back must be carried over here, or
+          // the first save of this object (the migration below, a label
+          // change) would clear it.
+          aiShareSchema: persisted.aiShareSchema,
+          aiShareData: persisted.aiShareData,
+          activeAIProviderId: persisted.activeAIProviderId,
+          activeAIModel: persisted.activeAIModel,
+        };
+        return connection;
+      });
 
       // Rows written before phase 5a hold the string the old builder rebuilt
       // from their fields. Core would connect with it and ignore the fields,

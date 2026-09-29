@@ -12,7 +12,7 @@ use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest, Message};
 mod common;
 use common::{
     event_types, next, open_stream, pg_form, quiet, send, start, start_page, start_run,
-    start_run_with, start_with, until_end, Env,
+    start_run_with, start_table_page, start_with, until_end, Env,
 };
 
 const MAX_STREAMS: usize = 16;
@@ -910,4 +910,299 @@ async fn another_users_run_is_connection_not_found() {
     env.calls
         .wait("alice's drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
         .await;
+}
+
+// ── db.tablePage ──
+
+/// A table page's events arrive as `run` frames with its `streamId`: the
+/// built SELECT's start, its batch, its done, then one `done`. A partial
+/// page runs no count.
+#[tokio::test]
+async fn a_table_page_streams_over_the_socket() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    send(
+        &mut ws,
+        &start_table_page(
+            "t1",
+            &c,
+            "people",
+            json!([{"column": "name", "op": "IN", "value": "a, b"}]),
+            1,
+            10,
+        ),
+    )
+    .await;
+    let got = until_end(&mut ws, "t1", &mut Vec::new()).await;
+    assert!(
+        got.iter()
+            .all(|f| f["type"] == "run" && f["streamId"] == "t1"),
+        "{got:?}"
+    );
+    assert_eq!(
+        event_types(&got),
+        ["statementStart", "batch", "statementDone", "done"],
+        "{got:?}"
+    );
+    let start = &got[0]["event"];
+    assert_eq!(start["kind"], "page");
+    assert_eq!(start["queryType"], "select");
+    assert_eq!(start["table"]["table"], "people");
+    let sql = start["source"]["sql"].as_str().unwrap();
+    assert!(
+        sql.contains(r#""public"."people""#) && sql.contains("IN ($1, $2)"),
+        "{sql}"
+    );
+    assert_eq!(start["source"]["params"], json!(["a", "b"]));
+    // The fake answers one row: the paged SQL.
+    let paged = got[1]["event"]["rows"][0][0].as_str().unwrap();
+    assert!(
+        paged.starts_with(sql) && paged.contains("LIMIT 11"),
+        "{paged}"
+    );
+    assert_eq!(got[2]["event"]["totalRows"], 1);
+    assert_eq!(got[3]["event"]["succeeded"], true);
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), 1, "no count");
+}
+
+/// A table page start whose `streamId` isn't the frame's, or whose request
+/// doesn't parse, is refused with a `run` error, and nothing runs.
+#[tokio::test]
+async fn a_bad_table_page_start_is_a_run_error() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    let mut mismatched = start_table_page("x1", &c, "t", json!([]), 1, 10);
+    mismatched["request"]["params"]["params"]["streamId"] = json!("other");
+    let bad_op = start_table_page(
+        "x2",
+        &c,
+        "t",
+        json!([{"column": "a", "op": "eq", "value": "1"}]),
+        1,
+        10,
+    );
+    for frame in [mismatched, bad_op] {
+        send(&mut ws, &frame).await;
+        let got = next(&mut ws).await;
+        assert_eq!(got["type"], "run", "{got}");
+        assert_eq!(got["streamId"], frame["streamId"], "{got}");
+        assert_eq!(got["event"]["type"], "error", "{got}");
+        assert_eq!(got["event"]["code"], "INVALID_ARGUMENT", "{got}");
+    }
+    quiet(&mut ws, 100).await;
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), 0);
+}
+
+/// A cancel frame stops a table page: its query is dropped and nothing
+/// more arrives for it.
+#[tokio::test]
+async fn a_cancel_frame_stops_a_table_page() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    // The fake hangs on SQL naming `hang`.
+    send(
+        &mut ws,
+        &start_table_page("t1", &c, "hang", json!([]), 1, 10),
+    )
+    .await;
+    assert_eq!(next(&mut ws).await["event"]["type"], "statementStart");
+    env.calls
+        .wait("the page", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    send(&mut ws, &json!({"op": "cancel", "streamId": "t1"})).await;
+    env.calls
+        .wait("the drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
+        .await;
+    quiet(&mut ws, 200).await;
+    assert_eq!(env.state.core.running_stream_count(), 0);
+}
+
+/// A table page stopped by something other than this socket (`db.cancel`
+/// on `/rpc`) ends with a `run` `CANCELLED` error, and a table page takes
+/// one of the socket's 16 slots.
+#[tokio::test]
+async fn a_table_page_stopped_elsewhere_ends_with_cancelled() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    for i in 0..MAX_STREAMS - 1 {
+        send(&mut ws, &start(&format!("s{i}"), &c, "SELECT hang()")).await;
+    }
+    send(
+        &mut ws,
+        &start_table_page("t1", &c, "hang", json!([]), 1, 10),
+    )
+    .await;
+    env.calls
+        .wait("16 queries", |c| {
+            c.hanging.load(Ordering::SeqCst) == MAX_STREAMS
+        })
+        .await;
+    let extra = start_table_page("t2", &c, "t", json!([]), 1, 10);
+    send(&mut ws, &extra).await;
+    let mut other = Vec::new();
+    let got = until_end(&mut ws, "t2", &mut other).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["type"], "run");
+    assert_eq!(got[0]["event"]["code"], "TOO_MANY_STREAMS");
+
+    let (status, body) = env.db("alice", "cancel", json!({"streamId": "t1"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let got = until_end(&mut ws, "t1", &mut other).await;
+    assert_eq!(
+        got.last().unwrap(),
+        &json!({"type": "run", "streamId": "t1", "event":
+                {"type": "error", "code": "CANCELLED", "message": "The query was stopped."}})
+    );
+    let mut all = other;
+    all.extend(got);
+    let mine: Vec<_> = all.into_iter().filter(|f| f["streamId"] == "t1").collect();
+    assert_eq!(event_types(&mine), ["statementStart", "error"], "{mine:?}");
+}
+
+/// Bob can't page alice's connection, nor cancel her page.
+#[tokio::test]
+async fn another_users_table_page_is_connection_not_found() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut alice = open_stream(addr, "alice").await;
+    let mut bob = open_stream(addr, "bob").await;
+
+    send(
+        &mut alice,
+        &start_table_page("t1", &c, "hang", json!([]), 1, 10),
+    )
+    .await;
+    env.calls
+        .wait("alice's page", |c| c.hanging.load(Ordering::SeqCst) == 1)
+        .await;
+    send(&mut bob, &start_table_page("t1", &c, "t", json!([]), 1, 10)).await;
+    let got = until_end(&mut bob, "t1", &mut Vec::new()).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["type"], "run");
+    assert_eq!(got[0]["event"]["code"], "CONNECTION_NOT_FOUND");
+    let (status, _) = env.db("bob", "cancel", json!({"streamId": "t1"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(env.calls.dropped.load(Ordering::SeqCst), 0);
+    assert_eq!(env.state.core.running_stream_count(), 1);
+    send(&mut alice, &json!({"op": "cancel", "streamId": "t1"})).await;
+    env.calls
+        .wait("alice's drop", |c| c.dropped.load(Ordering::SeqCst) == 1)
+        .await;
+}
+
+/// The web's table page limits: too many filters, `IN` items, or too long
+/// a value is one `INVALID_ARGUMENT` run error, and nothing runs.
+#[tokio::test]
+async fn the_web_table_page_limits_apply() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    let filter = json!({"column": "name", "op": "=", "value": "x"});
+    let in_list = (0..1_001)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    for (id, filters) in [
+        ("f", json!(vec![filter; 101])),
+        (
+            "i",
+            json!([{"column": "name", "op": "IN", "value": in_list}]),
+        ),
+        (
+            "v",
+            json!([{"column": "name", "op": "=", "value": "x".repeat(64 * 1024 + 1)}]),
+        ),
+    ] {
+        send(&mut ws, &start_table_page(id, &c, "t", filters, 1, 10)).await;
+        let got = until_end(&mut ws, id, &mut Vec::new()).await;
+        assert_eq!(got.len(), 1, "{id}: {got:?}");
+        assert_eq!(got[0]["type"], "run");
+        assert_eq!(got[0]["event"]["code"], "INVALID_ARGUMENT", "{id}");
+    }
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), 0);
+}
+
+/// A table page's batch too big for one frame is split by rows like a
+/// run's: columns on the first piece, `is_final` on the last.
+#[tokio::test]
+async fn a_table_page_batch_over_4_mib_is_split_by_rows() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    // The fake answers ten 1 MiB rows for SQL naming `big`.
+    send(
+        &mut ws,
+        &start_table_page("t1", &c, "big", json!([]), 1, 100),
+    )
+    .await;
+    let got = until_end(&mut ws, "t1", &mut Vec::new()).await;
+    let types = event_types(&got);
+    assert_eq!(types[0], "statementStart", "{types:?}");
+    assert_eq!(&types[types.len() - 2..], ["statementDone", "done"]);
+    let batches = &got[1..got.len() - 2];
+    assert!(batches.len() >= 3, "{types:?}");
+    for (i, frame) in batches.iter().enumerate() {
+        assert_eq!(frame["type"], "run");
+        assert_eq!(frame["event"]["type"], "batch");
+        assert_eq!(frame["event"]["is_final"], i == batches.len() - 1, "{i}");
+        assert_eq!(frame["event"]["columns"].is_array(), i == 0, "{i}");
+    }
+    let rows: usize = batches
+        .iter()
+        .map(|f| f["event"]["rows"].as_array().unwrap().len())
+        .sum();
+    assert_eq!(rows, 10);
+}
+
+/// Sixteen table pages fill a socket: the seventeenth start is a `run`
+/// `TOO_MANY_STREAMS` error, and nothing more is queried.
+#[tokio::test]
+async fn sixteen_table_pages_fill_a_socket() {
+    let env = Env::new(8);
+    let addr = env.serve().await;
+    let c = env.connect("alice", pg_form()).await;
+    let mut ws = open_stream(addr, "alice").await;
+
+    for i in 0..MAX_STREAMS {
+        send(
+            &mut ws,
+            &start_table_page(&format!("t{i}"), &c, "hang", json!([]), 1, 10),
+        )
+        .await;
+    }
+    env.calls
+        .wait("16 pages", |c| {
+            c.hanging.load(Ordering::SeqCst) == MAX_STREAMS
+        })
+        .await;
+    send(&mut ws, &start_table_page("t16", &c, "t", json!([]), 1, 10)).await;
+    let mut other = Vec::new();
+    let got = until_end(&mut ws, "t16", &mut other).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["type"], "run", "{got:?}");
+    assert_eq!(got[0]["event"]["type"], "error");
+    assert_eq!(got[0]["event"]["code"], "TOO_MANY_STREAMS");
+    assert!(
+        other.iter().all(|f| f["event"]["type"] == "statementStart"),
+        "{other:?}"
+    );
+    assert_eq!(env.calls.query.load(Ordering::SeqCst), MAX_STREAMS);
+    assert_eq!(env.state.core.running_stream_count(), MAX_STREAMS);
 }

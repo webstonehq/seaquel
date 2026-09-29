@@ -6,7 +6,8 @@
  *   A failure rejects with a `CoreCallError` (`"CODE: message"`).
  * - `stream` starts a stream call and yields its events, ending with exactly
  *   one `done` or `error`: a `db.queryStream` yields `StreamEvent`s, and the
- *   editor's `db.run` and `db.page` (phase 5b) yield `RunEvent`s. A run's or
+ *   editor's `db.run` and `db.page` (phase 5b) and the data tab's
+ *   `db.tablePage` (phase 5c) yield `RunEvent`s. A run's or
  *   page's text goes out well-formed (`wellFormedRequest`). Desktop: `core_stream` over a Tauri
  *   channel; web: the page's one `/api/rpc/stream` WebSocket. Aborting the
  *   signal, or leaving the `for await` early, cancels the stream; the
@@ -32,6 +33,7 @@ import type { RpcError } from "$lib/types/generated/RpcError";
 import type { RunEvent } from "$lib/types/generated/RunEvent";
 import type { RunParams } from "$lib/types/generated/RunParams";
 import type { StreamEvent } from "$lib/types/generated/StreamEvent";
+import type { TablePageParams } from "$lib/types/generated/TablePageParams";
 import { CoreCallError } from "$lib/storage/rust-client";
 
 export type { CoreEvent, RunEvent, StreamEvent };
@@ -54,8 +56,14 @@ export type PageRequest = {
   params: { method: "page"; params: PageParams };
 };
 
+/** `db.tablePage`, one page of a data tab (phase 5c): yields `RunEvent`s. */
+export type TablePageRequest = {
+  method: "db";
+  params: { method: "tablePage"; params: TablePageParams };
+};
+
 /** Every request `stream` takes. */
-export type StreamRequest = QueryStreamRequest | RunRequest | PageRequest;
+export type StreamRequest = QueryStreamRequest | RunRequest | PageRequest | TablePageRequest;
 
 /** Any stream's event. Both kinds end with one `done` or `error`. */
 export type AnyStreamEvent = StreamEvent | RunEvent;
@@ -90,7 +98,7 @@ export const UNKNOWN_HOST_KEY = "UNKNOWN_HOST_KEY";
 // -------- Typed `db` calls --------
 
 /** Every `db` method but the stream calls, which only `stream` serves. */
-export type DbMethod = Exclude<DbRequest["method"], "queryStream" | "run" | "page">;
+export type DbMethod = Exclude<DbRequest["method"], "queryStream" | "run" | "page" | "tablePage">;
 export type DbParams<M extends DbMethod> = Extract<DbRequest, { method: M }>["params"];
 export type DbResult<M extends DbMethod> = Extract<DbResponse, { method: M }>["result"];
 
@@ -188,7 +196,10 @@ export function wellFormed(text: string): string {
   return out ? out.join("") + text.slice(from) : text;
 }
 
-/** `request` with a run's text or a page's SQL made well-formed; anything else as it is. */
+/**
+ * `request` with a run's text, a page's SQL or a table page's filter values
+ * made well-formed; anything else as it is.
+ */
 export function wellFormedRequest<R extends StreamRequest>(request: R): R {
   const inner = request.params;
   if (inner.method === "run") {
@@ -198,6 +209,12 @@ export function wellFormedRequest<R extends StreamRequest>(request: R): R {
   if (inner.method === "page") {
     const source = { ...inner.params.source, sql: wellFormed(inner.params.source.sql) };
     return { ...request, params: { ...inner, params: { ...inner.params, source } } };
+  }
+  if (inner.method === "tablePage") {
+    const query = inner.params.query;
+    const filters = query.filters.map((f) => ({ ...f, value: wellFormed(f.value) }));
+    const params = { ...inner.params, query: { ...query, filters } };
+    return { ...request, params: { ...inner, params } };
   }
   return request;
 }

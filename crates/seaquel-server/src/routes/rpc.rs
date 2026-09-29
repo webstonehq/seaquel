@@ -1,9 +1,12 @@
 //! `POST /rpc`: one workspace call (`seaquel_rpc::Request`) for the user in
 //! `X-Seaquel-User`: storage, and `db` (connect, test, disconnect, query,
-//! execute, transaction, engine, cancel) on the user's own connections.
+//! execute, transaction, engine, cancel, and the edits service's
+//! planEdits, applyChanges and duckdbExtension) on the user's own
+//! connections.
 //! Core refuses a connection or stream the workspace doesn't own with
 //! `CONNECTION_NOT_FOUND`, and connects under [`crate::web_connect_policy`].
-//! `db.queryStream` is served by `/rpc/stream`.
+//! `db.queryStream`, `db.run`, `db.page` and `db.tablePage` are served by
+//! `/rpc/stream`.
 //!
 //! Only Node's `/api/rpc` route calls this. It sets the header from the
 //! session and drops any copy the browser sent, so the header is trusted
@@ -17,7 +20,8 @@
 //! code (`crate::error::status_for`): `INVALID_ARGUMENT` 400 (a missing or
 //! unsafe header, a bad body), `NOT_SUPPORTED` 501 (secrets: the web
 //! workspace has no store; SSH tunnels), `CONNECTION_NOT_FOUND` 404, the
-//! refused engines and options 400, and the storage codes 500
+//! refused engines and options 400, an edit Core won't build
+//! (`NOT_EDITABLE`) 400, and the storage codes 500
 //! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
 //! A failure is logged by its code and the request's group and method only:
@@ -44,10 +48,33 @@ use crate::AppState;
 /// The header Node sets to the session's user id.
 pub const USER_HEADER: &str = "x-seaquel-user";
 
-/// The largest body `/rpc` takes. Node's adapter caps request bodies first
-/// (`BODY_SIZE_LIMIT`, 512 KB unless a self-hoster raises it); this only
-/// keeps Rust from being the tighter limit.
+/// The largest body `/rpc` takes. Node caps `/api/rpc` bodies first, at
+/// 20 MiB (`RPC_BODY_LIMIT` in `src/lib/server/body-limit.ts`, above
+/// `WEB_EDIT_LIMITS`' 16 MiB of values and 2 MiB of SQL); this is the outer
+/// bound.
 pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
+
+/// How many bytes of bodies one user's `/rpc` calls in flight may hold
+/// together (probe review, M4); a call past it is refused with
+/// [`TOO_MANY_REQUESTS`] (429) before it's parsed. A lone call always runs,
+/// so a body up to [`BODY_LIMIT`] still fits. The GUI's everyday calls
+/// (loading its state, many at once) are tiny next to it.
+pub const MAX_IN_FLIGHT_BYTES_PER_USER: usize = 40 * 1024 * 1024;
+
+/// A body under this always gets past [`MAX_IN_FLIGHT_BYTES_PER_USER`]
+/// (it still counts toward it), so a user's own large applies never make
+/// their storage saves and history appends fail with 429.
+pub const SMALL_CALL_BYTES: usize = 64 * 1024;
+
+/// How many edit calls (`db.applyChanges`, `db.planEdits`,
+/// `db.duckdbExtension`) one user runs at once, whatever their size: each
+/// holds many times its body in memory, or a database connection, while it
+/// runs. The next is refused with [`TOO_MANY_REQUESTS`] (429).
+pub const MAX_EDIT_CALLS_PER_USER: usize = 4;
+
+/// The code for a call refused by [`MAX_IN_FLIGHT_BYTES_PER_USER`] or
+/// [`MAX_EDIT_CALLS_PER_USER`]. Nothing ran.
+pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
 
 pub async fn rpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     let mut method = None;
@@ -108,9 +135,28 @@ async fn call(
     method: &mut Option<(&'static str, &'static str)>,
 ) -> Result<Vec<u8>, RpcError> {
     let user = user_id(headers)?;
+    let mut slot = state
+        .workspaces
+        .begin_call(user, body.len(), MAX_IN_FLIGHT_BYTES_PER_USER)
+        .ok_or_else(|| {
+            RpcError::new(
+                TOO_MANY_REQUESTS,
+                "Too many large requests are running at once. Wait for them to finish \
+                 and try again.",
+            )
+        })?;
     // Parse before opening anything, so a bad body never creates a file.
     let request = parse_request(body)?;
     *method = Some((request.group(), request.method()));
+    if is_edit_call(&request) && !slot.begin_edit(MAX_EDIT_CALLS_PER_USER) {
+        return Err(RpcError::new(
+            TOO_MANY_REQUESTS,
+            format!(
+                "At most {MAX_EDIT_CALLS_PER_USER} edit requests can run at once. \
+                 Wait for one to finish and try again."
+            ),
+        ));
+    }
     let open = open_workspace(state, user).await?;
     let response = dispatch_workspace(&state.core, open.workspace(), request).await?;
     serde_json::to_vec(&response).map_err(|e| {
@@ -119,6 +165,15 @@ async fn call(
             format!("couldn't encode the response: {e}"),
         )
     })
+}
+
+/// A call [`MAX_EDIT_CALLS_PER_USER`] counts.
+fn is_edit_call(request: &seaquel_rpc::Request) -> bool {
+    request.group() == "db"
+        && matches!(
+            request.method(),
+            "applyChanges" | "planEdits" | "duckdbExtension"
+        )
 }
 
 /// `user`'s workspace from the LRU, opening it if needed.

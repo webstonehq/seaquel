@@ -2,7 +2,7 @@
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { Button } from "$lib/components/ui/button";
 	import { sshHostKeyPromptStore } from "$lib/stores/ssh-host-key-prompt.svelte.js";
-	import { ShieldQuestionIcon } from "@lucide/svelte";
+	import ShieldQuestionIcon from "@lucide/svelte/icons/shield-question";
 
 	function handleOpenChange(open: boolean) {
 		if (!open) sshHostKeyPromptStore.resolve(false);

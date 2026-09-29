@@ -109,20 +109,34 @@ jobs:
           Set-Content $configPath $config
           Write-Host "Transformed version for Windows build"
 
-      # The seaquel-cli sidecar (bundle.externalBin). Built here, in its own
-      # step, so a failure shows up as this step; beforeBuildCommand would build
-      # it again, and SEAQUEL_CLI_PREBUILT=1 below makes it reuse this one. The
-      # bundler signs it with the app: codesign with the hardened runtime and
-      # the app's entitlements on macOS (inside the notarized .app), and
-      # bundle.windows.signCommand on Windows.
-      - name: Build seaquel-cli sidecar
+      # The CLI is a separate release asset downloaded only when a user installs
+      # it from Settings. It is no longer included in the desktop bundles.
+      - name: Build seaquel-cli
         shell: bash
         run: node scripts/build-cli.mjs --release --target ${{ matrix.target }}
+
+      - name: Sign macOS CLI
+        if: runner.os == 'macOS'
+        run: codesign --force --sign "$CERT_ID" --options runtime --entitlements src-tauri/macos/entitlements.plist src-tauri/binaries/seaquel-cli-${{ matrix.target }}
+
+      - name: Sign Windows CLI
+        if: runner.os == 'Windows'
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        shell: bash
+        run: trusted-signing-cli -e https://eus.codesigning.azure.net -a Seaquel -c Seaquel -d Seaquel src-tauri/binaries/seaquel-cli-${{ matrix.target }}.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seaquel-cli-${{ matrix.target }}
+          path: src-tauri/binaries/seaquel-cli-${{ matrix.target }}*
+          if-no-files-found: error
 
       - name: build and publish
         uses: tauri-apps/tauri-action@v0
         env:
-          SEAQUEL_CLI_PREBUILT: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
@@ -146,6 +160,23 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish-cli:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: seaquel-cli-*
+          path: cli-assets
+          merge-multiple: true
+      - name: Add standalone CLI binaries to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${{ github.ref_name }}" cli-assets/* --clobber
 
   # The Windows build transforms the version in tauri.conf.json (e.g. 2026.4.0 → 26.4.0)
   # for MSI compatibility. Since tauri-action shares a single latest.json across all matrix

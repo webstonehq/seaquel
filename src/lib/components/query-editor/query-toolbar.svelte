@@ -6,18 +6,16 @@
 	import ConnectionSelector from "$lib/components/connection-selector.svelte";
 	import { findShortcut } from "$lib/shortcuts/index.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import {
-		PlayIcon,
-		SaveIcon,
-		LoaderIcon,
-		ChevronDownIcon,
-		WandSparklesIcon,
-		XCircleIcon,
-		SearchIcon,
-		ActivityIcon,
-		NetworkIcon,
-		HistoryIcon
-	} from "@lucide/svelte";
+	import PlayIcon from "@lucide/svelte/icons/play";
+	import SaveIcon from "@lucide/svelte/icons/save";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+	import WandSparklesIcon from "@lucide/svelte/icons/wand-sparkles";
+	import XCircleIcon from "@lucide/svelte/icons/x-circle";
+	import SearchIcon from "@lucide/svelte/icons/search";
+	import ActivityIcon from "@lucide/svelte/icons/activity";
+	import NetworkIcon from "@lucide/svelte/icons/network";
+	import HistoryIcon from "@lucide/svelte/icons/history";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { StatementResult, ResolvedQueryVersion } from "$lib/types";

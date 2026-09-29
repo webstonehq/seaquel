@@ -118,10 +118,12 @@ async fn transaction_is_all_or_nothing() {
         params: vec![Value::from(v)],
         expect_rows: None,
     };
-    assert!(core
+    let err = core
         .transaction(&id, vec![insert(1), insert(1)])
         .await
-        .is_err());
+        .unwrap_err();
+    assert_eq!(err.index, Some(1), "the duplicate is named");
+    assert_eq!(err.error.code, "EXECUTE_ERROR");
 
     let r = core
         .query(&id, "SELECT COUNT(*) AS c FROM t", vec![])

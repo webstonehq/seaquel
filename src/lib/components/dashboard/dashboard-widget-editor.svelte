@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { XIcon } from '@lucide/svelte';
+	import XIcon from '@lucide/svelte/icons/x';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import WidgetQueryEditor from './widget-query-editor.svelte';
 	import WidgetChartConfig from './widget-chart-config.svelte';

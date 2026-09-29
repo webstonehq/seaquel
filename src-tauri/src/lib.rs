@@ -20,6 +20,7 @@ use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::OnceCell;
 
+mod cli_download;
 mod cli_info;
 mod cli_install;
 mod logging;
@@ -383,9 +384,10 @@ async fn handle_core_call(
     workspace.call(core, req).await
 }
 
-/// A `db.queryStream`, `db.run` or `db.page` request, its events pushed to
-/// `channel` as [`CoreEvent::Stream`]s (a query stream's batches) or
-/// [`CoreEvent::Run`]s (a run's or page's statements and batches), then one
+/// A `db.queryStream`, `db.run`, `db.page` or `db.tablePage` request, its
+/// events pushed to `channel` as [`CoreEvent::Stream`]s (a query stream's
+/// batches) or [`CoreEvent::Run`]s (a run's, page's or table page's
+/// statements and batches), then one
 /// `done` or `error`, or nothing more after a `db.cancel` with its
 /// `streamId` (which may arrive before it starts).
 /// `request` is the request's JSON as a string: the invoke carries the
@@ -428,7 +430,7 @@ async fn run_core_stream(
     mut send: impl FnMut(CoreEvent) -> bool,
 ) -> Result<u64, RpcError> {
     let req = seaquel_rpc::parse_request(body)?;
-    // A query stream's, a run's or a page's id.
+    // A query stream's, a run's, a page's or a table page's id.
     let stream_id = match &req {
         Request::Db(db) => db.stream_id().map(str::to_string),
         _ => None,
@@ -786,8 +788,8 @@ fn create_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
 
-    // "Install Command Line Tool…" puts seaquel-cli on PATH: macOS, and Linux
-    // only as an AppImage (cli_install.rs).
+    // "Install Command Line Tool…" downloads the CLI; macOS and Linux also
+    // put it on PATH (cli_install.rs).
     let install_cli = if cli_install::available() {
         Some(
             MenuItemBuilder::new(cli_install::MENU_LABEL)
@@ -885,6 +887,14 @@ pub fn run() {
         // it's slower than a second). The drivers turn it off; this drops it
         // too.
         .level_for("sqlx::query", log::LevelFilter::Off)
+        // Postgres notices: a `RAISE WARNING`'s text, which the query
+        // chooses and can fill with values, at WARN.
+        .level_for("sqlx::postgres::notice", log::LevelFilter::Off)
+        // tiberius logs every SQL Server error (ERROR) and PRINT (INFO) with
+        // the server's text, which can quote values; the rest of it (TLS
+        // warnings) passes at WARN.
+        .level_for("tiberius::tds::stream::token", log::LevelFilter::Off)
+        .level_for("tiberius", log::LevelFilter::Warn)
         // sqlparser (Core's table and column refs for a run) logs the
         // tokens it parses, literals included, at DEBUG.
         .level_for("sqlparser", log::LevelFilter::Off)
@@ -1584,6 +1594,84 @@ mod workspace_tests {
         )
         .unwrap();
         assert_eq!(res["rows"], json!([[0]]));
+    }
+
+    /// A reload cancels the webview's running table page (phase 5c): its
+    /// query stops, no terminal event comes, and its tracking ends.
+    #[test]
+    fn a_reload_cancels_a_table_page() {
+        let core = Arc::new(sqlite_core());
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = Arc::new(desktop(tmp.path().join("data")));
+        let id = sqlite(&core, &ws, &tmp.path().join("tp.db"), 20000);
+        // Every row of the view is a scan of a 20,000 × 20,000 join.
+        db_call(
+            &core,
+            &ws,
+            "execute",
+            json!({"connectionId": id, "sql": "CREATE VIEW slow AS SELECT a.x AS x, b.x AS y FROM t a, t b"}),
+        )
+        .unwrap();
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+
+        let body = json!({"method": "db", "params": {"method": "tablePage", "params": {
+            "connectionId": id, "streamId": "tp", "page": 1, "pageSize": 10,
+            "query": {"target": {"schema": "main", "table": "slow"},
+                      "filters": [{"column": "y", "op": "=", "value": "-1"}]},
+        }}})
+        .to_string();
+        let (rx, task) = background_stream(&core, &ws, "main", body);
+        let start = rx.recv_timeout(WAIT).unwrap();
+        assert_eq!(start["type"], "run", "{start}");
+        assert_eq!(start["streamId"], "tp", "{start}");
+        assert_eq!(start["event"]["type"], "statementStart", "{start}");
+        assert!(Webviews::lock(&ws.webviews).streams["main"].contains("tp"));
+
+        ws.set_event_sink(&core, "main", Box::new(|_| true));
+        ends_cancelled(&rx);
+        let sent = tauri::async_runtime::block_on(task).unwrap().unwrap();
+        assert_eq!(sent, 1);
+        let db = tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        assert_eq!(db.ws.stream_count(&core), 0);
+        assert!(Webviews::lock(&ws.webviews).streams.is_empty());
+    }
+
+    /// `core_call` serves the edits service's unary calls; a table page
+    /// isn't one of them.
+    #[test]
+    fn core_call_serves_edits() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let id = sqlite(&core, &ws, &tmp.path().join("e.db"), 1);
+        db_call(
+            &core,
+            &ws,
+            "execute",
+            json!({"connectionId": id, "sql": "CREATE TABLE p (id INTEGER PRIMARY KEY, name TEXT)"}),
+        )
+        .unwrap();
+        let target = json!({"schema": "main", "table": "p"});
+        let outcome = db_call(
+            &core,
+            &ws,
+            "applyChanges",
+            json!({"connectionId": id, "changes": [
+                {"type": "edit", "id": "a", "edit": {"type": "insertRow", "target": target, "values": [["id", 1], ["name", "x"]]}},
+                {"type": "edit", "id": "b", "edit": {"type": "updateCell", "target": target, "key": [["id", 1]], "column": "name", "value": "y"}},
+            ]}),
+        )
+        .unwrap();
+        assert_eq!(outcome["mode"], "atomic", "{outcome}");
+        assert_eq!(outcome["applied"], 2, "{outcome}");
+        let err = db_call(
+            &core,
+            &ws,
+            "tablePage",
+            json!({"connectionId": id, "streamId": "t", "page": 1, "pageSize": 10, "query": {"target": target}}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT");
     }
 
     fn sink(tx: mpsc::Sender<Json>) -> EventSink {

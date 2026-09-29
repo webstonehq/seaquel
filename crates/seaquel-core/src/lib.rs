@@ -14,6 +14,9 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use log::{debug, info};
+/// Why a transaction failed, and which statement failed (see
+/// [`Workspace::transaction`]).
+pub use seaquel_engine::TransactionError;
 use seaquel_engine::{
     not_supported, BatchStatement, BoxStream, CancellationToken, ConnectConfig, ConnectResult,
     DatabaseStatistics, DbError, Dialect, Driver, Engine, EngineRegistry, ExecuteResult,
@@ -48,6 +51,8 @@ compile_error!(
      feature; build it with --no-default-features --features browser"
 );
 
+#[cfg(feature = "workspace")]
+mod edits;
 #[cfg(feature = "workspace")]
 mod run;
 mod workspace;
@@ -85,6 +90,9 @@ pub use seaquel_sql as sql;
 /// run types in every build, while connecting and running need the
 /// `workspace` feature.
 pub use seaquel_workspace as domain;
+/// What an edit call may carry, set per interface with
+/// [`CoreBuilder::edit_limits`].
+pub use seaquel_workspace::edits::EditLimits;
 /// What a run may carry, set per interface with [`CoreBuilder::run_limits`].
 pub use seaquel_workspace::run::RunLimits;
 
@@ -202,6 +210,9 @@ pub struct Core {
     /// What a run may carry ([`CoreBuilder::run_limits`]).
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     run_limits: RunLimits,
+    /// What an edit call may carry ([`CoreBuilder::edit_limits`]).
+    #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
+    edit_limits: EditLimits,
     /// The clock and spawner ([`CoreBuilder::executor`]). `None`: the
     /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
@@ -286,6 +297,7 @@ pub struct CoreBuilder {
     connect_policy: Option<ConnectPolicy>,
     limits: ConnectionLimits,
     run_limits: RunLimits,
+    edit_limits: EditLimits,
     executor: Option<Arc<dyn Executor>>,
 }
 
@@ -319,6 +331,16 @@ impl CoreBuilder {
         self
     }
 
+    /// What an edit call (`Workspace::plan_edits`, `apply_changes`,
+    /// `table_page`) may carry: its changes, their SQL and values, and a
+    /// table page's filters. Without it, no limit (the desktop, the CLI,
+    /// MCP); the web server sets all six.
+    #[must_use]
+    pub fn edit_limits(mut self, limits: EditLimits) -> Self {
+        self.edit_limits = limits;
+        self
+    }
+
     /// The runtime Core takes time from (statement timings and history
     /// timestamps in `Workspace::run`). There is no default: without one,
     /// `Workspace::run` and `Workspace::page` answer `NOT_SUPPORTED`, as a
@@ -336,6 +358,7 @@ impl CoreBuilder {
             connect_policy: self.connect_policy,
             limits: self.limits,
             run_limits: self.run_limits,
+            edit_limits: self.edit_limits,
             engines: self.engines,
             connections: RwLock::default(),
             streams: Mutex::default(),
@@ -598,6 +621,11 @@ impl Core {
         self.run_limits
     }
 
+    /// The limits [`CoreBuilder::edit_limits`] set.
+    pub fn edit_limits(&self) -> EditLimits {
+        self.edit_limits
+    }
+
     /// Ids of the engines in this build, sorted.
     pub fn engine_ids(&self) -> Vec<&'static str> {
         self.engines.ids()
@@ -833,7 +861,7 @@ impl Core {
         &self,
         connection_id: &str,
         statements: Vec<BatchStatement>,
-    ) -> Result<(), DbError> {
+    ) -> Result<Vec<u64>, TransactionError> {
         self.connection_handle(connection_id)
             .transaction(statements)
             .await
@@ -1283,7 +1311,13 @@ impl ConnectionHandle<'_> {
         self.driver()?.execute(sql, params).await
     }
 
-    pub async fn transaction(&self, statements: Vec<BatchStatement>) -> Result<(), DbError> {
+    /// A failure names its statement where the driver knows it
+    /// ([`TransactionError`]); an unknown connection names none. Success
+    /// returns each statement's affected rows.
+    pub async fn transaction(
+        &self,
+        statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
         debug!(activity = "db.transaction", connection_id = self.connection_id.as_str(), statements = statements.len(); "Executing transaction");
         self.driver()?.transaction(statements).await
     }

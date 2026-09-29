@@ -1,0 +1,4229 @@
+[
+  {
+    "name": "tp/pg-no-filters-partial",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              3
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ],
+      "rowCount": 3,
+      "totalRows": 3,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-full-page",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 5,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ],
+        [
+          6,
+          "r6"
+        ],
+        [
+          7,
+          "r7"
+        ],
+        [
+          8,
+          "r8"
+        ],
+        [
+          9,
+          "r9"
+        ],
+        [
+          10,
+          "r10"
+        ],
+        [
+          11,
+          "r11"
+        ],
+        [
+          12,
+          "r12"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              12
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 5 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ],
+            [
+              4,
+              "r4"
+            ],
+            [
+              5,
+              "r5"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 5,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ]
+      ],
+      "rowCount": 5,
+      "totalRows": 12,
+      "page": 1,
+      "pageSize": 5,
+      "totalPages": 3,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-middle-page",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 2,
+      "pageSize": 5,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ],
+        [
+          6,
+          "r6"
+        ],
+        [
+          7,
+          "r7"
+        ],
+        [
+          8,
+          "r8"
+        ],
+        [
+          9,
+          "r9"
+        ],
+        [
+          10,
+          "r10"
+        ],
+        [
+          11,
+          "r11"
+        ],
+        [
+          12,
+          "r12"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              12
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 5 OFFSET 5",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              6,
+              "r6"
+            ],
+            [
+              7,
+              "r7"
+            ],
+            [
+              8,
+              "r8"
+            ],
+            [
+              9,
+              "r9"
+            ],
+            [
+              10,
+              "r10"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 5,
+      "offset": 5
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          6,
+          "r6"
+        ],
+        [
+          7,
+          "r7"
+        ],
+        [
+          8,
+          "r8"
+        ],
+        [
+          9,
+          "r9"
+        ],
+        [
+          10,
+          "r10"
+        ]
+      ],
+      "rowCount": 5,
+      "totalRows": 12,
+      "page": 2,
+      "pageSize": 5,
+      "totalPages": 3,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-last-partial-page",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 3,
+      "pageSize": 5,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ],
+        [
+          6,
+          "r6"
+        ],
+        [
+          7,
+          "r7"
+        ],
+        [
+          8,
+          "r8"
+        ],
+        [
+          9,
+          "r9"
+        ],
+        [
+          10,
+          "r10"
+        ],
+        [
+          11,
+          "r11"
+        ],
+        [
+          12,
+          "r12"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              12
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 5 OFFSET 10",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              11,
+              "r11"
+            ],
+            [
+              12,
+              "r12"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 5,
+      "offset": 10
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          11,
+          "r11"
+        ],
+        [
+          12,
+          "r12"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 12,
+      "page": 3,
+      "pageSize": 5,
+      "totalPages": 3,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-eq",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "=",
+            "value": "r1"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "=",
+          "value": "r1",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1",
+        "params": [
+          "r1"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 LIMIT 100 OFFSET 0",
+        "params": [
+          "r1"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1",
+      "params": [
+        "r1"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1",
+      "params": [
+        "r1"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-ne",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "!=",
+            "value": "r1"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "!=",
+          "value": "r1",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) != $1",
+        "params": [
+          "r1"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) != $1 LIMIT 100 OFFSET 0",
+        "params": [
+          "r1"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) != $1",
+      "params": [
+        "r1"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) != $1",
+      "params": [
+        "r1"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-ranges-compare-text",
+    "engine": "postgres",
+    "notes": "`>`/`<`/`>=`/`<=` compare the column cast to text with the value (kept; a follow-up types them)",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "id",
+            "op": ">",
+            "value": "9"
+          },
+          {
+            "column": "id",
+            "op": "<",
+            "value": "50"
+          },
+          {
+            "column": "id",
+            "op": ">=",
+            "value": "10"
+          },
+          {
+            "column": "id",
+            "op": "<=",
+            "value": "49"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "id",
+          "operator": ">",
+          "value": "9",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "id",
+          "operator": "<",
+          "value": "50",
+          "enabled": true
+        },
+        {
+          "id": "f3",
+          "column": "id",
+          "operator": ">=",
+          "value": "10",
+          "enabled": true
+        },
+        {
+          "id": "f4",
+          "column": "id",
+          "operator": "<=",
+          "value": "49",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          10,
+          "r10"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 AND CAST(\"id\" AS TEXT) < $2 AND CAST(\"id\" AS TEXT) >= $3 AND CAST(\"id\" AS TEXT) <= $4",
+        "params": [
+          "9",
+          "50",
+          "10",
+          "49"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 AND CAST(\"id\" AS TEXT) < $2 AND CAST(\"id\" AS TEXT) >= $3 AND CAST(\"id\" AS TEXT) <= $4 LIMIT 100 OFFSET 0",
+        "params": [
+          "9",
+          "50",
+          "10",
+          "49"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              10,
+              "r10"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 AND CAST(\"id\" AS TEXT) < $2 AND CAST(\"id\" AS TEXT) >= $3 AND CAST(\"id\" AS TEXT) <= $4",
+      "params": [
+        "9",
+        "50",
+        "10",
+        "49"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 AND CAST(\"id\" AS TEXT) < $2 AND CAST(\"id\" AS TEXT) >= $3 AND CAST(\"id\" AS TEXT) <= $4",
+      "params": [
+        "9",
+        "50",
+        "10",
+        "49"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          10,
+          "r10"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-like",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "LIKE",
+            "value": "r1%"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "LIKE",
+          "value": "r1%",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          10,
+          "r10"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1",
+        "params": [
+          "r1%"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1 LIMIT 100 OFFSET 0",
+        "params": [
+          "r1%"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              10,
+              "r10"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1",
+      "params": [
+        "r1%"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1",
+      "params": [
+        "r1%"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          10,
+          "r10"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-not-like",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "NOT LIKE",
+            "value": "%9"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "NOT LIKE",
+          "value": "%9",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) NOT LIKE $1",
+        "params": [
+          "%9"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) NOT LIKE $1 LIMIT 100 OFFSET 0",
+        "params": [
+          "%9"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) NOT LIKE $1",
+      "params": [
+        "%9"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) NOT LIKE $1",
+      "params": [
+        "%9"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-in-with-spaces",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "id",
+            "op": "IN",
+            "value": " 1, 2 ,3 ,"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "id",
+          "operator": "IN",
+          "value": " 1, 2 ,3 ,",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) IN ($1, $2, $3)",
+        "params": [
+          "1",
+          "2",
+          "3"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              3
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) IN ($1, $2, $3) LIMIT 100 OFFSET 0",
+        "params": [
+          "1",
+          "2",
+          "3"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) IN ($1, $2, $3)",
+      "params": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) IN ($1, $2, $3)",
+      "params": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ],
+      "rowCount": 3,
+      "totalRows": 3,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-not-in",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "id",
+            "op": "NOT IN",
+            "value": "1,2"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "id",
+          "operator": "NOT IN",
+          "value": "1,2",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          3,
+          "r3"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) NOT IN ($1, $2)",
+        "params": [
+          "1",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) NOT IN ($1, $2) LIMIT 100 OFFSET 0",
+        "params": [
+          "1",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              3,
+              "r3"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) NOT IN ($1, $2)",
+      "params": [
+        "1",
+        "2"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) NOT IN ($1, $2)",
+      "params": [
+        "1",
+        "2"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          3,
+          "r3"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-is-null",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "IS NULL",
+            "value": ""
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "IS NULL",
+          "value": "",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          4,
+          null
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE \"name\" IS NULL",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE \"name\" IS NULL LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              4,
+              null
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE \"name\" IS NULL",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE \"name\" IS NULL",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          4,
+          null
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-is-not-null",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "IS NOT NULL",
+            "value": "ignored"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "IS NOT NULL",
+          "value": "ignored",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE \"name\" IS NOT NULL",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE \"name\" IS NOT NULL LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE \"name\" IS NOT NULL",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE \"name\" IS NOT NULL",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-in-numbering-after-filters",
+    "engine": "postgres",
+    "notes": "Placeholders number on across filters: `=` takes $1, `IN` $2 and $3, `NOT IN` $4, `LIKE` $5",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "=",
+            "value": "a"
+          },
+          {
+            "column": "id",
+            "op": "IN",
+            "value": "1,2"
+          },
+          {
+            "column": "name",
+            "op": "IS NOT NULL",
+            "value": ""
+          },
+          {
+            "column": "id",
+            "op": "NOT IN",
+            "value": "3"
+          },
+          {
+            "column": "name",
+            "op": "LIKE",
+            "value": "%x%"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "=",
+          "value": "a",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "id",
+          "operator": "IN",
+          "value": "1,2",
+          "enabled": true
+        },
+        {
+          "id": "f3",
+          "column": "name",
+          "operator": "IS NOT NULL",
+          "value": "",
+          "enabled": true
+        },
+        {
+          "id": "f4",
+          "column": "id",
+          "operator": "NOT IN",
+          "value": "3",
+          "enabled": true
+        },
+        {
+          "id": "f5",
+          "column": "name",
+          "operator": "LIKE",
+          "value": "%x%",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": []
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) AND \"name\" IS NOT NULL AND CAST(\"id\" AS TEXT) NOT IN ($4) AND CAST(\"name\" AS TEXT) LIKE $5",
+        "params": [
+          "a",
+          "1",
+          "2",
+          "3",
+          "%x%"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) AND \"name\" IS NOT NULL AND CAST(\"id\" AS TEXT) NOT IN ($4) AND CAST(\"name\" AS TEXT) LIKE $5 LIMIT 100 OFFSET 0",
+        "params": [
+          "a",
+          "1",
+          "2",
+          "3",
+          "%x%"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": []
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) AND \"name\" IS NOT NULL AND CAST(\"id\" AS TEXT) NOT IN ($4) AND CAST(\"name\" AS TEXT) LIKE $5",
+      "params": [
+        "a",
+        "1",
+        "2",
+        "3",
+        "%x%"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 AND CAST(\"id\" AS TEXT) IN ($2, $3) AND \"name\" IS NOT NULL AND CAST(\"id\" AS TEXT) NOT IN ($4) AND CAST(\"name\" AS TEXT) LIKE $5",
+      "params": [
+        "a",
+        "1",
+        "2",
+        "3",
+        "%x%"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [],
+      "rowCount": 0,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-or-with-disabled-and-blank-filters",
+    "engine": "postgres",
+    "notes": "A disabled filter and one with no column are left out",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "=",
+            "value": "a"
+          },
+          {
+            "column": "id",
+            "op": "=",
+            "value": "2"
+          }
+        ],
+        "logic": "OR",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "=",
+          "value": "a",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "name",
+          "operator": "=",
+          "value": "zzz",
+          "enabled": false
+        },
+        {
+          "id": "f3",
+          "column": "",
+          "operator": "=",
+          "value": "b",
+          "enabled": true
+        },
+        {
+          "id": "f4",
+          "column": "id",
+          "operator": "=",
+          "value": "2",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          2,
+          "r2"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 OR CAST(\"id\" AS TEXT) = $2",
+        "params": [
+          "a",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 OR CAST(\"id\" AS TEXT) = $2 LIMIT 100 OFFSET 0",
+        "params": [
+          "a",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              2,
+              "r2"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 OR CAST(\"id\" AS TEXT) = $2",
+      "params": [
+        "a",
+        "2"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) = $1 OR CAST(\"id\" AS TEXT) = $2",
+      "params": [
+        "a",
+        "2"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-and",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "name",
+            "op": "LIKE",
+            "value": "r%"
+          },
+          {
+            "column": "id",
+            "op": "!=",
+            "value": "2"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "name",
+          "operator": "LIKE",
+          "value": "r%",
+          "enabled": true
+        },
+        {
+          "id": "f2",
+          "column": "id",
+          "operator": "!=",
+          "value": "2",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1 AND CAST(\"id\" AS TEXT) != $2",
+        "params": [
+          "r%",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1 AND CAST(\"id\" AS TEXT) != $2 LIMIT 100 OFFSET 0",
+        "params": [
+          "r%",
+          "2"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              3,
+              "r3"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1 AND CAST(\"id\" AS TEXT) != $2",
+      "params": [
+        "r%",
+        "2"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"name\" AS TEXT) LIKE $1 AND CAST(\"id\" AS TEXT) != $2",
+      "params": [
+        "r%",
+        "2"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          3,
+          "r3"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-sort-asc",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "name",
+            "direction": "ASC"
+          }
+        ]
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" ORDER BY \"name\" ASC LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" ORDER BY \"name\" ASC",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-sort-desc-two-columns",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "id",
+            "op": ">",
+            "value": "0"
+          }
+        ],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "id",
+            "direction": "DESC"
+          },
+          {
+            "column": "name",
+            "direction": "ASC"
+          }
+        ]
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "id",
+          "operator": ">",
+          "value": "0",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          2,
+          "r2"
+        ],
+        [
+          1,
+          "r1"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1",
+        "params": [
+          "0"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 ORDER BY \"id\" DESC, \"name\" ASC LIMIT 100 OFFSET 0",
+        "params": [
+          "0"
+        ],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              2,
+              "r2"
+            ],
+            [
+              1,
+              "r1"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1 ORDER BY \"id\" DESC, \"name\" ASC",
+      "params": [
+        "0"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"id\" AS TEXT) > $1",
+      "params": [
+        "0"
+      ]
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          2,
+          "r2"
+        ],
+        [
+          1,
+          "r1"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 2,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-count-fails-full-page",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 5,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ],
+        [
+          6,
+          "r6"
+        ],
+        [
+          7,
+          "r7"
+        ],
+        [
+          8,
+          "r8"
+        ],
+        [
+          9,
+          "r9"
+        ],
+        [
+          10,
+          "r10"
+        ],
+        [
+          11,
+          "r11"
+        ],
+        [
+          12,
+          "r12"
+        ]
+      ],
+      "countError": {
+        "code": "QUERY_ERROR",
+        "message": "canceling statement due to statement timeout"
+      }
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "canceling statement due to statement timeout"
+          }
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 5 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ],
+            [
+              4,
+              "r4"
+            ],
+            [
+              5,
+              "r5"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 5,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ]
+      ],
+      "rowCount": 5,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 5,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-count-fails-partial-page",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "countError": {
+        "code": "QUERY_ERROR",
+        "message": "canceling statement due to statement timeout"
+      }
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "canceling statement due to statement timeout"
+          }
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ]
+      ],
+      "rowCount": 2,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-count-as-bigint",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 5,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ],
+        [
+          6,
+          "r6"
+        ]
+      ],
+      "countCell": {
+        "$sq": "bigint",
+        "v": "6"
+      }
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              {
+                "$sq": "bigint",
+                "v": "6"
+              }
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 5 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": [
+            [
+              1,
+              "r1"
+            ],
+            [
+              2,
+              "r2"
+            ],
+            [
+              3,
+              "r3"
+            ],
+            [
+              4,
+              "r4"
+            ],
+            [
+              5,
+              "r5"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 5,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [
+        [
+          1,
+          "r1"
+        ],
+        [
+          2,
+          "r2"
+        ],
+        [
+          3,
+          "r3"
+        ],
+        [
+          4,
+          "r4"
+        ],
+        [
+          5,
+          "r5"
+        ]
+      ],
+      "rowCount": 5,
+      "totalRows": 6,
+      "page": 1,
+      "pageSize": 5,
+      "totalPages": 2,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-empty-page-columns-from-cache",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": []
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+        "params": [],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" LIMIT 100 OFFSET 0",
+        "params": [],
+        "answer": {
+          "columns": [
+            "id",
+            "name"
+          ],
+          "rows": []
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\"",
+      "params": []
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\"",
+      "params": []
+    },
+    "result": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "rows": [],
+      "rowCount": 0,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "public",
+        "name": "items",
+        "primaryKeys": [
+          "id"
+        ]
+      }
+    }
+  },
+  {
+    "name": "tp/pg-page-query-fails",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "nope",
+            "op": "=",
+            "value": "1"
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "nope",
+          "operator": "=",
+          "value": "1",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": [],
+      "pageError": {
+        "code": "QUERY_ERROR",
+        "message": "column \"nope\" does not exist"
+      }
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"nope\" AS TEXT) = $1",
+        "params": [
+          "1"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"nope\" AS TEXT) = $1 LIMIT 100 OFFSET 0",
+        "params": [
+          "1"
+        ],
+        "answer": {
+          "error": {
+            "code": "QUERY_ERROR",
+            "message": "column \"nope\" does not exist"
+          }
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"public\".\"items\" WHERE CAST(\"nope\" AS TEXT) = $1",
+      "params": [
+        "1"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"public\".\"items\" WHERE CAST(\"nope\" AS TEXT) = $1",
+      "params": [
+        "1"
+      ]
+    },
+    "result": {
+      "columns": [],
+      "rows": [],
+      "rowCount": 0,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": "QUERY_ERROR: column \"nope\" does not exist",
+      "sourceTable": null
+    }
+  },
+  {
+    "name": "tp/pg-empty-in-list",
+    "engine": "postgres",
+    "notes": "Nothing is sent: the tab shows the error",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "public",
+          "table": "items"
+        },
+        "filters": [
+          {
+            "column": "id",
+            "op": "IN",
+            "value": " , "
+          }
+        ],
+        "logic": "AND",
+        "sort": []
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "id",
+          "operator": "IN",
+          "value": " , ",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "items",
+          "schema": "public",
+          "type": "table",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "castType": "integer",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            },
+            {
+              "name": "name",
+              "type": "text",
+              "castType": "text",
+              "nullable": true,
+              "isPrimaryKey": false,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "items_pkey",
+              "columns": [
+                "id"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "id",
+        "name"
+      ],
+      "matching": []
+    },
+    "driver": [],
+    "select": null,
+    "paging": null,
+    "count": null,
+    "result": {
+      "columns": [],
+      "rows": [],
+      "rowCount": 0,
+      "totalRows": 0,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": "The IN filter on id has no values. Separate values with commas.",
+      "sourceTable": null
+    }
+  },
+  {
+    "name": "tp/pg-quoted-names",
+    "engine": "postgres",
+    "input": {
+      "tableQuery": {
+        "target": {
+          "schema": "My Schema",
+          "table": "we\"ird"
+        },
+        "filters": [
+          {
+            "column": "Col A",
+            "op": "=",
+            "value": "x"
+          }
+        ],
+        "logic": "AND",
+        "sort": [
+          {
+            "column": "Col A",
+            "direction": "DESC"
+          }
+        ]
+      },
+      "page": 1,
+      "pageSize": 100,
+      "filters": [
+        {
+          "id": "f1",
+          "column": "Col A",
+          "operator": "=",
+          "value": "x",
+          "enabled": true
+        }
+      ],
+      "schemaCache": [
+        {
+          "name": "we\"ird",
+          "schema": "My Schema",
+          "type": "table",
+          "columns": [
+            {
+              "name": "Col A",
+              "type": "text",
+              "nullable": false,
+              "isPrimaryKey": true,
+              "isForeignKey": false
+            }
+          ],
+          "indexes": [
+            {
+              "name": "w_pkey",
+              "columns": [
+                "Col A"
+              ],
+              "unique": true,
+              "type": "btree"
+            }
+          ]
+        }
+      ],
+      "columns": [
+        "Col A"
+      ],
+      "matching": [
+        [
+          "x"
+        ]
+      ]
+    },
+    "driver": [
+      {
+        "op": "count",
+        "sql": "SELECT COUNT(*) FROM \"My Schema\".\"we\"\"ird\" WHERE CAST(\"Col A\" AS TEXT) = $1",
+        "params": [
+          "x"
+        ],
+        "answer": {
+          "columns": [
+            "count"
+          ],
+          "rows": [
+            [
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "op": "page",
+        "sql": "SELECT * FROM \"My Schema\".\"we\"\"ird\" WHERE CAST(\"Col A\" AS TEXT) = $1 ORDER BY \"Col A\" DESC LIMIT 100 OFFSET 0",
+        "params": [
+          "x"
+        ],
+        "answer": {
+          "columns": [
+            "Col A"
+          ],
+          "rows": [
+            [
+              "x"
+            ]
+          ]
+        }
+      }
+    ],
+    "select": {
+      "sql": "SELECT * FROM \"My Schema\".\"we\"\"ird\" WHERE CAST(\"Col A\" AS TEXT) = $1 ORDER BY \"Col A\" DESC",
+      "params": [
+        "x"
+      ]
+    },
+    "paging": {
+      "limit": 100,
+      "offset": 0
+    },
+    "count": {
+      "sql": "SELECT COUNT(*) FROM \"My Schema\".\"we\"\"ird\" WHERE CAST(\"Col A\" AS TEXT) = $1",
+      "params": [
+        "x"
+      ]
+    },
+    "result": {
+      "columns": [
+        "Col A"
+      ],
+      "rows": [
+        [
+          "x"
+        ]
+      ],
+      "rowCount": 1,
+      "totalRows": 1,
+      "page": 1,
+      "pageSize": 100,
+      "totalPages": 1,
+      "error": null,
+      "sourceTable": {
+        "schema": "My Schema",
+        "name": "we\"ird",
+        "primaryKeys": [
+          "Col A"
+        ]
+      }
+    }
+  }
+]

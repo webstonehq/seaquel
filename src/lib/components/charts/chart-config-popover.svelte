@@ -12,7 +12,11 @@
 		SelectItem,
 		SelectTrigger
 	} from '$lib/components/ui/select';
-	import { SettingsIcon, BarChartIcon, LineChartIcon, PieChartIcon, ScatterChartIcon } from '@lucide/svelte';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import BarChartIcon from '@lucide/svelte/icons/bar-chart';
+	import LineChartIcon from '@lucide/svelte/icons/line-chart';
+	import PieChartIcon from '@lucide/svelte/icons/pie-chart';
+	import ScatterChartIcon from '@lucide/svelte/icons/scatter-chart';
 	import type { ChartConfig, ChartType } from '$lib/types';
 	import { m } from '$lib/paraglide/messages.js';
 

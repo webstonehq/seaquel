@@ -14,6 +14,9 @@
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { cellText } from "$lib/values";
+	import { confirmedFor, listDestructive } from "$lib/hooks/database/pending-changes.svelte.js";
+	import { m } from "$lib/paraglide/messages.js";
+	import type { DestructiveStatement } from "$lib/types/generated/DestructiveStatement";
 
 	const db = useDatabase();
 
@@ -22,6 +25,11 @@
 	let showConfirmDialog = $state(false);
 	/** The change the last Execute All stopped at, and why; it stays pending. */
 	let failure = $state<{ change: PendingChange; error: string } | null>(null);
+	/**
+	 * The destructive statements Core asked to confirm (the dialog's own list
+	 * missed them): the dialog shows these, and Execute All confirms them.
+	 */
+	let coreDestructive = $state<{ statements: DestructiveStatement[]; total: number } | null>(null);
 
 	const changes = $derived(db.state.activePendingChanges);
 	/**
@@ -32,7 +40,11 @@
 	const shownFailure = $derived(
 		failure && changes.includes(failure.change) ? failure : null,
 	);
-	const connectionName = $derived(db.state.activeConnection?.name ?? "Unknown");
+	// The queue shown is the focused data tab's or result's connection's
+	// (`pendingConnectionId`), which may not be the active one.
+	const connectionName = $derived(
+		db.state.connections.find((c) => c.id === db.state.pendingConnectionId)?.name ?? "Unknown",
+	);
 
 	function getIcon(change: PendingChange) {
 		switch (change.queryType) {
@@ -65,6 +77,8 @@
 				return "Alter Table";
 			case "drop-table":
 				return "Drop Table";
+			case "drop-view":
+				return "Drop View";
 			case "truncate-table":
 				return "Truncate";
 			default:
@@ -81,74 +95,107 @@
 		return `${hours}h ago`;
 	}
 
-	function formatSqlWithValues(sql: string, bindValues?: unknown[]): string {
-		if (!bindValues?.length) return sql;
-		return sql.replace(/\$(\d+)/g, (match, index) => {
-			const i = parseInt(index, 10) - 1;
-			if (i < 0 || i >= bindValues.length) return match;
-			const val = bindValues[i];
-			if (val === null || val === undefined) return "NULL";
-			if (typeof val === "string") return `'${val}'`;
-			return cellText(val);
-		});
+	/** A bind value as the SQL view lists it beside the statement. */
+	function formatValue(value: unknown): string {
+		if (value === null || value === undefined) return "NULL";
+		if (typeof value === "string") return `'${value}'`;
+		return cellText(value);
 	}
 
-	function truncateSql(sql: string, maxLength = 120, bindValues?: unknown[]): string {
-		const resolved = formatSqlWithValues(sql, bindValues);
-		const oneLine = resolved.replace(/\s+/g, " ").trim();
+	/** The statement's values, numbered in bind order, e.g. `1: 'a'  2: 5`. */
+	function formatValues(bindValues?: unknown[]): string {
+		return (bindValues ?? []).map((v, i) => `${i + 1}: ${formatValue(v)}`).join("  ");
+	}
+
+	function truncateSql(sql: string, maxLength = 120): string {
+		const oneLine = sql.replace(/\s+/g, " ").trim();
 		if (oneLine.length <= maxLength) return oneLine;
 		return oneLine.slice(0, maxLength) + "…";
 	}
 
+	/** The queue's destructive statements for the dialog (`null`: the check failed). */
+	const destructive = $derived(
+		listDestructive(
+			changes,
+			db.state.connections.find((c) => c.id === db.state.pendingConnectionId)?.type,
+		),
+	);
+
+	const shownDestructive = $derived(coreDestructive?.statements ?? destructive ?? []);
+	const interrupted = $derived(
+		!!db.state.pendingConnectionId && !!db.state.pendingChangesInterrupted[db.state.pendingConnectionId],
+	);
+
 	function handleRemove(changeId: string) {
-		const connectionId = db.state.activeConnectionId;
+		const connectionId = db.state.pendingConnectionId;
 		if (connectionId) {
 			db.pendingChanges.remove(connectionId, changeId);
 		}
 	}
 
 	function handleClear() {
-		const connectionId = db.state.activeConnectionId;
+		const connectionId = db.state.pendingConnectionId;
 		if (connectionId) {
 			db.pendingChanges.clear(connectionId);
 		}
 	}
 
+	function openConfirm() {
+		coreDestructive = null;
+		showConfirmDialog = true;
+	}
+
+	/**
+	 * Apply the queue. The dialog listed its destructive statements, so they
+	 * go confirmed; without any listed (none found, or the check failed) Core
+	 * decides, and a `confirmRequired` reopens the dialog with Core's list.
+	 */
 	async function handleExecuteAll() {
 		showConfirmDialog = false;
-		const connectionId = db.state.activeConnectionId;
+		const connectionId = db.state.pendingConnectionId;
 		if (!connectionId) return;
+		const confirmed = confirmedFor(destructive, coreDestructive !== null);
+		coreDestructive = null;
 
 		isExecuting = true;
 		try {
 			failure = null;
-			const result = await db.pendingChanges.executeAll(connectionId);
-			if (result.failed > 0) {
-				errorToast(`Failed at statement ${(result.failedAt ?? 0) + 1}: ${result.error}`);
-				if (result.executed > 0) {
-					toast.info(`${result.executed} statement${result.executed > 1 ? "s" : ""} executed before failure`);
+			const result = await db.pendingChanges.apply(connectionId, confirmed);
+			const plural = (n: number) => `${n} statement${n === 1 ? "" : "s"}`;
+			switch (result.kind) {
+				case "empty":
+					break;
+				case "applied":
+					toast.success(`${plural(result.applied)} executed successfully`);
+					db.pendingChanges.closeSheet();
+					break;
+				case "confirmRequired":
+					coreDestructive = { statements: result.destructive, total: result.total };
+					showConfirmDialog = true;
+					break;
+				case "failed": {
+					const at = result.index === undefined ? "" : ` at statement ${result.index + 1}`;
+					errorToast(`Failed${at}: ${result.error}`);
+					if (result.mode === "atomic") {
+						toast.info(m.pending_changes_rolled_back());
+					} else if (result.applied > 0) {
+						toast.info(`${plural(result.applied)} executed before failure`);
+					}
+					// Keep the sheet open on the failed change, still pending.
+					const failed = (db.state.pendingChangesByConnection[connectionId] ?? []).find(
+						(c) => c.id === result.changeId,
+					);
+					if (failed) failure = { change: failed, error: result.error };
+					break;
 				}
-				// The failed change and the ones after it stay pending (see
-				// `executeAll`); keep the sheet open on the failed one.
-				const failed = db.state.activePendingChanges.find((c) => c.id === result.failedChangeId);
-				if (failed) {
-					failure = { change: failed, error: result.error ?? "" };
-				}
-			} else {
-				toast.success(`${result.executed} statement${result.executed > 1 ? "s" : ""} executed successfully`);
-			}
-			if (result.hasDdl) {
-				await db.connections.refreshSchema(connectionId);
-			}
-			if (result.hasDdl || result.executed > 0) {
-				await db.dataTabs.refreshAllForConnection(connectionId);
-			}
-			if (result.failed === 0) {
-				db.pendingChanges.clear(connectionId);
-				db.pendingChanges.closeSheet();
+				case "refused":
+					errorToast(result.error);
+					break;
+				case "interrupted":
+					errorToast(m.pending_changes_interrupted({ error: result.error }));
+					break;
 			}
 		} catch (error) {
-			db.pendingChanges.closeSheet();
 			errorToast(error instanceof Error ? error.message : String(error));
 		} finally {
 			isExecuting = false;
@@ -193,6 +240,12 @@
 		</div>
 	</div>
 
+	{#if interrupted && changes.length > 0}
+		<p class="border-b border-destructive/40 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+			{m.pending_changes_maybe_applied()}
+		</p>
+	{/if}
+
 	<!-- Content -->
 	<div class="flex-1 min-h-0 overflow-y-auto px-4 py-2">
 		{#if changes.length === 0}
@@ -222,8 +275,13 @@
 									<p class="mt-1 text-sm">{change.description}</p>
 								{:else}
 									<code class="mt-1 block text-xs text-muted-foreground break-all whitespace-pre-wrap">
-										{truncateSql(change.sql, 200, change.bindValues)}
+										{truncateSql(change.sql, 200)}
 									</code>
+									{#if change.bindValues?.length}
+										<code class="mt-0.5 block text-[11px] text-muted-foreground/80 break-all whitespace-pre-wrap">
+											{m.pending_changes_values({ values: truncateSql(formatValues(change.bindValues), 200) })}
+										</code>
+									{/if}
 								{/if}
 								{#if failed && shownFailure}
 									<p class="mt-1 text-xs text-destructive break-words">{shownFailure.error}</p>
@@ -258,7 +316,7 @@
 			<div class="flex-1"></div>
 			<Button
 				size="sm"
-				onclick={() => (showConfirmDialog = true)}
+				onclick={openConfirm}
 				disabled={isExecuting}
 			>
 				<PlayIcon class="size-3.5 mr-1.5" />
@@ -273,9 +331,24 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>Execute {changes.length} pending change{changes.length !== 1 ? "s" : ""}?</AlertDialog.Title>
 			<AlertDialog.Description>
-				These statements will be executed sequentially on {connectionName}. This action cannot be undone.
+				These statements will be executed on {connectionName}. This action cannot be undone.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
+		{#if shownDestructive.length > 0}
+			<div class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+				<p class="font-medium">
+					{m.pending_changes_destructive({ count: coreDestructive?.total ?? shownDestructive.length })}
+				</p>
+				<ul class="mt-1 flex flex-col gap-1">
+					{#each shownDestructive as statement (statement.index)}
+						<li class="flex flex-col">
+							<span>{statement.index + 1}. {statement.reason.replaceAll("_", " ")}</span>
+							<code class="block overflow-x-auto whitespace-nowrap scrollbar-hide">{truncateSql(statement.sql)}</code>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 		<div class="flex max-h-48 flex-col gap-2 overflow-y-auto py-2">
 			{#each changes as change (change.id)}
 				{@const Icon2 = getIcon(change)}
@@ -284,12 +357,15 @@
 						<Icon2 class="size-3.5 text-muted-foreground" />
 						<span class="font-medium text-xs">{change.description}</span>
 					</div>
-					<code class="text-muted-foreground mt-1 block overflow-x-auto whitespace-nowrap scrollbar-hide text-xs">{formatSqlWithValues(change.sql, change.bindValues)}</code>
+					<code class="text-muted-foreground mt-1 block overflow-x-auto whitespace-nowrap scrollbar-hide text-xs">{change.sql}</code>
+					{#if change.bindValues?.length}
+						<code class="text-muted-foreground/80 block overflow-x-auto whitespace-nowrap scrollbar-hide text-[11px]">{m.pending_changes_values({ values: formatValues(change.bindValues) })}</code>
+					{/if}
 				</div>
 			{/each}
 		</div>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Cancel onclick={() => (coreDestructive = null)}>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action onclick={handleExecuteAll}>
 				Execute All
 			</AlertDialog.Action>

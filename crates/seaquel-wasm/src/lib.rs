@@ -253,6 +253,12 @@ pub fn table_from_select(sql: &str, engine_id: &str) -> String {
     respond(engine(engine_id).map(|e| statements::table_from_select(sql, e)))
 }
 
+/// `changeSummary` (phase 5c): `{ok: {verb, table, column} | null}`.
+#[wasm_bindgen]
+pub fn change_summary(sql: &str, engine_id: &str) -> String {
+    respond(engine(engine_id).map(|e| statements::change_summary(sql, e)))
+}
+
 /// `hasRowLimit`: `{ok: boolean}`.
 #[wasm_bindgen]
 pub fn has_row_limit(sql: &str, engine_id: &str) -> String {
@@ -428,6 +434,7 @@ mod tests {
             query_type("SELECT 1", "oracle"),
             destructive_reason("SELECT 1", "oracle"),
             table_from_select("SELECT 1", "oracle"),
+            change_summary("SELECT 1", "oracle"),
             has_row_limit("SELECT 1", "oracle"),
             count_query("SELECT 1", "oracle"),
             read_only_error("SELECT 1", "oracle"),
@@ -614,6 +621,7 @@ mod tests {
                     query_type(sql, id),
                     destructive_reason(sql, id),
                     table_from_select(sql, id),
+                    change_summary(sql, id),
                     has_row_limit(sql, id),
                     count_query(sql, id),
                     read_only_error(sql, id),

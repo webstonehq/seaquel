@@ -9,12 +9,8 @@
     import * as Sidebar from "$lib/components/ui/sidebar/index.js";
     import { setDatabase, useDatabase } from "$lib/hooks/database.svelte.js";
     import { setShortcuts } from "$lib/shortcuts/index.js";
-    import KeyboardShortcutsDialog from "$lib/components/keyboard-shortcuts-dialog.svelte";
-    import CommandPalette from "$lib/components/command-palette.svelte";
     import { themeStore } from "$lib/stores/theme.svelte.js";
     import { applyThemeColors } from "$lib/themes/apply";
-    import DbeaverImportDialog from "$lib/components/dbeaver-import-dialog.svelte";
-    import TablePlusImportDialog from "$lib/components/tableplus-import-dialog.svelte";
     import type { ThemeColors } from "$lib/types/theme";
     import { toast } from "svelte-sonner";
     import { errorToast } from "$lib/utils/toast";
@@ -27,16 +23,13 @@
     import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
     import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
     import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
-    import { isTauri, isWeb } from "$lib/utils/environment";
-    import { getAuthClient } from "$lib/auth-client";
+    import { isDemo, isTauri, isWeb } from "$lib/utils/environment";
     import { initLogger } from "$lib/utils/logger";
-    import { initializeDemo } from "$lib/demo/init";
-    import { createDemoDashboard } from "$lib/demo/sample-dashboard";
     import { updateStore } from "$lib/stores/update.svelte.js";
     import type { UpdateInfo } from "$lib/api/tauri";
-    import DeepLinkCloneDialog from "$lib/components/deep-link-clone-dialog.svelte";
-    import DeepLinkProjectPickerDialog from "$lib/components/deep-link-project-picker-dialog.svelte";
-    import SshHostKeyDialog from "$lib/components/ssh-host-key-dialog.svelte";
+    import { deepLinkDialogStore } from "$lib/stores/deep-link-dialog.svelte.js";
+    import { deepLinkProjectPickerStore } from "$lib/stores/deep-link-project-picker.svelte.js";
+    import { sshHostKeyPromptStore } from "$lib/stores/ssh-host-key-prompt.svelte.js";
     import VaultGate from "$lib/components/vault/vault-gate.svelte";
     import { handleDeepLink } from "$lib/services/deep-link";
     import { setupFileDropListener } from "$lib/services/file-drop.svelte.js";
@@ -49,6 +42,14 @@
     const db = useDatabase();
     const shortcuts = setShortcuts();
     let { children } = $props();
+    let commandPaletteOpen = $state(false);
+
+    $effect(() => {
+        shortcuts.registerHandler("commandPalette", () => {
+            commandPaletteOpen = !commandPaletteOpen;
+        });
+        return () => shortcuts.unregisterHandler("commandPalette");
+    });
 
     // Check if we're in a standalone window (no app shell needed)
     const isStandaloneWindow = $derived(
@@ -70,6 +71,7 @@
         // Desktop (Tauri) and demo builds skip this entirely — they have no
         // /api/auth endpoint to call.
         if (isWeb() && !isAuthPage) {
+            const { getAuthClient } = await import("$lib/auth-client");
             const session = await getAuthClient().getSession();
             if (!session.data?.user) {
                 const here = window.location.pathname + window.location.search;
@@ -102,8 +104,11 @@
             ]);
         } else {
             await Promise.all(commonInit);
+            if (!isDemo()) return;
             // Browser demo: initialize DuckDB with sample data
             try {
+                const { initializeDemo } = await import("$lib/demo/init");
+                const { createDemoDashboard } = await import("$lib/demo/sample-dashboard");
                 const providerConnectionId = await initializeDemo();
                 if (providerConnectionId) {
                     // Persisted connections must be loaded first, so a saved
@@ -286,13 +291,41 @@
     {@render children()}
 {:else}
     <!-- Main app window: full app shell with header and sidebars -->
-    <KeyboardShortcutsDialog />
-    <CommandPalette />
-    <DbeaverImportDialog />
-    <TablePlusImportDialog />
-    <DeepLinkCloneDialog />
-    <DeepLinkProjectPickerDialog />
-    <SshHostKeyDialog />
+    {#if shortcuts.showHelp}
+        {#await import("$lib/components/keyboard-shortcuts-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if commandPaletteOpen}
+        {#await import("$lib/components/command-palette.svelte") then module}
+            <module.default bind:open={commandPaletteOpen} />
+        {/await}
+    {/if}
+    {#if dbeaverImportStore.isOpen}
+        {#await import("$lib/components/dbeaver-import-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if tablePlusImportStore.isOpen}
+        {#await import("$lib/components/tableplus-import-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if deepLinkDialogStore.open}
+        {#await import("$lib/components/deep-link-clone-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if deepLinkProjectPickerStore.open}
+        {#await import("$lib/components/deep-link-project-picker-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if sshHostKeyPromptStore.open}
+        {#await import("$lib/components/ssh-host-key-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
     {#if isTauri()}
         <LicenseNudgeCard />
     {/if}

@@ -73,9 +73,11 @@ export function createViewState(ctx: QueryEditorContext, onCloseDiff?: () => voi
   });
 
   const qePendingChangesForTable = $derived.by(() => {
-    const st = ctx.getActiveResult()?.sourceTable;
-    if (!st) return [];
-    return db.state.activePendingChanges.filter(
+    const result = ctx.getActiveResult();
+    const st = result?.sourceTable;
+    // The queue of the connection the result came from, not the active one's.
+    if (!st || !result.connectionId) return [];
+    return (db.state.pendingChangesByConnection[result.connectionId] ?? []).filter(
       (c) => c.target?.schema === st.schema && c.target?.table === st.name,
     );
   });

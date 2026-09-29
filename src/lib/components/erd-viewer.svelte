@@ -16,17 +16,15 @@ import { errorToast } from "$lib/utils/toast";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import * as Popover from "$lib/components/ui/popover";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-  import {
-    DatabaseIcon,
-    TableIcon,
-    LinkIcon,
-    SearchIcon,
-    FilterIcon,
-    DownloadIcon,
-    ImageIcon,
-    FileCodeIcon,
-    ClipboardIcon,
-  } from "@lucide/svelte";
+  import DatabaseIcon from "@lucide/svelte/icons/database";
+  import TableIcon from "@lucide/svelte/icons/table";
+  import LinkIcon from "@lucide/svelte/icons/link";
+  import SearchIcon from "@lucide/svelte/icons/search";
+  import FilterIcon from "@lucide/svelte/icons/filter";
+  import DownloadIcon from "@lucide/svelte/icons/download";
+  import ImageIcon from "@lucide/svelte/icons/image";
+  import FileCodeIcon from "@lucide/svelte/icons/file-code";
+  import ClipboardIcon from "@lucide/svelte/icons/clipboard";
   import ErdTableNode from "./erd-table-node.svelte";
   import { layoutErdDiagram } from "$lib/utils/erd-layout";
   import type { Node, Edge, NodeTypes, ColorMode } from "@xyflow/svelte";

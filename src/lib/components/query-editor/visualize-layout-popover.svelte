@@ -3,7 +3,11 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
-	import { SettingsIcon, ArrowDownIcon, ArrowUpIcon, ArrowRightIcon, ArrowLeftIcon } from '@lucide/svelte';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
+	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { DEFAULT_LAYOUT_OPTIONS, type QueryLayoutOptions, type LayoutDirection } from '$lib/utils/query-visual-layout';
 
 	type Props = {

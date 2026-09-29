@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { MergeIcon } from "@lucide/svelte";
+	import MergeIcon from "@lucide/svelte/icons/merge";
 	import type { QueryJoin } from "$lib/types";
 
 	type Props = {

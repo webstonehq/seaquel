@@ -49,6 +49,8 @@ export interface WorkflowResultNodeData extends Record<string, unknown> {
   rows: unknown[][];
   totalRows: number;
   executionTime?: number;
+  /** The query had more rows than a node fetches (`WORKFLOW_MAX_ROWS`); these are the first. */
+  truncated?: boolean;
   error?: string;
 }
 

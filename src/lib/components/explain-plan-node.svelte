@@ -5,7 +5,8 @@
   import type { ExplainPlanNode } from "$lib/types";
   import type { HotPathTier } from "$lib/utils/explain-analysis";
   import { m } from "$lib/paraglide/messages.js";
-  import { FlameIcon, TriangleAlertIcon } from "@lucide/svelte";
+  import FlameIcon from "@lucide/svelte/icons/flame";
+  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
 
   interface ExplainPlanNodeWithAnalysis extends ExplainPlanNode {
     tier?: HotPathTier;

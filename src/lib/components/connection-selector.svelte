@@ -1,12 +1,10 @@
 <script lang="ts">
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-	import {
-		DatabaseIcon,
-		ChevronDownIcon,
-		CheckIcon,
-		LoaderIcon,
-	} from '@lucide/svelte';
+	import DatabaseIcon from '@lucide/svelte/icons/database';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import LoaderIcon from '@lucide/svelte/icons/loader';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import { m } from '$lib/paraglide/messages.js';
 

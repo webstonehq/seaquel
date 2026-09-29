@@ -49,7 +49,7 @@ refuses the rest. `/api/db/*` and the `db_*` commands are gone. The recorded
 connect quirks are fixed (the v2 fixtures), web connections are capped per
 user, and a stopped stream stops on the server. The demo is unchanged. Its
 measured cost is in "Phase 5a cost" below.
-Phase 5b: implemented, manual checks pending (see
+Phase 5b: implemented, manual checks passed (see
 2026-10-02-rust-core-phase-5b-plan.md). On desktop and web, running SQL
 from the editor is one Core stream, `db.run`, and paging is `db.page`. Core
 splits the text, finds the statement at the cursor, substitutes
@@ -63,6 +63,24 @@ keeps the TypeScript runner behind a `QueryRunner` seam. The web server
 bounds a run's text, statement count and parameter values, Core bounds
 what substitution may add everywhere, and the Node proxy applies
 backpressure. Its measured cost is in "Phase 5b cost" below.
+Phase 5c: implemented, manual checks pending (see
+2026-10-03-rust-core-phase-5c-plan.md). On desktop and web, every write
+the grid makes and the data tab's query go through Core: the grid sends
+edit intents, and Core reads the table's metadata per call, checks the key
+against the primary key, builds the SQL with the connection's dialect and
+runs it (`db.planEdits`, `db.applyChanges`). A batch of pending changes
+that is all DML applies in one transaction; one with anything else applies
+in order and stops at the first failure. The data tab sends typed filters,
+sort and page (`db.tablePage`, a stream on 5b's page executor), and the
+DuckDB extensions tab a typed action (`db.duckdbExtension`). Edits go to
+the connection their data came from, not the active one. Workflow query
+nodes run read-only on their own connection. The engine RPC lost
+`paginate` and the CRUD builders; the demo keeps the TypeScript path
+behind an `EditService` seam. The web server bounds each edit call, each
+user's calls in flight and `/api/rpc`'s body, and an apply stops when the
+browser goes away or the workspace is evicted. The slice took the name 5c
+from the connection, project and saved-query CRUD, which is now 5d. Its
+measured cost is in "Phase 5c cost" below.
 
 ## Problem
 
@@ -819,6 +837,9 @@ that's fine.
   `seaquel-core`.
 - `hooks/database/*` shrinks to view models over `CoreClient`.
 - This is the largest phase. Do it one manager at a time.
+- (As built so far: 5a connections, 5b query execution and history, 5c
+  edits, pending changes, the data tab and workflows. 5d is the connection,
+  project and saved-query CRUD.)
 
 **Phase 6: `seaquel-ai`**
 - LLM calls move out of the webview into Rust.
@@ -2390,6 +2411,206 @@ which removed every whole-list write without touching a stored row.
   5a. Estimate the next slice from 5b's per-task times, and keep the probe's
   fix budget in proportion to the first passes (here about equal to them)
   rather than to the probe.
+
+## Phase 5c cost
+
+Source: `2026-10-03-phase-5c-effort.md` and the phase 5c plan's execution
+notes, plus line counts measured against the phase 5b commit (`cc08674`);
+phase 5c is in the working tree on top of it. Times are agent wall time as
+logged, review and probe fixes included, but not the plan, the review
+passes themselves or the owner's decisions. Tasks 1, 2 and 3 overlapped.
+The probe run has no entry in the effort log; its scratch files span about
+15 minutes, so it's counted at ~0.25 h with its setup, as in 5b.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. TS fixes (result connection, `IN`, data tab race, log lines) | 0.15–0.25 h | ~0.25 h | ~0.1 h | ~0.35 h |
+| 2. Edit, apply and table-page fixtures | 0.3–0.5 h | ~0.4 h | ~0.3 h | ~0.7 h |
+| 3. `Driver::transaction`'s index, live transaction tests | 0.2–0.35 h | ~0.8 h | ~0.1 h | ~0.9 h |
+| 4. Core edits service | 0.8–1.2 h | ~1.1 h | ~0.35 h | ~1.45 h |
+| 5. `seaquel-rpc` and both transports | 0.35–0.55 h | ~0.8 h | — | ~0.8 h |
+| 6. GUI onto the edits service | 0.8–1.2 h | ~0.8 h | ~0.25 h | ~1.05 h |
+| 7. Probe | 0.25–0.4 h | ~0.25 h | ~2.1 h | ~2.35 h |
+| 8. Docs, measure, checks | 0.5–0.6 h | ~0.65 h | — | ~0.65 h |
+| Review fixes (the plan's row) | 1–1.5 h | | | |
+| Probe fixes (the plan's row) | 2–3 h | | | |
+| **Total** | **~6.5–9.5 h** | **~5.05 h** | **~3.2 h** | **~8.25 h** |
+
+About 1 h of the logged time was waiting on the live suites and builds
+(Tasks 3, 4 and the two probe-fix rounds). Task 7's fixes are two rounds:
+the probe's findings with a re-probe (~1.3 h) and their review with a
+second re-probe (~0.8 h).
+
+**The estimating method held.** 5c was the first slice sized from the
+previous slice's logged per-task times instead of from its estimates, with
+the probe-fix budget set about equal to the first passes. It came in at
+~8.25 h against 6.5–9.5 h and the plan's "expect ~7 h". The rows landed
+inside their ranges: review fixes ~1.1 h against 1–1.5 h, probe fixes
+~2.1 h against 2–3 h, and first passes ~5.05 h against 3.35–5.05 h, at
+the top. Per task it was less even. Tasks 3 and 5 ran two to three times
+their estimates: Task 3's gap was mostly live suites (~0.3 h of waiting)
+and a DuckDB behaviour the docs had wrong, Task 5's the wire (`Deserialize`
+lost, the removed engine calls breaking the TS client, a new error code).
+Tasks 2, 4, 6 and 7 landed inside their ranges and Task 1 at its top. The
+share of fixes was 39% of the logged time, down from 5b's 55%, and the
+probe and its fixes were again the largest single item (~28%).
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~3,190 | ~270 |
+| Rust, tests (test files, inline `#[cfg(test)]`, the testkit) | ~7,240 | ~220 |
+| Fixtures (180 recorded edit cases in 16 files) | ~34,830 | 0 |
+| TypeScript/Svelte/JS, production | ~2,980 | ~1,680 |
+| TypeScript/JS, tests | ~3,750 | ~1,000 |
+| Generated TS types | ~230 | ~20 |
+
+Measured with `git diff -U0` against `cc08674` plus the untracked files,
+with `Cargo.lock`, config files, the docs and the message files left out;
+inline test modules counted from their `#[cfg(test)]` line. The recorder in
+`docs/plans/artifacts` (~3,060 lines) isn't counted. The working tree also
+holds two unrelated changes, left out: the CLI download in `src-tauri`
+(`cli_download.rs`, `cli_install.rs`, `cli_info.rs`, the release workflow,
+the build scripts) and the icon-import and lazy-loading changes across the
+components.
+
+Where the production Rust went: `seaquel-workspace` ~1,370 (`edits`: the
+wire types, `plan_edit`, `cast_map`, `classify`, `table_select`,
+`EditLimits` and the limit checks), Core ~750 (`plan_edits`,
+`apply_changes`, `table_page`, `duckdb_extension`, the `closing` token),
+`seaquel-server` ~260 (`WEB_EDIT_LIMITS`, the per-user in-flight budget
+and edit-call cap, statuses, log targets), `seaquel-engine` ~260
+(`select.rs`, `TransactionError`), `seaquel-rpc` ~170 added and ~155
+removed (the four calls in; `Paginate` and the `Build*` calls out),
+`seaquel-sql` ~160 (`change_summary`), the DuckDB driver ~80 (the
+open-transaction probe), MySQL ~50 (MariaDB's JSON columns) and
+`append_many` ~40. On the TS side `query-crud.svelte.ts` went from 557 to
+429 lines, `data-tabs.svelte.ts` from 457 to 531 (the stream, one
+operation per tab) and `pending-changes.svelte.ts` from 210 to 413 (the
+three modes, interrupted applies, the confirm list); `RustEngineClient` from
+347 to 122 lines; the insert dialog (132) went. Production TS grew by
+~1,300 lines net: ~600 of them are the demo's `TsEditService`, which phase 8
+deletes, and ~420 the web's body limits and client-abort plumbing.
+
+### Bugs found
+
+By who found them first, counted from the effort log (a finding that
+bundles several small ones counts once per item). The bracketed number is
+how many were older than phase 5c. The plan's survey found eight before
+any code (edits going to the active connection, `IN`/`NOT IN` always
+failing, range filters comparing text, the data tab's refresh race, key
+values in two log lines, the query tab's row delete ignoring column
+sources, workflows ignoring their connection and writing, the two-statement
+extension actions), all older; they aren't in the table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Edits reaching the wrong connection | 6 [5] | 5 [4] | — |
+| Planning and values (JSON, defaults, keys, descriptions) | 3 [2] | 4 [1] | 1 |
+| Transactions and apply outcomes | 1 [1] | 2 | 1 |
+| GUI view models and the demo | — | 2 [1] | — |
+| Web limits, memory and bodies | — | 1 | 2 [1] |
+| Cancel and eviction | — | — | 2 [1] |
+| Paging counts | — | — | 1 [1] |
+| Logs | — | 1 [1] | 1 [1] |
+| **Total** | **10 [8]** | **15 [7]** | **8 [4]** |
+
+The probe column includes the re-probes after each fix round.
+
+The serious ones:
+
+- **Edits went to the active connection** (survey, older). A data tab on
+  connection A with B active in the sidebar edited, deleted and inserted
+  in B with A's table name, and an old query result edited whatever was
+  active. Task 1 fixed it first; its implementer and review then found
+  the same mistake in six more places (paging, the reruns after Set
+  default and delete, the query tab's overlays, the extensions tab, the
+  sheet and badge, the confirm retry) and one new one: a reconnect during
+  an edit's await sent it to the stale Core id.
+- **A dropped or evicted atomic apply could commit** (probe I1 and M1).
+  Node's `/api/rpc` didn't abort its call to Rust when the browser went
+  away, because SvelteKit's `request.signal` doesn't fire once the body is
+  read, so a closed tab's apply ran to its commit; eviction didn't stop an
+  apply either. The route now aborts on the socket's `close`, and an apply
+  races the workspace's `closing` token. The GUI treats any apply without
+  an answer as interrupted, atomic included (Task 6 review), since its
+  commit may have landed before the reply was lost; retrying it as
+  rolled back would have applied every change twice.
+- **Large applies failed on the web** (probe I2, older). adapter-node's
+  512 KB `BODY_SIZE_LIMIT` applied to `/api/rpc`, so a queue of a few
+  thousand edits was refused by Node before Rust's limits mattered. It's
+  now 20 MiB there and the operator's value everywhere else.
+- **Memory at the limits** (probe M4). Eight concurrent 17 MB applies from
+  one user took Rust to 877 MB and Node to 952 MB. Per-user budgets for
+  bodies in flight (40 MiB in both) and four edit calls at once brought it
+  to 242 and 546 MB; the first version, which counted only bodies over
+  1 MiB, let 200 small applies through at once (review).
+- **JSON cells couldn't be written** (recorder, older; Decision 19).
+  `encodeParam` sends a decoded JSON array as a SQL array and a number as
+  a number, which every engine refused for a JSON column. Arrays, numbers
+  and bools now bind as JSON there. The review found it never fired on
+  MariaDB, whose `JSON` columns report `longtext`.
+- **A DuckDB batch aborted the user's transaction** (Task 3, older). A
+  nested `BEGIN` doesn't fail on DuckDB: it aborts the transaction the
+  user opened by hand, and a later `COMMIT` rolls it back. The batch now
+  refuses first (`TRANSACTION_OPEN`), found by two `txid_current()` calls.
+- **Database text in the server log** (probe M5 and its review, older).
+  Postgres notices (`RAISE WARNING`'s text) and tiberius's token stream
+  (every SQL Server error and `PRINT`, quoting values) reached the log at
+  INFO and ERROR. Both targets are dropped on the server, the desktop and
+  the CLI.
+
+### What was harder than expected
+
+- **Finding every place that read the active connection.** The fix was
+  one rule, but the active connection was read in a dozen places across
+  the view models, the sheet, the header and the sidebar, and each one
+  found led to the next. Task 1 and its review went mostly to this.
+- **The web's outer limits.** 5b sized what Core parses; 5c's applies are
+  big bodies, so the limits that mattered were Node's: adapter-node's one
+  global body limit, Node holding every body it reads until Rust answers,
+  and SvelteKit not signalling a closed client. None of them was in the
+  plan, and each needed its own fix in `server.js`, a hook and the route.
+- **Knowing what an apply did when it doesn't answer.** An atomic batch
+  looks safe to retry after a failure, but not after a lost reply. The
+  rule ("no answer means interrupted, whatever the mode") took the review
+  of Task 6 and the probe's eviction case to settle.
+- **Engines again.** DuckDB's nested `BEGIN`, MariaDB's JSON as
+  `longtext`, SQL Server leaving a transaction open after error 266, and
+  tiberius's logging were all found by live tests or reading driver
+  sources, not by the fixtures.
+
+What went to plan: the recorded fixtures, which the Rust replay matched on
+all 180 cases with exactly the 89 listed changes, and the TypeScript replay
+on the queue's side; the transports, which needed only the new start
+method; `executeReadOnly`, the AI and dashboards, untouched; and the
+per-call metadata read, which the probe measured at ~6 ms on Postgres
+(82 edits/s from one client, 464 from eight), so no cache yet.
+
+### What this means for the next slice
+
+- **5d: connection, project and saved-query CRUD.** It is storage work
+  more than database work: those collections are already stored through
+  `seaquel-storage`, mostly by whole-collection saves, so the slice is
+  likely to move them to targeted calls as 5b did for history, plus
+  whatever the GUI still validates or rewrites (connection strings,
+  project membership, saved-query parameters). It has no apply modes and
+  no engine behaviour, so expect it smaller than 5c.
+- **Size the web's outer layers up front.** Any new call that carries a
+  large body needs Node's side in the plan: the body limit, the per-user
+  budget, and aborting on a closed client.
+- **Still high priority:** the row-returning statement kind (from 5b), and
+  showing an estimated total as an estimate, which the data tab now hits
+  too.
+- **Estimating.** Size 5d from 5c's per-task times, as 5c was sized from
+  5b's: first passes by comparing each task to the nearest 5c task, review
+  fixes at ~20% of first passes (5c: 22%) and probe fixes at ~40% (5c:
+  42%), lower only if 5d really adds no large inputs from the browser.
+  Count live-suite waiting inside the task estimates; it's most of why
+  Task 3 ran over.
 
 ## Risks
 

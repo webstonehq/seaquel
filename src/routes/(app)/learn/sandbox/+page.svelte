@@ -4,7 +4,9 @@
 	import { QueryBuilderWorkspace, TablePalette } from '$lib/components/query-builder';
 	import { QueryBuilderState, setQueryBuilder } from '$lib/hooks/query-builder.svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { RotateCcwIcon, PlayIcon, Loader2Icon } from '@lucide/svelte';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+	import PlayIcon from '@lucide/svelte/icons/play';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
 
 	// Initialize query builder state
 	const qb = setQueryBuilder(new QueryBuilderState());

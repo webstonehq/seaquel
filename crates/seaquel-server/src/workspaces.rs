@@ -233,6 +233,75 @@ struct Lru {
     clock: u64,
 }
 
+/// What one user's `/rpc` calls in flight hold (see
+/// [`Workspaces::begin_call`]).
+#[derive(Default)]
+struct UserCalls {
+    /// Their bodies' bytes, together.
+    bytes: usize,
+    /// The edit calls among them ([`CallSlot::begin_edit`]).
+    edits: usize,
+}
+
+/// Each user's `/rpc` calls in flight. Kept apart from the LRU: an
+/// eviction doesn't end the calls, so it mustn't forget them either.
+#[derive(Default)]
+struct InFlight {
+    per_user: Mutex<HashMap<String, UserCalls>>,
+}
+
+/// One call's share of its user's in-flight budget, released when dropped
+/// (the call finished, failed or was dropped with its request).
+pub struct CallSlot {
+    in_flight: Arc<InFlight>,
+    user_id: String,
+    bytes: usize,
+    edit: bool,
+}
+
+impl CallSlot {
+    /// Count this call as an edit call too, unless `max` of the user's are
+    /// running already (then `false`, and nothing changes).
+    pub fn begin_edit(&mut self, max: usize) -> bool {
+        if self.edit {
+            return true;
+        }
+        let mut per_user = self
+            .in_flight
+            .per_user
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(calls) = per_user.get_mut(&self.user_id) else {
+            return false;
+        };
+        if calls.edits >= max {
+            return false;
+        }
+        calls.edits += 1;
+        self.edit = true;
+        true
+    }
+}
+
+impl Drop for CallSlot {
+    fn drop(&mut self) {
+        let mut per_user = self
+            .in_flight
+            .per_user
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(calls) = per_user.get_mut(&self.user_id) {
+            calls.bytes = calls.bytes.saturating_sub(self.bytes);
+            if self.edit {
+                calls.edits = calls.edits.saturating_sub(1);
+            }
+            if calls.bytes == 0 && calls.edits == 0 {
+                per_user.remove(&self.user_id);
+            }
+        }
+    }
+}
+
 /// The open workspaces, keyed by user id, at most `capacity` of them.
 pub struct Workspaces {
     root: PathBuf,
@@ -241,6 +310,7 @@ pub struct Workspaces {
     lru: Mutex<Lru>,
     stats: Arc<Stats>,
     hub: Arc<Hub>,
+    in_flight: Arc<InFlight>,
 }
 
 impl Workspaces {
@@ -260,6 +330,7 @@ impl Workspaces {
             lru: Mutex::new(Lru::default()),
             stats: Arc::default(),
             hub: Arc::default(),
+            in_flight: Arc::default(),
         }
     }
 
@@ -311,6 +382,45 @@ impl Workspaces {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// A slot for a call of `user_id`'s whose body is `bytes` long, or
+    /// `None` when their calls in flight already hold bodies that, with
+    /// this one, pass `budget`. A lone call always gets one, whatever its
+    /// size, and so does a body under `SMALL_CALL_BYTES` (it still counts).
+    /// Hold it for the whole call.
+    pub fn begin_call(&self, user_id: &str, bytes: usize, budget: usize) -> Option<CallSlot> {
+        let mut per_user = self
+            .in_flight
+            .per_user
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let calls = per_user.entry(user_id.to_string()).or_default();
+        if bytes >= crate::routes::rpc::SMALL_CALL_BYTES
+            && calls.bytes > 0
+            && calls.bytes.saturating_add(bytes) > budget
+        {
+            return None;
+        }
+        // Counted even when empty, so an empty body still holds its user's
+        // entry (and an edit slot) until it ends.
+        calls.bytes = calls.bytes.saturating_add(bytes.max(1));
+        Some(CallSlot {
+            in_flight: Arc::clone(&self.in_flight),
+            user_id: user_id.to_string(),
+            bytes: bytes.max(1),
+            edit: false,
+        })
+    }
+
+    /// How many users have a call in flight (tests).
+    #[doc(hidden)]
+    pub fn users_with_calls_in_flight(&self) -> usize {
+        self.in_flight
+            .per_user
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     /// `root/users/<id>`, the directory a user's workspace opens on.

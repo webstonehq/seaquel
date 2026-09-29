@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { CopyIcon, CheckIcon } from "@lucide/svelte";
+    import CopyIcon from "@lucide/svelte/icons/copy";
+    import CheckIcon from "@lucide/svelte/icons/check";
     import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
     interface Props {

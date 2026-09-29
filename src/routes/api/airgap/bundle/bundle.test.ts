@@ -357,3 +357,24 @@ describe("GET /api/airgap/bundle", () => {
     expect(client.airgapStatus).toHaveBeenCalledWith("u_o");
   });
 });
+
+// Probe review: the body-limit hook fails a chunked body past the limit
+// with a 413 HttpError while the route reads it; that must stay a 413.
+describe("POST an oversized bundle", () => {
+  it("rethrows the hook's 413 instead of a 400", async () => {
+    const { error } = await import("@sveltejs/kit");
+    let tooLarge: unknown;
+    try {
+      error(413, "Payload Too Large");
+    } catch (e) {
+      tooLarge = e;
+    }
+    const request = new Request("http://localhost:5173/api/airgap/bundle", {
+      method: "POST",
+      headers: { origin: "http://localhost:5173", "Content-Type": "application/json" },
+      body: new ReadableStream({ start: (c) => c.error(tooLarge) }),
+      duplex: "half",
+    } as RequestInit);
+    await expect(POST(makeEvent(request))).rejects.toMatchObject({ status: 413 });
+  });
+});

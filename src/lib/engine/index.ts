@@ -19,7 +19,7 @@ import { RustEngineClient, type RustEngine } from "./rust-engine-client";
 import { TsEngineClient } from "./ts-engine-client";
 import type { EngineClient } from "./types";
 
-export type { CastMap, EngineClient, RowRecord, TableMetadata } from "./types";
+export type { EngineClient, TableMetadata } from "./types";
 export { RustEngineClient } from "./rust-engine-client";
 export { TsEngineClient, type TsEngineClientOptions } from "./ts-engine-client";
 export { editorQualifiedTable, quoteIdent, selectPreview } from "./qualified-table";

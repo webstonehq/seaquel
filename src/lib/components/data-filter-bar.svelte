@@ -3,7 +3,8 @@
 	import { Input } from "$lib/components/ui/input";
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import * as Select from "$lib/components/ui/select/index.js";
-	import { PlusIcon, TrashIcon } from "@lucide/svelte";
+	import PlusIcon from "@lucide/svelte/icons/plus";
+	import TrashIcon from "@lucide/svelte/icons/trash";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { DataFilter, DataFilterOperator, SchemaColumn } from "$lib/types";
 

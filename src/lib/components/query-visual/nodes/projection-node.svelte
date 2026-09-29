@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Handle, Position } from "@xyflow/svelte";
-	import { ListIcon, FunctionSquareIcon } from "@lucide/svelte";
+	import ListIcon from "@lucide/svelte/icons/list";
+	import FunctionSquareIcon from "@lucide/svelte/icons/function-square";
 	import type { QueryProjection } from "$lib/types";
 
 	type Props = {

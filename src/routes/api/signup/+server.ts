@@ -28,7 +28,7 @@
  * the standard `/api/auth/sign-up/email` route would.
  */
 
-import { error, json } from "@sveltejs/kit";
+import { error, isHttpError, json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { auth, isOriginTrusted, openAuthDb } from "$lib/server/auth";
 import { checkRateLimit } from "$lib/server/rate-limit";
@@ -75,7 +75,9 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
   let body: SignupBody;
   try {
     body = (await request.json()) as SignupBody;
-  } catch {
+  } catch (e) {
+    // The body-limit hook's 413 for a body past the limit stays a 413.
+    if (isHttpError(e)) throw e;
     throw error(400, "invalid JSON body");
   }
   const email = body.email?.trim().toLowerCase() ?? "";

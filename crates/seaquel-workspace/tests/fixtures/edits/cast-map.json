@@ -1,0 +1,389 @@
+[
+  {
+    "name": "cast/catalog-cast-types",
+    "notes": "Every column with a castType casts to it as it is",
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "castType": "integer",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "mood",
+        "type": "USER-DEFINED",
+        "castType": "myschema.mood",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "moods",
+        "type": "ARRAY",
+        "castType": "myschema.mood[]",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "n",
+        "type": "numeric",
+        "castType": "numeric(10,2)",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "castType": "text",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "c",
+        "type": "character",
+        "castType": "bpchar",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "b",
+        "type": "bit",
+        "castType": "\"bit\"",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "id": "integer",
+      "mood": "myschema.mood",
+      "moods": "myschema.mood[]",
+      "n": "numeric(10,2)",
+      "name": "text",
+      "c": "bpchar",
+      "b": "\"bit\""
+    }
+  },
+  {
+    "name": "cast/text-like-uncast",
+    "notes": "Without a castType, text-like, user-defined and array columns bind without a cast",
+    "columns": [
+      {
+        "name": "a",
+        "type": "text",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "b",
+        "type": "character varying",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "c",
+        "type": "USER-DEFINED",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "d",
+        "type": "ARRAY",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "e",
+        "type": "TEXT",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {}
+  },
+  {
+    "name": "cast/bit-and-character-widened",
+    "columns": [
+      {
+        "name": "b",
+        "type": "bit",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "c",
+        "type": "character",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "B",
+        "type": "BIT",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "C",
+        "type": "Character",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "b": "bit varying",
+      "c": "bpchar",
+      "B": "bit varying",
+      "C": "bpchar"
+    }
+  },
+  {
+    "name": "cast/plain-types",
+    "columns": [
+      {
+        "name": "id",
+        "type": "bigint",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "u",
+        "type": "uuid",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "d",
+        "type": "date",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "ts",
+        "type": "timestamp with time zone",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "j",
+        "type": "jsonb",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "x",
+        "type": "xml",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "m",
+        "type": "money",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "bool",
+        "type": "boolean",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "id": "bigint",
+      "u": "uuid",
+      "d": "date",
+      "ts": "timestamp with time zone",
+      "j": "jsonb",
+      "x": "xml",
+      "m": "money",
+      "bool": "boolean"
+    }
+  },
+  {
+    "name": "cast/domain",
+    "notes": "A domain over text: information_schema reports the base type, the catalog the domain",
+    "columns": [
+      {
+        "name": "email",
+        "type": "text",
+        "castType": "public.email_address",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "email2",
+        "type": "text",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "email": "public.email_address"
+    }
+  },
+  {
+    "name": "cast/case-kept",
+    "notes": "A type without a castType is interpolated as reported, case kept",
+    "columns": [
+      {
+        "name": "a",
+        "type": "INTEGER",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "b",
+        "type": "Numeric(5, 1)",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "c",
+        "type": "Double Precision",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "a": "INTEGER",
+      "b": "Numeric(5, 1)",
+      "c": "Double Precision"
+    }
+  },
+  {
+    "name": "cast/empty",
+    "columns": [],
+    "casts": {}
+  },
+  {
+    "name": "cast/quoted-and-odd-names",
+    "columns": [
+      {
+        "name": "we\"ird",
+        "type": "integer",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "sp ace",
+        "type": "date",
+        "castType": "date",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "",
+        "type": "text",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "東京",
+        "type": "smallint",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "we\"ird": "integer",
+      "sp ace": "date",
+      "東京": "smallint"
+    }
+  },
+  {
+    "name": "cast/array-and-enum-without-cast-type",
+    "notes": "Older metadata without castType: arrays and enums bind uncast",
+    "columns": [
+      {
+        "name": "tags",
+        "type": "ARRAY",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "mood",
+        "type": "USER-DEFINED",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "ids",
+        "type": "integer[]",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "ids": "integer[]"
+    }
+  },
+  {
+    "name": "cast/character-varying-with-cast-type",
+    "columns": [
+      {
+        "name": "v",
+        "type": "character varying",
+        "castType": "character varying",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "c",
+        "type": "character",
+        "castType": "bpchar",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      },
+      {
+        "name": "bv",
+        "type": "bit varying",
+        "castType": "\"bit varying\"",
+        "nullable": true,
+        "isPrimaryKey": false,
+        "isForeignKey": false
+      }
+    ],
+    "casts": {
+      "v": "character varying",
+      "c": "bpchar",
+      "bv": "\"bit varying\""
+    }
+  }
+]

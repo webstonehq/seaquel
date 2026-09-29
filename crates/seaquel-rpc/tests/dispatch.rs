@@ -408,152 +408,6 @@ async fn column_types() {
 }
 
 #[tokio::test]
-async fn paginate() {
-    let f = fixture().await;
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "paginate", "params": { "sql": "SELECT 1", "limit": 50, "offset": 100 } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        out,
-        json!({ "kind": "sql", "data": "SELECT 1 LIMIT 50 OFFSET 100" })
-    );
-}
-
-#[tokio::test]
-async fn build_update_keeps_row_order_and_values() {
-    let f = fixture().await;
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "buildUpdate", "params": {
-            "schema": "public", "table": "t", "column": "price",
-            "value": { "$sq": "decimal", "v": "12.50" },
-            "primary_keys": ["id", "b"],
-            // Not alphabetical: pairs must keep their order.
-            "row": [["z", 1], ["id", 2], ["b", { "$sq": "bytes", "v": "AQI=" }]],
-            "casts": { "price": "numeric" }
-        } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        out,
-        json!({ "kind": "sqlWithBindings", "data": {
-            "sql": r#"update public.t.price pks=id,b row=z=1,id=2,b={"$sq":"bytes","v":"AQI="} casts=price:numeric"#,
-            "bindValues": [{ "$sq": "decimal", "v": "12.50" }]
-        } })
-    );
-}
-
-#[tokio::test]
-async fn build_update_without_casts() {
-    let f = fixture().await;
-    for casts in [json!(null), json!("omitted")] {
-        let mut params = json!({
-            "schema": "public", "table": "t", "column": "c", "value": null,
-            "primary_keys": ["id"], "row": [["id", 1]]
-        });
-        if casts.is_null() {
-            params["casts"] = Json::Null;
-        }
-        let out = call(
-            &f.core,
-            &f.pg,
-            json!({ "method": "buildUpdate", "params": params }),
-        )
-        .await
-        .unwrap();
-        assert!(
-            out["data"]["sql"].as_str().unwrap().ends_with("casts=none"),
-            "{out}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn build_set_default() {
-    let f = fixture().await;
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "buildSetDefault", "params": {
-            "schema": "public", "table": "t", "column": "c",
-            "primary_keys": ["id"], "row": [["id", 7], ["c", "x"]],
-            "casts": { "id": "uuid" }
-        } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        out,
-        json!({ "kind": "sqlWithBindings", "data": {
-            "sql": r#"default public.t.c pks=id row=id=7,c="x" casts=id:uuid"#
-        } })
-    );
-}
-
-#[tokio::test]
-async fn build_insert() {
-    let f = fixture().await;
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "buildInsert", "params": {
-            "schema": "public", "table": "t",
-            "values": [["name", "a"], ["age", 3], ["meta", { "$sq": "json", "v": { "k": 1 } }]],
-            "casts": null
-        } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        out["data"]["sql"],
-        r#"insert public.t values=name="a",age=3,meta={"$sq":"json","v":{"k":1}} casts=none"#
-    );
-    assert_eq!(
-        out["data"]["bindValues"],
-        json!(["a", 3, { "$sq": "json", "v": { "k": 1 } }])
-    );
-}
-
-#[tokio::test]
-async fn build_delete() {
-    let f = fixture().await;
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "buildDelete", "params": {
-            "schema": "public", "table": "t", "primary_keys": ["id"], "row": [["id", 9]]
-        } }),
-    )
-    .await
-    .unwrap();
-    // `casts` is optional.
-    assert_eq!(
-        out["data"]["sql"],
-        "delete public.t pks=id row=id=9 casts=none"
-    );
-    let out = call(
-        &f.core,
-        &f.pg,
-        json!({ "method": "buildDelete", "params": {
-            "schema": "public", "table": "t", "primary_keys": ["id"], "row": [["id", 9]],
-            "casts": { "id": "uuid" }
-        } }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        out["data"]["sql"],
-        "delete public.t pks=id row=id=9 casts=id:uuid"
-    );
-}
-
-#[tokio::test]
 async fn create_table() {
     let f = fixture().await;
     let out = call(
@@ -586,7 +440,6 @@ async fn alter_table() {
 
 /// One request per variant, for the error tests.
 fn every_request() -> Vec<Json> {
-    let row = json!([["id", 1]]);
     vec![
         json!({ "method": "listSchemas" }),
         json!({ "method": "schemaTables" }),
@@ -594,11 +447,6 @@ fn every_request() -> Vec<Json> {
         json!({ "method": "statistics" }),
         json!({ "method": "explain", "params": { "sql": "SELECT 1", "params": [], "analyze": false } }),
         json!({ "method": "columnTypes" }),
-        json!({ "method": "paginate", "params": { "sql": "SELECT 1", "limit": 1, "offset": 0 } }),
-        json!({ "method": "buildUpdate", "params": { "schema": "s", "table": "t", "column": "c", "value": 1, "primary_keys": ["id"], "row": row } }),
-        json!({ "method": "buildSetDefault", "params": { "schema": "s", "table": "t", "column": "c", "primary_keys": ["id"], "row": row } }),
-        json!({ "method": "buildInsert", "params": { "schema": "s", "table": "t", "values": row } }),
-        json!({ "method": "buildDelete", "params": { "schema": "s", "table": "t", "primary_keys": ["id"], "row": row } }),
         json!({ "method": "createTable", "params": { "definition": definition("t") } }),
         json!({ "method": "alterTable", "params": { "from": definition("t"), "to": definition("t") } }),
     ]
@@ -608,7 +456,7 @@ fn every_request() -> Vec<Json> {
 async fn every_variant_without_a_rust_dialect_is_not_supported() {
     let f = fixture().await;
     let requests = every_request();
-    assert_eq!(requests.len(), 13, "one per EngineRequest variant");
+    assert_eq!(requests.len(), 8, "one per EngineRequest variant");
     for request in requests {
         let err = call(&f.core, &f.bare, request.clone()).await.unwrap_err();
         assert_eq!(err.code, "NOT_SUPPORTED", "{request}: {}", err.message);
@@ -630,12 +478,7 @@ fn malformed_requests_are_rejected() {
     // Unknown method.
     assert!(parse(json!({ "method": "dropEverything" })).is_err());
     // Missing params.
-    assert!(parse(json!({ "method": "paginate" })).is_err());
-    // A row must be pairs, not an object.
-    assert!(parse(json!({ "method": "buildDelete", "params": {
-        "schema": "s", "table": "t", "primary_keys": [], "row": { "id": 1 }
-    } }))
-    .is_err());
+    assert!(parse(json!({ "method": "tableMetadata" })).is_err());
     // Bad value tag.
     assert!(parse(json!({ "method": "explain", "params": {
         "sql": "x", "params": [{ "$sq": "nope", "v": 1 }], "analyze": false
@@ -655,15 +498,32 @@ fn requests_round_trip_through_serde() {
 
 #[test]
 fn responses_serialize_with_kind_and_data() {
-    let out = serde_json::to_value(EngineResponse::SqlWithBindings(SqlWithBindings {
-        sql: "x".into(),
-        bind_values: Some(vec![Value::Int(i64::MAX)]),
-    }))
-    .unwrap();
-    assert_eq!(
-        out,
-        json!({ "kind": "sqlWithBindings", "data": {
-            "sql": "x", "bindValues": [{ "$sq": "bigint", "v": "9223372036854775807" }]
-        } })
-    );
+    let out = serde_json::to_value(EngineResponse::Sql("CREATE TABLE t ()".into())).unwrap();
+    assert_eq!(out, json!({ "kind": "sql", "data": "CREATE TABLE t ()" }));
+}
+
+/// Paging and the CRUD builders are Core's now (phase 5c, Decision 14):
+/// `db.tablePage`, `db.planEdits` and `db.applyChanges` build with the
+/// dialect. The engine RPC doesn't know those methods any more.
+#[test]
+fn removed_engine_calls_are_unknown_methods() {
+    let row = json!([["id", 1]]);
+    for request in [
+        json!({ "method": "paginate", "params": { "sql": "SELECT 1", "limit": 1, "offset": 0 } }),
+        json!({ "method": "buildUpdate", "params": { "schema": "s", "table": "t", "column": "c", "value": 1, "primary_keys": ["id"], "row": row } }),
+        json!({ "method": "buildSetDefault", "params": { "schema": "s", "table": "t", "column": "c", "primary_keys": ["id"], "row": row } }),
+        json!({ "method": "buildInsert", "params": { "schema": "s", "table": "t", "values": row } }),
+        json!({ "method": "buildDelete", "params": { "schema": "s", "table": "t", "primary_keys": ["id"], "row": row } }),
+    ] {
+        let err = serde_json::from_value::<EngineRequest>(request.clone()).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant"),
+            "{request}: {err}"
+        );
+        // And through the workspace RPC: a bad request, before anything runs.
+        let body = json!({"method": "db", "params": {"method": "engine", "params": {
+            "connectionId": "c", "request": request}}});
+        let err = seaquel_rpc::parse_request(body.to_string().as_bytes()).unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT", "{request}");
+    }
 }

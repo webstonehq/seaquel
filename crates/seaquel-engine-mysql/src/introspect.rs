@@ -122,6 +122,13 @@ pub const COLUMNS_SQL: &str = "SELECT
 \t\tWHERE c.TABLE_NAME = ? AND c.TABLE_SCHEMA = ?
 \t\tORDER BY c.ORDINAL_POSITION";
 
+/// MariaDB's column CHECK constraints of one table (`?` = schema, `?` =
+/// table), for [`apply_mariadb_json`]. MySQL has JSON as its own type and
+/// doesn't need it.
+pub const MARIADB_COLUMN_CHECKS_SQL: &str = "SELECT CONSTRAINT_NAME AS constraint_name, \
+     CHECK_CLAUSE AS check_clause FROM information_schema.CHECK_CONSTRAINTS \
+     WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = ? AND LEVEL = 'Column'";
+
 /// Index key columns of one table, one row per column (TS
 /// `getIndexesQuery`). Bug fix 1: binds `?` = table, `?` = schema.
 pub const INDEXES_SQL: &str = "SELECT\n\t\t\tINDEX_NAME AS index_name,\n\t\t\tCOLUMN_NAME AS column_name,\n\t\t\tNON_UNIQUE AS non_unique,\n\t\t\tINDEX_TYPE AS index_type\n\t\tFROM information_schema.STATISTICS\n\t\tWHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?\n\t\tORDER BY INDEX_NAME, SEQ_IN_INDEX";
@@ -295,6 +302,35 @@ pub fn parse_columns(result: &QueryResult, flavor: Flavor) -> Vec<SchemaColumn> 
             }
         })
         .collect()
+}
+
+/// MariaDB stores a `JSON` column as `longtext` with a column CHECK
+/// `json_valid(`col`)` named after the column, so its catalog says
+/// `longtext`. Such a column is reported as `json` (phase 5c, Decision 19:
+/// Core binds a JSON column's arrays and numbers as JSON). Both the
+/// constraint's name and the clause must name the column exactly; a
+/// `longtext` with any other check stays `longtext`.
+pub fn apply_mariadb_json(columns: &mut [SchemaColumn], checks: &QueryResult) {
+    let checks: Vec<(String, String)> = rows(checks)
+        .map(|r| {
+            (
+                r.catalog_text("constraint_name"),
+                r.catalog_text("check_clause"),
+            )
+        })
+        .collect();
+    for column in columns {
+        if !column.ty.eq_ignore_ascii_case("longtext") {
+            continue;
+        }
+        let clause = format!("json_valid(`{}`)", column.name.replace('`', "``"));
+        if checks
+            .iter()
+            .any(|(name, check)| *name == column.name && *check == clause)
+        {
+            column.ty = "json".to_string();
+        }
+    }
 }
 
 /// Bug fix 8: `SchemaColumn::default_value` is the default as a SQL
@@ -1273,6 +1309,50 @@ fn mariadb_table(t: &Map<String, Json>) -> ExplainPlanNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mariadb_json_columns_are_longtext_with_their_json_valid_check() {
+        let col = |name: &str, ty: &str| SchemaColumn {
+            name: name.into(),
+            ty: ty.into(),
+            cast_type: None,
+            nullable: true,
+            default_value: None,
+            is_primary_key: false,
+            is_foreign_key: false,
+            foreign_key_ref: None,
+            collation: None,
+            is_unique: false,
+            in_unique_constraint: false,
+        };
+        let mut columns = vec![
+            col("j", "longtext"),
+            col("d`q", "longtext"),
+            col("t", "longtext"),
+            col("other", "longtext"),
+            col("J2", "LONGTEXT"),
+            col("n", "int(11)"),
+        ];
+        let text = |s: &str| Value::Text(s.into());
+        let checks = QueryResult {
+            columns: vec!["constraint_name".into(), "check_clause".into()],
+            rows: vec![
+                vec![text("j"), text("json_valid(`j`)")],
+                vec![text("d`q"), text("json_valid(`d``q`)")],
+                // A check that isn't exactly the column's json_valid.
+                vec![text("t"), text("json_valid(`t`) or `t` is null")],
+                vec![text("x"), text("json_valid(`other`)")],
+                vec![text("j2"), text("json_valid(`j2`)")],
+                vec![text("n"), text("json_valid(`n`)")],
+            ],
+        };
+        apply_mariadb_json(&mut columns, &checks);
+        let types: Vec<&str> = columns.iter().map(|c| c.ty.as_str()).collect();
+        assert_eq!(
+            types,
+            ["json", "json", "longtext", "longtext", "LONGTEXT", "int(11)"]
+        );
+    }
 
     #[test]
     fn flavor_from_version() {

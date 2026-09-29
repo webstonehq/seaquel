@@ -13,7 +13,7 @@
 		hasAllCredentials,
 	} from "$lib/utils/connection-string.js";
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
-	import { Trash2Icon } from "@lucide/svelte";
+	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 
 	import WizardStepMethod from "./connection-wizard/wizard-step-method.svelte";

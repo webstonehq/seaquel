@@ -3,13 +3,11 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
-	import {
-		RefreshCwIcon,
-		FilterIcon,
-		LoaderIcon,
-		CheckIcon,
-		XIcon,
-	} from "@lucide/svelte";
+	import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+	import FilterIcon from "@lucide/svelte/icons/filter";
+	import LoaderIcon from "@lucide/svelte/icons/loader";
+	import CheckIcon from "@lucide/svelte/icons/check";
+	import XIcon from "@lucide/svelte/icons/x";
 	import { QueryPagination } from "$lib/components/query-editor";
 	import type { DataFilter, ForeignKeyRef, SchemaColumn, SchemaTable } from "$lib/types";
 	import VirtualResultsTable from "$lib/components/virtual-results-table.svelte";
@@ -19,7 +17,6 @@
 		inputTypeForColumnType,
 		inputStepForColumnType,
 	} from "$lib/utils/cell-type";
-	import { rowToObject } from "$lib/utils/row-access";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { tick } from "svelte";
@@ -102,7 +99,8 @@
 
 	const pendingChangesForTable = $derived.by(() => {
 		if (!tab) return [];
-		return db.state.activePendingChanges.filter(
+		// The tab's own connection's queue, whatever is active in the sidebar.
+		return (db.state.pendingChangesByConnection[tab.connectionId] ?? []).filter(
 			(c) => c.target?.schema === tab.schemaName && c.target?.table === tab.tableName,
 		);
 	});
@@ -160,10 +158,7 @@
 	);
 
 	function handleRemovePendingInsert(changeId: string) {
-		const connectionId = db.state.activeConnectionId;
-		if (connectionId) {
-			db.pendingChanges.remove(connectionId, changeId);
-		}
+		if (tab) db.pendingChanges.remove(tab.connectionId, changeId);
 	}
 
 	// Pagination derived
@@ -247,21 +242,13 @@
 
 	async function handleCellSave(rowIndex: number, column: string, newValue: unknown) {
 		if (!tab?.results?.sourceTable) return;
-		const row = tab.results.rows[rowIndex];
-		if (!row) return;
 
-		const result = await db.queries.updateCellDirect(
-			tab.results.sourceTable,
-			rowToObject(row, tab.results.columns),
-			column,
-			newValue,
-		);
+		// Runs on the tab's connection and refreshes the tab when it ran.
+		const result = await db.dataTabs.updateCell(tabId, rowIndex, column, newValue);
 
 		if (result.success) {
 			if (result.queued) {
 				toast.info("Change added to pending changes");
-			} else {
-				void db.dataTabs.refresh(tabId);
 			}
 		} else {
 			errorToast(`Failed to update cell: ${result.error ?? "Unknown error"}`);
@@ -273,16 +260,11 @@
 		deletingRowIndex = rowIndex;
 
 		try {
-			const result = await db.queries.deleteRow(
-				tab.results.sourceTable,
-				rowToObject(row, tab.results.columns),
-			);
+			const result = await db.dataTabs.deleteRow(tabId, row);
 			if (!result.success) {
 				errorToast(`Failed to delete row: ${result.error ?? "Unknown error"}`);
 			} else if (result.queued) {
 				toast.info("Delete added to pending changes");
-			} else {
-				void db.dataTabs.refresh(tabId);
 			}
 		} catch (error) {
 			errorToast(
@@ -312,20 +294,12 @@
 	async function handleSetDefault() {
 		if (contextRowIndex == null || contextColumn == null) return;
 		if (!tab?.results?.sourceTable) return;
-		const row = tab.results.rows[contextRowIndex];
-		if (!row) return;
 
-		const result = await db.queries.setCellDefaultDirect(
-			tab.results.sourceTable,
-			rowToObject(row, tab.results.columns),
-			contextColumn,
-		);
+		const result = await db.dataTabs.setCellDefault(tabId, contextRowIndex, contextColumn);
 
 		if (result.success) {
 			if (result.queued) {
 				toast.info("Change added to pending changes");
-			} else {
-				void db.dataTabs.refresh(tabId);
 			}
 		} else {
 			errorToast(`Failed to set default: ${result.error ?? "Unknown error"}`);
@@ -445,7 +419,7 @@
 										<XIcon class="size-3" />
 									</Button>
 								</div>
-								{#each resultColumns as col}
+								{#each resultColumns as col (col)}
 									{@const schemCol = tableColumns.find((c) => c.name === col)}
 									{@const colInputType = schemCol ? inputTypeForColumnType(schemCol.type) : "text"}
 									{@const colStep = schemCol ? inputStepForColumnType(schemCol.type) : undefined}

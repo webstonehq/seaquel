@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import { TableIcon, BarChart3Icon, DatabaseIcon, NetworkIcon } from '@lucide/svelte';
+	import TableIcon from '@lucide/svelte/icons/table';
+	import BarChart3Icon from '@lucide/svelte/icons/bar-chart-3';
+	import DatabaseIcon from '@lucide/svelte/icons/database';
+	import NetworkIcon from '@lucide/svelte/icons/network';
 	import type { ResultViewMode } from '$lib/types';
 	import { m } from '$lib/paraglide/messages.js';
 

@@ -45,7 +45,8 @@
     "e2e:db:down": "docker compose -f e2e/test-databases/docker-compose.yml down",
     "demos:db:create": "rm -f docs/demos.db && sqlite3 docs/demos.db < docs/sample-data.sql",
     "demos:start": "SEAQUEL_DATA_DIR=~/projects/github/webstonehq/seaquel/docs/data tauri dev --config '{\"identifier\":\"app.seaquel.desktop.dev\"}'",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:dmg": "node scripts/build-dmg.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

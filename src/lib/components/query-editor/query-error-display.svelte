@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
-	import { XCircleIcon, CopyIcon } from "@lucide/svelte";
+	import XCircleIcon from "@lucide/svelte/icons/x-circle";
+	import CopyIcon from "@lucide/svelte/icons/copy";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";

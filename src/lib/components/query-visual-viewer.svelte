@@ -12,18 +12,16 @@ import { errorToast } from "$lib/utils/toast";
 	import * as Popover from "$lib/components/ui/popover";
 	import { Label } from "$lib/components/ui/label";
 	import { Input } from "$lib/components/ui/input";
-	import {
-		NetworkIcon,
-		DownloadIcon,
-		ImageIcon,
-		AlertCircleIcon,
-		Code2Icon,
-		SettingsIcon,
-		ArrowDownIcon,
-		ArrowUpIcon,
-		ArrowRightIcon,
-		ArrowLeftIcon
-	} from "@lucide/svelte";
+	import NetworkIcon from "@lucide/svelte/icons/network";
+	import DownloadIcon from "@lucide/svelte/icons/download";
+	import ImageIcon from "@lucide/svelte/icons/image";
+	import AlertCircleIcon from "@lucide/svelte/icons/alert-circle";
+	import Code2Icon from "@lucide/svelte/icons/code-2";
+	import SettingsIcon from "@lucide/svelte/icons/settings";
+	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
+	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+	import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
+	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 	import {
 		TableSourceNode,
 		JoinNode,

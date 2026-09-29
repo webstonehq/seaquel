@@ -24,6 +24,7 @@ pub mod crud;
 pub mod ddl;
 mod dialect;
 pub mod introspect;
+pub mod select;
 mod sqlx_driver;
 
 pub use dialect::{CastMap, Dialect, RowValues};
@@ -373,6 +374,68 @@ pub fn not_supported(what: &str) -> DbError {
     }
 }
 
+/// The code (`index: None`) of a [`Driver::transaction`] that refuses to
+/// start because a transaction opened by hand (a `BEGIN` the user ran) is
+/// already open on the connection; its message is
+/// [`TRANSACTION_ALREADY_OPEN`]. SQL Server and DuckDB check; the pooled
+/// sqlx engines can't meet one.
+pub const TRANSACTION_OPEN: &str = "TRANSACTION_OPEN";
+
+/// The message of a [`TRANSACTION_OPEN`] refusal.
+pub const TRANSACTION_ALREADY_OPEN: &str = "Execute failed: a transaction is already open on this \
+     connection (BEGIN TRANSACTION run by hand). Commit or roll it back first.";
+
+/// Why [`Driver::transaction`] failed, and which statement failed.
+///
+/// `index` is the 0-based position in the batch of the statement that
+/// failed: the database refused it, its parameters didn't bind (before
+/// anything ran, on engines that bind the whole batch first), or it
+/// affected fewer rows than its `expect_rows` (`NO_ROWS_AFFECTED`, whose
+/// message also carries the index). It is `None` when no statement is to
+/// blame: connecting, BEGIN or COMMIT failed, or the driver has no
+/// transactions. Either way the transaction was rolled back.
+#[derive(Debug)]
+pub struct TransactionError {
+    pub index: Option<usize>,
+    pub error: DbError,
+}
+
+impl TransactionError {
+    /// Statement `index` failed with `error`.
+    pub fn at(index: usize, error: DbError) -> Self {
+        Self {
+            index: Some(index),
+            error,
+        }
+    }
+}
+
+/// A failure that belongs to no statement (see [`TransactionError::index`]).
+impl From<DbError> for TransactionError {
+    fn from(error: DbError) -> Self {
+        Self { index: None, error }
+    }
+}
+
+/// The error alone, for callers that don't report the index (`db.transaction`
+/// on the wire).
+impl From<TransactionError> for DbError {
+    fn from(e: TransactionError) -> Self {
+        e.error
+    }
+}
+
+impl std::fmt::Display for TransactionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.index {
+            Some(index) => write!(f, "statement {index}: {}", self.error),
+            None => self.error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for TransactionError {}
+
 /// An open connection (or pool) to one database.
 #[seaquel_runtime::async_trait]
 pub trait Driver: MaybeSend + MaybeSync {
@@ -391,11 +454,20 @@ pub trait Driver: MaybeSend + MaybeSync {
     /// Before COMMIT, every statement's affected rows must pass
     /// [`BatchStatement::check_affected`]; on a shortfall the driver rolls
     /// back and returns that `NO_ROWS_AFFECTED` error.
-    async fn transaction(&self, _statements: Vec<BatchStatement>) -> Result<(), DbError> {
+    ///
+    /// A failure names the statement that failed ([`TransactionError`]).
+    /// On success it returns each statement's affected rows, in order (the
+    /// same count [`BatchStatement::check_affected`] saw), so a caller can
+    /// report what a committed batch did.
+    async fn transaction(
+        &self,
+        _statements: Vec<BatchStatement>,
+    ) -> Result<Vec<u64>, TransactionError> {
         Err(DbError {
             message: "transactions are not supported by this driver".to_string(),
             code: "TRANSACTION_NOT_SUPPORTED".to_string(),
-        })
+        }
+        .into())
     }
 
     /// Stream query results in batches.

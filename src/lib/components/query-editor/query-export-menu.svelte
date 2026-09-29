@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { buttonVariants } from "$lib/components/ui/button";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-	import { DownloadIcon, CopyIcon, ChevronDownIcon } from "@lucide/svelte";
+	import DownloadIcon from "@lucide/svelte/icons/download";
+	import CopyIcon from "@lucide/svelte/icons/copy";
+	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { ExportFormat } from "$lib/utils/export-formats.js";
 

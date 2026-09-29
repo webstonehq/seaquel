@@ -16,16 +16,15 @@ import type {
   ExplainResult,
   SchemaTable,
 } from "$lib/types";
-import type { SqlWithBindings } from "$lib/types/generated/SqlWithBindings";
 import { plainQualifiedTable, quoteIdent } from "./qualified-table";
-import type { CastMap, EngineClient, RowRecord, TableMetadata } from "./types";
+import type { EngineClient, TableMetadata } from "./types";
 
 export interface TsEngineClientOptions {
   type: DatabaseType;
   /**
    * Returns the current id from `provider.connect`, read on every query so a
    * client created before a reconnect uses the new id. Queries throw without
-   * one (builders don't need it).
+   * one.
    */
   getConnectionId: () => string | undefined;
   /** Defaults to `getAdapter(type)`, looked up on first use. */
@@ -144,10 +143,6 @@ export class TsEngineClient implements EngineClient {
     return this.adapter.getColumnTypes();
   }
 
-  async paginate(sql: string, limit: number, offset: number): Promise<string> {
-    return this.adapter.paginateQuery(sql, limit, offset);
-  }
-
   quoteIdent(name: string): string {
     return quoteIdent(this.type, name);
   }
@@ -155,48 +150,6 @@ export class TsEngineClient implements EngineClient {
   /** The schema as one name (the demo's DuckDB lists its schemas bare). */
   qualifiedTable(schema: string, table: string): string {
     return plainQualifiedTable(this.type, schema, table);
-  }
-
-  /** Ignores `casts`: values are inlined as literals. */
-  async buildUpdate(
-    schema: string,
-    table: string,
-    column: string,
-    value: unknown,
-    primaryKeys: string[],
-    row: RowRecord,
-    _casts?: CastMap,
-  ): Promise<SqlWithBindings> {
-    return this.adapter.buildUpdateSql(schema, table, column, value, primaryKeys, row);
-  }
-
-  async buildSetDefault(
-    schema: string,
-    table: string,
-    column: string,
-    primaryKeys: string[],
-    row: RowRecord,
-  ): Promise<SqlWithBindings> {
-    return this.adapter.buildSetDefaultSql(schema, table, column, primaryKeys, row);
-  }
-
-  /** Ignores `casts`: values are inlined as literals. */
-  async buildInsert(
-    schema: string,
-    table: string,
-    values: RowRecord,
-    _casts?: CastMap,
-  ): Promise<SqlWithBindings> {
-    return this.adapter.buildInsertSql(schema, table, values);
-  }
-
-  async buildDelete(
-    schema: string,
-    table: string,
-    primaryKeys: string[],
-    row: RowRecord,
-  ): Promise<SqlWithBindings> {
-    return this.adapter.buildDeleteSql(schema, table, primaryKeys, row);
   }
 
   async createTable(definition: CreateTableDefinition): Promise<string> {

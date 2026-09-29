@@ -346,3 +346,57 @@ async fn load_breaks_timestamp_ties_by_the_row_appended_last() {
         .unwrap();
     assert_eq!(ids(&load(&st, "c1").await), ["c", "b", "a", "older"]);
 }
+
+// ── append_many (phase 5c) ──
+
+#[tokio::test]
+async fn append_many_adds_every_row_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    let items: Vec<_> = (0..3)
+        .map(|n| item(&format!("h{n}"), "c1", 10, false))
+        .collect();
+    query_history::append_many(&st, &items).await.unwrap();
+    // Same timestamp: the row appended last is the newest.
+    assert_eq!(ids(&load(&st, "c1").await), ["h2", "h1", "h0"]);
+    query_history::append_many(&st, &[]).await.unwrap();
+    assert_eq!(load(&st, "c1").await.len(), 3);
+}
+
+#[tokio::test]
+async fn append_many_prunes_once_per_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    let old: Vec<_> = (0..HISTORY_KEEP as u32)
+        .map(|n| item(&format!("old{n}"), "c1", n, false))
+        .collect();
+    query_history::append_many(&st, &old).await.unwrap();
+    let other = item("other", "c2", 0, false);
+    let new: Vec<_> = (0..3)
+        .map(|n| item(&format!("new{n}"), "c1", 10_000 + n, false))
+        .chain([other])
+        .collect();
+    query_history::append_many(&st, &new).await.unwrap();
+    let kept = load(&st, "c1").await;
+    assert_eq!(kept.len(), HISTORY_KEEP);
+    assert_eq!(ids(&kept[..3]), ["new2", "new1", "new0"]);
+    assert!(!ids(&kept).contains(&"old0".to_string()));
+    assert!(!ids(&kept).contains(&"old2".to_string()));
+    assert!(ids(&kept).contains(&"old3".to_string()));
+    assert_eq!(ids(&load(&st, "c2").await), ["other"]);
+}
+
+#[tokio::test]
+async fn append_many_is_all_or_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    // The second row's connection isn't saved (the foreign key).
+    let items = [item("a", "c1", 1, false), item("b", "not-saved", 2, false)];
+    let err = query_history::append_many(&st, &items).await.unwrap_err();
+    assert_eq!(err.code(), STORAGE_ERROR);
+    assert!(load(&st, "c1").await.is_empty());
+    // A duplicate id within the batch, too.
+    let items = [item("a", "c1", 1, false), item("a", "c1", 2, false)];
+    assert!(query_history::append_many(&st, &items).await.is_err());
+    assert!(load(&st, "c1").await.is_empty());
+}
