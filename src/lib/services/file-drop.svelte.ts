@@ -1,6 +1,5 @@
 import { toast } from "svelte-sonner";
-import { errorToast } from "$lib/utils/toast";
-import { extractErrorMessage } from "$lib/errors";
+import { showErrorUnlessShown } from "$lib/errors";
 import type { useDatabase } from "$lib/hooks/database.svelte.js";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 
@@ -115,7 +114,7 @@ async function handleDatabaseFile(path: string, db: Database): Promise<void> {
     });
     toast.success(`Connected to ${fileName}`);
   } catch (error) {
-    errorToast(`Failed to connect to ${fileName}: ${extractErrorMessage(error)}`);
+    showErrorUnlessShown(error, (message) => `Failed to connect to ${fileName}: ${message}`);
   }
 }
 
@@ -152,7 +151,7 @@ async function handleFileDrop(paths: string[], db: Database): Promise<void> {
         await handleDataFile(path, readFn, db, connectionId);
       }
     } catch (error) {
-      errorToast(`Failed to create DuckDB connection: ${extractErrorMessage(error)}`);
+      showErrorUnlessShown(error, (message) => `Failed to create DuckDB connection: ${message}`);
     }
   }
 }

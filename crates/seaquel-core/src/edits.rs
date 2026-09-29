@@ -287,6 +287,19 @@ impl Workspace {
         core: &Core,
         params: ApplyChangesParams,
     ) -> Result<ApplyOutcome, CoreError> {
+        self.apply_changes_from(core, params, &crate::WriteOrigin::none())
+            .await
+    }
+
+    /// [`Workspace::apply_changes`] for the window or tab `origin`: the
+    /// history rows' `StorageChanged` event carries it (phase 5d, Decision
+    /// 18).
+    pub async fn apply_changes_from(
+        &self,
+        core: &Core,
+        params: ApplyChangesParams,
+        origin: &crate::WriteOrigin,
+    ) -> Result<ApplyOutcome, CoreError> {
         let ApplyChangesParams {
             connection_id,
             changes,
@@ -441,7 +454,10 @@ impl Workspace {
         let applied = index_u32(ran.len());
         info!(activity = "db.applyChanges", mode = mode_name(mode), applied = applied, failed = failed.as_ref().map(|f| f.code.as_str()), failed_index = failed.as_ref().and_then(|f| f.index); "Apply done");
         let history = match history {
-            Some(ctx) if !ran.is_empty() => self.append_edit_history(&ctx, &ran, &*executor).await,
+            Some(ctx) if !ran.is_empty() => {
+                self.append_edit_history(&ctx, &ran, &*executor, origin)
+                    .await
+            }
             _ => Vec::new(),
         };
         Ok(ApplyOutcome::Applied {
@@ -462,6 +478,7 @@ impl Workspace {
         ctx: &HistoryContext,
         ran: &[Ran],
         executor: &dyn Executor,
+        origin: &crate::WriteOrigin,
     ) -> Vec<PersistedQueryHistoryItem> {
         let now = executor.unix_time();
         let items: Vec<PersistedQueryHistoryItem> = ran
@@ -478,7 +495,17 @@ impl Workspace {
             })
             .collect();
         match seaquel_storage::query_history::append_many(self.storage(), &items).await {
-            Ok(()) => items,
+            Ok(()) => {
+                // Phase 5d, Decision 16: one event for the batch, with the
+                // applying window's origin.
+                self.record_storage_write(
+                    origin,
+                    crate::StoredKind::History,
+                    Some(ctx.connection_id.clone()),
+                    Some(items.iter().map(|i| i.id.clone()).collect()),
+                );
+                items
+            }
             Err(e) => {
                 log::warn!(activity = "db.applyChanges", code = e.code(); "Recording the apply in history failed");
                 Vec::new()
@@ -493,6 +520,7 @@ impl Workspace {
         _ctx: &HistoryContext,
         _ran: &[Ran],
         _executor: &dyn Executor,
+        _origin: &crate::WriteOrigin,
     ) -> Vec<PersistedQueryHistoryItem> {
         let _ = history_item;
         Vec::new()

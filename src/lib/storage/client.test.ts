@@ -19,11 +19,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type {
-  PersistedDashboardVersion,
-  PersistedQueryHistoryItem,
-  PersistedQueryVersion,
-} from "$lib/types";
+import type { PersistedDashboardVersion, PersistedQueryHistoryItem } from "$lib/types";
 import { fromStorable, toStorable } from "$lib/values";
 import type { StorageClient } from "./client";
 import {
@@ -34,6 +30,7 @@ import {
   type StorageMethod,
 } from "./rust-client";
 import { bootstrapSqljsDatabase, createSqljsStorageClient } from "./sqljs-client";
+import { connectionsRepo, projectsRepo, queryVersionsRepo, savedQueriesRepo } from "./repository";
 import { WebSqliteDatabase } from "./web-sqlite";
 
 // -------- Fixtures --------
@@ -78,6 +75,30 @@ const isCall = (s: Step): s is CallStep => "call" in s;
  */
 const RETIRED = new Set(["queryHistoryRepo.replaceAll"]);
 
+/**
+ * The storage group's library methods, which phase 5d-1 retired: Core's
+ * `library` group replaced them, and neither client has them any more. The
+ * Rust client's replay checks that; the demo's replay still runs them as
+ * recorded on the sql.js repositories (the frozen fixtures pin those), so
+ * the rows the other calls read and write are the same.
+ */
+const LIBRARY_RETIRED = new Set([
+  "projectsRepo.loadAll",
+  "projectsRepo.save",
+  "projectsRepo.saveAll",
+  "projectsRepo.remove",
+  "connectionsRepo.loadAll",
+  "connectionsRepo.save",
+  "connectionsRepo.remove",
+  "savedQueriesRepo.loadByProject",
+  "savedQueriesRepo.saveAll",
+  "savedQueriesRepo.removeByProject",
+  "queryVersionsRepo.loadByQuery",
+  "queryVersionsRepo.loadByProject",
+  "queryVersionsRepo.insert",
+  "queryVersionsRepo.pruneOldVersions",
+]);
+
 /** What `replaceAll` did, as plain SQL, for the demo's replay. */
 async function seedHistory(db: WebSqliteDatabase, step: CallStep): Promise<void> {
   const [connectionId, items] = step.args as [string, PersistedQueryHistoryItem[]];
@@ -118,7 +139,7 @@ async function seedHistory(db: WebSqliteDatabase, step: CallStep): Promise<void>
 }
 
 /** Fixture repo name → `StorageClient` property and wire method prefix. */
-const REPOS: Record<string, keyof StorageClient> = {
+const REPOS: Record<string, string> = {
   projectsRepo: "projects",
   appStateRepo: "appState",
   connectionsRepo: "connections",
@@ -142,25 +163,14 @@ const REPOS: Record<string, keyof StorageClient> = {
 
 /** Each wire method's param names, in the order the fixture passes the args. */
 const PARAMS: Partial<Record<StorageMethod, string[]>> = {
-  projectsSave: ["project"],
-  projectsSaveAll: ["projects"],
-  projectsRemove: ["projectId"],
   appStateGet: ["key"],
   appStateSet: ["key", "value"],
-  connectionsSave: ["connection"],
-  connectionsRemove: ["connectionId"],
   connectionOverridesLoad: ["sharedConnectionId"],
   connectionOverridesSave: ["connectionOverride"],
   connectionOverridesRemove: ["sharedConnectionId"],
   projectStateLoad: ["projectId"],
   projectStateSave: ["state"],
   projectStateRemove: ["projectId"],
-  savedQueriesLoadByProject: ["projectId"],
-  savedQueriesSaveAll: ["projectId", "queries"],
-  savedQueriesRemoveByProject: ["projectId"],
-  queryVersionsLoadByQuery: ["queryId"],
-  queryVersionsLoadByProject: ["projectId"],
-  queryVersionsInsert: ["version"],
   queryHistoryLoadByConnection: ["connectionId"],
   queryHistoryRemoveByConnection: ["connectionId"],
   sharedReposSaveAll: ["repos", "activeRepoId"],
@@ -193,7 +203,7 @@ const PARAMS: Partial<Record<StorageMethod, string[]>> = {
 };
 
 function splitCall(call: string): {
-  repo: keyof StorageClient;
+  repo: string;
   method: string;
   wire: StorageMethod;
 } {
@@ -281,7 +291,6 @@ function replayTransport(c: Case) {
   let step: CallStep | null = null;
   let stepIndex = -1;
   let answered = false;
-  const queryVersions = new Map<string, PersistedQueryVersion[]>();
   const dashboardVersions = new Map<string, PersistedDashboardVersion[]>();
 
   const nextLoad = (call: string, id: unknown): unknown[] => {
@@ -297,35 +306,6 @@ function replayTransport(c: Case) {
     const sent = decodeBody(body);
     if (!step) throw new Error("request outside a step");
     const { wire } = splitCall(step.call);
-
-    if (step.call === "queryVersionsRepo.pruneOldVersions") {
-      const [queryId] = step.args as [string];
-      const tracked = queryVersions.get(queryId) ?? [];
-      if (sent.method === "queryVersionsLoadByQuery") {
-        expect(sent.params).toEqual({ queryId });
-        return reply(
-          sent.method,
-          [...tracked].sort((a, b) => a.version - b.version),
-        );
-      }
-      expect(sent.method).toBe("queryVersionsPrune");
-      const survivors = nextLoad(
-        "queryVersionsRepo.loadByQuery",
-        queryId,
-      ) as PersistedQueryVersion[];
-      const kept = new Set(survivors.map((v) => v.id));
-      const promoted = survivors
-        .filter((v) => v.snapshot !== null && tracked.find((t) => t.id === v.id)?.snapshot === null)
-        .sort((a, b) => a.version - b.version)[0];
-      expect(sent.params).toEqual({
-        savedQueryId: queryId,
-        deleteIds: tracked.filter((v) => !kept.has(v.id)).map((v) => v.id),
-        ...(promoted ? { promote: { id: promoted.id, snapshot: promoted.snapshot } } : {}),
-      });
-      queryVersions.set(queryId, survivors);
-      answered = true;
-      return reply(sent.method, null);
-    }
 
     if (step.call === "dashboardVersionsRepo.pruneOldVersions") {
       const [dashboardId] = step.args as [string];
@@ -366,10 +346,6 @@ function replayTransport(c: Case) {
     if (step.error) {
       throw new CoreCallError({ code: "STORAGE_ERROR", message: step.error.message });
     }
-    if (wire === "queryVersionsInsert") {
-      const v = step.args[0] as PersistedQueryVersion;
-      queryVersions.set(v.queryId, [...(queryVersions.get(v.queryId) ?? []), v]);
-    }
     if (wire === "dashboardVersionsInsert") {
       const v = step.args[0] as PersistedDashboardVersion;
       dashboardVersions.set(v.dashboardId, [...(dashboardVersions.get(v.dashboardId) ?? []), v]);
@@ -389,11 +365,37 @@ function replayTransport(c: Case) {
 
 // -------- Running a case through a client --------
 
-async function runCall(client: StorageClient, step: CallStep): Promise<void> {
+/** A retired library call's repository isn't on the client any more. */
+function expectRetired(client: StorageClient, step: CallStep): void {
+  const { repo } = splitCall(step.call);
+  expect(repo in client, step.call).toBe(false);
+}
+
+/** The demo's retired library repositories, bound to `db`, for the replay. */
+function libraryRepos(db: WebSqliteDatabase): Record<string, unknown> {
+  const bind = (repo: object) =>
+    Object.fromEntries(
+      Object.entries(repo).map(([name, fn]) => [
+        name,
+        (...args: unknown[]) => (fn as (...a: unknown[]) => unknown).call(repo, db, ...args),
+      ]),
+    );
+  return {
+    projects: bind(projectsRepo),
+    connections: bind(connectionsRepo),
+    savedQueries: bind(savedQueriesRepo),
+    queryVersions: bind(queryVersionsRepo),
+  };
+}
+
+async function runCall(client: object, step: CallStep): Promise<void> {
   const { repo, method } = splitCall(step.call);
-  const fn = (client[repo] as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[
-    method
-  ];
+  const fn = (
+    (client as Record<string, unknown>)[repo] as Record<
+      string,
+      (...a: unknown[]) => Promise<unknown>
+    >
+  )[method];
   const args = step.args.map(decodeFixture);
   if (step.error) {
     await expect(fn(...args), step.call).rejects.toThrow();
@@ -481,6 +483,10 @@ describe("RustStorageClient replays the fixtures", () => {
       for (const [i, step] of c.steps.entries()) {
         if (!isCall(step)) continue; // raw SQL only set up rows for the recorder
         if (RETIRED.has(step.call)) continue;
+        if (LIBRARY_RETIRED.has(step.call)) {
+          expectRetired(client, step);
+          continue;
+        }
         replay.begin(step, i);
         await runCall(client, step);
       }
@@ -492,8 +498,10 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
   for (const c of cases) {
     it(c.name, async () => {
       const { db, client } = await freshSqljs();
+      const library = libraryRepos(db);
       for (const step of c.steps) {
         if (isCall(step) && RETIRED.has(step.call)) await seedHistory(db, step);
+        else if (isCall(step) && LIBRARY_RETIRED.has(step.call)) await runCall(library, step);
         else if (isCall(step)) await runCall(client, step);
         else await db.execute(step.sql, step.params);
       }
@@ -504,8 +512,8 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
   }
 
   it("keeps the demo connection's history and AI chats across a reload", async () => {
-    const { client } = await freshSqljs();
-    await client.projects.save({
+    const { db, client } = await freshSqljs();
+    await projectsRepo.save(db, {
       id: "default-seaquel",
       name: "Seaquel",
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -516,7 +524,7 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
     await expect(client.queryHistory.append(historyItem("h0"))).rejects.toThrow(/FOREIGN KEY/);
     // What `addDemoConnection` saves, twice, as two page loads would.
     for (let i = 0; i < 2; i++) {
-      await client.connections.save({
+      await connectionsRepo.save(db, {
         id: "demo-connection",
         projectId: "default-seaquel",
         name: "Demo Database",
@@ -545,7 +553,7 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
     const reloaded = new WebSqliteDatabase(new SQL.Database(bytes));
     await bootstrapSqljsDatabase(reloaded);
     const again = createSqljsStorageClient(reloaded);
-    expect((await again.connections.loadAll()).map((c) => c.id)).toEqual(["demo-connection"]);
+    expect((await connectionsRepo.loadAll(reloaded)).map((c) => c.id)).toEqual(["demo-connection"]);
     expect((await again.queryHistory.loadByConnection("demo-connection")).map((h) => h.id)).toEqual(
       ["h1"],
     );
@@ -555,10 +563,10 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
   });
 
   it("keeps foreign keys on after a write", async () => {
-    const { client } = await freshSqljs();
+    const { db, client } = await freshSqljs();
     await client.appState.set("k", "v"); // a write, so an export
     await expect(
-      client.connections.save({
+      connectionsRepo.save(db, {
         id: "c",
         projectId: "missing",
         name: "c",
@@ -576,14 +584,14 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
 describe("SqljsStorageClient (the demo) history", () => {
   async function withConnection() {
     const fresh = await freshSqljs();
-    await fresh.client.projects.save({
+    await projectsRepo.save(fresh.db, {
       id: "p",
       name: "P",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       customLabels: [],
     });
-    await fresh.client.connections.save({
+    await connectionsRepo.save(fresh.db, {
       id: "demo-connection",
       projectId: "p",
       name: "Demo Database",
@@ -747,7 +755,7 @@ describe("RustStorageClient", () => {
     const client = new RustStorageClient(async () => {
       throw { code: "LEGACY_STORAGE", message: "upgrade through 2026.9 first" };
     });
-    const error = await client.projects.loadAll().catch((e: unknown) => e);
+    const error = await client.tutorial.loadAll().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CoreCallError);
     expect(error).toMatchObject({
       code: "LEGACY_STORAGE",

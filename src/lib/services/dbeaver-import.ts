@@ -1,5 +1,6 @@
 import { readDbeaverConfig } from "$lib/api/tauri";
 import type { DatabaseType } from "$lib/types";
+import { isAlreadySaved, type ConnectionIdentity } from "./connection-import";
 import type {
   DbeaverDataSources,
   DbeaverConnection,
@@ -66,7 +67,7 @@ export async function parseDbeaverConnections(): Promise<DbeaverConnection[]> {
  */
 export function mapToImportable(
   dbeaverConn: DbeaverConnection,
-  existingConnectionIds: string[],
+  existing: readonly ConnectionIdentity[],
 ): ImportableConnection | null {
   const type = PROVIDER_MAP[dbeaverConn.provider?.toLowerCase()];
   if (!type) {
@@ -79,10 +80,7 @@ export function mapToImportable(
   const databaseName = config.database || "";
   const username = config.user || "";
 
-  // Generate the connection ID that Seaquel would use
-  const expectedId = type === "sqlite" ? `conn-sqlite-${databaseName}` : `conn-${host}-${port}`;
-
-  const isDuplicate = existingConnectionIds.includes(expectedId);
+  const isDuplicate = isAlreadySaved({ type, host, port, databaseName, username }, existing);
 
   return {
     original: dbeaverConn,
@@ -101,11 +99,11 @@ export function mapToImportable(
  * Discovers and parses all DBeaver connections, filtering for supported types
  */
 export async function discoverDbeaverConnections(
-  existingConnectionIds: string[],
+  existing: readonly ConnectionIdentity[],
 ): Promise<ImportableConnection[]> {
   const dbeaverConnections = await parseDbeaverConnections();
 
   return dbeaverConnections
-    .map((conn) => mapToImportable(conn, existingConnectionIds))
+    .map((conn) => mapToImportable(conn, existing))
     .filter((conn): conn is ImportableConnection => conn !== null);
 }

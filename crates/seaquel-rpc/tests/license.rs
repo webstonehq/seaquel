@@ -72,6 +72,8 @@ async fn a_workspace_has_no_activation_client() {
         br#"{"method":"license","params":{"method":"deactivate","params":{"key":"k","instanceId":"i"}}}"#,
     )
     .unwrap();
-    let err = dispatch_workspace(&core, &ws, req).await.unwrap_err();
+    let err = dispatch_workspace(&core, &ws, req, seaquel_rpc::WriteOrigin::none())
+        .await
+        .unwrap_err();
     assert_eq!(err.code, "NOT_SUPPORTED");
 }

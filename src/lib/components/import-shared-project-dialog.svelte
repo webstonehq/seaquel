@@ -5,7 +5,7 @@
 	import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
-	import { errorToast } from "$lib/utils/toast";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { m } from "$lib/paraglide/messages.js";
 	import FolderGit2Icon from "@lucide/svelte/icons/folder-git-2";
 	import LoaderIcon from "@lucide/svelte/icons/loader";
@@ -26,8 +26,7 @@
 			toast.success(m.shared_import_success({ count: selected.length }));
 			sharedProjectImportStore.reset();
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			errorToast(message);
+			showErrorUnlessShown(error);
 			sharedProjectImportStore.isImporting = false;
 		}
 	}
@@ -77,7 +76,7 @@
 
 				<!-- Project list -->
 				<div class="max-h-64 overflow-y-auto space-y-2 border rounded-lg p-2">
-					{#each sharedProjectImportStore.discoveredProjects as project, index}
+					{#each sharedProjectImportStore.discoveredProjects as project, index (index)}
 						<label
 							class="flex items-start gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
 						>

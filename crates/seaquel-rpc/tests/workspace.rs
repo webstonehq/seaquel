@@ -7,7 +7,7 @@ use seaquel_core::secrets::MemoryStore;
 use seaquel_core::{Core, Workspace, WorkspaceSpec};
 use seaquel_rpc::{
     dispatch_workspace, parse_request, Request, Response, RpcError, SecretRequest, SecretResponse,
-    StorageRequest, StorageResponse,
+    StorageRequest, StorageResponse, WriteOrigin,
 };
 use serde_json::{json, Value as Json};
 
@@ -20,7 +20,10 @@ struct Env {
 }
 
 async fn env(with_secrets: bool) -> Env {
-    let core = Core::builder().build();
+    // Postgres, so the library can save a connection of that type.
+    let core = seaquel_core::with_plugins(|id| id == "postgres")
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
+        .build();
     let dir = tempfile::tempdir().unwrap();
     let mut spec = WorkspaceSpec::new(dir.path());
     if with_secrets {
@@ -39,7 +42,7 @@ impl Env {
     /// response as the JSON text the interfaces send.
     async fn call_text(&self, body: &str) -> Result<String, RpcError> {
         let req = parse_request(body.as_bytes())?;
-        let res = dispatch_workspace(&self.core, &self.ws, req).await?;
+        let res = dispatch_workspace(&self.core, &self.ws, req, WriteOrigin::none()).await?;
         Ok(serde_json::to_string(&res).unwrap())
     }
 
@@ -57,6 +60,29 @@ impl Env {
         Ok(res["result"]["result"].clone())
     }
 
+    /// A saved connection made through the library; its id.
+    async fn saved_connection(&self) -> String {
+        let project = self
+            .call(json!({"method": "library", "params": {"method": "projectEnsureDefault"}}))
+            .await
+            .unwrap();
+        let project = project["result"]["result"]["value"][0]["id"]
+            .as_str()
+            .unwrap_or("default-seaquel")
+            .to_string();
+        let res = self
+            .call(
+                json!({"method": "library", "params": {"method": "connectionCreate",
+                "params": {"connection": connection_draft(&project)}}}),
+            )
+            .await
+            .unwrap();
+        res["result"]["result"]["value"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
     async fn secret(&self, method: &str, params: Json) -> Result<Json, RpcError> {
         let res = self
             .call(json!({"method": "secret", "params": {"method": method, "params": params}}))
@@ -67,19 +93,8 @@ impl Env {
     }
 }
 
-fn project(id: &str) -> Json {
+fn connection_draft(project_id: &str) -> Json {
     json!({
-        "id": id,
-        "name": format!("Project {id}"),
-        "createdAt": "2026-01-02T03:04:05.000Z",
-        "updatedAt": "2026-01-02T03:04:05.000Z",
-        "customLabels": [],
-    })
-}
-
-fn connection(id: &str, project_id: &str) -> Json {
-    json!({
-        "id": id,
         "projectId": project_id,
         "name": "Prod 🐘",
         "type": "postgres",
@@ -87,47 +102,10 @@ fn connection(id: &str, project_id: &str) -> Json {
         "port": 5432,
         "databaseName": "app",
         "username": "me",
-        "labelIds": ["l1"],
-        "savePassword": true,
     })
 }
 
 // ── Storage ──
-
-#[tokio::test]
-async fn a_connection_round_trips_through_dispatch() {
-    let env = env(false).await;
-    assert_eq!(
-        env.storage("projectsSave", json!({"project": project("p1")}))
-            .await
-            .unwrap(),
-        Json::Null
-    );
-    assert_eq!(
-        env.storage(
-            "connectionsSave",
-            json!({"connection": connection("c1", "p1")})
-        )
-        .await
-        .unwrap(),
-        Json::Null
-    );
-
-    let loaded = env.storage("connectionsLoadAll", Json::Null).await.unwrap();
-    let mut expected = connection("c1", "p1");
-    // The flags load as booleans whether they were sent or not.
-    expected["saveSshPassword"] = json!(false);
-    expected["saveSshKeyPassphrase"] = json!(false);
-    assert_eq!(loaded, json!([expected]));
-
-    env.storage("connectionsRemove", json!({"connectionId": "c1"}))
-        .await
-        .unwrap();
-    assert_eq!(
-        env.storage("connectionsLoadAll", Json::Null).await.unwrap(),
-        json!([])
-    );
-}
 
 fn history_item(id: &str, favorite: bool) -> Json {
     json!({
@@ -146,17 +124,13 @@ fn history_item(id: &str, favorite: bool) -> Json {
 #[tokio::test]
 async fn history_appends_and_sets_favourites_through_dispatch() {
     let env = env(false).await;
-    env.storage("projectsSave", json!({"project": project("p1")}))
-        .await
-        .unwrap();
-    env.storage(
-        "connectionsSave",
-        json!({"connection": connection("c1", "p1")}),
-    )
-    .await
-    .unwrap();
+    let c1 = env.saved_connection().await;
+    let with_connection = |mut item: Json| {
+        item["connectionId"] = json!(c1);
+        item
+    };
 
-    let item = history_item("hist-1", false);
+    let item = with_connection(history_item("hist-1", false));
     assert_eq!(
         env.storage("queryHistoryAppend", json!({"item": item}))
             .await
@@ -173,13 +147,13 @@ async fn history_appends_and_sets_favourites_through_dispatch() {
         Json::Null
     );
     let loaded = env
-        .storage(
-            "queryHistoryLoadByConnection",
-            json!({"connectionId": "c1"}),
-        )
+        .storage("queryHistoryLoadByConnection", json!({"connectionId": c1}))
         .await
         .unwrap();
-    assert_eq!(loaded, json!([history_item("hist-1", true)]));
+    assert_eq!(
+        loaded,
+        json!([with_connection(history_item("hist-1", true))])
+    );
 
     // An unsaved connection fails the foreign key, with storage's code.
     let mut orphan = history_item("hist-2", false);
@@ -209,23 +183,23 @@ fn query_history_replace_all_is_an_unknown_method() {
 async fn a_method_without_params_needs_no_params_key() {
     let env = env(false).await;
     let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"projectsLoadAll"}}"#)
+        .call_text(r#"{"method":"storage","params":{"method":"tutorialLoadAll"}}"#)
         .await
         .unwrap();
     assert_eq!(
         text,
-        r#"{"method":"storage","result":{"method":"projectsLoadAll","result":[]}}"#
+        r#"{"method":"storage","result":{"method":"tutorialLoadAll","result":[]}}"#
     );
 }
 
 #[tokio::test]
 async fn storage_failures_keep_their_code() {
     let env = env(false).await;
-    // No project p1: the foreign key refuses the row.
+    // No connection c1: the foreign key refuses the row.
     let err = env
         .storage(
-            "connectionsSave",
-            json!({"connection": connection("c1", "p1")}),
+            "queryHistoryAppend",
+            json!({"item": history_item("h1", false)}),
         )
         .await
         .unwrap_err();
@@ -237,7 +211,7 @@ async fn a_closed_workspace_fails_with_a_storage_error() {
     let env = env(false).await;
     env.ws.close().await;
     let err = env
-        .storage("projectsLoadAll", Json::Null)
+        .storage("tutorialLoadAll", Json::Null)
         .await
         .unwrap_err();
     assert_eq!(err.code, "STORAGE_ERROR", "{err}");
@@ -264,21 +238,17 @@ async fn json_columns_keep_their_bytes() {
         format!(r#"{{"method":"storage","result":{{"method":"onboardingLoad","result":{odd}}}}}"#)
     );
 
-    // A JSON column inside a row (a connection's SSH tunnel).
-    env.storage("projectsSave", json!({"project": project("p1")}))
-        .await
-        .unwrap();
-    let tunnel =
-        r#"{"username":"u","port":2.2e1,"host":"b","enabled":true,"authMethod":"password"}"#;
+    // A JSON row (a shared repo, stored as the JSON given).
+    let repo = r#"{"id":"r1","port":2.2e1,"name":"b","enabled":true,"a":{"z":-0.0}}"#;
     let body = format!(
-        r#"{{"method":"storage","params":{{"method":"connectionsSave","params":{{"connection":{{"id":"c1","projectId":"p1","name":"n","type":"postgres","host":"h","port":5432,"databaseName":"d","username":"u","labelIds":[],"sshTunnel":{tunnel}}}}}}}}}"#
+        r#"{{"method":"storage","params":{{"method":"sharedReposSaveAll","params":{{"repos":[{repo}],"activeRepoId":null}}}}}}"#
     );
     env.call_text(&body).await.unwrap();
     let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"connectionsLoadAll"}}"#)
+        .call_text(r#"{"method":"storage","params":{"method":"sharedReposLoadAll"}}"#)
         .await
         .unwrap();
-    assert!(text.contains(&format!(r#""sshTunnel":{tunnel}"#)), "{text}");
+    assert!(text.contains(repo), "{text}");
 
     // A list of JSON values.
     let themes = [r#"{"z":1,"a":1E+2}"#, r#"[1.0,"x"]"#];
@@ -357,11 +327,11 @@ async fn a_bad_secret_key_is_an_invalid_argument() {
 fn params_before_method_fails_clearly() {
     let bodies = [
         // The request itself.
-        r#"{"params":{"method":"projectsLoadAll"},"method":"storage"}"#,
+        r#"{"params":{"method":"tutorialLoadAll"},"method":"storage"}"#,
         // The group's request, for a method with a JSON column...
         r#"{"method":"storage","params":{"params":{"data":{"a":1}},"method":"onboardingSave"}}"#,
         // ...and for one without, which serde alone would accept.
-        r#"{"method":"storage","params":{"params":{"connectionId":"c1"},"method":"connectionsRemove"}}"#,
+        r#"{"method":"storage","params":{"params":{"connectionId":"c1"},"method":"aiChatsRemoveByConnection"}}"#,
         r#"{"method":"secret","params":{"params":{"key":"db:c1"},"method":"get"}}"#,
     ];
     for body in bodies {
@@ -384,8 +354,8 @@ fn invalid_bodies_are_invalid_arguments() {
         "[]",
         r#"{"method":"nope"}"#,
         r#"{"method":"storage","params":{"method":"nope"}}"#,
-        r#"{"method":"storage","params":{"method":"connectionsRemove","params":{}}}"#,
-        r#"{"method":"storage","params":{"method":"connectionsRemove","params":{"connection_id":"c1"}}}"#,
+        r#"{"method":"storage","params":{"method":"aiChatsRemoveByConnection","params":{}}}"#,
+        r#"{"method":"storage","params":{"method":"aiChatsRemoveByConnection","params":{"connection_id":"c1"}}}"#,
     ] {
         let err = parse_request(body.as_bytes()).unwrap_err();
         assert_eq!(err.code, "INVALID_ARGUMENT", "{body}");
@@ -442,10 +412,10 @@ fn storage_request_snapshot() {
     );
 
     let prune: Request = parse_request(
-        br#"{"method":"storage","params":{"method":"queryVersionsPrune","params":{"savedQueryId":"q1","deleteIds":["v1"]}}}"#,
+        br#"{"method":"storage","params":{"method":"dashboardVersionsPrune","params":{"dashboardId":"d1","deleteIds":["v1"]}}}"#,
     )
     .unwrap();
-    assert_eq!(prune.method(), "queryVersionsPrune");
+    assert_eq!(prune.method(), "dashboardVersionsPrune");
 
     let res = Response::Storage(StorageResponse::AppStateGet(Some("dark".into())));
     assert_eq!(
@@ -597,4 +567,44 @@ async fn dispatch_logs_the_method_and_never_the_params() {
             .any(|r| r.contains("method=set") && r.contains("code=INVALID_ARGUMENT")),
         "{records:#?}"
     );
+}
+
+/// Phase 5d, Decision 16: a storage-group write emits one `storage` event
+/// after it committed, naming the method's key; a read or a failed write
+/// emits none.
+#[tokio::test]
+async fn storage_writes_emit_and_reads_dont() {
+    use futures::StreamExt;
+    use seaquel_core::{StoredKind, WorkspaceEvent};
+    let e = env(false).await;
+    let mut events = e.ws.events();
+    e.storage("appStateSet", json!({"key": "k1", "value": "canary-value"}))
+        .await
+        .unwrap();
+    e.storage("appStateGet", json!({"key": "k1"}))
+        .await
+        .unwrap();
+    e.storage("tutorialLoadAll", Json::Null).await.ok();
+    // A connection whose project doesn't exist fails on the foreign key.
+    let failed = e
+        .storage(
+            "queryHistoryAppend",
+            json!({"item": {"id": "h1", "query": "SELECT 1", "timestamp": "t", "executionTime": 1,
+                            "rowCount": 1, "connectionId": "missing", "favorite": false}}),
+        )
+        .await;
+    assert!(failed.is_err());
+    let mut got = Vec::new();
+    while let Ok(Some(ev)) =
+        tokio::time::timeout(std::time::Duration::from_millis(30), events.next()).await
+    {
+        if let WorkspaceEvent::StorageChanged(c) = ev {
+            got.push(c);
+        }
+    }
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0].kind, StoredKind::Storage);
+    assert_eq!(got[0].ids, Some(vec!["k1".to_string()]));
+    assert_eq!(got[0].origin, None);
+    assert!(!format!("{got:?}").contains("canary"));
 }

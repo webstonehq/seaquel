@@ -113,9 +113,14 @@ async fn dispatch_workspace_refuses_the_ssh_group() {
         tunnel_id: "tunnel-1".into(),
     };
     for req in [open, close] {
-        let err = dispatch_workspace(&core, &ws, Request::Ssh(req))
-            .await
-            .unwrap_err();
+        let err = dispatch_workspace(
+            &core,
+            &ws,
+            Request::Ssh(req),
+            seaquel_rpc::WriteOrigin::none(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.code, "NOT_SUPPORTED", "{err}");
     }
 }

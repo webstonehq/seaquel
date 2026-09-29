@@ -1,5 +1,6 @@
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+import { extractErrorMessage } from "$lib/errors";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { format as formatSQL } from "sql-formatter";
@@ -25,13 +26,12 @@ export function createSaveFormatExport(ctx: QueryEditorContext) {
     if (activeTab.queryId) {
       const savedQuery = db.state.projectQueries.find((q) => q.id === activeTab.queryId);
       if (savedQuery) {
-        db.savedQueries.saveQuery(
-          savedQuery.name,
-          activeTab.query,
-          activeTab.id,
-          savedQuery.parameters,
-        );
-        toast.success(m.save_query_success());
+        db.savedQueries
+          .saveQuery(savedQuery.name, activeTab.query, activeTab.id, savedQuery.parameters)
+          .then(
+            () => toast.success(m.save_query_success()),
+            (error: unknown) => errorToast(extractErrorMessage(error)),
+          );
         return;
       }
     }

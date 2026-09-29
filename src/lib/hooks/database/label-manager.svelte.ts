@@ -2,6 +2,7 @@ import type { ConnectionLabel, DatabaseConnection } from "$lib/types";
 import { PREDEFINED_LABELS } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
+import { patchConnection } from "./library/view.js";
 
 /**
  * Manages connection labels and their operations.
@@ -9,7 +10,8 @@ import type { PersistenceManager } from "./persistence-manager.svelte.js";
 export class LabelManager {
   constructor(
     private state: DatabaseState,
-    private persistence: PersistenceManager,
+    // Kept for the call sites; labels are stored through the library.
+    _persistence?: PersistenceManager,
   ) {}
 
   /**
@@ -63,25 +65,15 @@ export class LabelManager {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) return;
 
-    // Check if label exists and isn't already added
-    const allLabels = this.getLabelsForProject(connection.projectId);
-    if (!allLabels.some((l) => l.id === labelId)) return;
+    // Already added: nothing to store. Whether the label exists is Core's
+    // check (`LABEL_NOT_FOUND` for one that is neither predefined nor the
+    // project's own, Decision 7), not the page's.
     if (connection.labelIds.includes(labelId)) return;
 
-    // Update connection
-    this.state.connections = this.state.connections.map((c) => {
-      if (c.id !== connectionId) return c;
-      return {
-        ...c,
-        labelIds: [...c.labelIds, labelId],
-      };
+    // Stored, then shown: a refusal throws (worded for the user) and changes nothing.
+    await patchConnection(this.state, connectionId, {
+      labelIds: [...connection.labelIds, labelId],
     });
-
-    // Persist connection
-    const updatedConnection = this.state.connections.find((c) => c.id === connectionId);
-    if (updatedConnection) {
-      await this.persistence.persistConnection(updatedConnection);
-    }
   }
 
   /**
@@ -92,47 +84,21 @@ export class LabelManager {
     if (!connection) return;
     if (!connection.labelIds.includes(labelId)) return;
 
-    // Update connection
-    this.state.connections = this.state.connections.map((c) => {
-      if (c.id !== connectionId) return c;
-      return {
-        ...c,
-        labelIds: c.labelIds.filter((id) => id !== labelId),
-      };
+    // Stored, then shown: a refusal throws (worded for the user) and changes nothing.
+    await patchConnection(this.state, connectionId, {
+      labelIds: connection.labelIds.filter((id) => id !== labelId),
     });
-
-    // Persist connection
-    const updatedConnection = this.state.connections.find((c) => c.id === connectionId);
-    if (updatedConnection) {
-      await this.persistence.persistConnection(updatedConnection);
-    }
   }
 
   /**
-   * Set all labels for a connection.
+   * Set all labels for a connection. Core refuses an id that is neither
+   * predefined nor the project's own (`LABEL_NOT_FOUND`, Decision 7), where
+   * this used to drop it silently.
    */
   async setConnectionLabels(connectionId: string, labelIds: string[]): Promise<void> {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) return;
-
-    // Validate all label IDs exist
-    const allLabels = this.getLabelsForProject(connection.projectId);
-    const validLabelIds = labelIds.filter((id) => allLabels.some((l) => l.id === id));
-
-    // Update connection
-    this.state.connections = this.state.connections.map((c) => {
-      if (c.id !== connectionId) return c;
-      return {
-        ...c,
-        labelIds: validLabelIds,
-      };
-    });
-
-    // Persist connection
-    const updatedConnection = this.state.connections.find((c) => c.id === connectionId);
-    if (updatedConnection) {
-      await this.persistence.persistConnection(updatedConnection);
-    }
+    await patchConnection(this.state, connectionId, { labelIds });
   }
 
   /**

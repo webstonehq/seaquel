@@ -1,4 +1,5 @@
 import type { StorageClient } from "./client";
+import type { SqliteDatabase } from "./sqlite-types";
 import { RustStorageClient } from "./rust-client";
 import { isTauri, isWeb } from "$lib/utils/environment";
 
@@ -15,8 +16,25 @@ export function getStorage(): StorageClient {
 }
 
 async function openDemoStorage(): Promise<StorageClient> {
-  const { openSqljsStorageClient } = await import("./sqljs-client");
-  return openSqljsStorageClient();
+  const { createSqljsStorageClient } = await import("./sqljs-client");
+  return createSqljsStorageClient(await demoDatabase());
+}
+
+let demoDb: Promise<SqliteDatabase> | null = null;
+
+/**
+ * The demo's sql.js database, opened once: its `StorageClient` and its
+ * library (`TsLibrary`) share it. A failed open is retried on the next call.
+ * Desktop and web never call it.
+ */
+export function demoDatabase(): Promise<SqliteDatabase> {
+  demoDb ??= import("./sqljs-client")
+    .then(({ openSqljsDatabase }) => openSqljsDatabase())
+    .catch((error: unknown) => {
+      demoDb = null;
+      throw error;
+    });
+  return demoDb;
 }
 
 /**

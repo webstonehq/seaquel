@@ -4,6 +4,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::migrate::Migrator;
@@ -71,7 +72,19 @@ impl Default for StorageOptions {
 pub struct Storage {
     pool: SqlitePool,
     path: PathBuf,
+    /// Opened with [`StorageOptions::read_only`]: [`Storage::write`] refuses.
+    read_only: bool,
+    /// Serialises this process's writers before they take a pool
+    /// connection (see [`crate::WriteTx`]). Clones share it.
+    write_lock: Arc<tokio::sync::Mutex<()>>,
+    /// How long [`Storage::write`] waits for this process's earlier writers.
+    write_wait: Duration,
 }
+
+/// How long [`Storage::write`] waits for the write mutex before failing:
+/// long enough for any real write, short enough that a nested write (a
+/// deadlock) fails instead of hanging.
+pub const WRITE_WAIT: Duration = Duration::from_secs(30);
 
 impl Storage {
     /// Open the metadata file at `path` (the desktop's
@@ -145,7 +158,37 @@ impl Storage {
                 other => other,
             });
         }
-        Ok(Self { pool, path })
+        Ok(Self::new(pool, path, false))
+    }
+
+    fn new(pool: SqlitePool, path: PathBuf, read_only: bool) -> Self {
+        Self {
+            pool,
+            path,
+            read_only,
+            write_lock: Arc::default(),
+            write_wait: WRITE_WAIT,
+        }
+    }
+
+    /// [`WRITE_WAIT`] replaced, for tests.
+    #[doc(hidden)]
+    pub fn with_write_wait(mut self, wait: Duration) -> Self {
+        self.write_wait = wait;
+        self
+    }
+
+    pub(crate) fn write_wait(&self) -> Duration {
+        self.write_wait
+    }
+
+    /// Whether it was opened with [`StorageOptions::read_only`].
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    pub(crate) fn write_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+        Arc::clone(&self.write_lock)
     }
 
     /// The pool, for the query modules.
@@ -399,7 +442,7 @@ async fn open_read_only(
         pool.close().await;
         return Err(e);
     }
-    Ok(Storage { pool, path })
+    Ok(Storage::new(pool, path, true))
 }
 
 /// The first, cheap pass of the read-only check ([`check_on`]), before the

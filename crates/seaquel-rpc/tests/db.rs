@@ -12,7 +12,7 @@ use seaquel_core::domain::run::RunEvent;
 use seaquel_core::{with_plugins, ConnectPolicy, Core, Workspace, WorkspaceSpec};
 use seaquel_rpc::{
     dispatch_stream, dispatch_workspace, parse_request, workspace_events, CoreEvent, DbRequest,
-    DbResponse, Request, Response, RpcError,
+    DbResponse, Request, Response, RpcError, WriteOrigin,
 };
 use seaquel_types::{DbError, StreamEvent};
 use serde_json::{json, Value as Json};
@@ -68,7 +68,13 @@ fn parse(body: &Json) -> Request {
 impl Env {
     /// One `db` call on `ws`; the `result` of the call's JSON response.
     async fn call(&self, ws: &Workspace, method: &str, params: Json) -> Result<Json, RpcError> {
-        let res = dispatch_workspace(&self.core, ws, parse(&db(method, params))).await?;
+        let res = dispatch_workspace(
+            &self.core,
+            ws,
+            parse(&db(method, params)),
+            WriteOrigin::none(),
+        )
+        .await?;
         let res = serde_json::to_value(&res).unwrap();
         assert_eq!(res["method"], "db");
         assert_eq!(res["result"]["method"], method);
@@ -100,7 +106,12 @@ impl Env {
         ws: &'a Workspace,
         params: Json,
     ) -> Result<seaquel_engine::BoxStream<'a, CoreEvent>, RpcError> {
-        dispatch_stream(&self.core, ws, parse(&db("queryStream", params)))
+        dispatch_stream(
+            &self.core,
+            ws,
+            parse(&db("queryStream", params)),
+            WriteOrigin::none(),
+        )
     }
 
     /// A `db.run` or `db.page` stream on `ws`.
@@ -110,7 +121,12 @@ impl Env {
         method: &str,
         params: Json,
     ) -> Result<seaquel_engine::BoxStream<'a, CoreEvent>, RpcError> {
-        dispatch_stream(&self.core, ws, parse(&db(method, params)))
+        dispatch_stream(
+            &self.core,
+            ws,
+            parse(&db(method, params)),
+            WriteOrigin::none(),
+        )
     }
 
     /// A `db.run` or `db.page` to its end: its events as JSON.
@@ -721,6 +737,7 @@ async fn streams_and_calls_dont_mix() {
             "queryStream",
             json!({"connectionId": "c", "streamId": "s", "sql": "SELECT 1"}),
         )),
+        WriteOrigin::none(),
     )
     .await
     .unwrap_err();
@@ -729,6 +746,7 @@ async fn streams_and_calls_dont_mix() {
         &e.core,
         &e.a,
         parse(&db("cancel", json!({"streamId": "s"}))),
+        WriteOrigin::none(),
     ) else {
         panic!("a cancel isn't a stream")
     };
@@ -770,32 +788,21 @@ async fn the_policy_check_covers_connect_and_test() {
     assert_eq!(e.core.connection_count(), 0);
 }
 
-/// A saved SQLite row `id` for the file at `path`, in workspace A.
+/// A saved SQLite row `id` for the file at `path`, in workspace A, written
+/// straight to storage (the library group assigns its own ids, and some of
+/// these Cores have no executor to save with).
 async fn save_sqlite_row(e: &Env, id: &str, path: &str) {
-    let storage = |method: &str, params: Json| json!({"method": "storage", "params": {"method": method, "params": params}});
-    dispatch_workspace(
-        &e.core,
-        &e.a,
-        parse(&storage(
-            "projectsSave",
-            json!({"project": {"id": "p1", "name": "P", "createdAt": "2026-01-02T03:04:05.000Z",
-                   "updatedAt": "2026-01-02T03:04:05.000Z", "customLabels": []}}),
-        )),
-    )
-    .await
-    .unwrap();
-    dispatch_workspace(
-        &e.core,
-        &e.a,
-        parse(&storage(
-            "connectionsSave",
-            json!({"connection": {"id": id, "projectId": "p1", "name": "Saved", "type": "sqlite",
-                   "host": "localhost", "port": 0, "databaseName": path, "username": "", "labelIds": [],
-                   "connectionString": format!("sqlite://{path}")}}),
-        )),
-    )
-    .await
-    .unwrap();
+    use seaquel_core::storage::{connections, projects};
+    let project = json!({"id": "p1", "name": "P", "createdAt": "2026-01-02T03:04:05.000Z",
+        "updatedAt": "2026-01-02T03:04:05.000Z", "customLabels": []});
+    let project = serde_json::from_str(&project.to_string()).unwrap();
+    // Ignored when the project is already there.
+    projects::save(e.a.storage(), &project).await.unwrap();
+    let row = json!({"id": id, "projectId": "p1", "name": format!("Saved {id}"), "type": "sqlite",
+        "host": "localhost", "port": 0, "databaseName": path, "username": "", "labelIds": [],
+        "connectionString": format!("sqlite://{path}")});
+    let row = serde_json::from_str(&row.to_string()).unwrap();
+    connections::save(e.a.storage(), &row).await.unwrap();
 }
 
 /// Without a policy (the web server's Core until Task 5 sets one),
@@ -1016,9 +1023,14 @@ async fn run_is_stream_only() {
             json!({"connectionId": "c", "streamId": "p", "source": {"sql": "SELECT 1", "params": []}, "page": 1, "pageSize": 10}),
         ),
     ] {
-        let err = dispatch_workspace(&e.core, &e.a, parse(&db(method, params)))
-            .await
-            .unwrap_err();
+        let err = dispatch_workspace(
+            &e.core,
+            &e.a,
+            parse(&db(method, params)),
+            WriteOrigin::none(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.code, "INVALID_ARGUMENT", "{method}: {err}");
     }
 }
@@ -1464,7 +1476,9 @@ async fn table_page_is_stream_only() {
     let Request::Db(db_req) = &req else { panic!() };
     assert_eq!(db_req.stream_id(), Some("tp"));
     assert!(db_req.is_run());
-    let err = dispatch_workspace(&e.core, &e.a, req).await.unwrap_err();
+    let err = dispatch_workspace(&e.core, &e.a, req, WriteOrigin::none())
+        .await
+        .unwrap_err();
     assert_eq!(err.code, "INVALID_ARGUMENT", "{err}");
 }
 
@@ -1486,7 +1500,7 @@ async fn apply_changes_is_unary() {
         assert_eq!(db_req.method(), method);
         assert_eq!(db_req.stream_id(), None, "{method}");
         assert!(!db_req.is_run(), "{method}");
-        let Err(err) = dispatch_stream(&e.core, &e.a, req) else {
+        let Err(err) = dispatch_stream(&e.core, &e.a, req, WriteOrigin::none()) else {
             panic!("{method} streamed")
         };
         assert_eq!(err.code, "INVALID_ARGUMENT", "{method}: {err}");
@@ -1757,4 +1771,61 @@ async fn db_cancel_stops_a_table_page() {
     .expect("the cancelled page ends");
     assert!(rest.is_empty(), "{rest:?}");
     assert_eq!(e.a.stream_count(&e.core), 0);
+}
+
+/// Phase 5d review, M1: a run's and an apply's history rows announce
+/// themselves with the caller's origin.
+#[tokio::test]
+async fn history_events_carry_the_callers_origin() {
+    use futures::StreamExt;
+    let e = env().await;
+    let id = e.sqlite(&e.a, "ho").await;
+    let path = e.dir.path().join("ho.db").display().to_string();
+    save_sqlite_row(&e, "s-ho", &path).await;
+    let history = json!({"connectionId": "s-ho", "connectionName": "n", "connectionLabels": []});
+    let mut events = workspace_events(&e.a);
+
+    let run = dispatch_stream(
+        &e.core,
+        &e.a,
+        parse(&db(
+            "run",
+            json!({"connectionId": id, "streamId": "r-ho", "text": "SELECT 1",
+                   "target": {"type": "all"}, "pageSize": 10, "history": history}),
+        )),
+        WriteOrigin::new(Some("tab-run")),
+    )
+    .unwrap();
+    let ran: Vec<CoreEvent> = run.collect().await;
+    assert!(ran.last().unwrap().is_terminal());
+
+    dispatch_workspace(
+        &e.core,
+        &e.a,
+        parse(&db(
+            "applyChanges",
+            json!({"connectionId": id, "history": history, "confirmed": true, "changes": [
+                {"type": "sql", "id": "p1", "sql": "UPDATE t SET x = x WHERE x = 1", "params": []}]}),
+        )),
+        WriteOrigin::new(Some("tab-apply")),
+    )
+    .await
+    .unwrap();
+
+    let mut got = Vec::new();
+    while let Ok(Some(event)) =
+        tokio::time::timeout(std::time::Duration::from_millis(100), events.next()).await
+    {
+        let event = serde_json::to_value(event).unwrap();
+        if event["kind"] == "history" {
+            got.push((event["scope"].clone(), event["origin"].clone()));
+        }
+    }
+    assert_eq!(
+        got,
+        [
+            (json!("s-ho"), json!("tab-run")),
+            (json!("s-ho"), json!("tab-apply"))
+        ]
+    );
 }

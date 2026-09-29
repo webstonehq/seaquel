@@ -1,7 +1,6 @@
 import type { QueryTab, ExplainResult, ParsedQueryVisual } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
-import type { SharedQueryManager } from "./shared-query-manager.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
 
 /**
@@ -9,7 +8,7 @@ import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelt
  * Tabs are organized per-project.
  */
 export class QueryTabManager extends BaseTabManager<QueryTab> {
-  private sharedQueryManager: SharedQueryManager | null = null;
+  private renameSavedQuery: ((queryId: string, name: string) => Promise<void>) | null = null;
 
   constructor(
     state: DatabaseState,
@@ -19,8 +18,9 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
     super(state, tabOrdering, schedulePersistence);
   }
 
-  setSharedQueryManager(manager: SharedQueryManager): void {
-    this.sharedQueryManager = manager;
+  /** How a linked saved query is renamed with its tab (`SavedQueryManager.renameQuery`). */
+  setSavedQueryRename(fn: (queryId: string, name: string) => Promise<void>): void {
+    this.renameSavedQuery = fn;
   }
 
   /** Told when a tab closes (its run is cancelled) and when one becomes active. */
@@ -82,32 +82,13 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
     const tabs = this.getProjectTabs();
     const tab = tabs.find((t) => t.id === id);
     if (tab) {
-      this.updateTab(id, (t) => ({ ...t, name: newName }));
-
-      // Also update linked query name if exists
-      if (tab.queryId && this.state.activeProjectId) {
-        const projectId = this.state.activeProjectId;
-        const queries = this.state.queriesByProject[projectId] ?? [];
-        const query = queries.find((q) => q.id === tab.queryId);
-        if (query) {
-          const updatedQueries = queries.map((q) =>
-            q.id === tab.queryId ? { ...q, name: newName, updatedAt: new Date() } : q,
-          );
-          this.state.queriesByProject = {
-            ...this.state.queriesByProject,
-            [projectId]: updatedQueries,
-          };
-
-          // If shared, also update the .sql file
-          if (query.shared && this.sharedQueryManager) {
-            const updatedQuery = updatedQueries.find((q) => q.id === tab.queryId);
-            if (updatedQuery) {
-              await this.sharedQueryManager.writeQueryFile(updatedQuery);
-            }
-          }
-        }
+      // Rename the linked saved query first, if there is one: a refused
+      // name (another query has it) throws and leaves the tab as it was.
+      if (tab.queryId && this.renameSavedQuery) {
+        await this.renameSavedQuery(tab.queryId, newName);
       }
 
+      this.updateTab(id, (t) => ({ ...t, name: newName }));
       this.schedulePersistence(this.state.activeProjectId);
     }
   }

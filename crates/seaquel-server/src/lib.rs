@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
-use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, EditLimits, RunLimits};
+use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, EditLimits, LibraryLimits, RunLimits};
 use std::sync::Arc;
 
 mod error;
@@ -23,7 +23,8 @@ pub use routes::rpc::{
     MAX_EDIT_CALLS_PER_USER, MAX_IN_FLIGHT_BYTES_PER_USER, SMALL_CALL_BYTES, TOO_MANY_REQUESTS,
     USER_HEADER,
 };
-pub use workspaces::Workspaces;
+pub use routes::rpc_stream::{MAX_PENDING_REFUSALS, TOO_MANY_PENDING};
+pub use workspaces::{Workspaces, EVENTS_LAGGED, LISTENER_EVENT_BOUND, LISTENER_EVENT_BYTE_BOUND};
 
 /// Application state shared across request handlers.
 #[derive(Clone)]
@@ -100,9 +101,27 @@ pub const WEB_EDIT_LIMITS: EditLimits = EditLimits {
     max_filter_value_bytes: Some(64 * 1024),
 };
 
+/// What one user may store in the library on the web (phase 5d, Decision
+/// 15): names, label names, folders and tags of 1 KiB, other fields of
+/// 64 KiB, a saved query's text of 2 MiB (as [`WEB_RUN_LIMITS`]), 1,000
+/// items per list, and 10,000 connections, 1,000 projects and 50,000 saved
+/// queries per user. Sizes are refused before anything is read. A saved
+/// query's versions keep at most 16 MiB together (8 versions of a 2 MiB
+/// query; phase 5d-1 probe fix), pruned oldest first.
+pub const WEB_LIBRARY_LIMITS: LibraryLimits = LibraryLimits {
+    max_name_bytes: Some(1024),
+    max_field_bytes: Some(64 * 1024),
+    max_query_bytes: Some(2 * 1024 * 1024),
+    max_list_items: Some(1_000),
+    max_connections: Some(10_000),
+    max_projects: Some(1_000),
+    max_saved_queries: Some(50_000),
+    max_version_bytes: Some(16 * 1024 * 1024),
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
 /// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`],
-/// [`WEB_RUN_LIMITS`] and [`WEB_EDIT_LIMITS`]. Core refuses any other driver on
+/// [`WEB_RUN_LIMITS`], [`WEB_EDIT_LIMITS`] and [`WEB_LIBRARY_LIMITS`]. Core refuses any other driver on
 /// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
 /// Cargo unified into this build.
 pub fn web_core() -> Core {
@@ -111,6 +130,7 @@ pub fn web_core() -> Core {
         .connection_limits(WEB_CONNECTION_LIMITS)
         .run_limits(WEB_RUN_LIMITS)
         .edit_limits(WEB_EDIT_LIMITS)
+        .library_limits(WEB_LIBRARY_LIMITS)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build()
 }

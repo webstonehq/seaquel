@@ -15,7 +15,7 @@
 	import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
 	import ImportSharedProjectDialog from "../import-shared-project-dialog.svelte";
 	import { toast } from "svelte-sonner";
-	import { errorToast } from "$lib/utils/toast";
+	import { showErrorUnlessShown } from "$lib/errors";
 
 	const db = useDatabase();
 	const features = getFeatures();
@@ -32,13 +32,11 @@
 	);
 
 	const handleImportDbeaver = async () => {
-		const existingIds = db.state.connections.map((c) => c.id);
-		await dbeaverImportStore.checkAndShowDialog(existingIds);
+		await dbeaverImportStore.checkAndShowDialog(db.state.projectConnections);
 	};
 
 	const handleImportTablePlus = async () => {
-		const existingIds = db.state.connections.map((c) => c.id);
-		await tablePlusImportStore.checkAndShowDialog(existingIds);
+		await tablePlusImportStore.checkAndShowDialog(db.state.projectConnections);
 	};
 
 	const handleImportFromRepo = async () => {
@@ -64,7 +62,7 @@
 			}
 			sharedProjectImportStore.openWithResults(selected as string, projects);
 		} catch (error) {
-			errorToast(error instanceof Error ? error.message : String(error));
+			showErrorUnlessShown(error);
 		}
 	};
 

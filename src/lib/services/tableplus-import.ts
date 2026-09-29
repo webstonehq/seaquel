@@ -1,5 +1,6 @@
 import { readTablePlusConfig } from "$lib/api/tauri";
 import type { DatabaseType } from "$lib/types";
+import { isAlreadySaved, type ConnectionIdentity } from "./connection-import";
 import { tablePlusTlsModeToSslMode } from "$lib/utils/connection-string";
 import type { TablePlusConnection, TablePlusImportableConnection } from "$lib/types/tableplus";
 
@@ -92,7 +93,7 @@ export function toTablePlusConnection(entry: Record<string, unknown>): TablePlus
  */
 export function mapToImportable(
   conn: TablePlusConnection,
-  existingConnectionIds: string[],
+  existing: readonly ConnectionIdentity[],
 ): TablePlusImportableConnection | null {
   const type = DRIVER_MAP[conn.driver];
   if (!type) {
@@ -105,10 +106,7 @@ export function mapToImportable(
   const databaseName = isFileBased ? conn.databasePath || conn.databaseName : conn.databaseName;
   const username = conn.databaseUser || "";
 
-  // Generate the connection ID that Seaquel would use
-  const expectedId = isFileBased ? `conn-sqlite-${databaseName}` : `conn-${host}-${port}`;
-
-  const isDuplicate = existingConnectionIds.includes(expectedId);
+  const isDuplicate = isAlreadySaved({ type, host, port, databaseName, username }, existing);
 
   // SSL only applies to the network drivers that Seaquel exposes it for
   const supportsSsl = type === "postgres" || type === "mysql" || type === "mariadb";
@@ -146,11 +144,11 @@ export function mapToImportable(
  * Discovers and parses all TablePlus connections, filtering for supported types
  */
 export async function discoverTablePlusConnections(
-  existingConnectionIds: string[],
+  existing: readonly ConnectionIdentity[],
 ): Promise<TablePlusImportableConnection[]> {
   const tablePlusConnections = await parseTablePlusConnections();
 
   return tablePlusConnections
-    .map((conn) => mapToImportable(conn, existingConnectionIds))
+    .map((conn) => mapToImportable(conn, existing))
     .filter((conn): conn is TablePlusImportableConnection => conn !== null);
 }

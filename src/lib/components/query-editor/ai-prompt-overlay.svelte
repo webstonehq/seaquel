@@ -2,6 +2,7 @@
 	import AiModelSwitcher from "$lib/components/ai-model-switcher.svelte";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { showErrorUnlessShown } from "$lib/errors";
 
 	let {
 		text = $bindable(""),
@@ -24,7 +25,7 @@
 	async function handleModelSelect(pid: string, mod: string) {
 		const conn = db.state.activeConnection;
 		if (!conn) return;
-		await db.setConnectionAIModel(conn.id, pid, mod);
+		await db.setConnectionAIModel(conn.id, pid, mod).catch(showErrorUnlessShown);
 	}
 </script>
 

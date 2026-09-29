@@ -36,6 +36,8 @@ import type {
 import type { PaneLayout } from "$lib/types";
 import type { ConnectionLabel } from "$lib/types/project";
 import type { SavedWorkflow } from "$lib/types/workflow";
+import type { EventsUnavailableReason } from "$lib/core/client";
+import { RowSeqs } from "./library/seqs";
 
 /**
  * Central state container for the database module.
@@ -53,6 +55,19 @@ import type { SavedWorkflow } from "$lib/types/workflow";
  * tied to the specific connection that executed them.
  */
 export class DatabaseState {
+  // === LIBRARY SYNC (phase 5d-1) ===
+  /** The `seq` last applied per library row, and this page's writes in flight. */
+  readonly librarySeqs = new RowSeqs();
+  /**
+   * How many times another window's change was applied to a library row,
+   * by `rowKey` (`connection:<id>`, `project:<id>`). A form
+   * editing a row compares it with the count it opened with, to say
+   * "Changed in another window".
+   */
+  libraryRemoteRevision = $state<Record<string, number>>({});
+  /** Why other windows' changes stopped arriving, or `null` while they arrive. */
+  libraryUpdatesUnavailable = $state<EventsUnavailableReason | null>(null);
+
   // === PROJECT STATE ===
   projects = $state<Project[]>([]);
   projectsLoading = $state(true);

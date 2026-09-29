@@ -6,7 +6,9 @@
 //!
 //! Only Node's `/api/rpc/stream` upgrade reaches it. Node sets the header
 //! from the session and drops any copy the browser sent, and passes frames
-//! through untouched; ownership is checked here, by Core.
+//! through untouched; ownership is checked here, by Core. Node also sets
+//! `X-Seaquel-Origin` from the page's `?origin=` when it is well-formed;
+//! it's checked again here, and a run's history event carries it.
 //!
 //! # Client frames (Text, JSON)
 //!
@@ -37,6 +39,12 @@
 //!   `CANCELLED` rule is the same, as a run `error`.
 //! - `{"type":"connectionClosed",…}`: one of the user's connections went
 //!   away (`WORKSPACE_EVICTED`), from any of the user's workspaces.
+//! - `{"type":"storageChanged","kind",…,"seq"}` (phase 5d): a write to the
+//!   user's metadata committed, from any of their tabs (or Core itself).
+//!   Every socket of that user gets it, the writer's too, which skips it by
+//!   its `origin`; no other user's socket does. It names kinds and ids,
+//!   never a value. Events sent while a socket was closed are lost: a tab
+//!   reloads what it shows after reconnecting.
 //!
 //! A frame that can't be served gets an `error` event, never a closed
 //! socket: `INVALID_ARGUMENT` (not JSON, binary, a bad `op`, a missing or
@@ -58,10 +66,19 @@
 //!   events, in order.
 //! - A frame (and a message) is at most [`MAX_FRAME_BYTES`]; a larger one
 //!   closes the socket (WebSocket close code 1009).
+//! - Workspace events wait in a bounded queue per socket
+//!   (`LISTENER_EVENT_BOUND`, 1,024 events, and `LISTENER_EVENT_BYTE_BOUND`,
+//!   8 MiB). A client that falls that far behind is closed with 1013 and an [`EVENTS_LAGGED`] reason; it reconnects and
+//!   reloads what it shows. The close cancels the socket's running queries,
+//!   as any close does. While events are backed up the socket still reads
+//!   client frames, so a `cancel` gets through.
+//! - At most [`MAX_PENDING_REFUSALS`] refusals of client frames wait to be
+//!   sent; a client that sends refused frames without reading passes it
+//!   and is closed with 1008 and a [`TOO_MANY_PENDING`] reason.
 //! - Closing the socket, or losing it, cancels every stream it started.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::{
@@ -76,16 +93,19 @@ use futures::{SinkExt, StreamExt};
 use seaquel_core::domain::run::RunEvent;
 use seaquel_core::StreamEvent;
 use seaquel_rpc::{
-    dispatch_stream, parse_request, CoreEvent, DbRequest, Request, RpcError, INVALID_ARGUMENT,
+    dispatch_stream, parse_request, CoreEvent, DbRequest, Request, RpcError, WriteOrigin,
+    INVALID_ARGUMENT,
 };
 use seaquel_types::StreamBatch;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use super::rpc::{error_response, open_workspace, redact, user_id};
-use crate::workspaces::{ListenError, Listener, OpenWorkspace, MAX_LISTENERS_PER_USER};
+use super::rpc::{error_response, open_workspace, redact, user_id, write_origin};
+use crate::workspaces::{
+    ListenError, Listener, OpenWorkspace, EVENTS_LAGGED, MAX_LISTENERS_PER_USER,
+};
 use crate::AppState;
 
 /// The most streams one socket runs at once.
@@ -115,6 +135,18 @@ pub const CANCELLED: &str = "CANCELLED";
 /// slow client instead of piling rows up in memory.
 const OUTBOX: usize = 64;
 
+/// How many refusals of client frames may wait for room in the outbox at
+/// once, per socket. A client that sends refused frames without reading
+/// the answers passes it and is closed with 1008 and [`TOO_MANY_PENDING`].
+pub const MAX_PENDING_REFUSALS: usize = 64;
+
+/// The close reason of a socket past [`MAX_PENDING_REFUSALS`].
+pub const TOO_MANY_PENDING: &str = "TOO_MANY_PENDING";
+
+/// How long a socket closing itself gives its writer to deliver the close
+/// frame.
+const LAGGED_CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub async fn stream(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -124,6 +156,9 @@ pub async fn stream(
         Ok(user) => user.to_string(),
         Err(e) => return error_response(e),
     };
+    // The page's write origin (Node took it from `?origin=` and checked it;
+    // checked again here): a run's history event carries it.
+    let origin = write_origin(&headers);
     // Subscribed before the upgrade, so an eviction from here on reaches
     // this socket.
     let listener = match state.workspaces.listen(&user) {
@@ -149,7 +184,7 @@ pub async fn stream(
     };
     ws.max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| Session::new(state, user).run(socket, listener))
+        .on_upgrade(move |socket| Session::new(state, user, origin).run(socket, listener))
 }
 
 #[derive(Deserialize)]
@@ -175,6 +210,7 @@ struct Running {
 struct Session {
     state: AppState,
     user: String,
+    origin: WriteOrigin,
     running: HashMap<String, Running>,
     next_generation: u64,
 }
@@ -215,10 +251,11 @@ fn encode(event: &CoreEvent) -> Result<String, String> {
 }
 
 impl Session {
-    fn new(state: AppState, user: String) -> Self {
+    fn new(state: AppState, user: String, origin: WriteOrigin) -> Self {
         Self {
             state,
             user,
+            origin,
             running: HashMap::new(),
             next_generation: 0,
         }
@@ -227,29 +264,61 @@ impl Session {
     async fn run(mut self, socket: WebSocket, mut listener: Listener) {
         let (mut sink, mut source) = socket.split();
         let (outbox, mut outgoing) = mpsc::channel::<String>(OUTBOX);
+        // A close frame to send instead of what's still queued (a lagging
+        // listener's `EVENTS_LAGGED`).
+        let (close_tx, mut close_rx) = oneshot::channel::<CloseFrame>();
         let writer = tokio::spawn(async move {
-            while let Some(text) = outgoing.recv().await {
-                if sink.send(Message::Text(text.into())).await.is_err() {
-                    break;
+            loop {
+                tokio::select! {
+                    biased;
+                    close = &mut close_rx => {
+                        if let Ok(frame) = close {
+                            let _ = sink.send(Message::Close(Some(frame))).await;
+                        }
+                        break;
+                    }
+                    text = outgoing.recv() => match text {
+                        Some(text) => {
+                            if sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    },
                 }
             }
         });
+        let mut close_tx = Some(close_tx);
         // Each stream task reports its end, so its slot frees up.
         let (ended_tx, mut ended) = mpsc::unbounded_channel::<(String, u64)>();
+        // One workspace event taken from the listener and waiting for room
+        // in the outbox. While it waits, the loop still reads client frames
+        // (a `cancel` must get through while events are backed up), and the
+        // listener's own bounded channel fills; past its bound the hub
+        // drops it and the socket closes as lagging.
+        let mut pending: Option<String> = None;
+        // Why this socket closes itself, if it does: a lagging listener, or
+        // a client that sends refused frames without reading the refusals.
+        let mut close: Option<CloseFrame> = None;
+        let mut lag = listener.lag_signal();
+        // Refusals spawned by `send_later` and not in the outbox yet.
+        let refusals = Arc::new(AtomicUsize::new(0));
 
         loop {
             tokio::select! {
                 frame = source.next() => match frame {
                     Some(Ok(Message::Text(text))) => {
                         if let Some(event) = self.frame(text.as_str(), &outbox, &ended_tx).await {
-                            if send(&outbox, &event).await.is_err() {
+                            if !send_later(&outbox, &refusals, event) {
+                                close = Some(too_many_pending());
                                 break;
                             }
                         }
                     }
                     Some(Ok(Message::Binary(_))) => {
                         let event = error_event("", INVALID_ARGUMENT, "frames must be JSON text");
-                        if send(&outbox, &event).await.is_err() {
+                        if !send_later(&outbox, &refusals, event) {
+                            close = Some(too_many_pending());
                             break;
                         }
                     }
@@ -257,10 +326,20 @@ impl Session {
                     // Closed, lost, or a frame over the limit.
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 },
-                Some(event) = listener.recv() => {
-                    if send(&outbox, &event).await.is_err() {
+                permit = outbox.reserve(), if pending.is_some() => match permit {
+                    Ok(permit) => permit.send(pending.take().unwrap_or_default()),
+                    Err(_) => break,
+                },
+                event = listener.recv(), if pending.is_none() => match event {
+                    Some(event) => pending = encode(&event).ok(),
+                    None => {
+                        close = Some(events_lagged());
                         break;
                     }
+                },
+                () = lag.fired() => {
+                    close = Some(events_lagged());
+                    break;
                 }
                 Some((stream_id, generation)) = ended.recv() => {
                     if self.running.get(&stream_id).is_some_and(|r| r.generation == generation) {
@@ -271,7 +350,8 @@ impl Session {
         }
 
         // Cancel everything this socket started: through Core, and by
-        // dropping each stream.
+        // dropping each stream. That includes a socket closing itself (lagging
+        // or too many refusals waiting): its running queries stop with it.
         for (stream_id, running) in self.running.drain() {
             running.cancelled.store(true, Ordering::SeqCst);
             running
@@ -281,7 +361,25 @@ impl Session {
             running.task.abort();
         }
         drop(outbox);
-        writer.abort();
+        if let Some(frame) = close {
+            // Tell the client why (after `EVENTS_LAGGED` it reconnects and
+            // reloads what it shows). A client too slow to take even the
+            // close frame is cut off.
+            log::warn!(activity = "rpc.stream", close_code = frame.code; "Closing a socket");
+            if let Some(close_tx) = close_tx.take() {
+                let _ = close_tx.send(frame);
+            }
+            let mut writer = writer;
+            if tokio::time::timeout(LAGGED_CLOSE_WAIT, &mut writer)
+                .await
+                .is_err()
+            {
+                writer.abort();
+                log::warn!(activity = "rpc.stream"; "The socket didn't take its close frame");
+            }
+        } else {
+            writer.abort();
+        }
     }
 
     /// Serve one text frame. Returns the event to send for a frame that
@@ -400,6 +498,7 @@ impl Session {
             Arc::clone(&self.state.core),
             Arc::clone(&open),
             request,
+            self.origin.clone(),
             stream_id.clone(),
             run,
             Arc::clone(&cancelled),
@@ -437,6 +536,7 @@ async fn run_stream(
     core: Arc<seaquel_core::Core>,
     open: Arc<OpenWorkspace>,
     request: Request,
+    origin: WriteOrigin,
     stream_id: String,
     run: bool,
     cancelled: Arc<AtomicBool>,
@@ -445,7 +545,7 @@ async fn run_stream(
     generation: u64,
 ) {
     let error = |code: &str, message: String| CoreEvent::error(&stream_id, run, code, message);
-    match dispatch_stream(&core, open.workspace(), request) {
+    match dispatch_stream(&core, open.workspace(), request, origin) {
         Err(e) => {
             let _ = send(&outbox, &error(&e.code, e.message)).await;
         }
@@ -541,6 +641,45 @@ fn encode_split(event: CoreEvent, out: &mut Vec<String>) -> Result<(), String> {
         encode_split(event, out)?;
     }
     Ok(())
+}
+
+/// Queue `event` for the client without holding up the socket's loop: a
+/// frame's refusal waits for room on its own, so the loop keeps reading
+/// client frames while the outbox is full. At most [`MAX_PENDING_REFUSALS`]
+/// wait at once (`waiting` counts them); past that it sends nothing and
+/// returns `false`, and the socket closes with [`TOO_MANY_PENDING`].
+fn send_later(outbox: &mpsc::Sender<String>, waiting: &Arc<AtomicUsize>, event: CoreEvent) -> bool {
+    if waiting.fetch_add(1, Ordering::SeqCst) >= MAX_PENDING_REFUSALS {
+        waiting.fetch_sub(1, Ordering::SeqCst);
+        return false;
+    }
+    let outbox = outbox.clone();
+    let waiting = Arc::clone(waiting);
+    tokio::spawn(async move {
+        let _ = send(&outbox, &event).await;
+        waiting.fetch_sub(1, Ordering::SeqCst);
+    });
+    true
+}
+
+/// The close frame of a socket that fell behind on events.
+fn events_lagged() -> CloseFrame {
+    CloseFrame {
+        code: close_code::AGAIN,
+        reason: format!("{EVENTS_LAGGED}: the socket fell behind on events").into(),
+    }
+}
+
+/// The close frame of a socket with [`MAX_PENDING_REFUSALS`] refusals
+/// waiting: a client that sends refused frames and doesn't read.
+fn too_many_pending() -> CloseFrame {
+    CloseFrame {
+        code: close_code::POLICY,
+        reason: format!(
+            "{TOO_MANY_PENDING}: {MAX_PENDING_REFUSALS} refusals are waiting to be read"
+        )
+        .into(),
+    }
 }
 
 async fn send(outbox: &mpsc::Sender<String>, event: &CoreEvent) -> Result<(), ()> {

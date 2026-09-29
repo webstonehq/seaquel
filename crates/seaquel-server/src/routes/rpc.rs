@@ -1,5 +1,6 @@
 //! `POST /rpc`: one workspace call (`seaquel_rpc::Request`) for the user in
-//! `X-Seaquel-User`: storage, and `db` (connect, test, disconnect, query,
+//! `X-Seaquel-User`: storage, the library (connections, projects, labels,
+//! saved queries), and `db` (connect, test, disconnect, query,
 //! execute, transaction, engine, cancel, and the edits service's
 //! planEdits, applyChanges and duckdbExtension) on the user's own
 //! connections.
@@ -12,6 +13,14 @@
 //! session and drops any copy the browser sent, so the header is trusted
 //! here; that trust is why the server must stay on loopback (`main.rs`).
 //!
+//! `X-Seaquel-Origin` (phase 5d, Decision 18) names the browser tab that
+//! sent the call; the `StorageChanged` event of a write carries it, so that
+//! tab can skip its own change. Node forwards it only when it matches
+//! `^[A-Za-z0-9_-]{1,64}$`, and it's checked again here: one that's missing,
+//! repeated or malformed is ignored (the call runs with no origin), never
+//! refused, and never logged. It isn't a security boundary: a lying origin
+//! can only hide a change from that user's own tab.
+//!
 //! The body goes to `parse_request` as the bytes that came in, never through
 //! a `serde_json::Value`: stored JSON columns keep their exact text, and
 //! `method` must come before `params`.
@@ -21,8 +30,10 @@
 //! unsafe header, a bad body), `NOT_SUPPORTED` 501 (secrets: the web
 //! workspace has no store; SSH tunnels), `CONNECTION_NOT_FOUND` 404, the
 //! refused engines and options 400, an edit Core won't build
-//! (`NOT_EDITABLE`) 400, and the storage codes 500
-//! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
+//! (`NOT_EDITABLE`) 400, the library's `NAME_TAKEN` and `LAST_PROJECT` 409
+//! and `PROJECT_NOT_FOUND`, `SAVED_QUERY_NOT_FOUND` and `LABEL_NOT_FOUND`
+//! 404, and the storage codes 500 (`STORAGE_ERROR`, `STORAGE_CORRUPT`,
+//! `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
 //! A failure is logged by its code and the request's group and method only:
 //! the message can quote SQL and values (a database's syntax error, a parse
@@ -37,7 +48,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use seaquel_rpc::{dispatch_workspace, parse_request, RpcError};
+use seaquel_rpc::{dispatch_workspace, parse_request, RpcError, WriteOrigin};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -47,6 +58,10 @@ use crate::AppState;
 
 /// The header Node sets to the session's user id.
 pub const USER_HEADER: &str = "x-seaquel-user";
+
+/// The header Node forwards with the calling tab's origin id, after its own
+/// format check (see the module docs).
+pub const ORIGIN_HEADER: &str = "x-seaquel-origin";
 
 /// The largest body `/rpc` takes. Node caps `/api/rpc` bodies first, at
 /// 20 MiB (`RPC_BODY_LIMIT` in `src/lib/server/body-limit.ts`, above
@@ -123,7 +138,7 @@ pub fn redact(e: RpcError, root: &Path) -> RpcError {
     for s in &spellings {
         message = message.replace(s.as_str(), DATA_DIR_PLACEHOLDER);
     }
-    RpcError::new(e.code, message)
+    RpcError { message, ..e }
 }
 
 /// Serve one call. `method` is set to the request's group and method once
@@ -158,7 +173,13 @@ async fn call(
         ));
     }
     let open = open_workspace(state, user).await?;
-    let response = dispatch_workspace(&state.core, open.workspace(), request).await?;
+    let response = dispatch_workspace(
+        &state.core,
+        open.workspace(),
+        request,
+        write_origin(headers),
+    )
+    .await?;
     serde_json::to_vec(&response).map_err(|e| {
         RpcError::new(
             "INTERNAL_ERROR",
@@ -167,7 +188,19 @@ async fn call(
     })
 }
 
-/// A call [`MAX_EDIT_CALLS_PER_USER`] counts.
+/// The calling tab's origin from [`ORIGIN_HEADER`]: none when the header
+/// is missing, repeated, not ASCII, or not 1–64 of `[A-Za-z0-9_-]`
+/// (`WriteOrigin::new` checks the format).
+pub(crate) fn write_origin(headers: &HeaderMap) -> WriteOrigin {
+    let mut values = headers.get_all(ORIGIN_HEADER).iter();
+    match (values.next(), values.next()) {
+        (Some(value), None) => WriteOrigin::new(value.to_str().ok()),
+        _ => WriteOrigin::none(),
+    }
+}
+
+/// A call [`MAX_EDIT_CALLS_PER_USER`] counts. Library calls don't count
+/// (phase 5d, Decision 15): they're small single-row writes and reads.
 fn is_edit_call(request: &seaquel_rpc::Request) -> bool {
     request.group() == "db"
         && matches!(
@@ -251,6 +284,28 @@ mod tests {
             redact(e, Path::new("data")).message,
             "metadata: data/users/u1/meta.db and DATA_DIR/users/u1/meta.db"
         );
+    }
+
+    #[test]
+    fn a_bad_origin_header_is_ignored() {
+        let origin = |values: &[&[u8]]| {
+            let mut headers = HeaderMap::new();
+            for v in values {
+                headers.append(
+                    ORIGIN_HEADER,
+                    axum::http::HeaderValue::from_bytes(v).unwrap(),
+                );
+            }
+            write_origin(&headers).as_deref().map(str::to_string)
+        };
+        assert_eq!(origin(&[b"tab-1_A"]), Some("tab-1_A".into()));
+        assert_eq!(origin(&[]), None);
+        assert_eq!(origin(&[b""]), None);
+        assert_eq!(origin(&[b"a b"]), None);
+        assert_eq!(origin(&[b"a/b"]), None);
+        assert_eq!(origin(&["caf\u{e9}".as_bytes()]), None);
+        assert_eq!(origin(&["x".repeat(65).as_bytes()]), None);
+        assert_eq!(origin(&[b"a", b"b"]), None, "repeated");
     }
 
     #[test]

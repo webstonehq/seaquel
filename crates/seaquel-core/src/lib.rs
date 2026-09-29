@@ -51,18 +51,35 @@ compile_error!(
      feature; build it with --no-default-features --features browser"
 );
 
+mod changes;
 #[cfg(feature = "workspace")]
 mod edits;
+#[cfg(feature = "storage")]
+mod library;
 #[cfg(feature = "workspace")]
 mod run;
+#[cfg(feature = "storage")]
+mod upgrade;
 mod workspace;
+/// `StorageChanged` and the change sequence (phase 5d, Decisions 16–17).
+pub use changes::{
+    is_origin, ChangeSeq, Seqd, StorageChange, StoredKind, WriteOrigin, MAX_EVENT_IDS,
+    MAX_EVENT_IDS_BYTES, MAX_EVENT_ID_BYTES,
+};
 pub use seaquel_runtime::Executor;
 /// What a GUI sends to connect: the form and the secrets it supplies.
 pub use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
+#[cfg(feature = "storage")]
+pub use upgrade::{
+    MAX_VACUUM_ATTEMPTS, STRING_SECRETS_CHECKPOINT_KEY, STRING_SECRETS_NOTICE_KEY,
+    STRING_SECRETS_UPGRADED_KEY, STRING_SECRETS_VACUUM_KEY,
+};
+#[cfg(any(feature = "workspace", feature = "storage"))]
+pub use workspace::SAVED_CONNECTION_NOT_FOUND;
 #[cfg(feature = "workspace")]
 pub use workspace::{
-    ConnectRequest, ConnectTarget, HostKeyPolicy, NO_SECRET_STORE, SAVED_CONNECTION_NOT_FOUND,
-    SECRET_UNREADABLE, WORKSPACE_CLOSED,
+    ConnectRequest, ConnectTarget, HostKeyPolicy, NO_SECRET_STORE, SECRET_UNREADABLE,
+    WORKSPACE_CLOSED,
 };
 pub use workspace::{
     CoreError, Workspace, WorkspaceEvent, WorkspaceId, WorkspaceSpec, CONNECTION_CLOSED,
@@ -93,6 +110,9 @@ pub use seaquel_workspace as domain;
 /// What an edit call may carry, set per interface with
 /// [`CoreBuilder::edit_limits`].
 pub use seaquel_workspace::edits::EditLimits;
+/// What a library call may carry, set per interface with
+/// [`CoreBuilder::library_limits`].
+pub use seaquel_workspace::library::LibraryLimits;
 /// What a run may carry, set per interface with [`CoreBuilder::run_limits`].
 pub use seaquel_workspace::run::RunLimits;
 
@@ -213,6 +233,9 @@ pub struct Core {
     /// What an edit call may carry ([`CoreBuilder::edit_limits`]).
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     edit_limits: EditLimits,
+    /// What a library call may carry ([`CoreBuilder::library_limits`]).
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
+    library_limits: LibraryLimits,
     /// The clock and spawner ([`CoreBuilder::executor`]). `None`: the
     /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
@@ -298,6 +321,7 @@ pub struct CoreBuilder {
     limits: ConnectionLimits,
     run_limits: RunLimits,
     edit_limits: EditLimits,
+    library_limits: LibraryLimits,
     executor: Option<Arc<dyn Executor>>,
 }
 
@@ -341,6 +365,17 @@ impl CoreBuilder {
         self
     }
 
+    /// What a library call (`Workspace::create_connection`, …) may carry:
+    /// name, field and query sizes, list lengths, and how many connections,
+    /// projects and saved queries a workspace may hold. Without it, no
+    /// limit (the desktop, the CLI, MCP); the web server sets all seven
+    /// (phase 5d, Decision 15).
+    #[must_use]
+    pub fn library_limits(mut self, limits: LibraryLimits) -> Self {
+        self.library_limits = limits;
+        self
+    }
+
     /// The runtime Core takes time from (statement timings and history
     /// timestamps in `Workspace::run`). There is no default: without one,
     /// `Workspace::run` and `Workspace::page` answer `NOT_SUPPORTED`, as a
@@ -359,6 +394,7 @@ impl CoreBuilder {
             limits: self.limits,
             run_limits: self.run_limits,
             edit_limits: self.edit_limits,
+            library_limits: self.library_limits,
             engines: self.engines,
             connections: RwLock::default(),
             streams: Mutex::default(),
@@ -570,6 +606,22 @@ impl Core {
     pub async fn open_workspace(&self, spec: WorkspaceSpec) -> Result<Arc<Workspace>, CoreError> {
         info!(activity = "workspace.open"; "Opening workspace");
         let workspace = Workspace::open(spec).await?;
+        // Phase 5d Decision 12a: move secrets left in stored connection
+        // strings to the keychain, then strip them (once; a read-only open
+        // never runs it).
+        #[cfg(feature = "storage")]
+        workspace
+            .upgrade_string_secrets(self.executor.as_deref())
+            .await;
+        // Phase 5d-1 probe fix: rows an older release wrote or renamed
+        // after the `backfill_name_keys` step (a downgrade, then this
+        // release again) get their `name_key` back. Only a read when there
+        // are none; a failure is logged and the lookups still fold the
+        // NULL-key rows themselves.
+        #[cfg(feature = "storage")]
+        if let Err(e) = storage::refill_name_keys(workspace.storage()).await {
+            log::warn!(activity = "workspace.open", code = e.code(); "Refilling name keys failed");
+        }
         Ok(Arc::new(workspace))
     }
 
@@ -624,6 +676,11 @@ impl Core {
     /// The limits [`CoreBuilder::edit_limits`] set.
     pub fn edit_limits(&self) -> EditLimits {
         self.edit_limits
+    }
+
+    /// The limits [`CoreBuilder::library_limits`] set.
+    pub fn library_limits(&self) -> LibraryLimits {
+        self.library_limits
     }
 
     /// Ids of the engines in this build, sorted.

@@ -10,5 +10,8 @@
  * - secrets: `INVALID_ARGUMENT` (a bad key), `SECRET_STORE_ERROR`;
  * - `INVALID_ARGUMENT` for a body that isn't a valid request;
  * - `NOT_SUPPORTED` when the workspace or build lacks the piece asked for.
+ *
+ * A library refusal (phase 5d-1) adds `NAME_TAKEN` with `takenBy`, the id
+ * of the row that has the name, so the GUI can name it; never a value.
  */
-export type RpcError = { code: string, message: string, };
+export type RpcError = { code: string, message: string, takenBy?: string, };

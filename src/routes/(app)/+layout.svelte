@@ -14,6 +14,7 @@
     import type { ThemeColors } from "$lib/types/theme";
     import { toast } from "svelte-sonner";
     import { errorToast } from "$lib/utils/toast";
+    import { showErrorUnlessShown } from "$lib/errors";
     import { m } from "$lib/paraglide/messages.js";
     import { onMount } from "svelte";
     import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
@@ -34,6 +35,8 @@
     import { handleDeepLink } from "$lib/services/deep-link";
     import { setupFileDropListener } from "$lib/services/file-drop.svelte.js";
     import FileDropOverlay from "$lib/components/file-drop-overlay.svelte";
+    import ConnectionSecretsNotice from "$lib/components/connection-secrets-notice.svelte";
+    import { connectionSecretsNotice } from "$lib/stores/connection-secrets-notice.svelte.js";
     import StorageErrorScreen from "$lib/components/storage-error-screen.svelte";
     import { storageGate } from "$lib/storage/storage-gate.svelte";
 
@@ -242,14 +245,14 @@
 
             // Handle deep links while running
             const unlistenDeepLink = await onOpenUrl((urls) => {
-                for (const url of urls) handleDeepLink(url, db);
+                for (const url of urls) void handleDeepLink(url, db).catch(showErrorUnlessShown);
             });
             cleanupFns.push(unlistenDeepLink);
 
             // Handle deep link that launched the app (after db is ready)
             const launchUrls = await getCurrent();
             if (launchUrls?.length) {
-                for (const url of launchUrls) handleDeepLink(url, db);
+                for (const url of launchUrls) void handleDeepLink(url, db).catch(showErrorUnlessShown);
             }
         })();
 
@@ -331,6 +334,9 @@
     {/if}
     {#if isWeb()}
         <VaultGate />
+    {/if}
+    {#if connectionSecretsNotice.open}
+        <ConnectionSecretsNotice />
     {/if}
 
     <Sidebar.Provider

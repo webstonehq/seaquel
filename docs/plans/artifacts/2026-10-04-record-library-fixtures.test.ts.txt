@@ -1,0 +1,2877 @@
+/**
+ * Phase 5d-1, Task 2: records what today's TypeScript does with the library
+ * (connections, projects, custom labels, saved queries and their versions)
+ * into the library parity fixtures,
+ * `crates/seaquel-workspace/tests/fixtures/library/*.json`.
+ *
+ * This reference copy is
+ * `docs/plans/artifacts/2026-10-04-record-library-fixtures.test.ts.txt`.
+ * To run it, copy it into the tree, run it with vitest, then delete the copy:
+ *
+ *   cp docs/plans/artifacts/2026-10-04-record-library-fixtures.test.ts.txt \
+ *      src/lib/hooks/database/record-library.test.ts
+ *   FREEZE_LIBRARY=1 SEAQUEL_WASM_PREBUILT=1 \
+ *     mise exec -- npx vitest run src/lib/hooks/database/record-library.test.ts
+ *   rm src/lib/hooks/database/record-library.test.ts
+ *
+ * Without FREEZE_LIBRARY it records every case and writes nothing.
+ * FREEZE_LIBRARY_OUT points the output at another directory (to check that
+ * two runs agree).
+ *
+ * What runs unmodified:
+ * - `ConnectionManager` (`add`, `update`, `reconnect`, `autoReconnect`,
+ *   `remove`, `toggleLocalOnly`, `importConnections`,
+ *   `initializePersistedConnections`), `LabelManager`, `ProjectManager`
+ *   (`initialize`, `add`, `update`, `setGitRepoPath`, `remove`, the custom
+ *   label calls, `importFromGitRepo`, `importSharedConnections`,
+ *   `importSingleSharedConnection`), `SavedQueryManager`,
+ *   `StateRestorationManager` and `PersistenceManager`, after Task 1's fixes;
+ * - the demo's storage client (`createSqljsStorageClient`) on an in-memory
+ *   sql.js file bootstrapped by `bootstrapSqljsDatabase`. The frozen repo
+ *   fixtures pin those repositories to the Rust ones;
+ * - the desktop keyring (`TauriKeyringService`), whose `callSecret` is
+ *   answered by a recording in-memory store: the secret calls are the `secret`
+ *   requests desktop sends Core.
+ *
+ * What is stubbed:
+ * - the providers (`connect` answers a Core id, `disconnect` and `test` do
+ *   nothing) and `getEngineClient` (`schemaTables` answers `[]`): no database
+ *   is reached;
+ * - the shared repos: `SharedRepoManager`'s methods the library calls, and the
+ *   saved queries' file projection, record their calls (`files`) and touch no
+ *   disk; `@tauri-apps/plugin-fs` and `$lib/services/git` likewise;
+ * - `setConnectionAIModel` lives on `UseDatabase`, which isn't built here; its
+ *   four lines are copied (`setConnectionAIModel` below) and call the real
+ *   `PersistenceManager.persistConnection`;
+ * - toasts (captured), the logger and `console.error` (silenced),
+ *   `crypto.randomUUID` (a counter) and the clock (fake timers pinned at
+ *   2030-01-01T00:00:00Z; after each step the recorder lets the 500 ms
+ *   project save fire, so the saved-query writes it does are in that step's
+ *   rows).
+ *
+ * The fixtures README says what each field means and what each replay
+ * compares.
+ */
+import initSqlJs from "sql.js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { StorageClient } from "$lib/storage/client";
+import type { DatabaseConnection, SharedConnection, SharedProject } from "$lib/types";
+
+// ---------------------------------------------------------------- mocks
+
+const rec = vi.hoisted(() => ({
+  env: { web: false },
+  storage: null as unknown,
+  toasts: [] as { kind: string; message: string }[],
+  secretCalls: [] as { method: string; key: string; value?: string }[],
+  secrets: new Map<string, string>(),
+  secretFailure: null as null | string,
+  files: [] as Record<string, unknown>[],
+  vaultCancel: false,
+}));
+
+vi.mock("$lib/storage", () => ({ getStorage: () => rec.storage }));
+vi.mock("$lib/utils/environment", () => ({
+  isTauri: () => !rec.env.web,
+  isWeb: () => rec.env.web,
+  isDemo: () => false,
+}));
+vi.mock("$lib/storage/rust-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("$lib/storage/rust-client")>()),
+  callSecret: async (req: { method: string; params: { key: string; value?: string } }) => {
+    const { key, value } = req.params;
+    rec.secretCalls.push(
+      value === undefined ? { method: req.method, key } : { method: req.method, key, value },
+    );
+    if (req.method === "set") {
+      if (rec.secretFailure) throw new Error(rec.secretFailure);
+      rec.secrets.set(key, value!);
+      return null;
+    }
+    if (req.method === "delete") {
+      rec.secrets.delete(key);
+      return null;
+    }
+    return rec.secrets.get(key) ?? null;
+  },
+}));
+vi.mock("$lib/services/vault/vault-state.svelte", () => {
+  class VaultCancelledError extends Error {}
+  return {
+    VaultCancelledError,
+    getVault: () => ({
+      ensureUnlocked: async () => {
+        if (rec.vaultCancel) throw new VaultCancelledError("cancelled");
+        return {};
+      },
+    }),
+  };
+});
+vi.mock("$lib/engine", () => ({
+  getEngineClient: () => ({ schemaTables: async () => [] }),
+  TsEngineClient: class {},
+}));
+vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
+  sshHostKeyPromptStore: { prompt: async () => true },
+}));
+vi.mock("$lib/services/git", () => ({ getRemoteUrl: async () => null }));
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  mkdir: async () => {},
+  rename: async () => {},
+  exists: async () => false,
+  writeTextFile: async () => {},
+}));
+vi.mock("@tauri-apps/api/path", () => ({ join: async (...p: string[]) => p.join("/") }));
+vi.mock("svelte-sonner", () => {
+  const push = (kind: string) => (message: unknown) => {
+    rec.toasts.push({ kind, message: String(message) });
+  };
+  return {
+    toast: {
+      info: push("info"),
+      success: push("success"),
+      warning: push("warning"),
+      error: push("error"),
+    },
+  };
+});
+vi.mock("$lib/utils/toast", () => ({
+  errorToast: (message: unknown) => {
+    rec.toasts.push({ kind: "error", message: String(message) });
+  },
+}));
+vi.mock("$lib/utils/logger", () => ({
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
+}));
+
+const { bootstrapSqljsDatabase, createSqljsStorageClient } =
+  await import("$lib/storage/sqljs-client");
+const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
+const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { DatabaseState } = await import("./state.svelte.js");
+const { StateRestorationManager } = await import("./state-restoration.svelte.js");
+const { SavedQueryManager } = await import("./saved-queries.svelte.js");
+const { ProjectManager } = await import("./project-manager.svelte.js");
+const { LabelManager } = await import("./label-manager.svelte.js");
+const { ConnectionManager } = await import("./connection-manager.svelte.js");
+const { queryNameToFilename } = await import("$lib/services/query-file-parser");
+
+// ---------------------------------------------------------------- harness
+
+type Json = unknown;
+type Row = Record<string, unknown>;
+type Seed = Partial<Record<string, Row[]>>;
+type Library = { method: string; params?: Json } | { method: string; params?: Json }[] | null;
+
+type Tab = Awaited<ReturnType<typeof openTab>>;
+
+interface Step {
+  /** The TS call, as `manager.method`. */
+  op: string;
+  /** Its arguments, as recorded. */
+  args?: Json;
+  /** The Core call the Rust replay sends for it (`library` group), or null for none. */
+  library: Library | ((ids: string[]) => Library);
+  run: (t: Tab, ids: string[]) => Promise<Json>;
+  /** A failure the recorder forces, named in the fixture. */
+  inject?: string;
+}
+
+interface Case {
+  name: string;
+  note?: string;
+  /** The file the case starts from: a fresh one, or one that started on v2026.4.5-beta.1. */
+  file?: "current" | "v2026.4.5-beta.1";
+  /** Rows inserted before the managers load, in table order; the standard seed when absent. */
+  seed?: Seed;
+  /** Entries in the secret store before the case. */
+  secrets?: Record<string, string>;
+  /** Shared-repo state in memory before the case (not stored). */
+  sharedRepo?: boolean;
+  /** Whether the managers load before the first step (default true). */
+  load?: boolean;
+  web?: boolean;
+  steps: Step[];
+}
+
+const T0 = "2024-01-01T00:00:00.000Z";
+const FIXED = new Date("2030-01-01T00:00:00.000Z");
+
+let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+let uuidSeq = 0;
+
+beforeAll(async () => {
+  const store = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(crypto, "randomUUID").mockImplementation(
+    () =>
+      `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, "0")}` as `${string}-${string}-${string}-${string}-${string}`,
+  );
+  SQL = await initSqlJs();
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+/** Table order for seeding, and what the dump reads. */
+const TABLES: { table: string; order: string; columns?: string }[] = [
+  { table: "projects", order: "id" },
+  { table: "project_labels", order: "project_id, id" },
+  { table: "connections", order: "id" },
+  { table: "connection_labels", order: "connection_id, label_id" },
+  { table: "saved_queries", order: "id" },
+  { table: "query_versions", order: "saved_query_id, version" },
+  { table: "query_history", order: "id", columns: "id, connection_id" },
+  { table: "ai_chats", order: "id", columns: "id, connection_id" },
+  { table: "ai_messages", order: "id", columns: "id, chat_id" },
+  { table: "dashboards", order: "id", columns: "id, project_id, name" },
+  { table: "dashboard_versions", order: "id", columns: "id, dashboard_id, version" },
+  { table: "saved_canvases", order: "id", columns: "id, project_id" },
+  { table: "project_state", order: "project_id", columns: "project_id, connection_order" },
+  { table: "tabs", order: "project_id, id", columns: "id, project_id" },
+  { table: "app_state", order: "key" },
+];
+
+const STANDARD_SEED: Seed = {
+  projects: [
+    {
+      id: "p1",
+      name: "Main",
+      description: null,
+      created_at: T0,
+      updated_at: T0,
+      git_repo_path: null,
+    },
+    {
+      id: "p2",
+      name: "Other",
+      description: null,
+      created_at: T0,
+      updated_at: T0,
+      git_repo_path: null,
+    },
+  ],
+  app_state: [{ key: "lastActiveProjectId", value: "p1" }],
+};
+
+function withStandard(extra: Seed): Seed {
+  const out: Seed = {};
+  for (const { table } of TABLES) {
+    const rows = [...(STANDARD_SEED[table] ?? []), ...(extra[table] ?? [])];
+    if (rows.length) out[table] = rows;
+  }
+  return out;
+}
+
+/** A stored connection row with defaults. */
+function conn(over: Row): Row {
+  return {
+    id: "c1",
+    project_id: "p1",
+    name: "Local",
+    type: "postgres",
+    host: "localhost",
+    port: 5432,
+    database_name: "app",
+    username: "me",
+    ssl_mode: null,
+    connection_string: null,
+    last_connected: T0,
+    ssh_tunnel: null,
+    save_password: 0,
+    save_ssh_password: 0,
+    save_ssh_key_passphrase: 0,
+    is_local_only: 1,
+    shared_connection_id: null,
+    ai_share_schema: null,
+    ai_share_data: null,
+    active_ai_provider_id: null,
+    active_ai_model: null,
+    ...over,
+  };
+}
+
+function savedQuery(over: Row): Row {
+  return {
+    id: "q1",
+    project_id: "p1",
+    name: "Orders",
+    query: "SELECT 1",
+    parameters: null,
+    starred: 0,
+    shared: 0,
+    description: null,
+    database_type: null,
+    tags: null,
+    folder: null,
+    created_at: T0,
+    updated_at: T0,
+    ...over,
+  };
+}
+
+type Db = InstanceType<typeof WebSqliteDatabase>;
+
+async function insertRows(db: Db, seed: Seed): Promise<void> {
+  for (const { table } of TABLES) {
+    for (const row of seed[table] ?? []) {
+      const cols = Object.keys(row);
+      await db.execute(
+        `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+        cols.map((c) => row[c]),
+      );
+    }
+  }
+}
+
+/**
+ * A file that started on v2026.4.5-beta.1, as the baseline upgrade leaves it:
+ * `saved_queries.project_id` and `dashboards.project_id` are plain nullable
+ * columns with no foreign key, so a project's delete doesn't cascade to them.
+ */
+async function makeBetaEra(db: Db): Promise<void> {
+  await db.execute("PRAGMA foreign_keys=OFF");
+  const rebuild: [string, string, string][] = [
+    [
+      "saved_queries",
+      `CREATE TABLE saved_queries_beta (id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL,
+        parameters TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        starred INTEGER NOT NULL DEFAULT 0, shared INTEGER NOT NULL DEFAULT 0, description TEXT,
+        database_type TEXT, tags TEXT, folder TEXT, project_id TEXT)`,
+      "CREATE INDEX idx_saved_queries_project ON saved_queries(project_id)",
+    ],
+    [
+      "dashboards",
+      `CREATE TABLE dashboards_beta (id TEXT PRIMARY KEY, name TEXT NOT NULL,
+        viewport TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}', widgets TEXT NOT NULL DEFAULT '[]',
+        date_filter TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, starred INTEGER DEFAULT 0,
+        shared INTEGER NOT NULL DEFAULT 0, description TEXT, project_id TEXT)`,
+      "CREATE INDEX idx_dashboards_project ON dashboards(project_id)",
+    ],
+  ];
+  for (const [table, create, index] of rebuild) {
+    await db.execute(create);
+    await db.execute(`DROP TABLE ${table}`);
+    await db.execute(`ALTER TABLE ${table}_beta RENAME TO ${table}`);
+    await db.execute(`DROP INDEX IF EXISTS idx_${table}_project`);
+    await db.execute(index);
+  }
+  await db.execute("PRAGMA foreign_keys=ON");
+}
+
+async function dump(db: Db): Promise<Record<string, Row[]>> {
+  const out: Record<string, Row[]> = {};
+  for (const { table, order, columns } of TABLES) {
+    const rows = await db.query<Row>(`SELECT ${columns ?? "*"} FROM ${table} ORDER BY ${order}`);
+    if (rows.length) out[table] = rows;
+  }
+  return out;
+}
+
+/** The recording shared-repo stub, the one `ConnectionManager` and `ProjectManager` call. */
+function sharedRepoStub(state: InstanceType<typeof DatabaseState>) {
+  const push = (r: Record<string, unknown>) => rec.files.push(r);
+  return {
+    updateSharedConnection: async (oldName: string, c: DatabaseConnection) =>
+      push({ call: "updateSharedConnection", oldName, id: c.id, name: c.name }),
+    shareConnection: async (c: DatabaseConnection) => push({ call: "shareConnection", id: c.id }),
+    unshareConnection: async (c: DatabaseConnection) =>
+      push({ call: "unshareConnection", id: c.id }),
+    initRepo: async (name: string, path: string) => {
+      push({ call: "initRepo", name, path });
+      const id = "repo-new";
+      state.sharedRepos = [
+        ...state.sharedRepos,
+        { id, name, path, remoteUrl: "", branch: "main", lastSyncAt: null, syncStatus: "synced" },
+      ] as never;
+      return id;
+    },
+    loadQueriesFromRepo: async (id: string) => push({ call: "loadQueriesFromRepo", repoId: id }),
+    setRemoteUrl: async (id: string, url: string) =>
+      push({ call: "setRemoteUrl", repoId: id, url }),
+    exportProject: async (repoId: string, projectName: string, conns: DatabaseConnection[]) =>
+      push({ call: "exportProject", repoId, projectName, connectionIds: conns.map((c) => c.id) }),
+    removeRepo: (id: string) => push({ call: "removeRepo", repoId: id }),
+  };
+}
+
+/** The team repo a shared-project case starts with, in memory. */
+function seedSharedRepo(state: InstanceType<typeof DatabaseState>) {
+  state.sharedRepos = [
+    {
+      id: "repo-1",
+      name: "team",
+      path: "/repos/team",
+      remoteUrl: "",
+      branch: "main",
+      lastSyncAt: null,
+      syncStatus: "synced",
+    },
+  ] as never;
+  const project: SharedProject = {
+    id: "repo-1:.seaquel/projects/team",
+    repoId: "repo-1",
+    name: "Team",
+    dirName: "team",
+  } as SharedProject;
+  state.sharedProjectsByRepo = { "repo-1": [project] };
+  const shared = (id: string, name: string, extra: Partial<SharedConnection> = {}) =>
+    ({
+      id,
+      repoId: "repo-1",
+      projectId: project.id,
+      filePath: `.seaquel/projects/team/connections/${name}.yaml`,
+      name,
+      type: "postgres",
+      host: "db.internal",
+      port: 5432,
+      databaseName: "app",
+      ...extra,
+    }) as SharedConnection;
+  state.sharedConnectionsByProject = {
+    [project.id]: [
+      shared("repo-1:prod", "Prod", { sslMode: "require" }),
+      shared("repo-1:bastion", "Behind bastion", {
+        sshTunnel: { host: "bastion", port: 22 } as never,
+      }),
+    ],
+  };
+}
+
+/** One window: its managers over the case's storage, wired as `UseDatabase` wires them. */
+async function openTab(client: StorageClient, load: boolean) {
+  rec.storage = client;
+  const state = new DatabaseState();
+  const persistence = new PersistenceManager(state);
+  const restoration = new StateRestorationManager(state, persistence);
+  const projects = new ProjectManager(state, persistence, restoration);
+  const labels = new LabelManager(state, persistence);
+  const savedQueries = new SavedQueryManager(
+    state,
+    (id) => persistence.scheduleProject(id),
+    persistence,
+  );
+  savedQueries.setFileProjection({
+    writeQueryFile: async (q) => {
+      rec.files.push({
+        call: "writeQueryFile",
+        id: q.id,
+        path: `${q.folder ?? ""}/${queryNameToFilename(q.name)}`,
+      });
+    },
+    deleteQueryFile: async (q) => {
+      rec.files.push({
+        call: "deleteQueryFile",
+        id: q.id,
+        path: `${q.folder ?? ""}/${queryNameToFilename(q.name)}`,
+      });
+    },
+  });
+  let coreSeq = 0;
+  const provider = {
+    connect: async () => `core-${++coreSeq}`,
+    disconnect: async () => {},
+    test: async () => {},
+  };
+  const providers = { getForType: async () => provider };
+  const connections = new ConnectionManager(
+    state,
+    persistence,
+    restoration,
+    {} as never,
+    providers as never,
+    async () => {},
+    () => {},
+  );
+  projects.setRemoveConnectionCallback((id, options) => connections.remove(id, options));
+  const repos = sharedRepoStub(state);
+  projects.setSharedRepoManager(repos as never);
+  connections.setSharedRepoManager(repos as never);
+  if (load) {
+    await projects.initialize();
+    await connections.initializePersistedConnections();
+  }
+  return { state, persistence, restoration, projects, labels, savedQueries, connections };
+}
+
+/** `UseDatabase.setConnectionAIModel`, copied: `UseDatabase` isn't built here. */
+async function setConnectionAIModel(
+  t: Tab,
+  connectionId: string,
+  providerId: string,
+  model: string,
+) {
+  const c = t.state.connections.find((x) => x.id === connectionId);
+  if (!c) return;
+  const updated = { ...c, activeAIProviderId: providerId, activeAIModel: model };
+  await t.persistence.persistConnection(updated);
+  t.state.connections = t.state.connections.map((x) => (x.id === connectionId ? updated : x));
+}
+
+/** Lets fire-and-forget writes finish and the 500 ms project save fire. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setImmediate(r));
+    await vi.advanceTimersByTimeAsync(600);
+  }
+}
+
+/** What the window shows: the lists a TS replay compares. */
+function view(t: Tab): Json {
+  const s = t.state;
+  const nonEmpty = <T>(o: Record<string, T[]>) =>
+    Object.fromEntries(
+      Object.entries(o)
+        .filter(([, v]) => v.length > 0)
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
+  return {
+    activeProjectId: s.activeProjectId,
+    projects: s.projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? null,
+      gitRepoPath: p.gitRepoPath ?? null,
+      customLabels: p.customLabels.map((l) => ({ id: l.id, name: l.name, color: l.color })),
+    })),
+    connections: s.connections.map((c) => ({
+      id: c.id,
+      projectId: c.projectId,
+      name: c.name,
+      labelIds: c.labelIds,
+      connected: !!c.providerConnectionId,
+    })),
+    connectionOrder: nonEmpty(s.connectionOrderByProject),
+    savedQueries: nonEmpty(
+      Object.fromEntries(
+        Object.entries(s.queriesByProject).map(([p, qs]) => [
+          p,
+          qs.map((q) => ({ id: q.id, name: q.name, starred: !!q.starred, shared: !!q.shared })),
+        ]),
+      ),
+    ),
+    versions: nonEmpty(
+      Object.fromEntries(
+        Object.entries(s.queryVersionsByProject).map(([p, vs]) => [
+          p,
+          vs.map((v) => `${v.queryId}#${v.version}`),
+        ]),
+      ),
+    ),
+  };
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function record(c: Case): Promise<Json> {
+  uuidSeq = 0;
+  rec.env.web = !!c.web;
+  rec.toasts.length = 0;
+  rec.secretCalls.length = 0;
+  rec.files.length = 0;
+  rec.secrets = new Map(Object.entries(c.secrets ?? {}));
+  rec.secretFailure = null;
+  rec.vaultCancel = false;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: FIXED });
+  try {
+    const db = new WebSqliteDatabase(new SQL.Database());
+    await bootstrapSqljsDatabase(db);
+    if (c.file === "v2026.4.5-beta.1") await makeBetaEra(db);
+    const seed = c.seed ?? STANDARD_SEED;
+    await insertRows(db, seed);
+    const client = createSqljsStorageClient(db);
+    const t = await openTab(client, c.load !== false);
+    if (c.sharedRepo) seedSharedRepo(t.state);
+    await settle();
+    rec.toasts.length = 0;
+    rec.secretCalls.length = 0;
+    rec.files.length = 0;
+    const before = await dump(db);
+
+    const ids: string[] = [];
+    const steps: Json[] = [];
+    for (const step of c.steps) {
+      let outcome: Json;
+      try {
+        const value = await step.run(t, ids);
+        outcome = { ok: true, value: value ?? null };
+      } catch (e) {
+        outcome = { ok: false, error: errorText(e) };
+      }
+      // After the run, so a step can name the ids it made.
+      const library = typeof step.library === "function" ? step.library(ids) : step.library;
+      await settle();
+      steps.push({
+        op: step.op,
+        ...(step.args !== undefined ? { args: step.args } : {}),
+        ...(step.inject ? { inject: step.inject } : {}),
+        library,
+        outcome,
+        rows: await dump(db),
+        secretCalls: [...rec.secretCalls],
+        secretStore: Object.fromEntries([...rec.secrets].sort(([a], [b]) => a.localeCompare(b))),
+        files: [...rec.files],
+        toasts: [...rec.toasts],
+        view: view(t),
+      });
+      rec.toasts.length = 0;
+      rec.secretCalls.length = 0;
+      rec.files.length = 0;
+      rec.secretFailure = null;
+    }
+    return {
+      name: c.name,
+      ...(c.note ? { note: c.note } : {}),
+      file: c.file ?? "current",
+      seed,
+      ...(c.secrets ? { secrets: c.secrets } : {}),
+      ...(c.sharedRepo ? { sharedRepo: true } : {}),
+      ...(c.web ? { target: "web" } : {}),
+      before,
+      steps,
+    };
+  } finally {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
+}
+
+// ---------------------------------------------------------------- normalising
+
+/**
+ * Ids made during the case become `<id:n>` (numbered in order of first
+ * appearance in the case's JSON), and times from the pinned clock `<now>`.
+ * Seeded ids and times (2024) stay.
+ */
+function normalise(caseJson: Json): Json {
+  let text = JSON.stringify(caseJson);
+  const seen = new Map<string, string>();
+  text = text.replace(/00000000-0000-4000-8000-\d{12}/g, (m) => {
+    if (!seen.has(m)) seen.set(m, `<id:${seen.size + 1}>`);
+    return seen.get(m)!;
+  });
+  text = text.replace(/2030-01-01T\d\d:\d\d:\d\d\.\d{3}Z/g, "<now>");
+  return JSON.parse(text);
+}
+
+// ---------------------------------------------------------------- inputs
+
+const pgInput = (over: Record<string, unknown> = {}) => ({
+  name: "Local PG",
+  type: "postgres",
+  host: "localhost",
+  port: 5432,
+  databaseName: "app",
+  username: "me",
+  password: "pw",
+  savePassword: false,
+  saveSshPassword: false,
+  saveSshKeyPassphrase: false,
+  ...over,
+});
+
+/** The `connectionCreate` a GUI on Core sends for an `add` of `input` in `projectId`. */
+function createOf(
+  input: Record<string, unknown>,
+  projectId: string,
+  extra: Record<string, unknown> = {},
+): Library {
+  const draft: Record<string, unknown> = {
+    projectId,
+    name: input.name,
+    type: input.type,
+    host: input.host ?? "",
+    port: input.port ?? 0,
+    databaseName: input.databaseName ?? "",
+    username: input.username ?? "",
+  };
+  if (input.sslMode !== undefined) draft.sslMode = input.sslMode;
+  if (input.connectionString !== undefined) draft.connectionString = input.connectionString;
+  if (input.sshTunnel !== undefined) draft.sshTunnel = input.sshTunnel;
+  draft.savePassword = !!input.savePassword;
+  draft.saveSshPassword = !!input.saveSshPassword;
+  draft.saveSshKeyPassphrase = !!input.saveSshKeyPassphrase;
+  draft.labelIds = input.labelIds ?? [];
+  draft.isLocalOnly = input.isLocalOnly ?? true;
+  if (input.aiShareSchema !== undefined) draft.aiShareSchema = input.aiShareSchema;
+  if (input.aiShareData !== undefined) draft.aiShareData = input.aiShareData;
+  draft.connected = true;
+  Object.assign(draft, extra);
+  const secrets: Record<string, string> = {};
+  if (input.savePassword && input.password) secrets.db = input.password as string;
+  if (input.saveSshPassword && input.sshPassword) secrets.ssh = input.sshPassword as string;
+  if (input.saveSshKeyPassphrase && input.sshKeyPassphrase)
+    secrets.sshKey = input.sshKeyPassphrase as string;
+  return {
+    method: "connectionCreate",
+    params: { connection: draft, ...(Object.keys(secrets).length ? { secrets } : {}) },
+  };
+}
+
+function addStep(input: Record<string, unknown>, projectId = "p1"): Step {
+  return {
+    op: "connections.add",
+    args: input,
+    library: createOf(input, projectId),
+    run: async (t, ids) => {
+      const id = await t.connections.add(input as never);
+      ids.push(id);
+      return id;
+    },
+  };
+}
+
+/** The stored row of `c1` as the form shows it, for `update`/`reconnect` inputs. */
+const c1Form = (over: Record<string, unknown> = {}) => ({
+  name: "Local",
+  type: "postgres",
+  host: "localhost",
+  port: 5432,
+  databaseName: "app",
+  username: "me",
+  password: "",
+  savePassword: false,
+  saveSshPassword: false,
+  saveSshKeyPassphrase: false,
+  ...over,
+});
+
+function updateStep(
+  input: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  secrets?: Record<string, unknown>,
+  id = "c1",
+): Step {
+  return {
+    op: "connections.update",
+    args: { id, input },
+    library: {
+      method: "connectionUpdate",
+      params: { id, patch, ...(secrets ? { secrets } : {}) },
+    },
+    run: async (t) => {
+      await t.connections.update(id, input as never);
+      return null;
+    },
+  };
+}
+
+const withC1 = (extra: Seed = {}, c1: Row = {}) =>
+  withStandard({ ...extra, connections: [conn(c1), ...(extra.connections ?? [])] });
+
+// ---------------------------------------------------------------- cases: connections
+
+const ENGINES: [string, Record<string, unknown>][] = [
+  ["postgres", { type: "postgres", port: 5432, sslMode: "require" }],
+  ["mysql", { type: "mysql", port: 3306, sslMode: "prefer" }],
+  ["mariadb", { type: "mariadb", port: 3307 }],
+  ["mssql", { type: "mssql", port: 1433, host: "sql.internal", username: "sa" }],
+  [
+    "sqlite",
+    { type: "sqlite", host: "", port: 0, databaseName: "/data/app.db", username: "", password: "" },
+  ],
+  [
+    "duckdb",
+    {
+      type: "duckdb",
+      host: "",
+      port: 0,
+      databaseName: "/data/app.duckdb",
+      username: "",
+      password: "",
+    },
+  ],
+];
+
+const connectionCases: Case[] = [
+  ...ENGINES.map(([engine, over]): Case => ({
+    name: `add/${engine}-fields`,
+    steps: [addStep(pgInput({ name: `My ${engine}`, ...over }))],
+  })),
+  {
+    name: "add/postgres-string-with-password",
+    note: "The string's password is stripped before it is stored; the fields are stored as typed.",
+    steps: [
+      addStep(
+        pgInput({
+          connectionString:
+            "postgres://me:hunter2@db.example.com:6543/app?sslmode=require&application_name=x",
+          host: "db.example.com",
+          port: 6543,
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/mysql-string-with-password",
+    steps: [
+      addStep(
+        pgInput({
+          type: "mysql",
+          port: 3306,
+          connectionString: "mysql://root:secret@127.0.0.1:3306/shop?charset=utf8mb4",
+          host: "127.0.0.1",
+          username: "root",
+          databaseName: "shop",
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/mssql-key-value-string",
+    steps: [
+      addStep(
+        pgInput({
+          type: "mssql",
+          port: 1433,
+          connectionString: "Server=sql,1433;Database=app;User Id=sa;Password=Secret1;Encrypt=true",
+          host: "sql",
+          username: "sa",
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/duckdb-string-with-options",
+    steps: [
+      addStep(
+        pgInput({
+          type: "duckdb",
+          host: "",
+          port: 0,
+          username: "",
+          password: "",
+          databaseName: "/data/a.duckdb",
+          connectionString:
+            "duckdb:///data/a.duckdb?access_mode=read_only&s3_secret_access_key=abc",
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/save-password",
+    steps: [addStep(pgInput({ savePassword: true, password: "pw-1" }))],
+  },
+  {
+    name: "add/password-not-saved",
+    note: "savePassword false: the TS deletes a db: entry that can't exist yet.",
+    steps: [addStep(pgInput({ savePassword: false, password: "pw-1" }))],
+  },
+  {
+    name: "add/ssh-password-auth",
+    steps: [
+      addStep(
+        pgInput({
+          host: "10.0.0.5",
+          sshTunnel: {
+            enabled: true,
+            host: "bastion.example.com",
+            port: 22,
+            username: "ops",
+            authMethod: "password",
+          },
+          sshPassword: "ssh-pw",
+          saveSshPassword: true,
+          savePassword: true,
+          password: "db-pw",
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/ssh-key-auth",
+    steps: [
+      addStep(
+        pgInput({
+          host: "10.0.0.5",
+          sshTunnel: {
+            enabled: true,
+            host: "bastion.example.com",
+            port: 2222,
+            username: "ops",
+            authMethod: "key",
+            keyPath: "/home/me/.ssh/id_ed25519",
+          },
+          sshKeyPassphrase: "key-pass",
+          saveSshKeyPassphrase: true,
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/ssh-flags-without-secrets",
+    note: "Save flags on with nothing typed: the flags are stored, nothing is set.",
+    steps: [
+      addStep(
+        pgInput({
+          password: "",
+          savePassword: true,
+          sshTunnel: {
+            enabled: true,
+            host: "bastion",
+            port: 22,
+            username: "ops",
+            authMethod: "password",
+          },
+          saveSshPassword: true,
+        }),
+      ),
+    ],
+  },
+  {
+    name: "add/labels-and-ai-flags",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-team", project_id: "p1", name: "Team", is_predefined: 0, color: "#6366f1" },
+      ],
+    }),
+    steps: [
+      addStep(
+        pgInput({ labelIds: ["prod", "label-team"], aiShareSchema: true, aiShareData: false }),
+      ),
+    ],
+  },
+  {
+    name: "add/unknown-label-id",
+    note: "Today any label id is stored. Core refuses an id that is neither predefined nor the project's (Decision 7).",
+    steps: [addStep(pgInput({ labelIds: ["local", "label-nope"] }))],
+  },
+  {
+    name: "add/other-project",
+    steps: [addStep(pgInput({ projectId: "p2" }), "p2")],
+  },
+  {
+    name: "add/missing-project",
+    note: "The row's foreign key fails; the TS rolls the connection back. Core refuses with PROJECT_NOT_FOUND.",
+    steps: [addStep(pgInput({ projectId: "p-missing" }), "p-missing")],
+  },
+  {
+    name: "add/duplicate-name",
+    note: "Today a second connection may share a name (after trimming and case). Core refuses it (Q3).",
+    seed: withC1({}, { name: "Ärger DB" }),
+    steps: [addStep(pgInput({ name: " ärger db " }))],
+  },
+  {
+    name: "add/duplicate-name-other-project",
+    seed: withC1({}, { name: "Local PG", project_id: "p2" }),
+    steps: [addStep(pgInput())],
+  },
+  {
+    name: "add/empty-name",
+    steps: [addStep(pgInput({ name: "   " }))],
+  },
+  {
+    name: "add/nul-in-name",
+    steps: [addStep(pgInput({ name: "a\u0000b" }))],
+  },
+  {
+    name: "add/port-out-of-range",
+    steps: [addStep(pgInput({ port: 70000 }))],
+  },
+  {
+    name: "add/port-fraction",
+    steps: [addStep(pgInput({ port: 5432.5 }))],
+  },
+  {
+    name: "add/keychain-failure",
+    note: "The keychain refuses the set: today the row is saved and a toast says so. Core writes secrets first (Decision 8), so nothing is saved.",
+    steps: [
+      {
+        ...addStep(pgInput({ savePassword: true, password: "pw-1" })),
+        inject: "secret set fails: SECRET_STORE_ERROR: keychain locked",
+        run: async (t, ids) => {
+          rec.secretFailure = "SECRET_STORE_ERROR: keychain locked";
+          const id = await t.connections.add(
+            pgInput({ savePassword: true, password: "pw-1" }) as never,
+          );
+          ids.push(id);
+          return id;
+        },
+      },
+    ],
+  },
+  {
+    name: "add/web-vault-cancelled",
+    web: true,
+    note: "Web: the vault unlock is cancelled before the save, so nothing is stored.",
+    steps: [
+      {
+        op: "connections.add",
+        args: pgInput({ savePassword: true, password: "pw-1" }),
+        inject: "vault unlock cancelled",
+        library: null,
+        run: async (t) => {
+          rec.vaultCancel = true;
+          return await t.connections.add(
+            pgInput({ savePassword: true, password: "pw-1" }) as never,
+          );
+        },
+      },
+    ],
+  },
+
+  // ---- update
+  {
+    name: "update/rename",
+    seed: withC1(),
+    steps: [updateStep(c1Form({ name: "Renamed" }), { name: "Renamed" })],
+  },
+  {
+    name: "update/host-port-database-user",
+    seed: withC1(),
+    steps: [
+      updateStep(c1Form({ host: "db2", port: 6543, databaseName: "app2", username: "you" }), {
+        host: "db2",
+        port: 6543,
+        databaseName: "app2",
+        username: "you",
+      }),
+    ],
+  },
+  {
+    name: "update/type",
+    seed: withC1(),
+    steps: [updateStep(c1Form({ type: "mysql", port: 3306 }), { type: "mysql", port: 3306 })],
+  },
+  {
+    name: "update/ssl-mode-set-and-cleared",
+    seed: withC1(),
+    steps: [
+      updateStep(c1Form({ sslMode: "verify-full" }), { sslMode: "verify-full" }),
+      updateStep(c1Form({ sslMode: undefined }), { sslMode: null }),
+    ],
+  },
+  {
+    name: "update/string-set-and-cleared",
+    seed: withC1(),
+    steps: [
+      updateStep(
+        c1Form({
+          connectionString: "postgres://me:pw@localhost:5432/app?application_name=seaquel",
+        }),
+        { connectionString: "postgres://me:pw@localhost:5432/app?application_name=seaquel" },
+      ),
+      updateStep(c1Form({ connectionString: undefined }), { connectionString: null }),
+    ],
+  },
+  {
+    name: "update/ssh-tunnel-added-and-removed",
+    seed: withC1(),
+    steps: [
+      updateStep(
+        c1Form({
+          sshTunnel: {
+            enabled: true,
+            host: "bastion",
+            port: 22,
+            username: "ops",
+            authMethod: "password",
+          },
+          saveSshPassword: true,
+          sshPassword: "ssh-pw",
+        }),
+        {
+          sshTunnel: {
+            enabled: true,
+            host: "bastion",
+            port: 22,
+            username: "ops",
+            authMethod: "password",
+          },
+          saveSshPassword: true,
+        },
+        { ssh: "ssh-pw" },
+      ),
+      updateStep(c1Form({ sshTunnel: undefined, saveSshPassword: false }), {
+        sshTunnel: null,
+        saveSshPassword: false,
+      }),
+    ],
+  },
+  {
+    name: "update/ai-flags-set",
+    seed: withC1(),
+    steps: [
+      updateStep(c1Form({ aiShareSchema: true, aiShareData: false }), {
+        aiShareSchema: true,
+        aiShareData: false,
+      }),
+    ],
+  },
+  {
+    name: "update/ai-flags-cleared",
+    seed: withC1({}, { ai_share_schema: 1, ai_share_data: 1 }),
+    steps: [
+      updateStep(c1Form({ aiShareSchema: undefined, aiShareData: undefined }), {
+        aiShareSchema: null,
+        aiShareData: null,
+      }),
+    ],
+  },
+  {
+    name: "update/ai-flags-left-out",
+    note: "The input has no AI flags. `update` copies them as given, so today they are cleared; a Core patch that leaves them out keeps them (Decision 2).",
+    seed: withC1({}, { ai_share_schema: 1, ai_share_data: 0 }),
+    steps: [updateStep(c1Form({ name: "Renamed" }), { name: "Renamed" })],
+  },
+  {
+    name: "update/save-password-on",
+    seed: withC1(),
+    steps: [
+      updateStep(
+        c1Form({ savePassword: true, password: "new-pw" }),
+        { savePassword: true },
+        { db: "new-pw" },
+      ),
+    ],
+  },
+  {
+    name: "update/save-password-off",
+    seed: withC1({}, { save_password: 1 }),
+    secrets: { "db:c1": "old-pw" },
+    steps: [updateStep(c1Form({ savePassword: false }), { savePassword: false })],
+  },
+  {
+    name: "update/duplicate-name",
+    seed: withC1({ connections: [conn({ id: "c2", name: "Staging" })] }),
+    steps: [updateStep(c1Form({ name: "STAGING" }), { name: "STAGING" })],
+  },
+  {
+    name: "update/port-out-of-range",
+    seed: withC1(),
+    steps: [updateStep(c1Form({ port: -1 }), { port: -1 })],
+  },
+  {
+    name: "update/shared-connection",
+    note: "A connection that isn't local-only rewrites its shared YAML.",
+    seed: withC1({}, { is_local_only: 0 }),
+    steps: [updateStep(c1Form({ name: "Renamed" }), { name: "Renamed" })],
+  },
+  {
+    name: "update/keeps-labels-and-ai-model",
+    seed: withC1(
+      { connection_labels: [{ connection_id: "c1", label_id: "prod" }] },
+      {
+        active_ai_provider_id: "openai",
+        active_ai_model: "gpt-5",
+      },
+    ),
+    steps: [updateStep(c1Form({ host: "db2" }), { host: "db2" })],
+  },
+
+  // ---- labels, AI model, local-only
+  {
+    name: "labels/add-remove-set",
+    seed: withC1({
+      project_labels: [
+        { id: "label-team", project_id: "p1", name: "Team", is_predefined: 0, color: "#6366f1" },
+      ],
+    }),
+    steps: [
+      {
+        op: "labels.addLabelToConnection",
+        args: { connectionId: "c1", labelId: "prod" },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["prod"] } },
+        },
+        run: async (t) => void (await t.labels.addLabelToConnection("c1", "prod")),
+      },
+      {
+        op: "labels.addLabelToConnection",
+        args: { connectionId: "c1", labelId: "label-team" },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["prod", "label-team"] } },
+        },
+        run: async (t) => void (await t.labels.addLabelToConnection("c1", "label-team")),
+      },
+      {
+        op: "labels.removeLabelFromConnection",
+        args: { connectionId: "c1", labelId: "prod" },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["label-team"] } },
+        },
+        run: async (t) => void (await t.labels.removeLabelFromConnection("c1", "prod")),
+      },
+      {
+        op: "labels.setConnectionLabels",
+        args: { connectionId: "c1", labelIds: ["staging", "local"] },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["staging", "local"] } },
+        },
+        run: async (t) => void (await t.labels.setConnectionLabels("c1", ["staging", "local"])),
+      },
+    ],
+  },
+  {
+    name: "labels/set-with-unknown-id",
+    note: "`setConnectionLabels` drops an unknown id silently today. Core refuses the patch (Decision 7).",
+    seed: withC1(),
+    steps: [
+      {
+        op: "labels.setConnectionLabels",
+        args: { connectionId: "c1", labelIds: ["prod", "label-gone"] },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["prod", "label-gone"] } },
+        },
+        run: async (t) => void (await t.labels.setConnectionLabels("c1", ["prod", "label-gone"])),
+      },
+    ],
+  },
+  {
+    name: "labels/other-projects-label",
+    note: "A label of another project is refused by both: the TS drops it (not among the connection's project's labels), Core refuses it.",
+    seed: withC1({
+      project_labels: [
+        { id: "label-p2", project_id: "p2", name: "Theirs", is_predefined: 0, color: "#000000" },
+      ],
+    }),
+    steps: [
+      {
+        op: "labels.addLabelToConnection",
+        args: { connectionId: "c1", labelId: "label-p2" },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { labelIds: ["label-p2"] } },
+        },
+        run: async (t) => void (await t.labels.addLabelToConnection("c1", "label-p2")),
+      },
+    ],
+  },
+  {
+    name: "ai-model/set",
+    seed: withC1({}, { ai_share_schema: 1 }),
+    steps: [
+      {
+        op: "setConnectionAIModel",
+        args: { connectionId: "c1", providerId: "anthropic", model: "claude-x" },
+        library: {
+          method: "connectionUpdate",
+          params: {
+            id: "c1",
+            patch: { activeAIProviderId: "anthropic", activeAIModel: "claude-x" },
+          },
+        },
+        run: async (t) => void (await setConnectionAIModel(t, "c1", "anthropic", "claude-x")),
+      },
+    ],
+  },
+  {
+    name: "local-only/toggle-off-and-on",
+    seed: withC1({}, { save_password: 1 }),
+    secrets: { "db:c1": "kept" },
+    steps: [
+      {
+        op: "connections.toggleLocalOnly",
+        args: { connectionId: "c1" },
+        library: {
+          method: "connectionUpdate",
+          params: { id: "c1", patch: { isLocalOnly: false } },
+        },
+        run: async (t) => void (await t.connections.toggleLocalOnly("c1")),
+      },
+      {
+        op: "connections.toggleLocalOnly",
+        args: { connectionId: "c1" },
+        library: { method: "connectionUpdate", params: { id: "c1", patch: { isLocalOnly: true } } },
+        run: async (t) => void (await t.connections.toggleLocalOnly("c1")),
+      },
+    ],
+  },
+  {
+    name: "reconnect/form-with-new-password",
+    note: "A reconnect from the connection tab saves what was connected and `lastConnected`.",
+    seed: withC1(),
+    steps: [
+      {
+        op: "connections.reconnect",
+        args: { id: "c1", input: c1Form({ host: "db2", password: "typed", savePassword: true }) },
+        library: {
+          method: "connectionUpdate",
+          params: {
+            id: "c1",
+            patch: { host: "db2", savePassword: true, connected: true },
+            secrets: { db: "typed" },
+          },
+        },
+        run: async (t) =>
+          await t.connections.reconnect(
+            "c1",
+            c1Form({ host: "db2", password: "typed", savePassword: true }) as never,
+          ),
+      },
+    ],
+  },
+  {
+    name: "reconnect/saved",
+    note: "`autoReconnect` connects the saved row and saves it again with `lastConnected`; the save flags and secrets are left alone.",
+    seed: withC1(
+      { connection_labels: [{ connection_id: "c1", label_id: "local" }] },
+      { save_password: 1 },
+    ),
+    secrets: { "db:c1": "stored" },
+    steps: [
+      {
+        op: "connections.autoReconnect",
+        args: { id: "c1" },
+        library: { method: "connectionUpdate", params: { id: "c1", patch: { connected: true } } },
+        run: async (t) => await t.connections.autoReconnect("c1"),
+      },
+    ],
+  },
+
+  // ---- remove
+  {
+    name: "remove/with-cascade-and-secrets",
+    seed: withC1(
+      {
+        connection_labels: [
+          { connection_id: "c1", label_id: "prod" },
+          { connection_id: "c1", label_id: "local" },
+        ],
+        query_history: [
+          {
+            id: "h1",
+            connection_id: "c1",
+            query: "SELECT 1",
+            timestamp: T0,
+            execution_time: 1,
+            row_count: 1,
+            favorite: 0,
+            connection_name_snapshot: "Local",
+          },
+        ],
+        ai_chats: [
+          { id: "chat-1", connection_id: "c1", title: "Hi", created_at: T0, updated_at: T0 },
+        ],
+        ai_messages: [
+          { id: "msg-1", chat_id: "chat-1", role: "user", content: "hi", timestamp: T0 },
+        ],
+        connections: [conn({ id: "c2", name: "Kept" })],
+      },
+      { save_password: 1, save_ssh_password: 1, save_ssh_key_passphrase: 1 },
+    ),
+    secrets: { "db:c1": "a", "ssh:c1": "b", "ssh-key:c1": "c", "db:c2": "kept" },
+    steps: [
+      {
+        op: "connections.remove",
+        args: { id: "c1" },
+        library: { method: "connectionRemove", params: { id: "c1" } },
+        run: async (t) => void (await t.connections.remove("c1")),
+      },
+    ],
+  },
+  {
+    name: "remove/shared-connection",
+    seed: withC1({}, { is_local_only: 0 }),
+    steps: [
+      {
+        op: "connections.remove",
+        args: { id: "c1" },
+        library: { method: "connectionRemove", params: { id: "c1" } },
+        run: async (t) => void (await t.connections.remove("c1")),
+      },
+    ],
+  },
+  {
+    name: "remove/unknown-id",
+    note: "Today removing an id that isn't stored succeeds and deletes its (absent) secrets. Core answers SAVED_CONNECTION_NOT_FOUND.",
+    seed: withC1(),
+    steps: [
+      {
+        op: "connections.remove",
+        args: { id: "c-missing" },
+        library: { method: "connectionRemove", params: { id: "c-missing" } },
+        run: async (t) => void (await t.connections.remove("c-missing")),
+      },
+    ],
+  },
+  {
+    name: "update/secret-kept-when-absent",
+    note: "The password is saved (flag on, db:c1 stored) and the form sends no password: another field changes and the stored secret stays.",
+    seed: withC1({}, { save_password: 1 }),
+    secrets: { "db:c1": "stored" },
+    steps: [updateStep(c1Form({ host: "db2", savePassword: true }), { host: "db2" })],
+  },
+  {
+    name: "update/rename-to-own-name-other-case",
+    note: "Renaming a connection to its own name in another case isn't a clash with itself.",
+    seed: withC1(),
+    steps: [updateStep(c1Form({ name: "LOCAL" }), { name: "LOCAL" })],
+  },
+  {
+    name: "update/existing-duplicates-stay",
+    note: "Two stored rows already share a name (Q3: they stay). Patching another field of one of them succeeds.",
+    seed: withC1({ connections: [conn({ id: "c2" })] }),
+    steps: [updateStep(c1Form({ host: "db2" }), { host: "db2" })],
+  },
+  {
+    name: "add/duplicate-name-full-case-folding",
+    note: 'Names compare after NFC and full Unicode case folding: "STRASSE" is "Straße". Today allowed; Core refuses.',
+    seed: withC1({}, { name: "Straße" }),
+    steps: [addStep(pgInput({ name: "STRASSE" }))],
+  },
+  {
+    name: "add-then-update-then-remove",
+    note: "Ids: the created row is the one the later calls name.",
+    steps: [
+      addStep(pgInput({ savePassword: true, password: "one" })),
+      {
+        op: "connections.update",
+        args: {
+          id: "<created>",
+          input: pgInput({ name: "Renamed", savePassword: true, password: "two" }),
+        },
+        library: (ids) => ({
+          method: "connectionUpdate",
+          params: { id: ids[0], patch: { name: "Renamed" }, secrets: { db: "two" } },
+        }),
+        run: async (t, ids) =>
+          void (await t.connections.update(
+            ids[0],
+            pgInput({ name: "Renamed", savePassword: true, password: "two" }) as never,
+          )),
+      },
+      {
+        op: "connections.remove",
+        args: { id: "<created>" },
+        library: (ids) => ({ method: "connectionRemove", params: { id: ids[0] } }),
+        run: async (t, ids) => void (await t.connections.remove(ids[0])),
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- cases: projects and labels
+
+const projectCases: Case[] = [
+  {
+    name: "project/ensure-default-on-empty-file",
+    note: "A fresh file: `initialize` creates `default-seaquel`.",
+    seed: {},
+    load: false,
+    steps: [
+      {
+        op: "projects.initialize",
+        library: { method: "projectEnsureDefault" },
+        run: async (t) => {
+          await t.projects.initialize();
+          return t.state.projects.map((p) => p.id);
+        },
+      },
+    ],
+  },
+  {
+    name: "project/ensure-default-when-projects-exist",
+    seed: STANDARD_SEED,
+    load: false,
+    steps: [
+      {
+        op: "projects.initialize",
+        library: { method: "projectEnsureDefault" },
+        run: async (t) => {
+          await t.projects.initialize();
+          return t.state.projects.map((p) => p.id);
+        },
+      },
+    ],
+  },
+  {
+    name: "project/add",
+    steps: [
+      {
+        op: "projects.add",
+        args: { name: "Analytics", description: "Numbers" },
+        library: {
+          method: "projectCreate",
+          params: { project: { name: "Analytics", description: "Numbers" } },
+        },
+        run: async (t, ids) => {
+          const p = await t.projects.add("Analytics", "Numbers");
+          ids.push(p.id);
+          return p.id;
+        },
+      },
+    ],
+  },
+  {
+    name: "project/add-duplicate-name",
+    note: "Today allowed. Core refuses with NAME_TAKEN (Q3), comparing trimmed, case-folded names.",
+    steps: [
+      {
+        op: "projects.add",
+        args: { name: "  MAIN " },
+        library: { method: "projectCreate", params: { project: { name: "  MAIN " } } },
+        run: async (t) => (await t.projects.add("  MAIN ")).id,
+      },
+    ],
+  },
+  {
+    name: "project/add-duplicate-name-nfd",
+    note: 'p3 is "Café" with a precomposed é (NFC, U+00E9); the new name is "Cafe" followed by U+0301 (NFD). They are equal after NFC normalisation. Today allowed; Core refuses.',
+    seed: withStandard({
+      projects: [
+        {
+          id: "p3",
+          name: "Caf\u00e9",
+          description: null,
+          created_at: T0,
+          updated_at: T0,
+          git_repo_path: null,
+        },
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.add",
+        args: { name: "Cafe\u0301" },
+        library: { method: "projectCreate", params: { project: { name: "Cafe\u0301" } } },
+        run: async (t) => (await t.projects.add("Cafe\u0301")).id,
+      },
+    ],
+  },
+  {
+    name: "project/add-empty-name",
+    steps: [
+      {
+        op: "projects.add",
+        args: { name: "" },
+        library: { method: "projectCreate", params: { project: { name: "" } } },
+        run: async (t) => (await t.projects.add("")).id,
+      },
+    ],
+  },
+  {
+    name: "project/rename",
+    steps: [
+      {
+        op: "projects.update",
+        args: { id: "p2", updates: { name: "Renamed" } },
+        library: { method: "projectUpdate", params: { id: "p2", patch: { name: "Renamed" } } },
+        run: async (t) => void (await t.projects.update("p2", { name: "Renamed" })),
+      },
+    ],
+  },
+  {
+    name: "project/rename-to-taken-name",
+    steps: [
+      {
+        op: "projects.update",
+        args: { id: "p2", updates: { name: "main" } },
+        library: { method: "projectUpdate", params: { id: "p2", patch: { name: "main" } } },
+        run: async (t) => void (await t.projects.update("p2", { name: "main" })),
+      },
+    ],
+  },
+  {
+    name: "project/description-set-and-cleared",
+    steps: [
+      {
+        op: "projects.update",
+        args: { id: "p1", updates: { description: "Mine" } },
+        library: { method: "projectUpdate", params: { id: "p1", patch: { description: "Mine" } } },
+        run: async (t) => void (await t.projects.update("p1", { description: "Mine" })),
+      },
+      {
+        op: "projects.update",
+        args: { id: "p1", updates: { description: null } },
+        library: { method: "projectUpdate", params: { id: "p1", patch: { description: null } } },
+        run: async (t) => void (await t.projects.update("p1", { description: undefined })),
+      },
+    ],
+  },
+  {
+    name: "project/update-unknown-id",
+    note: "Today nothing is saved and nothing is said. Core answers PROJECT_NOT_FOUND.",
+    steps: [
+      {
+        op: "projects.update",
+        args: { id: "p-missing", updates: { name: "X" } },
+        library: { method: "projectUpdate", params: { id: "p-missing", patch: { name: "X" } } },
+        run: async (t) => void (await t.projects.update("p-missing", { name: "X" })),
+      },
+    ],
+  },
+  {
+    name: "project/git-path-set-and-cleared",
+    note: "Setting a path registers the repo and exports the project's shared connections; clearing it removes the connections imported from that repo and the repo.",
+    sharedRepo: true,
+    seed: withC1(
+      {
+        connections: [
+          conn({
+            id: "c-imported",
+            name: "Prod",
+            is_local_only: 0,
+            shared_connection_id: "repo-1:prod",
+            save_password: 1,
+          }),
+        ],
+      },
+      { is_local_only: 0 },
+    ),
+    secrets: { "db:c-imported": "x" },
+    steps: [
+      {
+        op: "projects.setGitRepoPath",
+        args: { id: "p1", path: "/repos/team" },
+        library: {
+          method: "projectUpdate",
+          params: { id: "p1", patch: { gitRepoPath: "/repos/team" } },
+        },
+        run: async (t) => void (await t.projects.setGitRepoPath("p1", "/repos/team")),
+      },
+      {
+        op: "projects.setGitRepoPath",
+        args: { id: "p1", path: null },
+        library: [
+          { method: "projectUpdate", params: { id: "p1", patch: { gitRepoPath: null } } },
+          { method: "connectionRemove", params: { id: "c-imported" } },
+        ],
+        run: async (t) => void (await t.projects.setGitRepoPath("p1", undefined)),
+      },
+    ],
+  },
+  {
+    name: "project/git-path-new-repo",
+    sharedRepo: false,
+    steps: [
+      {
+        op: "projects.setGitRepoPath",
+        args: { id: "p2", path: "/repos/new" },
+        library: {
+          method: "projectUpdate",
+          params: { id: "p2", patch: { gitRepoPath: "/repos/new" } },
+        },
+        run: async (t) => void (await t.projects.setGitRepoPath("p2", "/repos/new")),
+      },
+    ],
+  },
+  {
+    name: "project/remove-with-contents",
+    note: "p2 holds connections (with secrets, history, labels), saved queries with versions, custom labels, a dashboard, a saved workflow and its state.",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-p2", project_id: "p2", name: "Theirs", is_predefined: 0, color: "#123456" },
+      ],
+      connections: [
+        conn({ id: "c1", name: "Kept" }),
+        conn({ id: "c2", project_id: "p2", name: "Two", save_password: 1 }),
+        conn({ id: "c3", project_id: "p2", name: "Three", save_ssh_password: 1 }),
+      ],
+      connection_labels: [{ connection_id: "c2", label_id: "label-p2" }],
+      saved_queries: [
+        savedQuery({ id: "q1" }),
+        savedQuery({ id: "q2", project_id: "p2", name: "Theirs" }),
+      ],
+      query_versions: [
+        {
+          id: "v1",
+          saved_query_id: "q2",
+          version: 1,
+          snapshot: "SELECT 0",
+          diff: null,
+          created_at: T0,
+        },
+      ],
+      query_history: [
+        {
+          id: "h2",
+          connection_id: "c2",
+          query: "SELECT 2",
+          timestamp: T0,
+          execution_time: 1,
+          row_count: 1,
+          favorite: 0,
+          connection_name_snapshot: "Two",
+        },
+      ],
+      dashboards: [
+        {
+          id: "d2",
+          project_id: "p2",
+          name: "Board",
+          viewport: "{}",
+          widgets: "[]",
+          created_at: T0,
+          updated_at: T0,
+        },
+      ],
+      saved_canvases: [{ id: "w2", project_id: "p2", data: "{}" }],
+      project_state: [{ project_id: "p2", connection_order: '["c2","c3"]' }],
+    }),
+    secrets: { "db:c1": "kept", "db:c2": "two", "ssh:c3": "three" },
+    steps: [
+      {
+        op: "projects.remove",
+        args: { id: "p2" },
+        library: { method: "projectRemove", params: { id: "p2" } },
+        run: async (t) => await t.projects.remove("p2"),
+      },
+    ],
+  },
+  {
+    name: "project/remove-active",
+    seed: withStandard({ connections: [conn({ id: "c1", project_id: "p1" })] }),
+    steps: [
+      {
+        op: "projects.remove",
+        args: { id: "p1" },
+        library: { method: "projectRemove", params: { id: "p1" } },
+        run: async (t) => await t.projects.remove("p1"),
+      },
+    ],
+  },
+  {
+    name: "project/remove-beta-era",
+    file: "v2026.4.5-beta.1",
+    note: "On a file that started on v2026.4.5-beta.1 the saved queries and dashboards have no foreign key to the project, so today they outlive it. Core deletes them (Decision 9).",
+    seed: withStandard({
+      connections: [conn({ id: "c2", project_id: "p2", name: "Two" })],
+      saved_queries: [savedQuery({ id: "q2", project_id: "p2", name: "Theirs" })],
+      query_versions: [
+        {
+          id: "v1",
+          saved_query_id: "q2",
+          version: 1,
+          snapshot: "SELECT 0",
+          diff: null,
+          created_at: T0,
+        },
+      ],
+      dashboards: [
+        {
+          id: "d2",
+          project_id: "p2",
+          name: "Board",
+          viewport: "{}",
+          widgets: "[]",
+          created_at: T0,
+          updated_at: T0,
+        },
+      ],
+      saved_canvases: [{ id: "w2", project_id: "p2", data: "{}" }],
+    }),
+    steps: [
+      {
+        op: "projects.remove",
+        args: { id: "p2" },
+        library: { method: "projectRemove", params: { id: "p2" } },
+        run: async (t) => await t.projects.remove("p2"),
+      },
+    ],
+  },
+  {
+    name: "project/remove-last",
+    seed: {
+      projects: [STANDARD_SEED.projects![0]],
+      app_state: STANDARD_SEED.app_state,
+    },
+    steps: [
+      {
+        op: "projects.remove",
+        args: { id: "p1" },
+        library: { method: "projectRemove", params: { id: "p1" } },
+        run: async (t) => await t.projects.remove("p1"),
+      },
+    ],
+  },
+  {
+    name: "project/remove-unknown-id",
+    note: "Today the stored deletes find nothing and succeed. Core answers PROJECT_NOT_FOUND.",
+    steps: [
+      {
+        op: "projects.remove",
+        args: { id: "p-missing" },
+        library: { method: "projectRemove", params: { id: "p-missing" } },
+        run: async (t) => await t.projects.remove("p-missing"),
+      },
+    ],
+  },
+
+  // ---- custom labels
+  {
+    name: "label/create",
+    steps: [
+      {
+        op: "projects.addCustomLabel",
+        args: { projectId: "p1", label: { name: "Team", color: "#6366f1" } },
+        library: {
+          method: "labelCreate",
+          params: { projectId: "p1", label: { name: "Team", color: "#6366f1" } },
+        },
+        run: async (t, ids) => {
+          const l = await t.projects.addCustomLabel("p1", { name: "Team", color: "#6366f1" });
+          ids.push(l.id);
+          return l.id;
+        },
+      },
+    ],
+  },
+  {
+    name: "label/rename-and-recolour",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-a", project_id: "p1", name: "A", is_predefined: 0, color: "#111111" },
+        { id: "label-b", project_id: "p1", name: "B", is_predefined: 0, color: "#222222" },
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.updateCustomLabel",
+        args: { projectId: "p1", labelId: "label-a", updates: { name: "Alpha" } },
+        library: {
+          method: "labelUpdate",
+          params: { projectId: "p1", labelId: "label-a", patch: { name: "Alpha" } },
+        },
+        run: async (t) =>
+          void (await t.projects.updateCustomLabel("p1", "label-a", { name: "Alpha" })),
+      },
+      {
+        op: "projects.updateCustomLabel",
+        args: { projectId: "p1", labelId: "label-b", updates: { color: "#abcdef" } },
+        library: {
+          method: "labelUpdate",
+          params: { projectId: "p1", labelId: "label-b", patch: { color: "#abcdef" } },
+        },
+        run: async (t) =>
+          void (await t.projects.updateCustomLabel("p1", "label-b", { color: "#abcdef" })),
+      },
+    ],
+  },
+  {
+    name: "label/remove-in-use",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-a", project_id: "p1", name: "A", is_predefined: 0, color: "#111111" },
+        { id: "label-b", project_id: "p1", name: "B", is_predefined: 0, color: "#222222" },
+      ],
+      connections: [
+        conn({ id: "c1" }),
+        conn({ id: "c2", name: "Two" }),
+        conn({ id: "c3", name: "Three", project_id: "p2" }),
+      ],
+      connection_labels: [
+        { connection_id: "c1", label_id: "label-a" },
+        { connection_id: "c1", label_id: "prod" },
+        { connection_id: "c2", label_id: "label-b" },
+        { connection_id: "c3", label_id: "label-a" },
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.removeCustomLabel",
+        args: { projectId: "p1", labelId: "label-a" },
+        library: { method: "labelRemove", params: { projectId: "p1", labelId: "label-a" } },
+        run: async (t) => void (await t.projects.removeCustomLabel("p1", "label-a")),
+      },
+    ],
+  },
+  {
+    name: "label/create-duplicate-name",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-a", project_id: "p1", name: "Team", is_predefined: 0, color: "#111111" },
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.addCustomLabel",
+        args: { projectId: "p1", label: { name: "team", color: "#222222" } },
+        library: {
+          method: "labelCreate",
+          params: { projectId: "p1", label: { name: "team", color: "#222222" } },
+        },
+        run: async (t) =>
+          (await t.projects.addCustomLabel("p1", { name: "team", color: "#222222" })).id,
+      },
+    ],
+  },
+  {
+    name: "label/rename-to-taken-name",
+    seed: withStandard({
+      project_labels: [
+        { id: "label-a", project_id: "p1", name: "A", is_predefined: 0, color: "#111111" },
+        { id: "label-b", project_id: "p1", name: "B", is_predefined: 0, color: "#222222" },
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.updateCustomLabel",
+        args: { projectId: "p1", labelId: "label-a", updates: { name: "b" } },
+        library: {
+          method: "labelUpdate",
+          params: { projectId: "p1", labelId: "label-a", patch: { name: "b" } },
+        },
+        run: async (t) => void (await t.projects.updateCustomLabel("p1", "label-a", { name: "b" })),
+      },
+    ],
+  },
+  {
+    name: "label/create-bad-colour",
+    steps: [
+      {
+        op: "projects.addCustomLabel",
+        args: { projectId: "p1", label: { name: "Red", color: "red" } },
+        library: {
+          method: "labelCreate",
+          params: { projectId: "p1", label: { name: "Red", color: "red" } },
+        },
+        run: async (t) => (await t.projects.addCustomLabel("p1", { name: "Red", color: "red" })).id,
+      },
+    ],
+  },
+  {
+    name: "label/remove-unknown",
+    note: "Today the project is saved unchanged. Core answers LABEL_NOT_FOUND.",
+    steps: [
+      {
+        op: "projects.removeCustomLabel",
+        args: { projectId: "p1", labelId: "label-missing" },
+        library: { method: "labelRemove", params: { projectId: "p1", labelId: "label-missing" } },
+        run: async (t) => void (await t.projects.removeCustomLabel("p1", "label-missing")),
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- cases: saved queries
+
+const tabWith = (t: Tab, tabId: string, queryId?: string) => {
+  t.state.queryTabsByProject = {
+    ...t.state.queryTabsByProject,
+    p1: [
+      ...(t.state.queryTabsByProject.p1 ?? []),
+      { id: tabId, name: "Tab", query: "", ...(queryId ? { queryId } : {}) } as never,
+    ],
+  };
+};
+
+/** `saveQuery` from a tab linked to `q1` (the save dialog on a linked tab): an update. */
+function saveLinked(
+  name: string,
+  query: string,
+  patch: Record<string, unknown>,
+  params?: unknown,
+): Step {
+  return {
+    op: "savedQueries.saveQuery",
+    args: { name, query, tabId: "t1", ...(params !== undefined ? { parameters: params } : {}) },
+    library: { method: "savedQueryUpdate", params: { id: "q1", patch } },
+    run: async (t) => {
+      if (!(t.state.queryTabsByProject.p1 ?? []).some((x) => x.id === "t1")) tabWith(t, "t1", "q1");
+      return t.savedQueries.saveQuery(name, query, "t1", params as never);
+    },
+  };
+}
+
+const q1Seed = (extra: Seed = {}, q1: Row = {}) =>
+  withStandard({ ...extra, saved_queries: [savedQuery(q1), ...(extra.saved_queries ?? [])] });
+
+/** The prune setting, added to the standard seed's `app_state`. */
+function limit(n: string): Row[] {
+  return [{ key: "query_version_limit", value: n }];
+}
+
+const savedQueryCases: Case[] = [
+  {
+    name: "saved-query/create",
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: { name: "Orders", query: "SELECT * FROM orders" },
+        library: {
+          method: "savedQueryCreate",
+          params: { query: { projectId: "p1", name: "Orders", query: "SELECT * FROM orders" } },
+        },
+        run: async (t, ids) => {
+          const id = t.savedQueries.saveQuery("Orders", "SELECT * FROM orders");
+          ids.push(id!);
+          return id;
+        },
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-linked-with-parameters",
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: {
+          name: "By id",
+          query: "SELECT * FROM t WHERE id = {{id}}",
+          tabId: "t1",
+          parameters: [{ name: "id", type: "number", defaultValue: "1" }],
+        },
+        library: {
+          method: "savedQueryCreate",
+          params: {
+            query: {
+              projectId: "p1",
+              name: "By id",
+              query: "SELECT * FROM t WHERE id = {{id}}",
+              parameters: [{ name: "id", type: "number", defaultValue: "1" }],
+            },
+          },
+        },
+        run: async (t, ids) => {
+          tabWith(t, "t1");
+          const id = t.savedQueries.saveQuery("By id", "SELECT * FROM t WHERE id = {{id}}", "t1", [
+            { name: "id", type: "number", defaultValue: "1" },
+          ]);
+          ids.push(id!);
+          return id;
+        },
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-duplicate-name",
+    note: "Today allowed. Core refuses with NAME_TAKEN within a project and folder (Q3).",
+    seed: q1Seed(),
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: { name: "ORDERS", query: "SELECT 2" },
+        library: {
+          method: "savedQueryCreate",
+          params: { query: { projectId: "p1", name: "ORDERS", query: "SELECT 2" } },
+        },
+        run: async (t) => t.savedQueries.saveQuery("ORDERS", "SELECT 2"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-same-name-other-folder",
+    seed: q1Seed({}, { folder: "reports" }),
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: { name: "Orders", query: "SELECT 2" },
+        library: {
+          method: "savedQueryCreate",
+          params: { query: { projectId: "p1", name: "Orders", query: "SELECT 2" } },
+        },
+        run: async (t) => t.savedQueries.saveQuery("Orders", "SELECT 2"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-empty-name",
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: { name: "", query: "SELECT 1" },
+        library: {
+          method: "savedQueryCreate",
+          params: { query: { projectId: "p1", name: "", query: "SELECT 1" } },
+        },
+        run: async (t) => t.savedQueries.saveQuery("", "SELECT 1"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-duplicate-parameters",
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: {
+          name: "P",
+          query: "SELECT {{a}}",
+          parameters: [
+            { name: "a", type: "text" },
+            { name: "a", type: "number" },
+          ],
+        },
+        library: {
+          method: "savedQueryCreate",
+          params: {
+            query: {
+              projectId: "p1",
+              name: "P",
+              query: "SELECT {{a}}",
+              parameters: [
+                { name: "a", type: "text" },
+                { name: "a", type: "number" },
+              ],
+            },
+          },
+        },
+        run: async (t) =>
+          t.savedQueries.saveQuery("P", "SELECT {{a}}", undefined, [
+            { name: "a", type: "text" },
+            { name: "a", type: "number" },
+          ]),
+      },
+    ],
+  },
+  {
+    name: "saved-query/update-text",
+    seed: q1Seed(),
+    steps: [saveLinked("Orders", "SELECT 2", { query: "SELECT 2" })],
+  },
+  {
+    name: "saved-query/update-name-only",
+    note: "Same text, new name: today a version is added anyway. Core adds none (Q10).",
+    seed: q1Seed(),
+    steps: [saveLinked("Big orders", "SELECT 1", { name: "Big orders" })],
+  },
+  {
+    name: "saved-query/rename-from-tab",
+    seed: q1Seed(),
+    steps: [
+      {
+        op: "savedQueries.renameQuery",
+        args: { id: "q1", name: "Renamed" },
+        library: { method: "savedQueryUpdate", params: { id: "q1", patch: { name: "Renamed" } } },
+        run: async (t) => void (await t.savedQueries.renameQuery("q1", "Renamed")),
+      },
+    ],
+  },
+  {
+    name: "saved-query/rename-to-taken-name",
+    seed: q1Seed({ saved_queries: [savedQuery({ id: "q2", name: "Kept" })] }),
+    steps: [
+      {
+        op: "savedQueries.renameQuery",
+        args: { id: "q2", name: "orders" },
+        library: { method: "savedQueryUpdate", params: { id: "q2", patch: { name: "orders" } } },
+        run: async (t) => void (await t.savedQueries.renameQuery("q2", "orders")),
+      },
+    ],
+  },
+  {
+    name: "saved-query/null-and-empty-folder-are-one",
+    note: 'q1 has no folder (NULL) and q2 the folder "": the same folder, so renaming q2 to q1\'s name clashes.',
+    seed: q1Seed({ saved_queries: [savedQuery({ id: "q2", name: "Other", folder: "" })] }),
+    steps: [
+      {
+        op: "savedQueries.renameQuery",
+        args: { id: "q2", name: "Orders" },
+        library: { method: "savedQueryUpdate", params: { id: "q2", patch: { name: "Orders" } } },
+        run: async (t) => void (await t.savedQueries.renameQuery("q2", "Orders")),
+      },
+    ],
+  },
+  {
+    name: "saved-query/update-parameters",
+    seed: q1Seed({}, { parameters: '[{"name":"a","type":"text"}]' }),
+    steps: [
+      saveLinked(
+        "Orders",
+        "SELECT 1",
+        { parameters: [{ name: "a", type: "number", defaultValue: "3", description: "A" }] },
+        [{ name: "a", type: "number", defaultValue: "3", description: "A" }],
+      ),
+      saveLinked("Orders", "SELECT 1", { parameters: null }, undefined),
+    ],
+  },
+  {
+    name: "saved-query/star-and-unstar",
+    seed: q1Seed(),
+    steps: [
+      {
+        op: "savedQueries.toggleQueryStarred",
+        args: { id: "q1" },
+        library: { method: "savedQueryUpdate", params: { id: "q1", patch: { starred: true } } },
+        run: async (t) => void t.savedQueries.toggleQueryStarred("q1"),
+      },
+      {
+        op: "savedQueries.toggleQueryStarred",
+        args: { id: "q1" },
+        library: { method: "savedQueryUpdate", params: { id: "q1", patch: { starred: false } } },
+        run: async (t) => void t.savedQueries.toggleQueryStarred("q1"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/share-and-unshare",
+    seed: q1Seed({}, { folder: "reports" }),
+    steps: [
+      {
+        op: "savedQueries.shareQuery",
+        args: { id: "q1" },
+        library: { method: "savedQueryUpdate", params: { id: "q1", patch: { shared: true } } },
+        run: async (t) => void (await t.savedQueries.shareQuery("q1")),
+      },
+      {
+        op: "savedQueries.unshareQuery",
+        args: { id: "q1" },
+        library: { method: "savedQueryUpdate", params: { id: "q1", patch: { shared: false } } },
+        run: async (t) => void (await t.savedQueries.unshareQuery("q1")),
+      },
+    ],
+  },
+  {
+    name: "saved-query/rename-shared",
+    seed: q1Seed({}, { shared: 1 }),
+    steps: [
+      {
+        op: "savedQueries.renameQuery",
+        args: { id: "q1", name: "Big orders" },
+        library: {
+          method: "savedQueryUpdate",
+          params: { id: "q1", patch: { name: "Big orders" } },
+        },
+        run: async (t) => void (await t.savedQueries.renameQuery("q1", "Big orders")),
+      },
+    ],
+  },
+  {
+    name: "saved-query/delete-with-versions",
+    seed: q1Seed({
+      saved_queries: [savedQuery({ id: "q2", name: "Kept", shared: 1 })],
+      query_versions: [
+        {
+          id: "v1",
+          saved_query_id: "q1",
+          version: 1,
+          snapshot: "SELECT 0",
+          diff: null,
+          created_at: T0,
+        },
+        {
+          id: "v2",
+          saved_query_id: "q1",
+          version: 2,
+          snapshot: null,
+          diff: "@@ -5,4 +5,4 @@\n CT \n-0\n+1\n",
+          created_at: T0,
+        },
+        {
+          id: "v3",
+          saved_query_id: "q2",
+          version: 1,
+          snapshot: "SELECT 9",
+          diff: null,
+          created_at: T0,
+        },
+      ],
+    }),
+    steps: [
+      {
+        op: "savedQueries.deleteQuery",
+        args: { id: "q1" },
+        library: { method: "savedQueryRemove", params: { id: "q1" } },
+        run: async (t) => void t.savedQueries.deleteQuery("q1"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/delete-shared",
+    seed: q1Seed({}, { shared: 1 }),
+    steps: [
+      {
+        op: "savedQueries.deleteQuery",
+        args: { id: "q1" },
+        library: { method: "savedQueryRemove", params: { id: "q1" } },
+        run: async (t) => void t.savedQueries.deleteQuery("q1"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/delete-unknown",
+    note: "Today nothing happens (the list is unchanged, and saved). Core answers SAVED_QUERY_NOT_FOUND.",
+    seed: q1Seed(),
+    steps: [
+      {
+        op: "savedQueries.deleteQuery",
+        args: { id: "q-missing" },
+        library: { method: "savedQueryRemove", params: { id: "q-missing" } },
+        run: async (t) => void t.savedQueries.deleteQuery("q-missing"),
+      },
+    ],
+  },
+  {
+    name: "saved-query/eleven-versions",
+    note: "Eleven text changes: versions 1 and 11 are keyframes, the rest diffs. Core stores every version as a keyframe (Q10).",
+    seed: q1Seed({}, { query: "SELECT 0" }),
+    steps: Array.from({ length: 11 }, (_, i) =>
+      saveLinked("Orders", `SELECT ${i + 1}`, { query: `SELECT ${i + 1}` }),
+    ),
+  },
+  {
+    name: "saved-query/prune-at-3",
+    seed: withStandard({
+      saved_queries: [savedQuery({ query: "SELECT 0" })],
+      app_state: limit("3"),
+    }),
+    steps: Array.from({ length: 5 }, (_, i) =>
+      saveLinked("Orders", `SELECT ${i + 1}`, { query: `SELECT ${i + 1}` }),
+    ),
+  },
+  {
+    name: "saved-query/prune-at-0",
+    note: "0 keeps every version in storage, but the TS drops them all from memory, so the next number restarts at 1 and collides.",
+    seed: withStandard({
+      saved_queries: [savedQuery({ query: "SELECT 0" })],
+      app_state: limit("0"),
+    }),
+    steps: Array.from({ length: 3 }, (_, i) =>
+      saveLinked("Orders", `SELECT ${i + 1}`, { query: `SELECT ${i + 1}` }),
+    ),
+  },
+  {
+    name: "saved-query/versions-after-existing",
+    note: "Stored versions 1–3 (a keyframe and two diffs) load first; the next is 4.",
+    seed: q1Seed(
+      {
+        query_versions: [
+          {
+            id: "v1",
+            saved_query_id: "q1",
+            version: 1,
+            snapshot: "SELECT a",
+            diff: null,
+            created_at: T0,
+          },
+          {
+            id: "v2",
+            saved_query_id: "q1",
+            version: 2,
+            snapshot: null,
+            diff: "@@ -5,4 +5,4 @@\n CT \n-a\n+b\n",
+            created_at: T0,
+          },
+          {
+            id: "v3",
+            saved_query_id: "q1",
+            version: 3,
+            snapshot: null,
+            diff: "@@ -5,4 +5,4 @@\n CT \n-b\n+c\n",
+            created_at: T0,
+          },
+        ],
+      },
+      { query: "SELECT d" },
+    ),
+    steps: [saveLinked("Orders", "SELECT e", { query: "SELECT e" })],
+  },
+  {
+    name: "saved-query/prune-keeps-back-to-keyframe",
+    note: "Stored v1 is a keyframe and v2, v3 diffs; the limit is 3. The TS deletes v1 and turns v2 into a keyframe; Core keeps back to the nearest keyframe, so v1 stays while v2 does (Q10).",
+    seed: withStandard({
+      saved_queries: [savedQuery({ query: "SELECT d" })],
+      query_versions: [
+        {
+          id: "v1",
+          saved_query_id: "q1",
+          version: 1,
+          snapshot: "SELECT a",
+          diff: null,
+          created_at: T0,
+        },
+        {
+          id: "v2",
+          saved_query_id: "q1",
+          version: 2,
+          snapshot: null,
+          diff: "@@ -5,4 +5,4 @@\n CT \n-a\n+b\n",
+          created_at: T0,
+        },
+        {
+          id: "v3",
+          saved_query_id: "q1",
+          version: 3,
+          snapshot: null,
+          diff: "@@ -5,4 +5,4 @@\n CT \n-b\n+c\n",
+          created_at: T0,
+        },
+      ],
+      app_state: limit("3"),
+    }),
+    steps: [
+      saveLinked("Orders", "SELECT e", { query: "SELECT e" }),
+      saveLinked("Orders", "SELECT f", { query: "SELECT f" }),
+    ],
+  },
+  {
+    name: "saved-query/two-tabs-both-create",
+    note: "Two windows of one workspace each save a new query. Task 1's stopgap stops a window that changed nothing from deleting; here both changed, so the second window's save (its list, loaded before the first one's query) deletes the first one's. Core keeps both.",
+    steps: [
+      {
+        op: "savedQueries.saveQuery (two windows)",
+        args: {
+          a: { name: "From A", query: "SELECT 1" },
+          b: { name: "From B", query: "SELECT 2" },
+        },
+        library: [
+          {
+            method: "savedQueryCreate",
+            params: { query: { projectId: "p1", name: "From A", query: "SELECT 1" } },
+          },
+          {
+            method: "savedQueryCreate",
+            params: { query: { projectId: "p1", name: "From B", query: "SELECT 2" } },
+          },
+        ],
+        run: async (t, ids) => {
+          const b = await openTab(rec.storage as StorageClient, true);
+          ids.push(t.savedQueries.saveQuery("From A", "SELECT 1")!);
+          await settle();
+          ids.push(b.savedQueries.saveQuery("From B", "SELECT 2")!);
+          return [...ids];
+        },
+      },
+    ],
+  },
+  {
+    name: "saved-query/create-then-update-within-500ms",
+    note: "A new query saved twice before the 500 ms save: the version is inserted before its row exists, and fails on the foreign key (logged only).",
+    steps: [
+      {
+        op: "savedQueries.saveQuery",
+        args: {
+          saves: [
+            { name: "New", query: "SELECT 1", tabId: "t1" },
+            { name: "New", query: "SELECT 2", tabId: "t1" },
+          ],
+        },
+        library: (ids) => [
+          {
+            method: "savedQueryCreate",
+            params: { query: { projectId: "p1", name: "New", query: "SELECT 1" } },
+          },
+          { method: "savedQueryUpdate", params: { id: ids[0], patch: { query: "SELECT 2" } } },
+        ],
+        run: async (t, ids) => {
+          tabWith(t, "t1");
+          const first = t.savedQueries.saveQuery("New", "SELECT 1", "t1")!;
+          ids.push(first);
+          t.savedQueries.saveQuery("New", "SELECT 2", "t1");
+          return first;
+        },
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- cases: imports
+
+const imported = (over: Record<string, unknown> = {}) => ({
+  name: "Shop",
+  type: "mysql",
+  host: "db.example.com",
+  port: 3306,
+  databaseName: "shop",
+  username: "root",
+  ...over,
+});
+
+function importDraft(i: Record<string, unknown>): Record<string, unknown> {
+  const d: Record<string, unknown> = {
+    projectId: "p1",
+    name: i.name,
+    type: i.type,
+    host: i.host,
+    port: i.port,
+    databaseName: i.databaseName,
+    username: i.username,
+  };
+  if (i.sslMode !== undefined) d.sslMode = i.sslMode;
+  if (i.sshTunnel !== undefined) d.sshTunnel = i.sshTunnel;
+  d.labelIds = [];
+  d.isLocalOnly = true;
+  d.renameIfTaken = true;
+  return d;
+}
+
+/**
+ * `importConnections`. `sent` lists the drafts a GUI on Core creates: not the
+ * ones it skips as already saved, nor the injected failure. Each is sent with
+ * its own name and `renameIfTaken`; Core picks the free name.
+ */
+function importStep(
+  drafts: Record<string, unknown>[],
+  sent: Record<string, unknown>[],
+  failName?: string,
+): Step {
+  return {
+    op: "connections.importConnections",
+    args: { drafts },
+    ...(failName ? { inject: `the save of "${failName}" fails: STORAGE_ERROR: disk full` } : {}),
+    library: sent.map((d) => ({
+      method: "connectionCreate",
+      params: { connection: importDraft(d) },
+    })),
+    run: async (t) => {
+      if (failName) {
+        const storage = rec.storage as StorageClient;
+        const save = storage.connections.save;
+        storage.connections.save = async (c) => {
+          if (c.name === failName) throw new Error("STORAGE_ERROR: disk full");
+          return save(c);
+        };
+        try {
+          return await t.connections.importConnections(drafts as never);
+        } finally {
+          storage.connections.save = save;
+        }
+      }
+      return await t.connections.importConnections(drafts as never);
+    },
+  };
+}
+
+const tunnelled = imported({
+  name: "Tunnelled",
+  type: "postgres",
+  port: 5432,
+  sshTunnel: {
+    enabled: true,
+    host: "bastion",
+    port: 22,
+    username: "ops",
+    authMethod: "key",
+    keyPath: "~/.ssh/id_rsa",
+  },
+});
+
+/** The `connectionCreate` for a shared template imported into `projectId`. */
+function sharedCreate(projectId: string, which: "prod" | "bastion"): Library {
+  const base = {
+    projectId,
+    type: "postgres",
+    host: "db.internal",
+    port: 5432,
+    databaseName: "app",
+    username: "",
+    labelIds: [],
+    renameIfTaken: true,
+  };
+  return {
+    method: "connectionCreate",
+    params: {
+      connection:
+        which === "prod"
+          ? { ...base, name: "Prod", sslMode: "require", sharedConnectionId: "repo-1:prod" }
+          : {
+              ...base,
+              name: "Behind bastion",
+              sshTunnel: {
+                enabled: true,
+                host: "bastion",
+                port: 22,
+                username: "",
+                authMethod: "key",
+              },
+              sharedConnectionId: "repo-1:bastion",
+            },
+    },
+  };
+}
+
+const importCases: Case[] = [
+  {
+    name: "import/tableplus-two-databases-one-host",
+    note: "Two databases on one host and port are two connections; one already saved (same type, host, port, database and user) is skipped; one whose save fails is listed as failed.",
+    seed: withStandard({
+      connections: [
+        conn({
+          id: "c1",
+          name: "Shop",
+          type: "mysql",
+          host: "db.example.com",
+          port: 3306,
+          database_name: "shop",
+          username: "root",
+        }),
+      ],
+    }),
+    steps: [
+      importStep(
+        [
+          imported(),
+          imported({ name: "Shop reports", databaseName: "reports" }),
+          imported({ name: "Shop as app", username: "app" }),
+          imported({ name: "Broken", databaseName: "broken" }),
+          imported({ name: "Shop PG", type: "postgres", port: 5432, sslMode: "require" }),
+        ],
+        [
+          imported({ name: "Shop reports", databaseName: "reports" }),
+          imported({ name: "Shop as app", username: "app" }),
+          imported({ name: "Shop PG", type: "postgres", port: 5432, sslMode: "require" }),
+        ],
+        "Broken",
+      ),
+    ],
+  },
+  {
+    name: "import/dbeaver-with-ssh",
+    steps: [importStep([tunnelled], [tunnelled])],
+  },
+  {
+    name: "import/name-taken",
+    note: 'The imported connection\'s name is taken by another connection of the project: today both keep it. Core refuses NAME_TAKEN, so the import sends the name with `renameIfTaken` and Core stores "Local (2)" (Q3).',
+    seed: withC1(),
+    steps: [importStep([imported({ name: "Local" })], [imported({ name: "Local" })])],
+  },
+  {
+    name: "import/two-drafts-same-name",
+    note: 'Two drafts of one import share a name (different databases): today both are "Shop". Core makes the second "Shop (2)".',
+    steps: [
+      importStep(
+        [imported(), imported({ databaseName: "shop_archive" })],
+        [imported(), imported({ databaseName: "shop_archive" })],
+      ),
+    ],
+  },
+  {
+    name: "import/name-taken-case-only",
+    note: 'The project has "Local"; the import brings "local" (another server). Today both stay; Core compares folded names and stores "local (2)".',
+    seed: withC1(),
+    steps: [importStep([imported({ name: "local" })], [imported({ name: "local" })])],
+  },
+  {
+    name: "import/shared-project-name-case-only",
+    note: 'Importing the repo\'s project "main" next to "Main": today the de-duplication is exact, so it stays "main". Core compares folded names and stores "main (2)".',
+    sharedRepo: true,
+    steps: [
+      {
+        op: "projects.importFromGitRepo",
+        args: { repoPath: "/repos/team", selected: [{ name: "main" }] },
+        library: (ids) => [
+          { method: "projectCreate", params: { project: { name: "main", renameIfTaken: true } } },
+          {
+            method: "projectUpdate",
+            params: { id: ids[0], patch: { gitRepoPath: "/repos/team" } },
+          },
+          ...([sharedCreate(ids[0], "prod"), sharedCreate(ids[0], "bastion")] as never[]),
+        ],
+        run: async (t, ids) => {
+          const project = { ...t.state.sharedProjectsByRepo["repo-1"][0], name: "main" };
+          const created = await t.projects.importFromGitRepo("/repos/team", [project]);
+          ids.push(...created);
+          return created;
+        },
+      },
+    ],
+  },
+  {
+    name: "import/shared-project-name-taken",
+    note: 'Importing the repo\'s project "Main" into a workspace that has one: the new project is "Main (2)", linked to the repo, with the repo\'s shared connections imported.',
+    sharedRepo: true,
+    steps: [
+      {
+        op: "projects.importFromGitRepo",
+        args: { repoPath: "/repos/team", selected: [{ name: "Main" }] },
+        library: (ids) => [
+          { method: "projectCreate", params: { project: { name: "Main", renameIfTaken: true } } },
+          {
+            method: "projectUpdate",
+            params: { id: ids[0], patch: { gitRepoPath: "/repos/team" } },
+          },
+          ...([sharedCreate(ids[0], "prod"), sharedCreate(ids[0], "bastion")] as never[]),
+        ],
+        run: async (t, ids) => {
+          const project = { ...t.state.sharedProjectsByRepo["repo-1"][0], name: "Main" };
+          const created = await t.projects.importFromGitRepo("/repos/team", [project]);
+          ids.push(...created);
+          return created;
+        },
+      },
+    ],
+  },
+  {
+    name: "import/shared-connections",
+    note: "The shared connections of a linked project become connections with `sharedConnectionId`; one already imported is skipped.",
+    sharedRepo: true,
+    seed: withStandard({
+      projects: [],
+      connections: [
+        conn({ id: "c-prod", name: "Prod", shared_connection_id: "repo-1:prod", is_local_only: 0 }),
+      ],
+    }),
+    steps: [
+      {
+        op: "projects.importSharedConnections",
+        args: { projectId: "p1" },
+        library: [sharedCreate("p1", "bastion")] as never,
+        run: async (t) => {
+          t.state.projects = t.state.projects.map((p) =>
+            p.id === "p1" ? { ...p, gitRepoPath: "/repos/team" } : p,
+          );
+          await t.projects.importSharedConnections("p1");
+          return null;
+        },
+      },
+    ],
+  },
+  {
+    name: "import/single-shared-connection",
+    sharedRepo: true,
+    steps: [
+      {
+        op: "projects.importSingleSharedConnection",
+        args: { sharedConnectionId: "repo-1:prod", projectId: "p2" },
+        library: sharedCreate("p2", "prod"),
+        run: async (t) => {
+          const sc = Object.values(t.state.sharedConnectionsByProject).flat()[0];
+          await t.projects.importSingleSharedConnection(sc, "p2");
+          await t.projects.importSingleSharedConnection(sc, "p2");
+          return null;
+        },
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- cases: legacy strings
+
+/** Rows written before phase 5a, each holding the string the old builder made (or not). */
+const legacyRows: Row[] = [
+  conn({ id: "l-pg", type: "postgres", connection_string: "postgres://me@localhost/app" }),
+  conn({
+    id: "l-pg-port-ssl",
+    type: "postgres",
+    port: 6543,
+    ssl_mode: "require",
+    connection_string: "postgres://me@localhost:6543/app?sslmode=require",
+  }),
+  conn({ id: "l-pg-scheme", type: "postgres", connection_string: "postgresql://me@localhost/app" }),
+  conn({
+    id: "l-pg-user-from-url",
+    type: "postgres",
+    username: "",
+    connection_string: "postgres://urluser@localhost/app",
+  }),
+  conn({
+    id: "l-pg-user-encoded",
+    type: "postgres",
+    username: "a b@c",
+    connection_string: "postgres://a%20b%40c@localhost/app",
+  }),
+  conn({
+    id: "l-mysql",
+    type: "mysql",
+    port: 3306,
+    ssl_mode: "prefer",
+    connection_string: "mysql://me@localhost/app?ssl-mode=PREFERRED",
+  }),
+  conn({
+    id: "l-mariadb",
+    type: "mariadb",
+    port: 3307,
+    connection_string: "mariadb://me@localhost:3307/app",
+  }),
+  conn({ id: "l-mssql", type: "mssql", port: 1433, connection_string: "mssql://me@localhost/app" }),
+  conn({
+    id: "l-sqlite",
+    type: "sqlite",
+    host: "",
+    port: 0,
+    username: "",
+    database_name: "/data/a.db",
+    connection_string: "sqlite:///data/a.db",
+  }),
+  conn({
+    id: "l-duckdb",
+    type: "duckdb",
+    host: "",
+    port: 0,
+    username: "",
+    database_name: "",
+    connection_string: "duckdb://:memory:",
+  }),
+  conn({
+    id: "k-pg-extra",
+    type: "postgres",
+    connection_string: "postgres://me@localhost/app?application_name=x",
+  }),
+  conn({
+    id: "k-pg-other-host",
+    type: "postgres",
+    connection_string: "postgres://me@elsewhere/app",
+  }),
+  conn({
+    id: "k-mssql-kv",
+    type: "mssql",
+    port: 1433,
+    connection_string: "Server=localhost;Database=app",
+  }),
+  conn({
+    id: "k-duckdb-file",
+    type: "duckdb",
+    host: "",
+    port: 0,
+    username: "",
+    database_name: "/data/b.duckdb",
+    connection_string: "duckdb:///data/b.duckdb?access_mode=read_only",
+  }),
+  conn({ id: "k-none", type: "postgres", connection_string: null }),
+];
+
+const legacyCases: Case[] = [
+  {
+    name: "legacy/strings-for-each-engine",
+    note: "`initializePersistedConnections` drops a string the pre-5a builder made from the row's own fields (`l-*`), after filling an empty username from the string, and saves the row. Other strings (`k-*`) stay. Core does this once, as the data step `drop_legacy_built_connection_strings` (Decision 12).",
+    seed: withStandard({ connections: legacyRows }),
+    load: false,
+    steps: [
+      {
+        op: "connections.initializePersistedConnections",
+        library: { method: "connectionsList" },
+        run: async (t) => {
+          await t.projects.initialize();
+          await t.connections.initializePersistedConnections();
+          return t.state.connections.map((c) => ({
+            id: c.id,
+            connectionString: c.connectionString ?? null,
+            username: c.username,
+          }));
+        },
+      },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------- run
+
+const FILES: Record<string, Case[]> = {
+  "connections.json": connectionCases,
+  "projects.json": projectCases,
+  "saved-queries.json": savedQueryCases,
+  "imports.json": importCases,
+  "legacy-strings.json": legacyCases,
+};
+
+const out: Record<string, Json[]> = {};
+
+describe("library fixtures", () => {
+  for (const [file, cases] of Object.entries(FILES)) {
+    for (const c of cases) {
+      it(`${file} ${c.name}`, async () => {
+        const recorded = normalise(await record(c));
+        (out[file] ??= []).push(recorded);
+        expect(recorded).toBeTruthy();
+      });
+    }
+  }
+
+  afterAll(() => {
+    if (!process.env.FREEZE_LIBRARY) return;
+    const dir =
+      process.env.FREEZE_LIBRARY_OUT ??
+      join(process.cwd(), "crates/seaquel-workspace/tests/fixtures/library");
+    mkdirSync(dir, { recursive: true });
+    for (const [file, cases] of Object.entries(out)) {
+      writeFileSync(join(dir, file), JSON.stringify(cases, null, 2) + "\n");
+    }
+  });
+});

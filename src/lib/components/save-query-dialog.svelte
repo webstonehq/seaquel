@@ -25,6 +25,7 @@
 	import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
+	import { extractErrorMessage } from "$lib/errors";
 	import { extractParameters } from "$lib/sql";
 	import type { QueryParameter, QueryParameterType } from "$lib/types";
 	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
@@ -84,15 +85,28 @@ import { errorToast } from "$lib/utils/toast";
 		}
 	});
 
-	const handleSave = () => {
+	let saving = $state(false);
+
+	const handleSave = async () => {
 		if (!queryName.trim()) {
 			errorToast(m.save_query_error_name());
 			return;
 		}
+		if (saving) return;
 
 		// Pass parameters if any exist
 		const params = parameterConfigs.length > 0 ? parameterConfigs : undefined;
-		const savedId = db.savedQueries.saveQuery(queryName.trim(), query, tabId, params, saveAsNew);
+		saving = true;
+		let savedId: string | null;
+		try {
+			// Stored at once; a taken name is refused and the dialog stays open.
+			savedId = await db.savedQueries.saveQuery(queryName.trim(), query, tabId, params, saveAsNew);
+		} catch (error) {
+			errorToast(extractErrorMessage(error));
+			return;
+		} finally {
+			saving = false;
+		}
 		if (saveAsNew && savedId) {
 			db.queryTabs.loadQuery(savedId);
 		}
@@ -104,7 +118,7 @@ import { errorToast } from "$lib/utils/toast";
 
 	const handleKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Enter" && !e.shiftKey) {
-			handleSave();
+			void handleSave();
 		}
 	};
 
@@ -198,7 +212,7 @@ import { errorToast } from "$lib/utils/toast";
 
 		<DialogFooter>
 			<Button variant="outline" onclick={() => (open = false)}>{m.save_query_cancel()}</Button>
-			<Button onclick={handleSave}>{m.save_query_save()}</Button>
+			<Button onclick={handleSave} disabled={saving}>{m.save_query_save()}</Button>
 		</DialogFooter>
 	</DialogContent>
 </Dialog>

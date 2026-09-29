@@ -43,6 +43,11 @@ import { storageGate } from "$lib/storage/storage-gate.svelte";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte";
 import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
 import { isDemo } from "$lib/utils/environment";
+import { getCoreClient } from "$lib/core";
+import { pageOrigin } from "$lib/core/origin";
+import { ChangeFeed } from "./database/library/change-feed.js";
+import { LibrarySync } from "./database/library/sync.js";
+import { connectionSecretsNotice } from "$lib/stores/connection-secrets-notice.svelte";
 
 /**
  * Main database context class that orchestrates all managers.
@@ -95,6 +100,8 @@ class UseDatabase {
   private _readyResolve!: () => void;
   /** Stops listening for Core's `connectionClosed` events. */
   private stopCoreEvents: (() => void) | null = null;
+  /** Other windows' library changes (desktop and web; the demo has one page). */
+  private librarySync: LibrarySync | null = null;
   private _readyPromise: Promise<void>;
 
   constructor() {
@@ -299,7 +306,7 @@ class UseDatabase {
     );
     this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
     this.sharedDashboards = new SharedDashboardManager(this.state, this.sharedRepos);
-    this.queryTabs.setSharedQueryManager(this.sharedQueries);
+    this.queryTabs.setSavedQueryRename((id, name) => this.savedQueries.renameQuery(id, name));
 
     // Wire up file projection: managers delegate file I/O to shared managers
     this.savedQueries.setFileProjection({
@@ -340,7 +347,24 @@ class UseDatabase {
     this.projects.setSharedQueryManager(this.sharedQueries);
     this.projects.setSharedDashboardManager(this.sharedDashboards);
     this.projects.setStarterTabManager(this.starterTabs);
+    this.projects.setConnectionManager(this.connections);
     this.connections.setSharedRepoManager(this.sharedRepos);
+
+    // Other windows' and tabs' library changes (phase 5d-1). The demo has
+    // no Core and one page.
+    if (!isDemo()) {
+      const feed = new ChangeFeed({
+        client: getCoreClient,
+        origin: pageOrigin,
+        seqs: this.state.librarySeqs,
+      });
+      this.librarySync = new LibrarySync(this.state, feed, {
+        connections: this.connections,
+        projects: this.projects,
+        savedQueries: this.savedQueries,
+        history: this._stateRestoration,
+      });
+    }
 
     // Set up embedded explain callbacks
     this.explainTabs.setEmbeddedCallbacks(
@@ -381,6 +405,8 @@ class UseDatabase {
       if (!isDemo()) {
         this.stopCoreEvents = this.connections.listenForCoreEvents();
       }
+      // Before the first library list, so no change between them is lost.
+      this.librarySync?.start();
 
       // The first storage call. Legacy or corrupt storage stops here and the
       // app shell shows the storage error screen instead of empty state.
@@ -418,10 +444,20 @@ class UseDatabase {
       void log.info(`Shared repos initialized (count=${this.state.sharedRepos.length})`);
 
       void log.info("App ready");
+
+      // Decision 12a: the connections Core took secrets out of, once. Only
+      // once they were read: otherwise none could be named, and the notice
+      // would be cleared unseen.
+      if (this.connections.loaded) {
+        void connectionSecretsNotice.check(
+          (id) => this.state.connections.find((c) => c.id === id)?.name,
+        );
+      }
     } catch (error) {
       void log.error("App initialization failed");
       console.error("Failed to initialize app:", error);
     } finally {
+      this.librarySync?.markLoaded();
       this._readyResolve();
     }
   }
@@ -467,11 +503,11 @@ class UseDatabase {
   ): Promise<void> {
     const conn = this.state.connections.find((c) => c.id === connectionId);
     if (!conn) return;
-    const updated = { ...conn, activeAIProviderId: providerId, activeAIModel: model };
-    this.state.connections = this.state.connections.map((c) =>
-      c.id === connectionId ? updated : c,
-    );
-    await this.persistence.persistConnection(updated);
+    // Stored first: a refusal throws (worded for the user) and changes nothing.
+    await this.connections.patch(connectionId, {
+      activeAIProviderId: providerId,
+      activeAIModel: model,
+    });
   }
 
   /**
@@ -483,6 +519,7 @@ class UseDatabase {
   destroy(): void {
     this.stopCoreEvents?.();
     this.stopCoreEvents = null;
+    this.librarySync?.stop();
     this.sharedRepos.stopBackgroundRefresh();
     this.dashboards.stopAllAutoRefresh();
     void this.persistence.flush();

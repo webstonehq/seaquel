@@ -113,7 +113,7 @@ fn users_dir_is_empty(root: &Path) -> bool {
     std::fs::read_dir(root.join("users")).map_or(true, |mut d| d.next().is_none())
 }
 
-const LOAD_PROJECTS: &str = r#"{"method":"storage","params":{"method":"projectsLoadAll"}}"#;
+const LOAD_PROJECTS: &str = r#"{"method":"library","params":{"method":"projectsList"}}"#;
 
 // ── The header ──
 
@@ -162,7 +162,7 @@ async fn a_bad_body_is_a_400_and_opens_nothing() {
     let env = env();
     for body in [
         "not json",
-        r#"{"params":{"method":"projectsLoadAll"},"method":"storage"}"#,
+        r#"{"params":{"method":"projectsList"},"method":"library"}"#,
         r#"{"method":"nope"}"#,
     ] {
         let (status, text) = env.post_raw(&["u1"], body).await;
@@ -309,18 +309,15 @@ async fn two_users_dont_see_each_others_saves() {
     env.set("bob", "theme", "light").await;
     env.storage(
         "alice",
-        "projectsSave",
-        json!({"project": {
-            "id": "p1", "name": "Alice's", "createdAt": "2026-01-02T03:04:05.000Z",
-            "updatedAt": "2026-01-02T03:04:05.000Z", "customLabels": [],
-        }}),
+        "tutorialSave",
+        json!({"lessonId": "l1", "challengeId": "c1", "state": "done"}),
     )
     .await;
 
     assert_eq!(env.get("alice", "theme").await, "dark");
     assert_eq!(env.get("bob", "theme").await, "light");
     assert_eq!(
-        env.storage("alice", "projectsLoadAll", Value::Null)
+        env.storage("alice", "tutorialLoadAll", Value::Null)
             .await
             .as_array()
             .unwrap()
@@ -328,7 +325,7 @@ async fn two_users_dont_see_each_others_saves() {
         1
     );
     assert_eq!(
-        env.storage("bob", "projectsLoadAll", Value::Null).await,
+        env.storage("bob", "tutorialLoadAll", Value::Null).await,
         json!([])
     );
     assert_eq!(env.get("carol", "theme").await, Value::Null);

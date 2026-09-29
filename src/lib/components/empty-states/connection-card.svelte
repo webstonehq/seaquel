@@ -12,6 +12,7 @@
 	import type { DatabaseConnection } from "$lib/types";
 	import { formatRelativeTime } from "$lib/utils.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { m } from "$lib/paraglide/messages.js";
 	import { isFeatureEnabled } from "$lib/features";
 
@@ -82,9 +83,13 @@
 		showDeleteDialog = true;
 	};
 
-	const handleDelete = () => {
-		db.connections.remove(connection.id);
+	const handleDelete = async () => {
 		showDeleteDialog = false;
+		try {
+			await db.connections.remove(connection.id);
+		} catch (error) {
+			showErrorUnlessShown(error);
+		}
 	};
 
 	const dbTypeLabels: Record<string, string> = {

@@ -31,7 +31,8 @@ use seaquel_secrets::SecretStore;
 #[cfg(feature = "storage")]
 use seaquel_storage::{Storage, StorageOptions};
 
-use crate::{ConnectionHandle, Core, QueryOptions, StreamEvent, Value};
+use crate::changes::{event_target, ChangeCounter, SeqTicket, StorageChange, WriteOrigin};
+use crate::{ChangeSeq, ConnectionHandle, Core, QueryOptions, StoredKind, StreamEvent, Value};
 
 /// The metadata file's name in a desktop data dir.
 pub const DESKTOP_STORAGE_FILE: &str = "seaquel.db";
@@ -142,9 +143,9 @@ pub const TUNNEL_CLOSED: &str = "TUNNEL_CLOSED";
 /// (the web server evicted the workspace).
 pub const WORKSPACE_EVICTED: &str = "WORKSPACE_EVICTED";
 
-/// Something that happened to a workspace's connections without the GUI
-/// asking, delivered through [`Workspace::events`]. `seaquel-rpc` sends it to
-/// the GUIs as `CoreEvent::ConnectionClosed`.
+/// Something that happened to a workspace without the calling GUI asking,
+/// delivered through [`Workspace::events`]. `seaquel-rpc` sends it to the
+/// GUIs as `CoreEvent::ConnectionClosed` and `CoreEvent::StorageChanged`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum WorkspaceEvent {
@@ -156,6 +157,9 @@ pub enum WorkspaceEvent {
         code: String,
         message: String,
     },
+    /// A stored write committed (phase 5d, Decision 16): exactly one per
+    /// write, after its commit, and none for a refused or failed call.
+    StorageChanged(StorageChange),
 }
 
 /// One user's open storage and secret store, and the owner of the
@@ -175,6 +179,8 @@ pub struct Workspace {
     /// [`crate::ConnectionLimits::per_workspace`] with the open connections.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     connecting: Mutex<usize>,
+    /// The change sequence (phase 5d, Decision 17).
+    changes: ChangeCounter,
     data_dir: PathBuf,
     #[cfg(feature = "storage")]
     storage: Storage,
@@ -188,8 +194,10 @@ impl Workspace {
         let storage = Storage::open(spec.data_dir.join(&spec.storage_file), spec.storage_options)
             .await
             .map_err(CoreError::from)?;
+        let id = WorkspaceId::random();
         Ok(Self {
-            id: WorkspaceId::random(),
+            id,
+            changes: ChangeCounter::new(id.to_string()),
             closed: AtomicBool::new(false),
             closing: CancellationToken::new(),
             subscribers: Mutex::default(),
@@ -412,6 +420,58 @@ impl Workspace {
             .retain(|tx| tx.unbounded_send(event.clone()).is_ok());
     }
 
+    /// The published change sequence (Decision 17): every write numbered up
+    /// to it has committed or failed. A read records it before its SELECTs,
+    /// so what it returns is at least that new.
+    pub fn change_seq(&self) -> ChangeSeq {
+        self.changes.published()
+    }
+
+    /// A number for a write, taken while it holds the storage's write lock.
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
+    pub(crate) fn take_seq(&self) -> SeqTicket<'_> {
+        self.changes.take()
+    }
+
+    /// Publish `ticket` after the write's commit and announce it: the one
+    /// event a write emits.
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
+    pub(crate) fn announce(
+        &self,
+        ticket: SeqTicket<'_>,
+        kind: StoredKind,
+        scope: Option<String>,
+        ids: Option<Vec<String>>,
+        origin: &WriteOrigin,
+    ) -> ChangeSeq {
+        let seq = ticket.publish();
+        let (scope, ids) = event_target(scope, ids);
+        self.emit(WorkspaceEvent::StorageChanged(StorageChange {
+            kind,
+            scope,
+            ids,
+            origin: origin.as_deref().map(str::to_string),
+            seq: seq.clone(),
+        }));
+        seq
+    }
+
+    /// Announce a write that committed without a Core write transaction:
+    /// the storage group's writes, which `seaquel-rpc` makes (Decision 16).
+    /// The number is taken after the commit, which the published sequence
+    /// allows for (see `changes.rs`). Call it only after the write
+    /// succeeded.
+    pub fn record_storage_write(
+        &self,
+        origin: &WriteOrigin,
+        kind: StoredKind,
+        scope: Option<String>,
+        ids: Option<Vec<String>>,
+    ) -> ChangeSeq {
+        let ticket = self.changes.take();
+        self.announce(ticket, kind, scope, ids, origin)
+    }
+
     /// Cancelled once [`Workspace::close_all`] runs.
     #[cfg(feature = "workspace")]
     pub(crate) fn closing(&self) -> &CancellationToken {
@@ -438,8 +498,9 @@ impl Workspace {
 
 // ── Connect and test ──
 
-/// `Workspace::connect` for an id with no saved connection.
-#[cfg(feature = "workspace")]
+/// `Workspace::connect` for an id with no saved connection, and the library
+/// calls (`update_connection`, `remove_connection`) for one.
+#[cfg(any(feature = "workspace", feature = "storage"))]
 pub const SAVED_CONNECTION_NOT_FOUND: &str = "CONNECTION_NOT_FOUND";
 
 /// `Workspace::connect` when the secret store refused a read the connection
@@ -1076,6 +1137,8 @@ impl fmt::Debug for Workspace {
 pub struct CoreError {
     pub code: String,
     pub message: String,
+    /// For `NAME_TAKEN` (phase 5d, Q3): the id of the row that has the name.
+    pub taken_by: Option<String>,
 }
 
 impl CoreError {
@@ -1083,6 +1146,17 @@ impl CoreError {
         Self {
             code: code.into(),
             message: message.into(),
+            taken_by: None,
+        }
+    }
+}
+
+impl From<seaquel_workspace::library::LibraryError> for CoreError {
+    fn from(e: seaquel_workspace::library::LibraryError) -> Self {
+        Self {
+            code: e.code,
+            message: e.message,
+            taken_by: e.taken_by,
         }
     }
 }

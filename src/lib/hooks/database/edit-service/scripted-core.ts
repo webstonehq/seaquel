@@ -129,6 +129,8 @@ export function scriptedCore(script: CoreScript = {}) {
       return handlers.tablePage(params as TablePageParams, options?.signal) as never;
     },
     events: () => () => {},
+    onResubscribed: () => () => {},
+    onEventsUnavailable: () => () => {},
   };
   const of = (method: string) => calls.filter((c) => c.method === method).map((c) => c.params);
   return { client, calls, of };

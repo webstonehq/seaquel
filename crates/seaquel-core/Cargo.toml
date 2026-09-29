@@ -65,6 +65,10 @@ uuid = { workspace = true, features = ["js"] }
 # runs them.
 seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace"] }
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 # `TokioExecutor` for tests/run_live.rs.
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }
+# Seeding and reading the metadata file with plain SQL (tests/library.rs,
+# tests/string_secrets.rs), as the library fixtures' replay rules ask.
+sqlx = { workspace = true }
+serde = { workspace = true }

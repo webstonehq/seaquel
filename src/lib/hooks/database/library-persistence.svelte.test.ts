@@ -1,0 +1,532 @@
+/**
+ * The library against a real metadata database: the demo's `TsLibrary`
+ * over sql.js, which keeps Core's rules (phase 5d-1), with the view models
+ * on top. Two sets of managers on one database stand in for two web tabs.
+ * - Every library change is one targeted call, written at once: no
+ *   project save deletes another tab's saved query or undoes its label.
+ * - Removing a custom label strips it from the connections that had it.
+ * - Dashboards (stars, the version limit, failures) still go through the
+ *   storage client until phase 5d-2.
+ */
+import initSqlJs from "sql.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StorageClient } from "$lib/storage/client";
+
+const storage = vi.hoisted(() => ({ client: null as unknown }));
+vi.mock("$lib/storage", () => ({ getStorage: () => storage.client }));
+vi.mock("$lib/services/keyring", () => ({
+  getKeyringService: () => ({ isAvailable: () => false }),
+}));
+const toasts: string[] = [];
+vi.mock("$lib/utils/toast", () => ({ errorToast: (m: string) => toasts.push(m) }));
+vi.mock("svelte-sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    info: (m: string) => toasts.push(m),
+    warning: (m: string) => toasts.push(m),
+  },
+}));
+vi.mock("$lib/utils/logger", () => ({
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
+}));
+
+const { bootstrapSqljsDatabase, createSqljsStorageClient } =
+  await import("$lib/storage/sqljs-client");
+const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
+const { projectsRepo } = await import("$lib/storage/repository");
+const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { DatabaseState } = await import("./state.svelte.js");
+const { StateRestorationManager } = await import("./state-restoration.svelte.js");
+const { SavedQueryManager } = await import("./saved-queries.svelte.js");
+const { ProjectManager } = await import("./project-manager.svelte.js");
+const { ConnectionManager } = await import("./connection-manager.svelte.js");
+const { DashboardManager } = await import("./dashboard-manager.svelte.js");
+const { queryNameToFilename } = await import("$lib/services/query-file-parser");
+const { TsLibrary } = await import("./library/ts-library");
+const { setLibrary } = await import("./library/index");
+
+let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+
+beforeAll(async () => {
+  const store = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  });
+  SQL = await initSqlJs();
+});
+
+afterAll(() => vi.unstubAllGlobals());
+afterEach(() => setLibrary(null));
+
+let client: StorageClient;
+let library: InstanceType<typeof TsLibrary>;
+
+beforeEach(async () => {
+  toasts.length = 0;
+  const db = new WebSqliteDatabase(new SQL.Database());
+  await bootstrapSqljsDatabase(db);
+  client = createSqljsStorageClient(db);
+  storage.client = client;
+  library = new TsLibrary(db);
+  setLibrary(library);
+  const now = new Date().toISOString();
+  for (const id of ["p1", "p2"]) {
+    await projectsRepo.save(db, { id, name: id, createdAt: now, updatedAt: now, customLabels: [] });
+  }
+});
+
+/** One window or web tab: its own in-memory state over the shared database. */
+async function openTab(projectId = "p1") {
+  const state = new DatabaseState();
+  const persistence = new PersistenceManager(state);
+  const restoration = new StateRestorationManager(state, persistence);
+  const projects = new ProjectManager(state, persistence, restoration);
+  const provider = { connect: vi.fn(async () => "core-1"), disconnect: vi.fn(async () => {}) };
+  const connections = new ConnectionManager(
+    state,
+    persistence,
+    restoration,
+    {} as never,
+    { getForType: async () => provider } as never,
+    async () => {},
+    () => {},
+  );
+  projects.setConnectionManager(connections);
+  projects.setRemoveConnectionCallback((id, options) => connections.remove(id, options));
+  await projects.initialize();
+  await connections.initializePersistedConnections();
+  await projects.setActive(projectId);
+  const savedQueries = new SavedQueryManager(state, () => {}, persistence);
+  return { state, persistence, restoration, projects, savedQueries, connections, provider };
+}
+
+const storedQueryNames = async (projectId = "p1") =>
+  (await library.listSavedQueries(projectId)).value.map((q) => q.name).sort();
+
+/** A stored connection in `projectId`, made through the library. */
+async function storedConnection(
+  projectId: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+): Promise<string> {
+  const { value } = await library.createConnection({
+    projectId,
+    name,
+    type: "postgres",
+    host: "localhost",
+    port: 5432,
+    databaseName: "app",
+    username: "me",
+    ...extra,
+  });
+  return value.id;
+}
+
+describe("two tabs on one database", () => {
+  it("a saved query is written at once", async () => {
+    const a = await openTab();
+    await a.savedQueries.saveQuery("mine", "SELECT 1");
+    expect(await storedQueryNames()).toEqual(["mine"]);
+  });
+
+  it("two tabs' new saved queries both stay, whatever either saves later", async () => {
+    const a = await openTab();
+    const b = await openTab();
+    await a.savedQueries.saveQuery("from A", "SELECT 1");
+    await b.savedQueries.saveQuery("from B", "SELECT 2");
+    // Tab B saves its project for an unrelated reason (a tab switch, say).
+    await b.persistence.persistProjectState("p1");
+
+    expect(await storedQueryNames()).toEqual(["from A", "from B"]);
+  });
+
+  it("a tab's own delete reaches storage", async () => {
+    const a = await openTab();
+    const id = (await a.savedQueries.saveQuery("mine", "SELECT 1"))!;
+    await a.savedQueries.deleteQuery(id);
+    expect(await storedQueryNames()).toEqual([]);
+  });
+
+  it("a stale tab's project edit doesn't undo another tab's label", async () => {
+    const a = await openTab();
+    const b = await openTab();
+    await a.projects.addCustomLabel("p1", { name: "Mine", color: "#ff0000" });
+    await b.projects.update("p2", { name: "Renamed" });
+
+    const stored = (await library.listProjects()).value;
+    expect(stored.find((p) => p.id === "p1")?.customLabels.map((l) => l.name)).toEqual(["Mine"]);
+    expect(stored.find((p) => p.id === "p2")?.name).toBe("Renamed");
+  });
+
+  it("a name another saved query has is refused with its name, and nothing is saved", async () => {
+    const a = await openTab();
+    await a.savedQueries.saveQuery("Orders", "SELECT 1");
+    await expect(a.savedQueries.saveQuery(" ORDERS ", "SELECT 2")).rejects.toThrow(
+      'There\'s already a saved query called "Orders" in this folder.',
+    );
+    expect(await storedQueryNames()).toEqual(["Orders"]);
+    expect(a.state.queriesByProject.p1.map((q) => q.name)).toEqual(["Orders"]);
+  });
+});
+
+describe("saved query versions", () => {
+  it("a changed text adds a keyframe of the previous text; an unchanged one adds none", async () => {
+    const tab = await openTab();
+    tab.state.queryTabsByProject = { p1: [{ id: "t1", name: "Q", query: "" } as never] };
+    const id = (await tab.savedQueries.saveQuery("Q", "SELECT 1", "t1"))!;
+    await tab.savedQueries.saveQuery("Q", "SELECT 2", "t1");
+    await tab.savedQueries.saveQuery("Q", "SELECT 2", "t1");
+
+    const versions = (await library.listQueryVersions("p1")).value;
+    expect(versions.map((v) => [v.version, v.snapshot, v.diff])).toEqual([[1, "SELECT 1", null]]);
+    expect(tab.savedQueries.getResolvedVersionsForQuery(id).map((v) => v.query)).toEqual([
+      "SELECT 1",
+    ]);
+  });
+
+  it("stored diff versions from before still resolve next to Core's keyframes", async () => {
+    const tab = await openTab();
+    tab.state.queryTabsByProject = { p1: [{ id: "t1", name: "Q", query: "" } as never] };
+    const id = (await tab.savedQueries.saveQuery("Q", "SELECT a", "t1"))!;
+    await tab.savedQueries.saveQuery("Q", "SELECT b", "t1"); // v1: keyframe "SELECT a"
+    // A diff row the TypeScript wrote before 5d-1: v2 = "SELECT b" as a patch on v1.
+    const { default: DiffMatchPatch } = await import("diff-match-patch");
+    const dmp = new DiffMatchPatch();
+    const diff = dmp.patch_toText(dmp.patch_make("SELECT a", "SELECT b"));
+    await (
+      library as unknown as { db: { execute(s: string, p: unknown[]): Promise<void> } }
+    ).db.execute(
+      "INSERT INTO query_versions (id, saved_query_id, version, snapshot, diff, created_at) VALUES (?, ?, 2, NULL, ?, ?)",
+      ["ver-old", id, diff, new Date().toISOString()],
+    );
+    await tab.savedQueries.saveQuery("Q", "SELECT c", "t1"); // v3: keyframe "SELECT b"
+
+    // Another window reads what's stored: the diff row resolves as before.
+    const other = await openTab();
+    expect(other.savedQueries.getResolvedVersionsForQuery(id).map((v) => v.query)).toEqual([
+      "SELECT a",
+      "SELECT b",
+      "SELECT b",
+    ]);
+  });
+});
+
+describe("custom labels", () => {
+  it("removing a custom label strips it from the connections that had it", async () => {
+    const tab = await openTab();
+    const label = await tab.projects.addCustomLabel("p1", { name: "Mine", color: "#ff0000" });
+    const id = await storedConnection("p1", "Local", { labelIds: ["prod", label.id] });
+    await tab.connections.refreshFromLibrary(null);
+
+    await tab.projects.removeCustomLabel("p1", label.id);
+
+    const stored = (await library.listConnections()).value;
+    expect(stored.find((c) => c.id === id)?.labelIds).toEqual(["prod"]);
+    expect(tab.state.connections.find((c) => c.id === id)?.labelIds).toEqual(["prod"]);
+    expect(tab.state.projects.find((p) => p.id === "p1")?.customLabels).toEqual([]);
+  });
+});
+
+describe("dashboards", () => {
+  function dashboards(state: InstanceType<typeof DatabaseState>, persistence: unknown) {
+    return new DashboardManager(
+      state,
+      async () => [],
+      () => {},
+      persistence as InstanceType<typeof PersistenceManager>,
+    );
+  }
+
+  it("starring a dashboard survives a reload", async () => {
+    const tab = await openTab();
+    const manager = dashboards(tab.state, tab.persistence);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+
+    await manager.toggleDashboardStarred(dashboard.id);
+
+    const stored = await client.dashboards.loadByProject("p1");
+    expect(stored.find((d) => d.id === dashboard.id)?.starred).toBe(true);
+  });
+
+  it("a failed save is shown as an error", async () => {
+    const tab = await openTab();
+    const manager = dashboards(tab.state, tab.persistence);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+    vi.spyOn(client.dashboards, "save").mockRejectedValueOnce(new Error("STORAGE_ERROR: full"));
+
+    await manager.renameDashboard(dashboard.id, "Renamed");
+
+    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: full")]);
+  });
+
+  it("a failed delete keeps the dashboard and is shown as an error", async () => {
+    const tab = await openTab();
+    const manager = dashboards(tab.state, tab.persistence);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+    vi.spyOn(client.dashboards, "remove").mockRejectedValueOnce(new Error("STORAGE_ERROR: locked"));
+
+    await manager.deleteDashboard(dashboard.id);
+
+    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: locked")]);
+    expect(manager.getDashboard(dashboard.id)).toBeDefined();
+    expect(await client.dashboards.loadByProject("p1")).toHaveLength(1);
+  });
+
+  it("a version whose insert failed prunes nothing", async () => {
+    await client.appState.set("dashboard_version_limit", "10");
+    const tab = await openTab();
+    const manager = dashboards(tab.state, tab.persistence);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+    const insert = vi
+      .spyOn(client.dashboardVersions, "insert")
+      .mockRejectedValue(new Error("STORAGE_ERROR: full"));
+    const prune = vi.spyOn(client.dashboardVersions, "pruneOldVersions");
+
+    await manager.renameDashboard(dashboard.id, "Renamed");
+
+    await vi.waitFor(() => expect(insert).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(prune).not.toHaveBeenCalled();
+  });
+
+  it("a negative version limit counts as unset", async () => {
+    await client.appState.set("dashboard_version_limit", "-5");
+    const tab = await openTab();
+    expect(await tab.persistence.versionLimit("dashboard_version_limit")).toBe(100);
+  });
+
+  it("the dashboard version limit setting is used", async () => {
+    await client.appState.set("dashboard_version_limit", "10");
+    const tab = await openTab();
+    const manager = dashboards(tab.state, tab.persistence);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+
+    for (let i = 0; i < 12; i++) await manager.renameDashboard(dashboard.id, `Sales ${i}`);
+
+    await vi.waitFor(async () => {
+      expect(await client.dashboardVersions.loadByDashboard(dashboard.id)).toHaveLength(10);
+      expect(manager.getVersionsForDashboard(dashboard.id)).toHaveLength(10);
+    });
+  });
+});
+
+describe("connection overrides", () => {
+  it("a failed save is shown as an error", async () => {
+    const tab = await openTab();
+    vi.spyOn(client.connectionOverrides, "save").mockRejectedValueOnce(
+      new Error("STORAGE_ERROR: full"),
+    );
+
+    await tab.persistence.persistConnectionOverride({
+      sharedConnectionId: "s1",
+      username: "me",
+      savePassword: false,
+      saveSshPassword: false,
+      saveSshKeyPassphrase: false,
+    });
+
+    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: full")]);
+  });
+});
+
+describe("shared saved queries", () => {
+  /** A tab whose saved query `q` is shared, over a fake repo of `.sql` files. */
+  async function sharedQueryTab() {
+    const tab = await openTab();
+    const files = new Set<string>();
+    const ops: string[] = [];
+    const fileOf = (q: { name: string; folder?: string }) =>
+      `${q.folder ?? ""}/${queryNameToFilename(q.name)}`;
+    tab.savedQueries.setFileProjection({
+      writeQueryFile: async (q) => {
+        ops.push(`write ${fileOf(q)}`);
+        files.add(fileOf(q));
+      },
+      deleteQueryFile: async (q) => {
+        ops.push(`delete ${fileOf(q)}`);
+        files.delete(fileOf(q));
+      },
+    });
+    tab.state.queryTabsByProject = {
+      p1: [{ id: "t1", name: "Orders", query: "SELECT 1" } as never],
+    };
+    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1", "t1"))!;
+    await tab.savedQueries.shareQuery(id);
+    ops.length = 0;
+    return { ...tab, files, ops, id };
+  }
+
+  it("renaming a shared query leaves one .sql file", async () => {
+    const { savedQueries, files, id } = await sharedQueryTab();
+    await savedQueries.renameQuery(id, "Big orders");
+    expect([...files]).toEqual(["/big-orders.sql"]);
+  });
+
+  it("renaming a shared query writes the new file before deleting the old one", async () => {
+    const { savedQueries, ops, id } = await sharedQueryTab();
+    await savedQueries.renameQuery(id, "Big orders");
+    expect(ops).toEqual(["write /big-orders.sql", "delete /orders.sql"]);
+  });
+
+  it("a rename that keeps the file name (only its case changes) deletes nothing", async () => {
+    const { savedQueries, files, ops, id } = await sharedQueryTab();
+    await savedQueries.renameQuery(id, "ORDERS");
+    expect(ops).toEqual(["write /orders.sql"]);
+    expect([...files]).toEqual(["/orders.sql"]);
+  });
+
+  it("a failed file write on save is shown as an error", async () => {
+    const { savedQueries } = await sharedQueryTab();
+    savedQueries.setFileProjection({
+      writeQueryFile: async () => {
+        throw new Error("EACCES");
+      },
+      deleteQueryFile: async () => {},
+    });
+    await savedQueries.saveQuery("Orders", "SELECT 2", "t1");
+    await vi.waitFor(() => expect(toasts).toEqual([expect.stringContaining("EACCES")]));
+  });
+
+  it("sharing is saved even when writing the file fails", async () => {
+    const tab = await openTab();
+    tab.savedQueries.setFileProjection({
+      writeQueryFile: async () => {
+        throw new Error("EACCES");
+      },
+      deleteQueryFile: async () => {},
+    });
+    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
+
+    await expect(tab.savedQueries.shareQuery(id)).rejects.toThrow("EACCES");
+
+    expect((await library.listSavedQueries("p1")).value[0].shared).toBe(true);
+  });
+
+  it("saving a shared query under a new name leaves one .sql file", async () => {
+    const { savedQueries, files } = await sharedQueryTab();
+    await savedQueries.saveQuery("Big orders", "SELECT 2", "t1");
+    await vi.waitFor(() => expect([...files]).toEqual(["/big-orders.sql"]));
+  });
+});
+
+describe("the git reconcile", () => {
+  it("a shared file whose name another saved query has is said, not dropped silently", async () => {
+    const tab = await openTab();
+    await tab.savedQueries.saveQuery("Orders", "SELECT 1");
+    tab.projects.setSharedQueryManager({
+      reconcileWithGitFiles: (_p: string, queries: unknown[]) => [
+        ...queries,
+        { id: "saved-temp", name: "ORDERS", query: "SELECT 2", projectId: "p1", shared: true },
+      ],
+    } as never);
+
+    await tab.projects.reconcileGitState("p1");
+
+    expect(toasts).toEqual([expect.stringContaining('shared query "ORDERS"')]);
+    expect(await storedQueryNames()).toEqual(["Orders"]);
+  });
+
+  it("a reconciled text change shows the version Core stored", async () => {
+    const tab = await openTab();
+    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
+    tab.projects.setSharedQueryManager({
+      reconcileWithGitFiles: (_p: string, queries: { id: string }[]) =>
+        queries.map((q) => (q.id === id ? { ...q, query: "SELECT 2" } : q)),
+    } as never);
+
+    await tab.projects.reconcileGitState("p1");
+
+    expect(tab.state.queryVersionsByProject.p1.map((v) => v.snapshot)).toEqual(["SELECT 1"]);
+  });
+});
+
+describe("project removal", () => {
+  it("removes the project and its connections in one call, and forgets them", async () => {
+    const tab = await openTab();
+    await storedConnection("p2", "c1");
+    await storedConnection("p2", "c2");
+    await tab.connections.refreshFromLibrary(null);
+
+    expect(await tab.projects.remove("p2")).toBe(true);
+
+    expect(tab.state.projects.map((p) => p.id)).toEqual(["p1"]);
+    expect(tab.state.connections).toEqual([]);
+    expect((await library.listProjects()).value.map((p) => p.id)).toEqual(["p1"]);
+    expect((await library.listConnections()).value).toEqual([]);
+  });
+
+  it("keeps the project and its connections when the removal fails", async () => {
+    const tab = await openTab();
+    await storedConnection("p2", "c1");
+    await tab.connections.refreshFromLibrary(null);
+    vi.spyOn(library, "removeProject").mockRejectedValueOnce(new Error("STORAGE_ERROR: locked"));
+
+    await expect(tab.projects.remove("p2")).rejects.toThrow("locked");
+
+    expect(tab.state.projects.map((p) => p.id)).toContain("p2");
+    expect(tab.state.connections.map((c) => c.name)).toEqual(["c1"]);
+  });
+
+  it("the last project isn't removed", async () => {
+    const tab = await openTab();
+    await tab.projects.remove("p2");
+    expect(await tab.projects.remove("p1")).toBe(false);
+    expect((await library.listProjects()).value.map((p) => p.id)).toEqual(["p1"]);
+  });
+});
+
+describe("shared-connection imports", () => {
+  it("an imported shared connection joins the project's order with its maps", async () => {
+    const tab = await openTab();
+    await tab.projects.importSingleSharedConnection(
+      {
+        id: "shared-1",
+        name: "Prod",
+        type: "postgres",
+        host: "db",
+        port: 5432,
+        databaseName: "app",
+      } as never,
+      "p1",
+    );
+
+    const [connection] = tab.state.connections;
+    expect(connection.id).toMatch(/^conn-/);
+    expect(tab.state.connectionOrderByProject.p1).toEqual([connection.id]);
+    expect(tab.state.queryHistoryByConnection[connection.id]).toEqual([]);
+    expect((await library.listConnections()).value.map((c) => c.id)).toEqual([connection.id]);
+  });
+
+  it('a shared project whose name is taken is imported as "<name> (2)"', async () => {
+    const tab = await openTab();
+    tab.projects.setSharedRepoManager({
+      initRepo: async () => "repo-1",
+      loadQueriesFromRepo: async () => {},
+    } as never);
+    await tab.projects.importFromGitRepo("/repos/team", [{ name: "P1" } as never]);
+    expect(tab.state.projects.map((p) => p.name)).toContain("P1 (2)");
+  });
+});
+
+describe("clearing a project's git path", () => {
+  it("takes the connections it removes out of the project's connection order", async () => {
+    const tab = await openTab();
+    tab.state.sharedRepos = [{ id: "repo-1", path: "/repos/team" } as never];
+    tab.state.sharedProjectsByRepo = { "repo-1": [{ id: "sp" } as never] };
+    tab.state.sharedConnectionsByProject = { sp: [{ id: "shared-1" } as never] };
+    const kept = await storedConnection("p1", "Kept");
+    const imported = await storedConnection("p1", "Prod", { sharedConnectionId: "shared-1" });
+    await tab.connections.refreshFromLibrary(null);
+    tab.state.connectionOrderByProject = { p1: [kept, imported] };
+    tab.projects.setSharedRepoManager({ removeRepo: () => {} } as never);
+    await tab.projects.update("p1", { gitRepoPath: "/repos/team" });
+
+    await tab.projects.setGitRepoPath("p1", undefined);
+
+    expect(tab.state.connectionOrderByProject.p1).toEqual([kept]);
+    expect(tab.state.connections.map((c) => c.id)).toEqual([kept]);
+    expect((await library.listConnections()).value.map((c) => c.id)).toEqual([kept]);
+  });
+});

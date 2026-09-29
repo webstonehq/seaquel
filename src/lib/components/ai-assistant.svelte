@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { Button } from "$lib/components/ui/button";
 	import { Textarea } from "$lib/components/ui/textarea";
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
@@ -303,7 +304,12 @@
 										onSelect={async (pid, mod) => {
 											const conn = db.state.activeConnection;
 											if (!conn) return;
-											await db.setConnectionAIModel(conn.id, pid, mod);
+											try {
+												await db.setConnectionAIModel(conn.id, pid, mod);
+											} catch (error) {
+												showErrorUnlessShown(error);
+												return;
+											}
 											db.ui.retryPendingMessage(message.id);
 										}}
 									/>
@@ -461,7 +467,7 @@
 				onSelect={async (pid, mod) => {
 					const conn = db.state.activeConnection;
 					if (!conn) return;
-					await db.setConnectionAIModel(conn.id, pid, mod);
+					await db.setConnectionAIModel(conn.id, pid, mod).catch(showErrorUnlessShown);
 				}}
 			/>
 		</div>

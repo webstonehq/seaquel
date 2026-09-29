@@ -6,6 +6,12 @@ export {
   extractErrorMessage,
   ok,
   err,
+  ShownError,
 } from "./types";
 
-export { handleError, withErrorHandling, type HandleErrorOptions } from "./handler";
+export {
+  handleError,
+  showErrorUnlessShown,
+  withErrorHandling,
+  type HandleErrorOptions,
+} from "./handler";

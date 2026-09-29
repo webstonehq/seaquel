@@ -4,7 +4,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import { getVersion } from "@tauri-apps/api/app";
 	import { appConfigDir, appDataDir, appLogDir } from "@tauri-apps/api/path";
-	import { errorToast } from "$lib/utils/toast";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { isTauri } from "$lib/utils/environment";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { getDataDir } from "$lib/api/tauri";
@@ -82,7 +82,7 @@
 			}
 			db.settingsTabs.remove(tabId);
 		} catch (error) {
-			errorToast(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
+			showErrorUnlessShown(error, (message) => `Failed to connect: ${message}`);
 		} finally {
 			isConnectingInternal = false;
 		}

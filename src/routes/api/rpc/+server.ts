@@ -7,6 +7,11 @@
  * session, license and membership before this runs, and the request's
  * `Origin` must be one this install trusts (the page's own, or configured).
  *
+ * `X-Seaquel-Origin`, the calling tab's id for its writes' `storageChanged`
+ * events, is forwarded only when it is one value matching
+ * `^[A-Za-z0-9_-]{1,64}$` (`$lib/server/write-origin`); otherwise it's
+ * dropped and the call goes on without one.
+ *
  * The body goes through as the bytes that arrived. It is never parsed and
  * re-stringified: `method` must stay before `params`, and stored JSON
  * columns must stay byte-identical. Rust's status and body (a `Response`, or
@@ -39,6 +44,7 @@ import {
   rpcTooManyRequests,
 } from "$lib/server/body-limit";
 import { isOriginTrusted } from "$lib/server/origin";
+import { WRITE_ORIGIN_HEADER, writeOrigin } from "$lib/server/write-origin";
 import { currentClientRequest, onClientClose } from "$shared/client-request.js";
 import type { RequestHandler } from "./$types";
 
@@ -65,12 +71,15 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
     return originNotAllowed();
   }
 
-  // Only these two headers reach Rust: no cookies, no auth headers and no
-  // client-sent X-Seaquel-User.
+  // Only these headers reach Rust: no cookies, no auth headers and no
+  // client-sent X-Seaquel-User. The tab's origin goes only when it's
+  // well-formed.
   const headers: Record<string, string> = {
     "content-type": "application/json",
     [USER_HEADER]: locals.user.id,
   };
+  const origin = writeOrigin(request.headers);
+  if (origin !== null) headers[WRITE_ORIGIN_HEADER] = origin;
   // The body's limit first (nothing read), then the user's budget: Node
   // keeps every body it reads until Rust answers. A slow sender holds its
   // reservation (its declared length, or what it has sent so far) until the

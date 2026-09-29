@@ -51,7 +51,9 @@ use seaquel_core::domain::edits::{
     TablePageParams,
 };
 use seaquel_core::domain::run::{PageParams, RunEvent, RunParams};
-use seaquel_core::{Core, QueryOptions, Workspace, WorkspaceEvent};
+use seaquel_core::{
+    ChangeSeq, Core, QueryOptions, StoredKind, Workspace, WorkspaceEvent, WriteOrigin,
+};
 use seaquel_engine::BoxStream;
 use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
 use seaquel_types::{BatchStatement, ExecuteResult, QueryResult, StreamEvent, Value};
@@ -307,13 +309,14 @@ pub struct Connected {
 // ── Events ──
 
 /// What a stream transport pushes to a GUI: `{"type":"stream",…}` for a
-/// query stream's events, `{"type":"run",…}` for a run's or a page's, and
+/// query stream's events, `{"type":"run",…}` for a run's or a page's,
 /// `{"type":"connectionClosed",…}` when a connection went away without the
-/// GUI asking.
+/// GUI asking, and `{"type":"storageChanged",…}` after every stored write.
 ///
-/// `Debug` shows no rows or SQL for a run event (`RunEvent`'s is by hand);
-/// transports still never log events.
-#[derive(Debug, Clone, Serialize)]
+/// `Debug` shows no rows or SQL for a run event (`RunEvent`'s is by hand)
+/// and no origin for a `storageChanged` one; transports still never log
+/// events.
+#[derive(Clone, Serialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -340,6 +343,60 @@ pub enum CoreEvent {
     /// as in `stream`) and `statementDone`/`statementError`, then one `done`
     /// or `error` (nothing more after a cancel).
     Run { stream_id: String, event: RunEvent },
+    /// A stored write committed (phase 5d, Decision 16): what changed, never
+    /// a value. `scope` is the project, connection or chat the `ids` belong
+    /// to; `ids` `null` means reload the kind within the scope. `origin` is
+    /// the writer's window or tab (`null` for Core's own writes): a window
+    /// ignores its own. `seq` orders it against write and list results
+    /// (Decision 17). Every one of the workspace's windows or tabs gets it.
+    StorageChanged {
+        kind: StoredKind,
+        scope: Option<String>,
+        ids: Option<Vec<String>>,
+        origin: Option<String>,
+        seq: ChangeSeq,
+    },
+}
+
+impl std::fmt::Debug for CoreEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoreEvent::Stream { stream_id, event } => f
+                .debug_struct("Stream")
+                .field("stream_id", stream_id)
+                .field("event", event)
+                .finish(),
+            CoreEvent::ConnectionClosed {
+                connection_id,
+                code,
+                message,
+            } => f
+                .debug_struct("ConnectionClosed")
+                .field("connection_id", connection_id)
+                .field("code", code)
+                .field("message", message)
+                .finish(),
+            CoreEvent::Run { stream_id, event } => f
+                .debug_struct("Run")
+                .field("stream_id", stream_id)
+                .field("event", event)
+                .finish(),
+            CoreEvent::StorageChanged {
+                kind,
+                scope,
+                ids,
+                origin,
+                seq,
+            } => f
+                .debug_struct("StorageChanged")
+                .field("kind", kind)
+                .field("scope", scope)
+                .field("ids", ids)
+                .field("origin", &origin.as_ref().map(|_| "<set>"))
+                .field("seq", seq)
+                .finish(),
+        }
+    }
 }
 
 impl CoreEvent {
@@ -349,7 +406,7 @@ impl CoreEvent {
             CoreEvent::Stream { stream_id, .. } | CoreEvent::Run { stream_id, .. } => {
                 Some(stream_id)
             }
-            CoreEvent::ConnectionClosed { .. } => None,
+            CoreEvent::ConnectionClosed { .. } | CoreEvent::StorageChanged { .. } => None,
         }
     }
 
@@ -361,7 +418,7 @@ impl CoreEvent {
                 matches!(event, StreamEvent::Done | StreamEvent::Error { .. })
             }
             CoreEvent::Run { event, .. } => event.is_terminal(),
-            CoreEvent::ConnectionClosed { .. } => false,
+            CoreEvent::ConnectionClosed { .. } | CoreEvent::StorageChanged { .. } => false,
         }
     }
 
@@ -399,6 +456,13 @@ impl CoreEvent {
                 code,
                 message,
             }),
+            WorkspaceEvent::StorageChanged(change) => Some(CoreEvent::StorageChanged {
+                kind: change.kind,
+                scope: change.scope,
+                ids: change.ids,
+                origin: change.origin,
+                seq: change.seq,
+            }),
             #[allow(unreachable_patterns)] // `WorkspaceEvent` is non_exhaustive.
             _ => None,
         }
@@ -412,6 +476,7 @@ pub(crate) async fn db(
     core: &Core,
     ws: &Workspace,
     req: DbRequest,
+    origin: &WriteOrigin,
 ) -> Result<DbResponse, RpcError> {
     Ok(match req {
         DbRequest::Connect(params) => DbResponse::Connect(Connected {
@@ -460,7 +525,7 @@ pub(crate) async fn db(
         }
         DbRequest::PlanEdits(params) => DbResponse::PlanEdits(plan_edits(core, ws, params).await?),
         DbRequest::ApplyChanges(params) => {
-            DbResponse::ApplyChanges(apply_changes(core, ws, params).await?)
+            DbResponse::ApplyChanges(apply_changes(core, ws, params, origin).await?)
         }
         DbRequest::DuckdbExtension {
             connection_id,
@@ -530,8 +595,9 @@ async fn apply_changes(
     core: &Core,
     ws: &Workspace,
     params: ApplyChangesParams,
+    origin: &WriteOrigin,
 ) -> Result<ApplyOutcome, RpcError> {
-    Ok(ws.apply_changes(core, params).await?)
+    Ok(ws.apply_changes_from(core, params, origin).await?)
 }
 
 #[cfg(feature = "workspace")]
@@ -558,6 +624,7 @@ async fn apply_changes(
     _: &Core,
     _: &Workspace,
     _: ApplyChangesParams,
+    _: &WriteOrigin,
 ) -> Result<ApplyOutcome, RpcError> {
     Err(RpcError::not_supported("Editing"))
 }
@@ -583,6 +650,9 @@ async fn duckdb_extension(
 /// own gives one `CONNECTION_NOT_FOUND` error event. The stream borrows `ws`
 /// (a run appends its history row through it).
 ///
+/// `origin` is the window or tab that started it: a run's history row's
+/// `StorageChanged` event carries it.
+///
 /// Anything else is `INVALID_ARGUMENT`; `run`, `page` and `tablePage`
 /// without the `workspace` feature are `NOT_SUPPORTED`. The desktop's `core_stream` and
 /// the web's `/rpc/stream` call it with a request parsed by
@@ -591,12 +661,13 @@ pub fn dispatch_stream<'a>(
     core: &'a Core,
     ws: &'a Workspace,
     req: crate::Request,
+    origin: WriteOrigin,
 ) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
     let (group, method) = (req.group(), req.method());
     log::debug!(activity = "rpc.stream", group = group, method = method; "Workspace stream");
     let params = match req {
         crate::Request::Db(DbRequest::QueryStream(params)) => params,
-        crate::Request::Db(DbRequest::Run(params)) => return run(core, ws, params),
+        crate::Request::Db(DbRequest::Run(params)) => return run(core, ws, params, origin),
         crate::Request::Db(DbRequest::Page(params)) => return page(core, ws, params),
         crate::Request::Db(DbRequest::TablePage(params)) => return table_page(core, ws, params),
         _ => {
@@ -636,9 +707,10 @@ fn run<'a>(
     core: &'a Core,
     ws: &'a Workspace,
     params: RunParams,
+    origin: WriteOrigin,
 ) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
     let stream_id = params.stream_id.clone();
-    Ok(tag_run(stream_id, ws.run(core, params)))
+    Ok(tag_run(stream_id, ws.run_from(core, params, origin)))
 }
 
 #[cfg(feature = "workspace")]
@@ -675,6 +747,7 @@ fn run<'a>(
     _: &'a Core,
     _: &'a Workspace,
     _: RunParams,
+    _: WriteOrigin,
 ) -> Result<BoxStream<'a, CoreEvent>, RpcError> {
     Err(RpcError::not_supported("Running queries"))
 }
@@ -688,8 +761,8 @@ fn page<'a>(
     Err(RpcError::not_supported("Running queries"))
 }
 
-/// `ws`'s [`CoreEvent::ConnectionClosed`] events from now on (see
-/// `Workspace::events`). The desktop's `core_events` and each web
+/// `ws`'s [`CoreEvent::ConnectionClosed`] and [`CoreEvent::StorageChanged`]
+/// events from now on (see `Workspace::events`). The desktop's `core_events` and each web
 /// `/rpc/stream` socket hold one; dropping it unsubscribes.
 pub fn workspace_events(ws: &Workspace) -> BoxStream<'static, CoreEvent> {
     Box::pin(

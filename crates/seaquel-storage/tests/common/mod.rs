@@ -50,6 +50,49 @@ pub async fn load_fixture(path: &Path, rel: &str) {
     exec_file(path, &fixture(rel)).await;
 }
 
+/// Every numbered migration in `migrations/` (sqlx's `NNNN_name.sql`), in
+/// version order.
+pub fn migrations() -> Vec<String> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "sql"))
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect()
+}
+
+/// A new file at `path` holding the frozen schema fixture `rel` with the
+/// numbered migrations applied after it: the schema `Storage::open` gives a
+/// file whose baseline is `rel`. The fixtures are frozen at the baseline;
+/// migrations come after it.
+pub async fn load_migrated(path: &Path, rel: &str) {
+    load_fixture(path, rel).await;
+    for sql in migrations() {
+        exec_file(path, &sql).await;
+    }
+}
+
+/// [`fixture_shape`] after the numbered migrations ([`load_migrated`]).
+pub async fn migrated_shape(rel: &str) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("expected.db");
+    load_migrated(&path, rel).await;
+    schema_shape_of(&path).await
+}
+
+/// Columns the numbered migrations add, which the frozen data fixtures
+/// (recorded at the baseline) don't list.
+pub const MIGRATION_COLUMNS: &[(&str, &str)] = &[
+    ("connections", "name_key"),
+    ("projects", "name_key"),
+    ("saved_queries", "name_key"),
+];
+
 /// A file's schema as sorted lines, one per fact, so two schemas compare
 /// structurally: whitespace and `CREATE` text don't matter, but column order
 /// and every column's type, NOT NULL, default and primary key position do, as

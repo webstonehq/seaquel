@@ -1,8 +1,8 @@
 import type {
   Project,
   ConnectionLabel,
-  PersistedProject,
   DatabaseConnection,
+  Query,
   SharedProject,
   SharedConnection,
 } from "$lib/types";
@@ -16,6 +16,29 @@ import type { SharedDashboardManager } from "./shared-dashboard-manager.svelte.j
 import type { StarterTabManager } from "./starter-tabs.svelte.js";
 import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
+import { toast } from "svelte-sonner";
+import { m } from "$lib/paraglide/messages.js";
+import type { ConnectionManager } from "./connection-manager.svelte.js";
+import { connectionDraft } from "./connection-manager.svelte.js";
+import {
+  NEW,
+  getLibrary,
+  rowKey,
+  type ChangeSeq,
+  type ProjectPatch,
+  type WireProject,
+} from "./library/index.js";
+import { projectFromWire, savedQueryFromWire, savedQueryPatch } from "./library/convert.js";
+import { LAST_PROJECT } from "./library/types.js";
+import { libraryError, libraryErrorMessage } from "./library/messages.js";
+import {
+  applyConnectionRow,
+  bumpRevisions,
+  libraryNameOf,
+  refreshQueryVersions,
+} from "./library/view.js";
+import { errorToast } from "$lib/utils/toast";
+import { errorCode } from "$lib/core/client";
 import { mkdir, rename as renameFs, exists, writeTextFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import { nameToFilename, serializeProjectFile } from "$lib/services/config-file-parser";
@@ -42,6 +65,7 @@ export class ProjectManager {
   private sharedRepos: SharedRepoManager | null = null;
   private sharedQueryManager: SharedQueryManager | null = null;
   private sharedDashboardManager: SharedDashboardManager | null = null;
+  private connectionManager: ConnectionManager | null = null;
 
   /** Told when a project is deleted (its tabs' runs are cancelled) and when the active one changes. */
   private lifecycle: {
@@ -100,6 +124,14 @@ export class ProjectManager {
   }
 
   /**
+   * Set the connection manager reference: a removed project's connections
+   * are disconnected and forgotten through it.
+   */
+  setConnectionManager(manager: ConnectionManager): void {
+    this.connectionManager = manager;
+  }
+
+  /**
    * Set the starter tab manager reference.
    * Called by the main database class after StarterTabManager is created.
    */
@@ -108,26 +140,21 @@ export class ProjectManager {
   }
 
   /**
-   * Initialize projects on app startup.
-   * Loads projects, creating the default one on a fresh install.
+   * Initialize projects on app startup: `projectEnsureDefault` makes the
+   * default project on a file with none, and lists them all.
    */
   async initialize(): Promise<void> {
-    // Load projects
-    const persistedProjects = await this.persistence.loadProjects();
-
-    if (this.persistence.loadFailed("projects")) {
+    try {
+      const { value, seq } = await getLibrary().ensureDefaultProject();
+      this.applyProjects(value, seq, null, false);
+      this.persistence.setProjectsLoaded(true);
+    } catch (error) {
+      void log.error("Failed to load projects:", error);
       // The projects couldn't be read. Work in an in-memory default project,
-      // but don't store it: that would add a stray project next to the real
-      // ones. Project saves stay off (`PersistenceManager.loadFailed`).
+      // which isn't stored: the active project isn't saved over the stored
+      // choice, and writes naming it are refused by Core.
+      this.persistence.setProjectsLoaded(false);
       this.state.projects = [this.createDefaultProject()];
-    } else if (persistedProjects.length === 0) {
-      // Create default project
-      const defaultProject = this.createDefaultProject();
-      this.state.projects = [defaultProject];
-      await this.persistence.persistProjects();
-    } else {
-      // Deserialize projects
-      this.state.projects = persistedProjects.map((p) => this.deserializeProject(p));
     }
 
     // Set active project
@@ -143,38 +170,145 @@ export class ProjectManager {
     this.state.projectsLoading = false;
   }
 
-  /**
-   * Create a new project.
-   * The newly created project is automatically set as active.
-   */
-  async add(name: string, description?: string): Promise<Project> {
-    const now = new Date();
-    const project: Project = {
-      id: `project-${crypto.randomUUID()}`,
-      name,
-      description,
-      createdAt: now,
-      updatedAt: now,
-      customLabels: [],
-    };
+  // -------- The library's rows (phase 5d-1) --------
 
-    this.state.projects = [...this.state.projects, project];
-    await this.persistence.persistProjects();
+  private nameOf = (id: string) => libraryNameOf(this.state, id);
 
-    // Automatically make the new project active
-    await this.setActive(project.id);
-
+  /** Show one of this page's write answers for project `row`. */
+  private applyOwnProject(row: WireProject, seq: ChangeSeq): Project {
+    this.state.librarySeqs.note(rowKey("project", row.id), seq);
+    const project = projectFromWire(row);
+    this.state.projects = this.state.projects.some((p) => p.id === row.id)
+      ? this.state.projects.map((p) => (p.id === row.id ? project : p))
+      : [...this.state.projects, project];
     return project;
   }
 
   /**
-   * Update an existing project.
+   * Apply a `projectsList` taken at `seq` to the projects `ids` names (all
+   * when `null`), each only if `seq` is newer (Decision 17). A project the
+   * list lacks was removed: its connections go from the page, and if it
+   * was the active one the page switches to another, with a toast.
+   */
+  applyProjects(
+    rows: readonly WireProject[],
+    seq: ChangeSeq,
+    ids: readonly string[] | null,
+    remote: boolean,
+  ): void {
+    const seqs = this.state.librarySeqs;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const scope = new Set(ids ?? [...this.state.projects.map((p) => p.id), ...byId.keys()]);
+    let next = [...this.state.projects];
+    const removed: Project[] = [];
+    const revisions: string[] = [];
+    for (const id of scope) {
+      const key = rowKey("project", id);
+      if (!seqs.take(key, seq)) continue;
+      const row = byId.get(id);
+      const current = next.find((p) => p.id === id);
+      if (row) {
+        const project = projectFromWire(row);
+        if (current) {
+          if (remote && projectDiffers(current, project)) revisions.push(key);
+          next = next.map((p) => (p.id === id ? project : p));
+        } else {
+          next.push(project);
+        }
+      } else if (current) {
+        removed.push(current);
+      }
+    }
+    this.state.projects = next;
+    bumpRevisions(this.state, revisions);
+    for (const project of removed) void this.forgetRemovedProject(project, remote);
+  }
+
+  /** Refetch the projects another window changed (`ids`, or all) and apply them. */
+  async refreshFromLibrary(ids: readonly string[] | null): Promise<void> {
+    await this.state.librarySeqs.settled("project:");
+    const { value, seq } = await getLibrary().listProjects();
+    this.applyProjects(value, seq, ids, true);
+  }
+
+  /**
+   * A project that is gone from storage: its connections go from the page,
+   * its tabs' runs stop, and if it was active the page switches to another
+   * (`notify`: with a toast, for another window's removal).
+   */
+  private async forgetRemovedProject(project: Project, notify: boolean): Promise<void> {
+    for (const connection of this.state.connections.filter((c) => c.projectId === project.id)) {
+      this.connectionManager?.forgetRemoved(connection, false);
+    }
+    // After the connections: forgetting them schedules the project's save,
+    // which would now fail on the removed project.
+    this.persistence.cancelPendingPersistenceFor(project.id);
+    this.state.projects = this.state.projects.filter((p) => p.id !== project.id);
+    this.lifecycle.removed?.(project.id);
+    if (this.state.activeProjectId === project.id) {
+      // Cleared first, so switching doesn't save state for the removed project.
+      this.state.activeProjectId = null;
+      if (notify) toast.info(m.library_project_removed_elsewhere({ name: project.name }));
+      await this.setActive(this.state.projects[0]?.id ?? null);
+    }
+  }
+
+  /**
+   * Create a new project. Core assigns its id and refuses a taken name
+   * (`NAME_TAKEN`, thrown worded for the user). The new project is made
+   * active.
+   */
+  async add(name: string, description?: string, options?: { renameIfTaken?: boolean }) {
+    const project = await this.create(name, description, options);
+    // Automatically make the new project active
+    await this.setActive(project.id);
+    return project;
+  }
+
+  /** Store a new project and list it, without switching to it. */
+  private async create(
+    name: string,
+    description?: string,
+    options?: { renameIfTaken?: boolean },
+  ): Promise<Project> {
+    try {
+      const { value, seq } = await this.state.librarySeqs.write([rowKey("project", NEW)], () =>
+        getLibrary().createProject({
+          name,
+          ...(description !== undefined ? { description } : {}),
+          ...(options?.renameIfTaken ? { renameIfTaken: true } : {}),
+        }),
+      );
+      return this.applyOwnProject(value, seq);
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
+  }
+
+  /**
+   * Update an existing project: only the fields `updates` has are sent
+   * (`undefined` clears a description or git path). A refusal throws,
+   * worded for the user, and changes nothing. A shared project's directory
+   * in its repo follows a rename, after the rename is stored.
    */
   async update(
     id: string,
     updates: Partial<Pick<Project, "name" | "description" | "gitRepoPath">>,
   ): Promise<void> {
     const project = this.state.projects.find((p) => p.id === id);
+    const patch: ProjectPatch = {};
+    if ("name" in updates && updates.name !== undefined) patch.name = updates.name;
+    if ("description" in updates) patch.description = updates.description ?? null;
+    if ("gitRepoPath" in updates) patch.gitRepoPath = updates.gitRepoPath ?? null;
+
+    try {
+      const { value, seq } = await this.state.librarySeqs.write([rowKey("project", id)], () =>
+        getLibrary().updateProject(id, patch),
+      );
+      this.applyOwnProject(value, seq);
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
 
     // Rename git repo project directory and update project.yaml if the name changed
     if (updates.name && project && project.name !== updates.name && project.gitRepoPath) {
@@ -220,16 +354,6 @@ export class ProjectManager {
         }
       }
     }
-
-    this.state.projects = this.state.projects.map((p) => {
-      if (p.id !== id) return p;
-      return {
-        ...p,
-        ...updates,
-        updatedAt: new Date(),
-      };
-    });
-    await this.persistence.persistProjects();
   }
 
   /**
@@ -338,7 +462,17 @@ export class ProjectManager {
               sharedConnectionIds.has(c.sharedConnectionId),
           );
           for (const conn of importedConnections) {
-            await this.persistence.removePersistedConnection(conn.id);
+            await this.removeStoredConnection(conn.id);
+          }
+          // Out of the project's connection order too (saved with its state).
+          const removed = new Set(importedConnections.map((c) => c.id));
+          const order = this.state.connectionOrderByProject[projectId] ?? [];
+          if (order.some((id) => removed.has(id))) {
+            this.state.connectionOrderByProject = {
+              ...this.state.connectionOrderByProject,
+              [projectId]: order.filter((id) => !removed.has(id)),
+            };
+            this.persistence.scheduleProject(projectId);
           }
           this.state.connections = this.state.connections.filter(
             (c) =>
@@ -363,8 +497,12 @@ export class ProjectManager {
   }
 
   /**
-   * Delete a project and all its connections.
-   * Cannot delete the last project.
+   * Delete a project and everything in it. Cannot delete the last project
+   * (returns false). Core removes it in one transaction, with its
+   * connections (and their secrets), saved queries, dashboards and saved
+   * workflows (Decision 9); a failure throws, worded for the user, and the
+   * project stays. Its connections' shared files stay in the repo: removing
+   * a project here doesn't remove it from the team.
    */
   async remove(id: string): Promise<boolean> {
     // Cannot delete the last project
@@ -372,36 +510,17 @@ export class ProjectManager {
       void log.warn("Cannot delete the last project");
       return false;
     }
-
-    // Delete all connections in the project (must await to avoid race conditions
-    // where setActiveForProject schedules persistence for the soon-to-be-deleted project)
-    const projectConnections = this.state.connections.filter((c) => c.projectId === id);
-    if (this.removeConnection) {
-      for (const connection of projectConnections) {
-        await this.removeConnection(connection.id, { skipUnshare: true });
-        // Cancel any debounced persistence scheduled by removeConnection
-        // (e.g. via setActiveForProject) before the next iteration's await
-        // gives the timer a chance to fire against the soon-to-be-deleted project
-        this.persistence.cancelPendingPersistenceFor(id);
-      }
+    const project = this.state.projects.find((p) => p.id === id);
+    try {
+      const { seq } = await this.state.librarySeqs.write([rowKey("project", id)], () =>
+        getLibrary().removeProject(id),
+      );
+      this.state.librarySeqs.note(rowKey("project", id), seq);
+    } catch (error) {
+      if (errorCode(error) === LAST_PROJECT) return false;
+      throw libraryError(error, this.nameOf);
     }
-
-    // Remove project and its state from database
-    await this.persistence.removeProjectState(id);
-    await this.persistence.removeProject(id);
-
-    // Remove from in-memory state
-    this.state.projects = this.state.projects.filter((p) => p.id !== id);
-    this.lifecycle.removed?.(id);
-
-    // Switch active project if needed
-    if (this.state.activeProjectId === id) {
-      // Clear active project ID first to prevent setActive from trying
-      // to persist state for the just-deleted project (FK constraint)
-      this.state.activeProjectId = null;
-      await this.setActive(this.state.projects[0]?.id || null);
-    }
-
+    if (project) await this.forgetRemovedProject(project, false);
     return true;
   }
 
@@ -445,79 +564,117 @@ export class ProjectManager {
   }
 
   /**
-   * Add a custom label to a project.
+   * Add a custom label to a project. Core assigns its id and refuses a
+   * taken name or a bad colour (thrown, worded for the user). The project's
+   * `updatedAt` stays (Decision 10).
    */
   async addCustomLabel(
     projectId: string,
     label: Omit<ConnectionLabel, "id" | "isPredefined">,
   ): Promise<ConnectionLabel> {
-    const newLabel: ConnectionLabel = {
-      id: `label-${crypto.randomUUID()}`,
-      name: label.name,
-      color: label.color,
-      isPredefined: false,
-    };
-
-    this.state.projects = this.state.projects.map((p) => {
-      if (p.id !== projectId) return p;
-      return {
-        ...p,
-        customLabels: [...p.customLabels, newLabel],
-        updatedAt: new Date(),
-      };
-    });
-    await this.persistence.persistProjects();
-
-    return newLabel;
+    try {
+      const { value, seq } = await this.state.librarySeqs.write(
+        [rowKey("project", projectId)],
+        () => getLibrary().createLabel(projectId, { name: label.name, color: label.color }),
+      );
+      // Shown at once; the project is then read again at a `seq` at least
+      // this new, so its `seq` is recorded only with its whole value (C1).
+      this.state.projects = this.state.projects.map((p) =>
+        p.id === projectId ? { ...p, customLabels: [...p.customLabels, value] } : p,
+      );
+      await this.resyncAfterLabelWrite(projectId, seq, []);
+      return value;
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
   }
 
   /**
-   * Remove a custom label from a project.
-   * Also removes the label from all connections.
+   * Remove a custom label from a project. Core strips it from every
+   * connection that had it in the same transaction (Decision 10), and the
+   * page does the same.
    */
   async removeCustomLabel(projectId: string, labelId: string): Promise<void> {
-    // Remove from project
-    this.state.projects = this.state.projects.map((p) => {
-      if (p.id !== projectId) return p;
-      return {
-        ...p,
-        customLabels: p.customLabels.filter((l) => l.id !== labelId),
-        updatedAt: new Date(),
-      };
-    });
-    await this.persistence.persistProjects();
-
-    // Remove from connections
-    this.state.connections = this.state.connections.map((c) => {
-      if (c.projectId !== projectId) return c;
-      if (!c.labelIds.includes(labelId)) return c;
-      return {
-        ...c,
-        labelIds: c.labelIds.filter((id) => id !== labelId),
-      };
-    });
+    let connectionIds: string[];
+    let removedAt: ChangeSeq;
+    try {
+      const result = await this.state.librarySeqs.write(
+        [rowKey("project", projectId), "connection:"],
+        () => getLibrary().removeLabel(projectId, labelId),
+      );
+      connectionIds = result.value.connectionIds;
+      removedAt = result.seq;
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
+    this.state.projects = this.state.projects.map((p) =>
+      p.id === projectId
+        ? { ...p, customLabels: p.customLabels.filter((l) => l.id !== labelId) }
+        : p,
+    );
+    const stripped = new Set(connectionIds);
+    this.state.connections = this.state.connections.map((c) =>
+      stripped.has(c.id) || c.labelIds.includes(labelId)
+        ? { ...c, labelIds: c.labelIds.filter((id) => id !== labelId) }
+        : c,
+    );
+    await this.resyncAfterLabelWrite(projectId, removedAt, connectionIds);
   }
 
   /**
-   * Update a custom label.
+   * After a label write at `seq`: read the project (and the connections the
+   * write stripped) again and apply them whole, at a `seq` at least that
+   * new. Recording `seq` for rows this page only patched would hide another
+   * window's earlier change to them (a rename at n-1 under a label at n).
+   * A failed read is logged: the page shows the write, and the next change
+   * or reload brings the rest.
+   */
+  private async resyncAfterLabelWrite(
+    projectId: string,
+    seq: ChangeSeq,
+    connectionIds: readonly string[],
+  ): Promise<void> {
+    this.state.librarySeqs.observe(seq);
+    try {
+      const projects = await getLibrary().listProjects();
+      this.applyProjects(projects.value, projects.seq, [projectId], false);
+      if (connectionIds.length > 0) {
+        await this.connectionManager?.refreshFromLibrary(connectionIds, { remote: false });
+      }
+    } catch (error) {
+      void log.warn("Reading the project again after a label change failed:", error);
+    }
+  }
+
+  /**
+   * Update a custom label's name or colour. A refusal throws, worded for
+   * the user, and changes nothing.
    */
   async updateCustomLabel(
     projectId: string,
     labelId: string,
     updates: Partial<Pick<ConnectionLabel, "name" | "color">>,
   ): Promise<void> {
-    this.state.projects = this.state.projects.map((p) => {
-      if (p.id !== projectId) return p;
-      return {
-        ...p,
-        customLabels: p.customLabels.map((l) => {
-          if (l.id !== labelId) return l;
-          return { ...l, ...updates };
-        }),
-        updatedAt: new Date(),
-      };
-    });
-    await this.persistence.persistProjects();
+    let written: ChangeSeq;
+    try {
+      const { value, seq } = await this.state.librarySeqs.write(
+        [rowKey("project", projectId)],
+        () =>
+          getLibrary().updateLabel(projectId, labelId, {
+            ...(updates.name !== undefined ? { name: updates.name } : {}),
+            ...(updates.color !== undefined ? { color: updates.color } : {}),
+          }),
+      );
+      this.state.projects = this.state.projects.map((p) =>
+        p.id === projectId
+          ? { ...p, customLabels: p.customLabels.map((l) => (l.id === labelId ? value : l)) }
+          : p,
+      );
+      written = seq;
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
+    await this.resyncAfterLabelWrite(projectId, written, []);
   }
 
   /**
@@ -528,17 +685,9 @@ export class ProjectManager {
     const createdIds: string[] = [];
 
     for (const sharedProject of selectedProjects) {
-      // Deduplicate name
-      let name = sharedProject.name;
-      const existingNames = new Set(this.state.projects.map((p) => p.name));
-      if (existingNames.has(name)) {
-        let suffix = 2;
-        while (existingNames.has(`${name} (${suffix})`)) suffix++;
-        name = `${name} (${suffix})`;
-      }
-
-      // Create the local project
-      const project = await this.add(name);
+      // A taken name becomes the first free "<name> (2)": Core picks it
+      // (Decision 13).
+      const project = await this.add(sharedProject.name, undefined, { renameIfTaken: true });
       createdIds.push(project.id);
 
       // Link to git repo (registers repo, loads configs, exports existing connections)
@@ -570,13 +719,7 @@ export class ProjectManager {
     if (this.sharedQueryManager) {
       const queries = this.state.queriesByProject[projectId] ?? [];
       const reconciled = this.sharedQueryManager.reconcileWithGitFiles(projectId, queries);
-      if (reconciled !== queries) {
-        this.state.queriesByProject = {
-          ...this.state.queriesByProject,
-          [projectId]: reconciled,
-        };
-        this.persistence.scheduleProject(projectId);
-      }
+      if (reconciled !== queries) await this.storeReconciledQueries(projectId, queries, reconciled);
     }
 
     // Reconcile dashboards
@@ -591,6 +734,75 @@ export class ProjectManager {
         await this.persistence.persistProjectDashboards(projectId);
       }
     }
+  }
+
+  /**
+   * Store what the reconcile changed, one call per query: a new `.sql`
+   * file is a new saved query (Core's id), a changed one a patch of the
+   * fields that differ. Each result is shown as it lands; a failed one is
+   * logged and the rest go on.
+   */
+  private async storeReconciledQueries(
+    projectId: string,
+    before: readonly Query[],
+    after: readonly Query[],
+  ): Promise<void> {
+    const library = getLibrary();
+    const seqs = this.state.librarySeqs;
+    const byId = new Map(before.map((q) => [q.id, q]));
+    const show = (query: Query) => {
+      const list = this.state.queriesByProject[projectId] ?? [];
+      this.state.queriesByProject = {
+        ...this.state.queriesByProject,
+        [projectId]: list.some((q) => q.id === query.id)
+          ? list.map((q) => (q.id === query.id ? query : q))
+          : [...list, query],
+      };
+    };
+    let versionsChanged = false;
+    for (const query of after) {
+      const old = byId.get(query.id);
+      try {
+        if (!old) {
+          const { value, seq } = await seqs.write([rowKey("savedQuery", NEW)], () =>
+            library.createSavedQuery({
+              projectId,
+              name: query.name,
+              query: query.query,
+              ...(query.parameters ? { parameters: query.parameters } : {}),
+              ...(query.description ? { description: query.description } : {}),
+              ...(query.databaseType ? { databaseType: query.databaseType } : {}),
+              ...(query.tags ? { tags: query.tags } : {}),
+              ...(query.folder ? { folder: query.folder } : {}),
+              shared: query.shared,
+            }),
+          );
+          seqs.note(rowKey("savedQuery", value.id), seq);
+          show(savedQueryFromWire(value));
+        } else if (old !== query) {
+          const patch = savedQueryPatch(old, query);
+          if (Object.keys(patch).length === 0) continue;
+          const { value, seq } = await seqs.write([rowKey("savedQuery", query.id)], () =>
+            library.updateSavedQuery(query.id, patch),
+          );
+          seqs.note(rowKey("savedQuery", query.id), seq);
+          show(savedQueryFromWire(value.query));
+          if (value.version || value.prunedVersionIds.length > 0) versionsChanged = true;
+        }
+      } catch (error) {
+        // A shared file whose name another saved query already has, say.
+        // Renaming it would part it from its file, so it's said, not fixed.
+        void log.warn(`Storing a reconciled shared query failed:`, error);
+        errorToast(
+          m.shared_query_reconcile_failed({
+            name: query.name,
+            message: libraryErrorMessage(error, this.nameOf),
+          }),
+        );
+      }
+    }
+    // The versions the updates appended, read whole.
+    if (versionsChanged) await refreshQueryVersions(this.state, projectId);
   }
 
   /**
@@ -618,33 +830,7 @@ export class ProjectManager {
         );
         if (alreadyImported) continue;
 
-        // Create a local DatabaseConnection from the shared template
-        const connection: DatabaseConnection = {
-          id: `conn-${crypto.randomUUID()}`,
-          name: sharedConn.name,
-          type: sharedConn.type,
-          host: sharedConn.host,
-          port: sharedConn.port,
-          databaseName: sharedConn.databaseName,
-          username: "",
-          password: "",
-          sslMode: sharedConn.sslMode,
-          projectId,
-          labelIds: [],
-          sharedConnectionId: sharedConn.id,
-          sshTunnel: sharedConn.sshTunnel
-            ? {
-                enabled: true,
-                host: sharedConn.sshTunnel.host,
-                port: sharedConn.sshTunnel.port,
-                username: "",
-                authMethod: "key",
-              }
-            : undefined,
-        };
-
-        this.state.connections = [...this.state.connections, connection];
-        await this.persistence.persistConnection(connection);
+        await this.addImportedConnection(sharedConn, projectId);
       }
     }
   }
@@ -662,34 +848,81 @@ export class ProjectManager {
     );
     if (alreadyImported) return;
 
-    const connection: DatabaseConnection = {
-      id: `conn-${crypto.randomUUID()}`,
-      name: sharedConn.name,
-      type: sharedConn.type,
-      host: sharedConn.host,
-      port: sharedConn.port,
-      databaseName: sharedConn.databaseName,
-      username: "",
-      password: "",
-      sslMode: sharedConn.sslMode,
-      projectId,
-      labelIds: [],
-      sharedConnectionId: sharedConn.id,
-      sshTunnel: sharedConn.sshTunnel
-        ? {
-            enabled: true,
-            host: sharedConn.sshTunnel.host,
-            port: sharedConn.sshTunnel.port,
-            username: "",
-            authMethod: "key",
-          }
-        : undefined,
-    };
-
-    this.state.connections = [...this.state.connections, connection];
-    await this.persistence.persistConnection(connection);
+    await this.addImportedConnection(sharedConn, projectId);
   }
 
+  /**
+   * Store a connection made from a shared template (Core's id; a taken name
+   * becomes "<name> (2)"), then list it like a new one: in memory with its
+   * maps, at the end of its project's order. A refusal throws, worded for
+   * the user, and adds nothing.
+   */
+  private async addImportedConnection(
+    sharedConn: SharedConnection,
+    projectId: string,
+  ): Promise<void> {
+    const draft = {
+      ...connectionDraft(
+        {
+          name: sharedConn.name,
+          type: sharedConn.type,
+          host: sharedConn.host,
+          port: sharedConn.port,
+          databaseName: sharedConn.databaseName,
+          username: "",
+          sslMode: sharedConn.sslMode,
+          sharedConnectionId: sharedConn.id,
+          sshTunnel: sharedConn.sshTunnel
+            ? {
+                enabled: true,
+                host: sharedConn.sshTunnel.host,
+                port: sharedConn.sshTunnel.port,
+                username: "",
+                authMethod: "key",
+              }
+            : undefined,
+          // Shared templates belong to the repo: not local-only.
+          isLocalOnly: false,
+        },
+        projectId,
+      ),
+      connected: false,
+      renameIfTaken: true,
+    };
+    let connection: DatabaseConnection;
+    try {
+      const { value, seq } = await this.state.librarySeqs.write([rowKey("connection", NEW)], () =>
+        getLibrary().createConnection(draft),
+      );
+      connection = applyConnectionRow(this.state, value, seq);
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
+    this.stateRestoration.initializeConnectionMaps(connection.id);
+    const order = this.state.connectionOrderByProject[connection.projectId] ?? [];
+    if (!order.includes(connection.id)) {
+      this.state.connectionOrderByProject = {
+        ...this.state.connectionOrderByProject,
+        [connection.projectId]: [...order, connection.id],
+      };
+      // The order is saved with the project's state.
+      this.persistence.scheduleProject(connection.projectId);
+    }
+  }
+
+  /** Delete a stored connection (the ones a cleared git path imported). */
+  private async removeStoredConnection(id: string): Promise<void> {
+    try {
+      const { seq } = await this.state.librarySeqs.write([rowKey("connection", id)], () =>
+        getLibrary().removeConnection(id),
+      );
+      this.state.librarySeqs.note(rowKey("connection", id), seq);
+    } catch (error) {
+      throw libraryError(error, this.nameOf);
+    }
+  }
+
+  /** The in-memory stand-in project when the projects couldn't be read. */
   private createDefaultProject(): Project {
     const now = new Date();
     return {
@@ -698,18 +931,6 @@ export class ProjectManager {
       createdAt: now,
       updatedAt: now,
       customLabels: [],
-    };
-  }
-
-  private deserializeProject(persisted: PersistedProject): Project {
-    return {
-      id: persisted.id,
-      name: persisted.name,
-      description: persisted.description,
-      createdAt: new Date(persisted.createdAt),
-      updatedAt: new Date(persisted.updatedAt),
-      customLabels: persisted.customLabels,
-      gitRepoPath: persisted.gitRepoPath,
     };
   }
 
@@ -972,4 +1193,13 @@ export class ProjectManager {
       this.state.paneLayoutByProject = rest;
     }
   }
+}
+
+/** Whether another window's refetch changed what the project settings edit. */
+function projectDiffers(a: Project, b: Project): boolean {
+  return (
+    a.name !== b.name ||
+    (a.description ?? "") !== (b.description ?? "") ||
+    (a.gitRepoPath ?? "") !== (b.gitRepoPath ?? "")
+  );
 }

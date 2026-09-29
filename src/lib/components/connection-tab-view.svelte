@@ -6,6 +6,7 @@
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { toast } from "svelte-sonner";
 	import { extractErrorMessage } from "$lib/errors/types";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { isFileNotFoundError } from "$lib/providers/wire";
 	import {
 		getConnectionData,
@@ -13,6 +14,10 @@
 		hasAllCredentials,
 	} from "$lib/utils/connection-string.js";
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
+	import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+	import { untrack } from "svelte";
+	import { formDataFromPrefill } from "$lib/hooks/database/connection-tabs.svelte.js";
+	import type { ConnectionFields } from "$lib/hooks/database/library/convert.js";
 	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 
@@ -63,15 +68,49 @@
 	let isTesting = $state(false);
 	let connectionError = $state<string | null>(null);
 
+	// What the edit form opened with (phase 5d-1): saving sends only the
+	// fields that differ from it, so another window's change to a field
+	// this form didn't touch survives. And how many changes from other
+	// windows the connection had then, to say when it gets another.
+	let baseline = $state<ConnectionFields | null>(null);
+	let openedRevision = $state(0);
+	const revisionKey = $derived(tab.connectionId ? `connection:${tab.connectionId}` : null);
+	const currentRevision = $derived(
+		revisionKey ? (db.state.libraryRemoteRevision[revisionKey] ?? 0) : 0,
+	);
+
 	// Initialize local state from the tab prop (runs once since formDataInitialized gates it).
 	$effect(() => {
 		if (!formDataInitialized) {
 			formData = { ...tab.formData } as WizardFormData;
 			currentStep = tab.currentStep;
 			connectionError = tab.error;
+			baseline = getConnectionData(tab.formData);
+			openedRevision = untrack(() => currentRevision);
 			formDataInitialized = true;
 		}
 	});
+
+	/** Another window changed this saved connection while the form edits it (edit or reconnect). */
+	const changedElsewhere = $derived(
+		tab.connectionId !== null && formDataInitialized && currentRevision > openedRevision,
+	);
+
+	/** Put the stored connection back in the form, keeping the secrets typed. */
+	const reloadFromStore = () => {
+		const connection = db.state.connections.find((c) => c.id === tab.connectionId);
+		if (!connection) return;
+		const fresh = formDataFromPrefill(connection);
+		formData = {
+			...fresh,
+			password: formData.password,
+			sshPassword: formData.sshPassword,
+			sshKeyPassphrase: formData.sshKeyPassphrase,
+		} as WizardFormData;
+		baseline = getConnectionData(fresh);
+		openedRevision = currentRevision;
+		connectionError = null;
+	};
 
 	// When credentials are loaded from keyring, sync non-empty values to local state.
 	// This must run only once — otherwise editing a synced field (e.g. deleting a
@@ -131,7 +170,7 @@
 		try {
 			const connectionData = getConnectionData(formData as ConnectionFormData);
 			if (tabConnectionId) {
-				await db.connections.reconnect(tabConnectionId, connectionData);
+				await db.connections.reconnect(tabConnectionId, connectionData, baseline ?? undefined);
 			}
 			// Mark onboarding as complete
 			onboardingStore.completeWizard();
@@ -209,11 +248,12 @@
 			};
 
 			if (tabMode === "edit" && tabConnectionId) {
-				// Edit mode - just update settings without reconnecting
-				await db.connections.update(tabConnectionId, connectionData);
+				// Edit mode - just update settings without reconnecting: the fields
+				// changed since the form opened (or was reloaded).
+				await db.connections.update(tabConnectionId, connectionData, baseline ?? undefined);
 				toast.success(m.wizard_edit_success());
 			} else if (tabConnectionId) {
-				await db.connections.reconnect(tabConnectionId, connectionData);
+				await db.connections.reconnect(tabConnectionId, connectionData, baseline ?? undefined);
 				// Mark onboarding as complete
 				onboardingStore.completeWizard();
 				// Show toast
@@ -274,8 +314,14 @@
 
 	const handleDeleteConnection = async () => {
 		if (!tab.connectionId) return;
-		await db.connections.remove(tab.connectionId);
 		showDeleteConfirm = false;
+		try {
+			await db.connections.remove(tab.connectionId);
+		} catch (error) {
+			showErrorUnlessShown(error);
+			// A connection whose row wasn't deleted stays, and so does its tab.
+			if (db.state.connections.some((c) => c.id === tab.connectionId)) return;
+		}
 		db.connectionTabs.remove(tab.id);
 	};
 </script>
@@ -295,6 +341,19 @@
 					{/if}
 				</h1>
 			</div>
+
+			{#if changedElsewhere}
+				<div
+					class="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+					role="status"
+				>
+					<span>{m.library_changed_elsewhere()}</span>
+					<Button size="sm" variant="outline" onclick={reloadFromStore}>
+						<RefreshCwIcon class="size-3.5 me-1" />
+						{m.library_changed_elsewhere_reload()}
+					</Button>
+				</div>
+			{/if}
 
 			<!-- Step Content -->
 			<div class="min-h-[300px]">

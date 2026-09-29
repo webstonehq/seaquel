@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
 	import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
@@ -118,7 +119,7 @@
 										aria-label={m.history_delete_saved()}
 										onclick={(e) => {
 											e.stopPropagation();
-											db.savedQueries.deleteQuery(item.id);
+											void db.savedQueries.deleteQuery(item.id).catch(showErrorUnlessShown);
 										}}
 									>
 										<Trash2Icon />

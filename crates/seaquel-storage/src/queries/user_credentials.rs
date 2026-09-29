@@ -4,7 +4,7 @@
 use seaquel_types::storage::PersistedCredential;
 
 use super::codec::{text, Result};
-use crate::Storage;
+use crate::{Storage, WriteTx};
 
 pub async fn load(st: &Storage, scope: &str, key: &str) -> Result<Option<PersistedCredential>> {
     let row = sqlx::query(
@@ -59,4 +59,18 @@ pub async fn remove_all_for_key(st: &Storage, key: &str) -> Result<()> {
         .execute(st.pool())
         .await?;
     Ok(())
+}
+
+/// A connection's vault rows, inside a write transaction (its removal, on
+/// web): the `db`, `ssh` and `ssh-key` scopes under `key` (the connection
+/// id) only, so a license or AI provider credential that happens to share
+/// the id stays. Returns how many rows it deleted.
+pub async fn remove_all_for_key_in(tx: &mut WriteTx, key: &str) -> Result<u64> {
+    let done = sqlx::query(
+        "DELETE FROM user_credentials WHERE key = ? AND scope IN ('db', 'ssh', 'ssh-key')",
+    )
+    .bind(key)
+    .execute(tx.conn())
+    .await?;
+    Ok(done.rows_affected())
 }

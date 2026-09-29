@@ -14,8 +14,13 @@
  *   iterator then ends with an `error` whose code is `CANCELLED`. A stream
  *   that ends with no `done` or `error` (Core was told to cancel it) ends the
  *   same way, so a consumer always sees one terminal event.
- * - `events` delivers `connectionClosed` events: a connection Core closed
- *   without the GUI asking (`WORKSPACE_EVICTED`, `CONNECTION_CLOSED`, …).
+ * - `events` delivers the workspace's events: `connectionClosed` (a
+ *   connection Core closed without the GUI asking: `WORKSPACE_EVICTED`,
+ *   `CONNECTION_CLOSED`, …) and `storageChanged` (a stored write committed,
+ *   from any of the user's windows or tabs, this one's included: its
+ *   `origin` is `pageOrigin()` then; phase 5d, Decisions 16–18). Events
+ *   sent while the page wasn't subscribed are lost: `onResubscribed` says
+ *   when to reload, and `onEventsUnavailable` when updates stopped.
  *
  * `callDb` and the `Db*` types give each `db` method its params and result,
  * derived from the generated wire types the way `$lib/storage/rust-client`
@@ -76,6 +81,34 @@ export type EventOf<R extends StreamRequest> = R extends QueryStreamRequest
 /** A connection Core closed without the GUI asking. */
 export type ConnectionClosedEvent = Extract<CoreEvent, { type: "connectionClosed" }>;
 
+/**
+ * A stored write committed (phase 5d): its kind, scope, ids (`null`: reload
+ * the kind in the scope), the writer's `origin` and the change `seq`. Never
+ * a value.
+ */
+export type StorageChangedEvent = Extract<CoreEvent, { type: "storageChanged" }>;
+
+/** What `events` delivers. */
+export type WorkspaceEvent = ConnectionClosedEvent | StorageChangedEvent;
+
+/** `onResubscribed`'s argument: `initial` on the page's first subscription. */
+export interface ResubscribedInfo {
+  initial: boolean;
+}
+
+/**
+ * Why `events` stopped delivering: `ACCESS_LOST` (web, 1008: signed out or
+ * removed; nothing more until a new query reconnects), `TOO_MANY_TABS`
+ * (web: the user has too many sockets open; retried with backoff) or
+ * `EVENTS_UNAVAILABLE` (desktop: `core_events` couldn't be registered).
+ */
+export type EventsUnavailableReason = "ACCESS_LOST" | "TOO_MANY_TABS" | "EVENTS_UNAVAILABLE";
+
+/** Whether `event` is one `events` delivers (not a stream's or a run's). */
+export function isWorkspaceEvent(event: CoreEvent): event is WorkspaceEvent {
+  return event.type === "connectionClosed" || event.type === "storageChanged";
+}
+
 export interface StreamOptions {
   /** Aborting it cancels the stream. */
   signal?: AbortSignal;
@@ -84,8 +117,23 @@ export interface StreamOptions {
 export interface CoreClient {
   call(request: CoreRequest): Promise<CoreResponse>;
   stream<R extends StreamRequest>(request: R, options?: StreamOptions): AsyncIterable<EventOf<R>>;
-  /** Subscribe to `connectionClosed` events; returns the unsubscribe. */
-  events(handler: (event: ConnectionClosedEvent) => void): () => void;
+  /** Subscribe to `connectionClosed` and `storageChanged` events; returns the unsubscribe. */
+  events(handler: (event: WorkspaceEvent) => void): () => void;
+  /**
+   * Runs each time the page's event channel starts: `initial` the first
+   * time, then after every reconnect (web) or re-registration (desktop).
+   * Events sent while the channel was down are lost, so a subscriber
+   * reloads everything it shows. Register it before `events`, so the first
+   * start isn't missed. Returns the unsubscribe.
+   */
+  onResubscribed(handler: (info: ResubscribedInfo) => void): () => void;
+  /**
+   * Runs when events stop arriving for a while (see
+   * `EventsUnavailableReason`), so the page can say it isn't receiving
+   * updates. The next `onResubscribed` means they're back. Returns the
+   * unsubscribe.
+   */
+  onEventsUnavailable(handler: (reason: EventsUnavailableReason) => void): () => void;
 }
 
 // -------- Codes --------

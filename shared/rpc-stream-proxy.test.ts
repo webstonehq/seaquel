@@ -8,7 +8,12 @@ import { createServer, request, type IncomingHttpHeaders, type Server } from "no
 import type { AddressInfo, Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
-import { attachRpcStreamProxy, RPC_STREAM_PATH, UPGRADE_HOST_HEADER } from "./rpc-stream-proxy.js";
+import {
+  attachRpcStreamProxy,
+  RPC_STREAM_PATH,
+  streamOrigin,
+  UPGRADE_HOST_HEADER,
+} from "./rpc-stream-proxy.js";
 
 /** What the fake Rust service saw. */
 type Seen = { url: string | undefined; headers: IncomingHttpHeaders };
@@ -226,6 +231,37 @@ describe("/api/rpc/stream proxy", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(ACCESS_URL);
     expect(new Headers(fetchMock.mock.calls[0][1].headers).get("origin")).toBe(ORIGIN);
     ws.close();
+  });
+
+  it("forwards a well-formed ?origin= as X-Seaquel-Origin, and nothing else", async () => {
+    const cases: Array<[string, string | undefined]> = [
+      ["?origin=tab-1_A", "tab-1_A"],
+      [`?origin=${"x".repeat(65)}`, undefined],
+      ["?origin=a%20b", undefined],
+      ["?origin=a%2Fb", undefined],
+      ["?origin=t1&origin=t2", undefined],
+      ["?origin=", undefined],
+      ["", undefined],
+    ];
+    for (const [query, forwarded] of cases) {
+      seen.length = 0;
+      const ws = await openBrowser(`${RPC_STREAM_PATH}${query}`, {
+        cookie: "session=alice",
+        "x-seaquel-origin": "browser-header",
+      });
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+      expect(seen[0].url, query).toBe("/rpc/stream");
+      expect(seen[0].headers["x-seaquel-origin"], query).toBe(forwarded);
+      expect(seen[0].headers["x-seaquel-user"]).toBe("alice");
+      ws.close();
+    }
+  });
+
+  it("streamOrigin takes exactly one well-formed origin", () => {
+    expect(streamOrigin("/api/rpc/stream?origin=abc-9")).toBe("abc-9");
+    expect(streamOrigin("/api/rpc/stream?origin=a.b")).toBeNull();
+    expect(streamOrigin("/api/rpc/stream")).toBeNull();
+    expect(streamOrigin(undefined)).toBeNull();
   });
 
   it("passes the upgrade's Host to the gate, never a browser-sent copy", async () => {

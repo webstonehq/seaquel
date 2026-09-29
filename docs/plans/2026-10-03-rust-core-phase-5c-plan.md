@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or superpowers:executing-plans) to implement this plan task by task.
 
-**Status:** implemented; manual checks pending (the owner). The owner answered the open questions on 2026-10-03, taking the recommendation on each ("Answered questions"). Where the code departs from the text below, the repo is authoritative; see "Execution notes", "Checkpoint" and "Follow-ups" at the end.
+**Status:** implemented; manual checks passed (the owner, 2026-10-03). The owner answered the open questions on 2026-10-03, taking the recommendation on each ("Answered questions"). Where the code departs from the text below, the repo is authoritative; see "Execution notes", "Checkpoint" and "Follow-ups" at the end.
 
 **Goal:** On desktop and web, every write the grid makes goes through Core, and so does the data tab's query. A cell edit, Set default, row insert or row delete is an edit intent: a table, a key, a column and a value. Core reads the table's metadata, checks the key against the primary key, builds the SQL with the connection's dialect and runs it, or hands it back to be queued. Applying pending changes is one Core call. A batch of DML only applies in one transaction; a batch with DDL applies in order and stops at the first failure (the owner's Decision 17 in 5b). The data tab sends its filters, sort and page, and Core builds, pages and counts the query. Workflow query nodes run read-only on their own connection. The TypeScript keeps the queue, the sheet, the grid and the dialogs, and no longer builds or classifies SQL.
 
@@ -790,7 +790,7 @@ Probe fixes are budgeted separately.
 - **Effort log:** the totals.
 - **The full check list,** as 5b's checkpoint, the oxlint type check included.
 
-**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5c cost", the execution notes, release notes, checkpoint, manual checks and follow-ups below, and the effort log's totals are written. The full check list ran; see "Checkpoint". The manual checks below are the owner's.
+**Status (Task 8):** done. CLAUDE.md, the design doc's status line and "Phase 5c cost", the execution notes, release notes, checkpoint, manual checks and follow-ups below, and the effort log's totals are written. The full check list ran; see "Checkpoint". The owner ran the manual checks below; all pass.
 
 ## Manual checks
 
@@ -935,7 +935,7 @@ The desktop checks compiled the working tree's unrelated CLI-download changes in
 
 CI doesn't run oxfmt. `oxfmt --check` passes on CLAUDE.md and flags the design doc, this plan and the effort log, whose tables and lists are in the plans' own style (the design doc was already flagged in 5b); left as they are.
 
-**Manual checks:** pending (the owner).
+**Manual checks:** all pass (the owner, 2026-10-03).
 
 **Not run:** the release workflow and a signed build.
 

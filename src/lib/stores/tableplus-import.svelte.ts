@@ -1,3 +1,4 @@
+import type { ConnectionIdentity } from "$lib/services/connection-import";
 import { getStorage } from "$lib/storage";
 import type { TablePlusImportableConnection } from "$lib/types/tableplus";
 import { discoverTablePlusConnections } from "$lib/services/tableplus-import";
@@ -36,11 +37,16 @@ class TablePlusImportStore {
   /**
    * Check for TablePlus connections and open dialog if found
    */
-  async checkAndShowDialog(existingConnectionIds: string[]): Promise<void> {
+  /**
+   * `existing`: the connections of the project they'd be imported into; one
+   * already there (same type, host, port, database and user) is shown as a
+   * duplicate.
+   */
+  async checkAndShowDialog(existing: readonly ConnectionIdentity[]): Promise<void> {
     this.isLoading = true;
 
     try {
-      const importable = await discoverTablePlusConnections(existingConnectionIds);
+      const importable = await discoverTablePlusConnections(existing);
 
       if (importable.length > 0) {
         this.connections = importable;

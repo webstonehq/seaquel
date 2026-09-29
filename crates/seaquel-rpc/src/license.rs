@@ -22,7 +22,8 @@ use crate::RpcError;
     tag = "method",
     content = "params",
     rename_all = "camelCase",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum DesktopLicenseRequest {

@@ -25,8 +25,14 @@ pub fn status_for(code: &str) -> StatusCode {
         // Secrets (the web workspace has no store), SSH tunnels, and calls
         // an engine has no Rust implementation for.
         NOT_SUPPORTED => StatusCode::NOT_IMPLEMENTED,
-        // Not this user's, or not open: the same answer either way.
-        "CONNECTION_NOT_FOUND" => StatusCode::NOT_FOUND,
+        // Not this user's, or not open: the same answer either way. The
+        // library's rows (phase 5d-1) too: another user's id is simply not
+        // in this user's file. (`SAVED_CONNECTION_NOT_FOUND`'s wire code is
+        // `CONNECTION_NOT_FOUND`.)
+        "CONNECTION_NOT_FOUND"
+        | "PROJECT_NOT_FOUND"
+        | "SAVED_QUERY_NOT_FOUND"
+        | "LABEL_NOT_FOUND" => StatusCode::NOT_FOUND,
         // The database refused the login (not the app's session: that's
         // Node's 401).
         "AUTH_ERROR" => StatusCode::BAD_REQUEST,
@@ -40,9 +46,18 @@ pub fn status_for(code: &str) -> StatusCode {
         // 200; the code is mapped for any call that refuses with it).
         // Or a transaction opened by hand is already open on the
         // connection (`TRANSACTION_OPEN`, SQL Server and DuckDB).
-        "NO_ROWS_AFFECTED" | "WORKSPACE_CLOSED" | "CONFIRM_REQUIRED" | "TRANSACTION_OPEN" => {
-            StatusCode::CONFLICT
-        }
+        //
+        // The library (phase 5d-1): a name another row of the scope has
+        // (`NAME_TAKEN`), the last project (`LAST_PROJECT`), or a write to a
+        // workspace opened read-only (`STORAGE_READ_ONLY`; the web's never
+        // is).
+        "NO_ROWS_AFFECTED"
+        | "WORKSPACE_CLOSED"
+        | "CONFIRM_REQUIRED"
+        | "TRANSACTION_OPEN"
+        | "NAME_TAKEN"
+        | "LAST_PROJECT"
+        | "STORAGE_READ_ONLY" => StatusCode::CONFLICT,
         // The user holds as many connections as the web server allows
         // (`WEB_CONNECTION_LIMITS`), or has as many calls in flight
         // (`MAX_IN_FLIGHT_BYTES_PER_USER`, `MAX_EDIT_CALLS_PER_USER`).
@@ -89,6 +104,16 @@ mod tests {
             status_for("CONNECTION_OPTION_NOT_ALLOWED"),
             StatusCode::BAD_REQUEST
         );
+        for code in ["NAME_TAKEN", "LAST_PROJECT", "STORAGE_READ_ONLY"] {
+            assert_eq!(status_for(code), StatusCode::CONFLICT, "{code}");
+        }
+        for code in [
+            "PROJECT_NOT_FOUND",
+            "SAVED_QUERY_NOT_FOUND",
+            "LABEL_NOT_FOUND",
+        ] {
+            assert_eq!(status_for(code), StatusCode::NOT_FOUND, "{code}");
+        }
         for code in ["STORAGE_ERROR", "STORAGE_CORRUPT", "SOMETHING_ELSE"] {
             assert_eq!(status_for(code), StatusCode::INTERNAL_SERVER_ERROR);
         }

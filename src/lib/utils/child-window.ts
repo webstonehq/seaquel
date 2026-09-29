@@ -1,6 +1,11 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface ChildWindowConfig {
+  /**
+   * The webview's label. Keep it to 1–64 of `[A-Za-z0-9_-]`: Core uses it
+   * as the window's write origin (phase 5d), and drops one that isn't.
+   * Today's labels: `main`, `theme-editor`, `log-viewer`.
+   */
   label: string;
   url: string;
   title: string;

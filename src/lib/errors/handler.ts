@@ -5,7 +5,7 @@
 
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
-import type { AppError, ErrorCode } from "./types";
+import { ShownError, extractErrorMessage, type AppError, type ErrorCode } from "./types";
 
 type ErrorSeverity = "error" | "warning" | "info";
 
@@ -63,6 +63,17 @@ export function handleError(error: AppError, options?: HandleErrorOptions): void
       toast.info(error.userMessage);
       break;
   }
+}
+
+/**
+ * Shows `error` with `errorToast`, unless it's a `ShownError` (the user has
+ * seen it already). For callers of operations that rethrow after a toast.
+ */
+export function showErrorUnlessShown(
+  error: unknown,
+  format: (message: string) => string = (message) => message,
+): void {
+  if (!(error instanceof ShownError)) errorToast(format(extractErrorMessage(error)));
 }
 
 /**

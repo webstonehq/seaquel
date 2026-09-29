@@ -5,11 +5,10 @@
 	import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
+	import { errorToast } from "$lib/utils/toast";
 	import { m } from "$lib/paraglide/messages.js";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
-	import type { DatabaseConnection } from "$lib/types";
-	import { DEFAULT_PROJECT_ID } from "$lib/types";
 
 	const db = useDatabase();
 
@@ -20,52 +19,18 @@
 	const hasSelections = $derived(selectedCount > 0);
 
 	async function handleImport() {
-		const selected = tablePlusImportStore.getSelectedConnections();
-		let importedCount = 0;
+		// Saved into the active project; a failed save is named and not counted.
+		const { imported, failures } = await db.connections.importConnections(
+			tablePlusImportStore.getSelectedConnections()
+		);
 
-		for (const conn of selected) {
-			try {
-				// Generate the connection ID that Seaquel would use
-				const connectionId =
-					conn.type === "sqlite"
-						? `conn-sqlite-${conn.databaseName}`
-						: `conn-${conn.host}-${conn.port}`;
-
-				// Check if already exists
-				if (db.state.connections.find((c) => c.id === connectionId)) {
-					continue;
-				}
-
-				// Create connection object (without connecting - password is empty)
-				const newConnection: DatabaseConnection = {
-					id: connectionId,
-					name: conn.name,
-					type: conn.type,
-					host: conn.host,
-					port: conn.port,
-					databaseName: conn.databaseName,
-					username: conn.username,
-					password: "", // User must enter this when connecting
-					sslMode: conn.sslMode,
-					sshTunnel: conn.sshTunnel,
-					projectId: db.state.activeProjectId || DEFAULT_PROJECT_ID,
-					labelIds: [],
-				};
-
-				// Add to state
-				db.state.connections.push(newConnection);
-
-				// Persist
-				await db.persistence.persistConnection(newConnection);
-
-				importedCount++;
-			} catch (error) {
-				console.error(`Failed to import connection ${conn.name}:`, error);
-			}
+		if (imported > 0) {
+			toast.success(m.tableplus_import_success({ count: imported }));
 		}
-
-		if (importedCount > 0) {
-			toast.success(m.tableplus_import_success({ count: importedCount }));
+		if (failures.length > 0) {
+			errorToast(
+				m.import_connections_failed({ count: failures.length, names: failures.join(", ") })
+			);
 		}
 
 		await tablePlusImportStore.completeImport();
@@ -114,7 +79,7 @@
 
 			<!-- Connection list -->
 			<div class="max-h-64 overflow-y-auto space-y-2 border rounded-lg p-2">
-				{#each tablePlusImportStore.connections as conn, index}
+				{#each tablePlusImportStore.connections as conn, index (index)}
 					<label
 						class="flex items-start gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
 						class:opacity-50={conn.isDuplicate}

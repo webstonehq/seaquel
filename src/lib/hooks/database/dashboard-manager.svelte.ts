@@ -8,6 +8,9 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import { getStorage } from "$lib/storage";
 import { log } from "$lib/utils/logger";
+import { errorToast } from "$lib/utils/toast";
+import { extractErrorMessage } from "$lib/errors";
+import { m } from "$lib/paraglide/messages.js";
 import {
   createDashboardVersionEntry,
   resolveDashboardVersions,
@@ -92,6 +95,15 @@ export class DashboardManager {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
 
+    // Remove the stored row first: if that fails the dashboard stays, as stored.
+    try {
+      await getStorage().dashboards.remove(id);
+    } catch (error) {
+      void log.error("Failed to delete dashboard:", error);
+      errorToast(m.dashboard_delete_failed({ message: extractErrorMessage(error) }));
+      return;
+    }
+
     // Stop any auto-refresh timers
     const dashboard = this.getDashboard(id);
     if (dashboard) {
@@ -107,12 +119,6 @@ export class DashboardManager {
       ...this.state.dashboardsByProject,
       [projectId]: dashboards.filter((d) => d.id !== id),
     };
-
-    try {
-      await getStorage().dashboards.remove(id);
-    } catch (error) {
-      void log.error("Failed to delete dashboard:", error);
-    }
   }
 
   async renameDashboard(id: string, name: string): Promise<void> {
@@ -423,21 +429,25 @@ export class DashboardManager {
 
   // === STARRING ===
 
-  toggleDashboardStarred(id: string): void {
+  /** Star or unstar a dashboard. The star is on the dashboard's own row. */
+  async toggleDashboardStarred(id: string): Promise<void> {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
 
     const dashboards = this.state.dashboardsByProject[projectId] ?? [];
+    const dashboard = dashboards.find((d) => d.id === id);
+    if (!dashboard) return;
+    const updated = { ...dashboard, starred: !dashboard.starred };
     this.state.dashboardsByProject = {
       ...this.state.dashboardsByProject,
-      [projectId]: dashboards.map((d) => (d.id === id ? { ...d, starred: !d.starred } : d)),
+      [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
-    this.scheduleProjectPersistence(projectId);
+    await this.persistDashboard(updated);
   }
 
   /** @deprecated Use toggleDashboardStarred instead */
-  toggleSharedDashboardStarred(id: string): void {
-    this.toggleDashboardStarred(id);
+  toggleSharedDashboardStarred(id: string): Promise<void> {
+    return this.toggleDashboardStarred(id);
   }
 
   // === SHARE / UNSHARE ===
@@ -573,8 +583,10 @@ export class DashboardManager {
       [projectId]: [...projectVersions, newVersion],
     };
 
-    // Persist immediately
-    this.persistence
+    // Persist immediately, then prune to the limit setting (not after a
+    // failed insert: `persistDashboardVersion` throws, which skips the prune).
+    const persistence = this.persistence;
+    void persistence
       .persistDashboardVersion({
         id: newVersion.id,
         dashboardId: newVersion.dashboardId,
@@ -582,28 +594,32 @@ export class DashboardManager {
         snapshot: newVersion.snapshot,
         createdAt: newVersion.createdAt.toISOString(),
       })
-      .catch((err) =>
-        console.error("[dashboard-manager] Failed to persist dashboard version:", err),
-      );
+      .then(() => this.pruneVersions(persistence, dashboard.id, projectId))
+      .catch((err) => void log.error("Failed to save or prune a dashboard version:", err));
+  }
 
-    // Prune old versions if over limit
-    const DEFAULT_VERSION_LIMIT = 100;
+  /**
+   * Keep the dashboard's newest `dashboard_version_limit` versions, stored
+   * and in memory. 0 still deletes them all, as the stored prune does
+   * (phase 5d-2 makes it keep everything, as for queries).
+   */
+  private async pruneVersions(
+    persistence: PersistenceManager,
+    dashboardId: string,
+    projectId: string,
+  ): Promise<void> {
+    const limit = await persistence.versionLimit("dashboard_version_limit");
     const allVersions = this.state.dashboardVersionsByProject[projectId] ?? [];
-    const dashVersions = allVersions.filter((v) => v.dashboardId === dashboard.id);
-    if (dashVersions.length > DEFAULT_VERSION_LIMIT) {
+    const dashVersions = allVersions.filter((v) => v.dashboardId === dashboardId);
+    if (dashVersions.length > limit) {
       const sorted = [...dashVersions].sort((a, b) => b.version - a.version);
-      const keepIds = new Set(sorted.slice(0, DEFAULT_VERSION_LIMIT).map((v) => v.id));
+      const keepIds = new Set(sorted.slice(0, limit).map((v) => v.id));
       this.state.dashboardVersionsByProject = {
         ...this.state.dashboardVersionsByProject,
-        [projectId]: allVersions.filter((v) => v.dashboardId !== dashboard.id || keepIds.has(v.id)),
+        [projectId]: allVersions.filter((v) => v.dashboardId !== dashboardId || keepIds.has(v.id)),
       };
     }
-
-    this.persistence
-      .pruneDashboardVersions(dashboard.id, DEFAULT_VERSION_LIMIT)
-      .catch((err) =>
-        console.error("[dashboard-manager] Failed to prune dashboard versions:", err),
-      );
+    await persistence.pruneDashboardVersions(dashboardId, limit);
   }
 
   // === PERSISTENCE ===
@@ -613,6 +629,7 @@ export class DashboardManager {
       await getStorage().dashboards.save(toPersistedDashboard(dashboard));
     } catch (error) {
       void log.error("Failed to persist dashboard:", error);
+      errorToast(m.dashboard_save_failed({ message: extractErrorMessage(error) }));
     }
   }
 }

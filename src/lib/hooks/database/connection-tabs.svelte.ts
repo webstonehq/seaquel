@@ -61,6 +61,44 @@ export const defaultFormData: ConnectionFormData = {
 };
 
 /**
+ * The connection form's fields for a saved connection (or a prefill): what
+ * a connection tab opens with, and what "Reload" puts back after another
+ * window changed the connection (phase 5d-1). No secret is filled in.
+ */
+export function formDataFromPrefill(prefill: ConnectionTabPrefill): ConnectionFormData {
+  return {
+    name: prefill.name || "",
+    type: (prefill.type as DatabaseType) || "postgres",
+    host: prefill.host || "localhost",
+    port: prefill.port || 5432,
+    databaseName: prefill.databaseName || "",
+    username: prefill.username || "",
+    password: prefill.password || "",
+    // A saved row keeps its mode; one without a mode stays on "Default".
+    sslMode: prefill.sslMode || "",
+    // A string the old builder made from these same fields says nothing
+    // more, and would override them once they're edited: drop it.
+    connectionString: storedConnectionString({
+      ...prefill,
+      type: prefill.type || "postgres",
+    }),
+    sshEnabled: prefill.sshTunnel?.enabled || false,
+    sshHost: prefill.sshTunnel?.host || "",
+    sshPort: prefill.sshTunnel?.port || 22,
+    sshUsername: prefill.sshTunnel?.username || "",
+    sshAuthMethod: prefill.sshTunnel?.authMethod || "password",
+    sshPassword: "",
+    sshKeyPath: prefill.sshTunnel?.keyPath || "",
+    sshKeyPassphrase: "",
+    savePassword: prefill.savePassword ?? true,
+    saveSshPassword: prefill.saveSshPassword ?? true,
+    saveSshKeyPassphrase: prefill.saveSshKeyPassphrase ?? true,
+    aiShareSchema: prefill.aiShareSchema,
+    aiShareData: prefill.aiShareData,
+  };
+}
+
+/**
  * Manages connection tabs.
  * Tabs are organized per-project.
  */
@@ -107,36 +145,7 @@ export class ConnectionTabManager extends BaseTabManager<ConnectionTab> {
     let connectionId: string | null = null;
 
     if (prefill) {
-      formData = {
-        name: prefill.name || "",
-        type: (prefill.type as DatabaseType) || "postgres",
-        host: prefill.host || "localhost",
-        port: prefill.port || 5432,
-        databaseName: prefill.databaseName || "",
-        username: prefill.username || "",
-        password: prefill.password || "",
-        // A saved row keeps its mode; one without a mode stays on "Default".
-        sslMode: prefill.sslMode || "",
-        // A string the old builder made from these same fields says nothing
-        // more, and would override them once they're edited: drop it.
-        connectionString: storedConnectionString({
-          ...prefill,
-          type: prefill.type || "postgres",
-        }),
-        sshEnabled: prefill.sshTunnel?.enabled || false,
-        sshHost: prefill.sshTunnel?.host || "",
-        sshPort: prefill.sshTunnel?.port || 22,
-        sshUsername: prefill.sshTunnel?.username || "",
-        sshAuthMethod: prefill.sshTunnel?.authMethod || "password",
-        sshPassword: "",
-        sshKeyPath: prefill.sshTunnel?.keyPath || "",
-        sshKeyPassphrase: "",
-        savePassword: prefill.savePassword ?? true,
-        saveSshPassword: prefill.saveSshPassword ?? true,
-        saveSshKeyPassphrase: prefill.saveSshKeyPassphrase ?? true,
-        aiShareSchema: prefill.aiShareSchema,
-        aiShareData: prefill.aiShareData,
-      };
+      formData = formDataFromPrefill(prefill);
       connectionId = prefill.id || null;
     } else {
       formData = { ...defaultFormData };

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
@@ -41,22 +42,29 @@
 
 	const toggleLabel = (labelId: string) => {
 		if (connectionLabelIds.has(labelId)) {
-			db.labels.removeLabelFromConnection(connectionId, labelId);
+			void db.labels.removeLabelFromConnection(connectionId, labelId).catch(showErrorUnlessShown);
 		} else {
-			db.labels.addLabelToConnection(connectionId, labelId);
+			void db.labels.addLabelToConnection(connectionId, labelId).catch(showErrorUnlessShown);
 		}
 	};
 
 	const addCustomLabel = async () => {
 		if (!customLabelName.trim() || !db.state.activeProjectId) return;
 
-		// Create custom label and add to connection
-		const newLabel = await db.projects.addCustomLabel(db.state.activeProjectId, {
-			name: customLabelName.trim(),
-			color: selectedColor
-		});
+		// Create custom label and add to connection. A taken name is refused
+		// and the input stays to pick another.
+		let newLabel;
+		try {
+			newLabel = await db.projects.addCustomLabel(db.state.activeProjectId, {
+				name: customLabelName.trim(),
+				color: selectedColor
+			});
+		} catch (error) {
+			showErrorUnlessShown(error);
+			return;
+		}
 		if (newLabel) {
-			db.labels.addLabelToConnection(connectionId, newLabel.id);
+			void db.labels.addLabelToConnection(connectionId, newLabel.id).catch(showErrorUnlessShown);
 		}
 
 		// Reset state
@@ -66,7 +74,7 @@
 	};
 
 	const removeLabel = (labelId: string) => {
-		db.labels.removeLabelFromConnection(connectionId, labelId);
+		void db.labels.removeLabelFromConnection(connectionId, labelId).catch(showErrorUnlessShown);
 	};
 </script>
 

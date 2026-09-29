@@ -4,7 +4,7 @@
 //! `TOO_MANY_CONNECTIONS`.
 
 use axum::http::StatusCode;
-use seaquel_server::{web_core, WEB_CONNECTION_LIMITS, WEB_EDIT_LIMITS};
+use seaquel_server::{web_core, WEB_CONNECTION_LIMITS, WEB_EDIT_LIMITS, WEB_LIBRARY_LIMITS};
 use serde_json::json;
 
 mod common;
@@ -29,6 +29,23 @@ fn the_server_core_has_the_web_edit_limits() {
     assert_eq!(limits.max_filters, Some(100));
     assert_eq!(limits.max_in_values, Some(1_000));
     assert_eq!(limits.max_filter_value_bytes, Some(64 * 1024));
+}
+
+#[tokio::test]
+async fn the_server_core_has_the_web_library_limits() {
+    let limits = web_core().library_limits();
+    assert_eq!(limits, WEB_LIBRARY_LIMITS);
+    assert_eq!(limits.max_name_bytes, Some(1024));
+    assert_eq!(limits.max_field_bytes, Some(64 * 1024));
+    assert_eq!(limits.max_query_bytes, Some(2 * 1024 * 1024));
+    assert_eq!(limits.max_list_items, Some(1_000));
+    assert_eq!(limits.max_connections, Some(10_000));
+    assert_eq!(limits.max_projects, Some(1_000));
+    assert_eq!(limits.max_saved_queries, Some(50_000));
+    // Phase 5d-1 probe fix: 8 versions of a query of `max_query_bytes`.
+    assert_eq!(limits.max_version_bytes, Some(16 * 1024 * 1024));
+    // The test server's Core has them too.
+    assert_eq!(Env::new(1).state.core.library_limits(), WEB_LIBRARY_LIMITS);
 }
 
 #[tokio::test]
@@ -161,8 +178,7 @@ async fn a_user_runs_at_most_four_edit_calls_at_once() {
             spawn_rpc(
                 &env,
                 "u1",
-                json!({"method": "storage", "params": {"method": "connectionsLoadAll"}})
-                    .to_string(),
+                json!({"method": "library", "params": {"method": "connectionsList"}}).to_string(),
             )
         })
         .collect();
@@ -247,7 +263,7 @@ async fn a_user_holds_at_most_40_mib_of_bodies_at_once() {
     let (status, body) = env
         .rpc(
             "u1",
-            &json!({"method": "storage", "params": {"method": "connectionsLoadAll"}}),
+            &json!({"method": "library", "params": {"method": "connectionsList"}}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");

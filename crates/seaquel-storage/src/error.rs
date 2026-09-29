@@ -14,6 +14,9 @@ pub const STORAGE_NEEDS_UPGRADE: &str = "STORAGE_NEEDS_UPGRADE";
 /// The wire code for [`StorageError::NotFound`]: a read-only open found no
 /// file, and never creates one.
 pub const STORAGE_NOT_FOUND: &str = "STORAGE_NOT_FOUND";
+/// The wire code for [`StorageError::ReadOnly`]: a write on storage opened
+/// with `StorageOptions::read_only`.
+pub const STORAGE_READ_ONLY: &str = "STORAGE_READ_ONLY";
 /// The wire code for every other storage failure.
 pub const STORAGE_ERROR: &str = "STORAGE_ERROR";
 
@@ -89,6 +92,21 @@ pub enum StorageError {
     )]
     NotFound { path: PathBuf },
 
+    /// A write transaction was asked of storage opened read-only (the CLI).
+    /// Nothing was sent to SQLite.
+    #[error("{} was opened read-only, so it can't be written", path.display())]
+    ReadOnly { path: PathBuf },
+
+    /// [`crate::Storage::write`] waited [`crate::WRITE_WAIT`] for this
+    /// process's earlier writers and gave up: a write that never finishes,
+    /// or a write begun while the caller holds another (a deadlock). Its
+    /// code is [`STORAGE_ERROR`].
+    #[error("{} is busy: an earlier write didn't finish within {} s", path.display(), waited.as_secs())]
+    WriteLockTimeout {
+        path: PathBuf,
+        waited: std::time::Duration,
+    },
+
     /// No data dir: `SEAQUEL_DATA_DIR` is unset and the platform has none
     /// (no home directory).
     #[error("no data directory: this platform reports none, and SEAQUEL_DATA_DIR isn't set")]
@@ -114,8 +132,8 @@ pub enum StorageError {
 
 impl StorageError {
     /// The wire code: [`LEGACY_STORAGE`], [`STORAGE_CORRUPT`],
-    /// [`STORAGE_NEEDS_UPGRADE`], [`STORAGE_NOT_FOUND`], [`NO_DATA_DIR`] or
-    /// [`STORAGE_ERROR`].
+    /// [`STORAGE_NEEDS_UPGRADE`], [`STORAGE_NOT_FOUND`], [`STORAGE_READ_ONLY`],
+    /// [`NO_DATA_DIR`] or [`STORAGE_ERROR`].
     pub fn code(&self) -> &'static str {
         match self {
             StorageError::Legacy { .. } => LEGACY_STORAGE,
@@ -124,6 +142,7 @@ impl StorageError {
                 STORAGE_NEEDS_UPGRADE
             }
             StorageError::NotFound { .. } => STORAGE_NOT_FOUND,
+            StorageError::ReadOnly { .. } => STORAGE_READ_ONLY,
             StorageError::NoDataDir => NO_DATA_DIR,
             _ => STORAGE_ERROR,
         }

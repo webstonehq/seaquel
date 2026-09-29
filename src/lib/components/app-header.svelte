@@ -17,9 +17,11 @@
     import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
     import { toast } from "svelte-sonner";
     import { errorToast } from "$lib/utils/toast";
+    import { showErrorUnlessShown } from "$lib/errors";
     import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
     import CircleDollarSignIcon from "@lucide/svelte/icons/circle-dollar-sign";
     import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+    import CloudOffIcon from "@lucide/svelte/icons/cloud-off";
     import ListChecksIcon from "@lucide/svelte/icons/list-checks";
     import MessageSquareTextIcon from "@lucide/svelte/icons/message-square-text";
     import BookOpenIcon from "@lucide/svelte/icons/book-open";
@@ -94,7 +96,13 @@
     let projectToRemoveName = $state("");
     const handleCreateProject = async () => {
         if (!newProjectName.trim()) return;
-        await db.projects.add(newProjectName.trim());
+        try {
+            await db.projects.add(newProjectName.trim());
+        } catch (error) {
+            // A taken name, say: the dialog stays open to pick another.
+            showErrorUnlessShown(error);
+            return;
+        }
         newProjectName = "";
         showNewProjectDialog = false;
     };
@@ -114,12 +122,16 @@
     };
 
     const handleRemoveProject = async () => {
-        if (projectToRemove) {
-            await db.projects.remove(projectToRemove);
+        const id = projectToRemove;
+        try {
+            if (id) await db.projects.remove(id);
+        } catch (error) {
+            showErrorUnlessShown(error);
+        } finally {
             projectToRemove = null;
             projectToRemoveName = "";
+            showRemoveProjectDialog = false;
         }
-        showRemoveProjectDialog = false;
     };
 
     const handleImportFromRepo = async () => {
@@ -145,7 +157,7 @@
             }
             sharedProjectImportStore.openWithResults(selected as string, projects);
         } catch (error) {
-            errorToast(error instanceof Error ? error.message : String(error));
+            showErrorUnlessShown(error);
         }
     };
 </script>
@@ -232,6 +244,20 @@
 
         <!-- Right section: action buttons -->
         <div class="flex items-center gap-1 shrink-0">
+            {#if db.state.libraryUpdatesUnavailable}
+                <!-- Other windows' changes stopped arriving (phase 5d-1). -->
+                <Tooltip.Root delayDuration={300}>
+                    <Tooltip.Trigger>
+                        <Badge variant="outline" class="gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40">
+                            <CloudOffIcon class="size-3" />
+                            {m.library_updates_unavailable()}
+                        </Badge>
+                    </Tooltip.Trigger>
+                    <Tooltip.Content side="bottom" class="max-w-64">
+                        {m.library_updates_unavailable_description()}
+                    </Tooltip.Content>
+                </Tooltip.Root>
+            {/if}
             {#if isTauri()}
                 {#snippet licenseBadge()}
                     <Badge variant={licenseStore.status === "active" ? "default" : licenseStore.status === "expired" || licenseStore.status === "invalid" ? "destructive" : "secondary"}>

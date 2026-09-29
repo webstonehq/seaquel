@@ -436,7 +436,7 @@ export class PaneManager {
    * This ensures existing view components (QueryEditor, TableViewer, etc.)
    * continue to work without changes.
    */
-  private syncGlobalActiveState(tabId: string): void {
+  syncGlobalActiveState(tabId: string): void {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
 

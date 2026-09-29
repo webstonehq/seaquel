@@ -1,16 +1,23 @@
 //! `appStateRepo`: the `app_state` key/value table.
 
 use super::codec::Result;
-use crate::Storage;
+use crate::{Reader, Storage, WriteTx};
 
 /// The value for `key`: `None` when there's no row or its value is NULL.
-pub async fn get(st: &Storage, key: &str) -> Result<Option<String>> {
+/// Reads on the pool (`&storage`) or inside a write (`&mut tx`).
+pub async fn get(r: impl Into<Reader<'_>>, key: &str) -> Result<Option<String>> {
+    let mut conn = r.into().conn().await?;
     let row: Option<(Option<String>,)> =
         sqlx::query_as("SELECT value FROM app_state WHERE key = ?")
             .bind(key)
-            .fetch_optional(st.pool())
+            .fetch_optional(&mut *conn)
             .await?;
     Ok(row.and_then(|r| r.0))
+}
+
+/// [`set`] inside a write transaction.
+pub async fn set_in(tx: &mut WriteTx, key: &str, value: Option<&str>) -> Result<()> {
+    set_with(tx.conn(), key, value).await
 }
 
 /// Sets `key`. `None` keeps a row whose value is NULL.

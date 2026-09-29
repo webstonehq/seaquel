@@ -358,3 +358,62 @@ async fn sql_server_error_text_is_not_logged() {
         assert!(!record.contains(&canary), "{record}");
     }
 }
+
+/// Phase 5d-1: library calls log their group, method and code, never a
+/// name, host, string, query text, secret or the origin header.
+#[tokio::test]
+async fn library_calls_log_group_method_and_code_only() {
+    capture_logs();
+    let env = Env::new(4);
+    let canary = format!("canaryLib{}", std::process::id());
+    let origin = format!("{canary}-origin");
+    let (status, body) = env
+        .library("alice", Some(&origin), "projectEnsureDefault", json!(null))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let draft = json!({"projectId": "default-seaquel", "name": format!("{canary}-name"),
+        "type": "postgres", "host": format!("{canary}-host"), "port": 5432,
+        "databaseName": format!("{canary}-db"), "username": format!("{canary}-user"),
+        "connectionString": format!("postgres://{canary}-user:{canary}-pw@{canary}-host/db")});
+    let (status, body) = env
+        .library(
+            "alice",
+            Some(&origin),
+            "connectionCreate",
+            json!({"connection": draft}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // A refusal: the same name again.
+    let (status, body) = env
+        .library(
+            "alice",
+            Some(&origin),
+            "connectionCreate",
+            json!({"connection": draft}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let (status, _) = env
+        .library(
+            "alice",
+            Some(&origin),
+            "savedQueryCreate",
+            json!({"query": {"projectId": "default-seaquel", "name": format!("{canary}-q"),
+                             "query": format!("SELECT '{canary}-text'")}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let records = records();
+    assert!(
+        records.iter().any(|r| r.contains("activity=rpc.error")
+            && r.contains("code=NAME_TAKEN")
+            && r.contains("group=library")
+            && r.contains("method=connectionCreate")),
+        "{records:#?}"
+    );
+    for record in &records {
+        assert!(!record.contains(&canary), "{record}");
+    }
+}

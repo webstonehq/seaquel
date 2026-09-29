@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { m } from "$lib/paraglide/messages.js";
 	import { getStorage } from "$lib/storage";
+	import { MIN_VERSION_LIMIT, clampVersionLimit } from "$lib/utils/version-limit";
 
 	let queryVersionLimit = $state<number>(100);
 	let dashboardVersionLimit = $state<number>(100);
@@ -33,10 +34,11 @@
 			</div>
 			<input
 				type="number"
-				min="10"
+				min={MIN_VERSION_LIMIT}
 				max="1000"
 				bind:value={queryVersionLimit}
 				onchange={async () => {
+					queryVersionLimit = clampVersionLimit(queryVersionLimit);
 					await getStorage().appState.set("query_version_limit", String(queryVersionLimit));
 				}}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
@@ -49,10 +51,11 @@
 			</div>
 			<input
 				type="number"
-				min="10"
+				min={MIN_VERSION_LIMIT}
 				max="1000"
 				bind:value={dashboardVersionLimit}
 				onchange={async () => {
+					dashboardVersionLimit = clampVersionLimit(dashboardVersionLimit);
 					await getStorage().appState.set("dashboard_version_limit", String(dashboardVersionLimit));
 				}}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"

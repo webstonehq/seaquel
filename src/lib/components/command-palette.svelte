@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Command from "$lib/components/ui/command";
 	import { useDatabase } from "$lib/hooks/database.svelte";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { useShortcuts } from "$lib/shortcuts/shortcuts.svelte";
 	import { EXECUTE_ACTIVE_QUERY_EVENT } from "$lib/components/query-editor/events.js";
 	import { goto } from "$app/navigation";
@@ -346,7 +347,7 @@
 		try {
 			const text = await navigator.clipboard.readText();
 			if (text.startsWith("seaquel://")) {
-				handleDeepLink(text, db);
+				void handleDeepLink(text, db).catch(showErrorUnlessShown);
 			} else {
 				errorToast("Clipboard does not contain a seaquel:// link");
 			}

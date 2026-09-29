@@ -8,16 +8,18 @@
 
 use serde_json::value::RawValue;
 use sqlx::sqlite::{SqliteArguments, SqliteRow, SqliteValueRef};
-use sqlx::{Decode, Row, Sqlite, Transaction, TypeInfo, ValueRef};
+use sqlx::{Decode, Row, Sqlite, TypeInfo, ValueRef};
 
-use crate::{Storage, StorageError};
+use crate::{Storage, StorageError, WriteTx};
 
 pub(crate) type Result<T> = std::result::Result<T, StorageError>;
 
-/// A write transaction. `BEGIN IMMEDIATE` takes the write lock up front, so
-/// a second writer waits (busy_timeout) instead of failing on upgrade.
-pub(crate) async fn begin(st: &Storage) -> Result<Transaction<'static, Sqlite>> {
-    Ok(st.pool().begin_with("BEGIN IMMEDIATE").await?)
+/// A write transaction ([`Storage::write`]): this process's writers queue
+/// on the storage's write mutex, and `BEGIN IMMEDIATE` takes SQLite's write
+/// lock up front, so a writer in another process waits (busy_timeout)
+/// instead of failing on upgrade.
+pub(crate) async fn begin(st: &Storage) -> Result<WriteTx> {
+    st.write().await
 }
 
 /// A value in a stored row that can't be read as the TypeScript read it

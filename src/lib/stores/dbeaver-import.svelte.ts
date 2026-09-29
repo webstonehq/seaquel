@@ -1,3 +1,4 @@
+import type { ConnectionIdentity } from "$lib/services/connection-import";
 import { getStorage } from "$lib/storage";
 import type { ImportableConnection } from "$lib/types/dbeaver";
 import { discoverDbeaverConnections } from "$lib/services/dbeaver-import";
@@ -37,11 +38,16 @@ class DbeaverImportStore {
    * Check for DBeaver connections and open dialog if found
    * Called when user clicks on DBeaver card
    */
-  async checkAndShowDialog(existingConnectionIds: string[]): Promise<void> {
+  /**
+   * `existing`: the connections of the project they'd be imported into; one
+   * already there (same type, host, port, database and user) is shown as a
+   * duplicate.
+   */
+  async checkAndShowDialog(existing: readonly ConnectionIdentity[]): Promise<void> {
     this.isLoading = true;
 
     try {
-      const importable = await discoverDbeaverConnections(existingConnectionIds);
+      const importable = await discoverDbeaverConnections(existing);
 
       if (importable.length > 0) {
         this.connections = importable;

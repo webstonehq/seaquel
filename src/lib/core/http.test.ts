@@ -13,6 +13,7 @@ vi.mock("$lib/utils/logger", () => ({
 vi.mock("$lib/utils/toast", () => ({ errorToast: vi.fn() }));
 
 const { HttpCoreClient } = await import("./http");
+const { webPageOrigin } = await import("./origin");
 import type { QueryStreamRequest, RunRequest, StreamEvent } from "./client";
 import type { RunEvent } from "$lib/types/generated/RunEvent";
 
@@ -313,6 +314,97 @@ describe("HttpCoreClient.events", () => {
     };
     socket().receive(closed);
     expect(handler).toHaveBeenCalledWith(closed);
+  });
+
+  it("delivers storageChanged events too (phase 5d)", () => {
+    const c = client();
+    const handler = vi.fn();
+    c.events(handler);
+    socket().open();
+    const changed: CoreEvent = {
+      type: "storageChanged",
+      kind: "savedQuery",
+      scope: "default-seaquel",
+      ids: ["saved-1"],
+      origin: "tab-2",
+      seq: { epoch: "e", n: 7 },
+    };
+    socket().receive(changed);
+    expect(handler).toHaveBeenCalledWith(changed);
+  });
+});
+
+describe("HttpCoreClient reconnect signals (phase 5d review, I2)", () => {
+  it("runs onResubscribed on every socket open, initial the first time", async () => {
+    vi.useFakeTimers();
+    const c = client();
+    const resubscribed = vi.fn();
+    c.onResubscribed(resubscribed);
+    c.events(() => {});
+    socket(0).open();
+    expect(resubscribed).toHaveBeenLastCalledWith({ initial: true });
+    // A drop (as the server's `EVENTS_LAGGED` close), then the reconnect.
+    socket(0).onclose?.({ code: 1013, reason: "EVENTS_LAGGED: behind" } as CloseEvent);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(FakeSocket.all).toHaveLength(2);
+    socket(1).open();
+    expect(resubscribed).toHaveBeenCalledTimes(2);
+    expect(resubscribed).toHaveBeenLastCalledWith({ initial: false });
+  });
+
+  it("says events are unavailable on a 1008 close and on TOO_MANY_SOCKETS", () => {
+    const c = client();
+    const unavailable = vi.fn();
+    const stop = c.onEventsUnavailable(unavailable);
+    c.events(() => {});
+    socket(0).open();
+    socket(0).onclose?.({ code: 1013, reason: "TOO_MANY_SOCKETS: at most 8" } as CloseEvent);
+    expect(unavailable).toHaveBeenLastCalledWith("TOO_MANY_TABS");
+    const d = client();
+    const lost = vi.fn();
+    d.onEventsUnavailable(lost);
+    d.events(() => {});
+    socket(1).open();
+    socket(1).drop(1008);
+    expect(lost).toHaveBeenCalledWith("ACCESS_LOST");
+    stop();
+  });
+
+  it("opens the default socket URL with the page's origin", () => {
+    const urls: string[] = [];
+    const c = new HttpCoreClient({
+      createSocket: (url) => {
+        urls.push(url);
+        return new FakeSocket(url);
+      },
+    });
+    c.events(() => {});
+    expect(urls[0]).toBe(`ws://localhost/api/rpc/stream?origin=${webPageOrigin()}`);
+  });
+});
+
+describe("HttpCoreClient.call", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the page's origin as X-Seaquel-Origin, the same on every call", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(
+          JSON.stringify({ method: "storage", result: { method: "tutorialLoadAll", result: [] } }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const c = client();
+    await c.call({ method: "storage", params: { method: "tutorialLoadAll" } });
+    await c.call({ method: "storage", params: { method: "tutorialLoadAll" } });
+    const origins = fetchMock.mock.calls.map(([, init]) =>
+      new Headers(init.headers).get("x-seaquel-origin"),
+    );
+    expect(origins[0]).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(origins[1]).toBe(origins[0]);
+    expect(origins[0]).toBe(webPageOrigin());
   });
 });
 

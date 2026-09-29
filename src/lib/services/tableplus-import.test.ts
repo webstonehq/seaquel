@@ -29,9 +29,20 @@ function plistEntry(overrides: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
-function importable(overrides: Record<string, unknown> = {}, existingIds: string[] = []) {
-  return mapToImportable(toTablePlusConnection(plistEntry(overrides)), existingIds);
+type Existing = Parameters<typeof mapToImportable>[1];
+
+function importable(overrides: Record<string, unknown> = {}, existing: Existing = []) {
+  return mapToImportable(toTablePlusConnection(plistEntry(overrides)), existing);
 }
+
+/** A saved connection as the duplicate check sees it. */
+const savedPg = {
+  type: "postgres",
+  host: "127.0.0.1",
+  port: 5432,
+  databaseName: "app",
+  username: "postgres",
+} as Existing[number];
 
 describe("TablePlus import mapping", () => {
   it("maps a basic Postgres connection with default port and TLS mode", () => {
@@ -109,11 +120,16 @@ describe("TablePlus import mapping", () => {
     });
   });
 
-  it("flags duplicates", () => {
-    expect(importable({}, ["conn-127.0.0.1-5432"])).toMatchObject({
+  it("flags duplicates: same type, host, port, database and user", () => {
+    expect(importable({}, [savedPg])).toMatchObject({
       isDuplicate: true,
       selected: false,
     });
+  });
+
+  it("two connections on one host and port aren't duplicates of each other", () => {
+    expect(importable({ DatabaseName: "other" }, [savedPg])?.isDuplicate).toBe(false);
+    expect(importable({ DatabaseUser: "reader" }, [savedPg])?.isDuplicate).toBe(false);
   });
 
   it("skips unsupported drivers", () => {

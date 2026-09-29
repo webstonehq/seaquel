@@ -9,7 +9,10 @@
  *   sent. Its reply can overtake them, so the stream ends only once that
  *   many have arrived (Tauri delivers a channel's messages in order); if
  *   none was a `done` or `error`, it was cancelled. Cancel is `db.cancel`;
- * - `events`: `core_events({channel})`, registered once per page load (the
+ * - `events`: `core_events({channel})` (`connectionClosed` and
+ *   `storageChanged`); `onResubscribed` runs when that registration
+ *   succeeds (the page gets nothing from before it), and
+ *   `onEventsUnavailable` when it fails. Registered once per page load (the
  *   desktop keeps one sink per webview, and a second registration from the
  *   same webview counts as a reload and cancels its streams).
  */
@@ -24,7 +27,10 @@ import {
   cancelledEvent,
   errorEvent,
   StreamQueue,
-  type ConnectionClosedEvent,
+  isWorkspaceEvent,
+  type EventsUnavailableReason,
+  type ResubscribedInfo,
+  type WorkspaceEvent,
   type CoreClient,
   type CoreEvent,
   type EventOf,
@@ -34,7 +40,11 @@ import {
 } from "./client";
 
 export class TauriCoreClient implements CoreClient {
-  private readonly handlers = new Set<(event: ConnectionClosedEvent) => void>();
+  private readonly handlers = new Set<(event: WorkspaceEvent) => void>();
+  private readonly resubscribedHandlers = new Set<(info: ResubscribedInfo) => void>();
+  private readonly unavailableHandlers = new Set<(reason: EventsUnavailableReason) => void>();
+  /** `core_events` registrations that succeeded on this page. */
+  private registrations = 0;
   /** Kept so the channel isn't collected while the page lives. */
   private eventsChannel: Channel<CoreEvent> | null = null;
 
@@ -129,22 +139,44 @@ export class TauriCoreClient implements CoreClient {
     });
   }
 
-  events(handler: (event: ConnectionClosedEvent) => void): () => void {
+  events(handler: (event: WorkspaceEvent) => void): () => void {
     this.handlers.add(handler);
     if (!this.eventsChannel) {
       const channel = new Channel<CoreEvent>();
       channel.onmessage = (event) => {
-        if (event.type !== "connectionClosed") return;
+        if (!isWorkspaceEvent(event)) return;
         for (const h of this.handlers) h(event);
       };
       this.eventsChannel = channel;
-      invoke<void>("core_events", { channel }).catch((error: unknown) => {
-        void log.error("Registering for Core events failed:", error);
-        this.eventsChannel = null;
-      });
+      invoke<void>("core_events", { channel }).then(
+        () => {
+          const info = { initial: this.registrations === 0 };
+          this.registrations += 1;
+          for (const h of this.resubscribedHandlers) h(info);
+        },
+        (error: unknown) => {
+          void log.error("Registering for Core events failed:", error);
+          this.eventsChannel = null;
+          for (const h of this.unavailableHandlers) h("EVENTS_UNAVAILABLE");
+        },
+      );
     }
     return () => {
       this.handlers.delete(handler);
+    };
+  }
+
+  onResubscribed(handler: (info: ResubscribedInfo) => void): () => void {
+    this.resubscribedHandlers.add(handler);
+    return () => {
+      this.resubscribedHandlers.delete(handler);
+    };
+  }
+
+  onEventsUnavailable(handler: (reason: EventsUnavailableReason) => void): () => void {
+    this.unavailableHandlers.add(handler);
+    return () => {
+      this.unavailableHandlers.delete(handler);
     };
   }
 }

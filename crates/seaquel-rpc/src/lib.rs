@@ -1,12 +1,15 @@
 //! The RPCs the GUIs call Core through.
 //!
 //! - The workspace RPC ([`Request`], [`Response`], [`dispatch_workspace`]):
-//!   metadata storage, secrets and the `db` group (connect, queries, engine
-//!   calls on the workspace's own connections), served as the `core_call`
-//!   Tauri command and `POST /rpc`. See the `workspace` and `db` modules.
+//!   metadata storage, the library (connections, projects, labels, saved
+//!   queries), secrets and the `db` group (connect, queries, engine calls on
+//!   the workspace's own connections), served as the `core_call` Tauri
+//!   command and `POST /rpc`. See the `workspace`, `library` and `db`
+//!   modules.
 //! - Query streams ([`dispatch_stream`]) and workspace events
-//!   ([`workspace_events`]) as [`CoreEvent`]s, for the desktop's
-//!   `core_stream`/`core_events` and the web's `/rpc/stream`.
+//!   ([`workspace_events`]: `connectionClosed` and `storageChanged`) as
+//!   [`CoreEvent`]s, for the desktop's `core_stream`/`core_events` and the
+//!   web's `/rpc/stream`.
 //! - The engine RPC, below.
 //!
 //! The engine RPC: one request/response pair for every dialect-dependent call
@@ -29,6 +32,7 @@
 
 mod db;
 mod git;
+mod library;
 mod license;
 mod ssh;
 mod workspace;
@@ -39,9 +43,12 @@ pub use db::{
 #[cfg(feature = "git")]
 pub use git::dispatch_git;
 pub use git::{GitRequest, GitResponse};
+pub use library::{LibraryRequest, LibraryResponse};
 #[cfg(feature = "license-desktop")]
 pub use license::dispatch_license;
 pub use license::{DesktopLicenseRequest, DesktopLicenseResponse, LicenseResponse};
+/// The window or tab a call came from, which [`dispatch_workspace`] takes.
+pub use seaquel_core::WriteOrigin;
 pub use ssh::{dispatch_ssh, SshRequest, SshResponse, TunnelConfig, TunnelInfo};
 #[cfg(feature = "secrets")]
 pub use workspace::dispatch_secret;

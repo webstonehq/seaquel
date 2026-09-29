@@ -13,6 +13,8 @@ const tauri = vi.hoisted(() => ({
   calls: [] as { cmd: string; args: unknown }[],
   /** Resolves or rejects the next `core_stream` invoke. */
   settle: null as null | { resolve: (sent: number) => void; reject: (e: unknown) => void },
+  /** A command whose next invoke rejects. */
+  failNext: null as string | null,
   Channel: class {
     onmessage: ((event: unknown) => void) | null = null;
   },
@@ -22,6 +24,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   Channel: tauri.Channel,
   invoke: vi.fn((cmd: string, args: unknown) => {
     tauri.calls.push({ cmd, args });
+    if (tauri.failNext === cmd) {
+      tauri.failNext = null;
+      return Promise.reject(new Error(`${cmd} failed`));
+    }
     if (cmd === "core_stream") {
       return new Promise<number>((resolve, reject) => {
         tauri.settle = { resolve, reject };
@@ -73,6 +79,7 @@ const decode = (body: unknown) => JSON.parse(new TextDecoder().decode(body as Ui
 beforeEach(() => {
   tauri.calls = [];
   tauri.settle = null;
+  tauri.failNext = null;
 });
 
 describe("TauriCoreClient.stream", () => {
@@ -242,6 +249,51 @@ describe("TauriCoreClient.events", () => {
     channel.onmessage(closed);
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers storageChanged events too, and ignores stream events (phase 5d)", () => {
+    const client = new TauriCoreClient();
+    const handler = vi.fn();
+    client.events(handler);
+    const registration = tauri.calls.filter((c) => c.cmd === "core_events").at(-1)!;
+    const { channel } = registration.args as { channel: { onmessage: Listener } };
+    const changed: CoreEvent = {
+      type: "storageChanged",
+      kind: "connection",
+      scope: null,
+      ids: null,
+      origin: "main",
+      seq: { epoch: "e", n: 1 },
+    };
+    channel.onmessage(changed);
+    channel.onmessage({ type: "stream", streamId: "s", event: { type: "done" } });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(changed);
+  });
+});
+
+describe("TauriCoreClient reconnect signals (phase 5d review, I2)", () => {
+  it("runs onResubscribed when core_events is registered, initial the first time", async () => {
+    const client = new TauriCoreClient();
+    const resubscribed = vi.fn();
+    client.onResubscribed(resubscribed);
+    client.events(() => {});
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledWith({ initial: true }));
+  });
+
+  it("says events are unavailable when core_events fails, and registers afresh next time", async () => {
+    const client = new TauriCoreClient();
+    const unavailable = vi.fn();
+    const resubscribed = vi.fn();
+    client.onEventsUnavailable(unavailable);
+    client.onResubscribed(resubscribed);
+    tauri.failNext = "core_events";
+    client.events(() => {});
+    await vi.waitFor(() => expect(unavailable).toHaveBeenCalledWith("EVENTS_UNAVAILABLE"));
+    expect(resubscribed).not.toHaveBeenCalled();
+    client.events(() => {});
+    await vi.waitFor(() => expect(resubscribed).toHaveBeenCalledWith({ initial: true }));
+    expect(tauri.calls.filter((c) => c.cmd === "core_events")).toHaveLength(2);
   });
 });
 

@@ -1,11 +1,24 @@
 /**
  * `CoreClient` on web:
- * - `call`: `POST /api/rpc`;
- * - `stream` and `events`: one WebSocket per page at `/api/rpc/stream`,
- *   shared by every stream (`db.queryStream`, and the editor's `db.run` and
- *   `db.page`, whose events come as `type: "run"`). Client frames are
- *   `{"op":"start","streamId","request"}` (the `CoreRequest` inline) and
- *   `{"op":"cancel","streamId"}`; server frames are `CoreEvent` JSON.
+ * - `call`: `POST /api/rpc`, with the page's write origin
+ *   (`webPageOrigin`) as `X-Seaquel-Origin`, so the page can tell its own
+ *   writes' `storageChanged` events apart;
+ * - `stream` and `events`: one WebSocket per page at
+ *   `/api/rpc/stream?origin=<the page's origin>` (a browser can't set
+ *   headers on a WebSocket; Node turns it into the header, so a run's
+ *   history event carries it), shared by every stream (`db.queryStream`,
+ *   and the editor's `db.run` and `db.page`, whose events come as
+ *   `type: "run"`). Client frames are `{"op":"start","streamId","request"}`
+ *   (the `CoreRequest` inline) and `{"op":"cancel","streamId"}`; server
+ *   frames are `CoreEvent` JSON.
+ * - **Missed events.** `onResubscribed` handlers run on every socket open
+ *   (`initial` on the page's first): events sent while no socket was open
+ *   are lost, so a subscriber reloads what it shows. `onEventsUnavailable`
+ *   handlers run when updates stop for a while: access lost (1008, the
+ *   socket stays closed until a new query) or too many tabs
+ *   (`TOO_MANY_SOCKETS`, retried with backoff). A server that finds the
+ *   socket too far behind on events closes it with 1013 `EVENTS_LAGGED`;
+ *   the client reconnects as after any drop, and `onResubscribed` runs.
  *
  * - **Multiplexing.** The server runs at most 16 streams per socket
  *   (`TOO_MANY_STREAMS`), so at most `maxStreams` are started at once and the
@@ -33,6 +46,7 @@
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import type { CoreResponse } from "$lib/types/generated/CoreResponse";
 import { encodeCoreRequest, httpCoreTransport } from "$lib/storage/rust-client";
+import { webPageOrigin } from "./origin";
 import { log } from "$lib/utils/logger";
 import { errorToast } from "$lib/utils/toast";
 import { m } from "$lib/paraglide/messages.js";
@@ -40,7 +54,10 @@ import {
   cancelledEvent,
   streamError,
   StreamQueue,
-  type ConnectionClosedEvent,
+  isWorkspaceEvent,
+  type EventsUnavailableReason,
+  type ResubscribedInfo,
+  type WorkspaceEvent,
   type CoreClient,
   type AnyStreamEvent,
   type CoreEvent,
@@ -105,9 +122,10 @@ interface Entry {
 const OPEN = 1;
 
 function defaultUrl(): string {
-  if (typeof window === "undefined") return "ws://localhost/api/rpc/stream";
+  const query = `?origin=${encodeURIComponent(webPageOrigin())}`;
+  if (typeof window === "undefined") return `ws://localhost/api/rpc/stream${query}`;
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${scheme}://${window.location.host}/api/rpc/stream`;
+  return `${scheme}://${window.location.host}/api/rpc/stream${query}`;
 }
 
 export class HttpCoreClient implements CoreClient {
@@ -128,7 +146,11 @@ export class HttpCoreClient implements CoreClient {
   private failures = 0;
   /** Every stream not ended yet, in start order. */
   private readonly streams = new Map<string, Entry>();
-  private readonly handlers = new Set<(event: ConnectionClosedEvent) => void>();
+  private readonly handlers = new Set<(event: WorkspaceEvent) => void>();
+  private readonly resubscribedHandlers = new Set<(info: ResubscribedInfo) => void>();
+  private readonly unavailableHandlers = new Set<(reason: EventsUnavailableReason) => void>();
+  /** Sockets that have opened on this page. */
+  private opens = 0;
 
   constructor(options: HttpCoreClientOptions = {}) {
     this.url = options.url ?? defaultUrl();
@@ -188,12 +210,30 @@ export class HttpCoreClient implements CoreClient {
     return queue;
   }
 
-  events(handler: (event: ConnectionClosedEvent) => void): () => void {
+  events(handler: (event: WorkspaceEvent) => void): () => void {
     this.handlers.add(handler);
     this.ensureSocket();
     return () => {
       this.handlers.delete(handler);
     };
+  }
+
+  onResubscribed(handler: (info: ResubscribedInfo) => void): () => void {
+    this.resubscribedHandlers.add(handler);
+    return () => {
+      this.resubscribedHandlers.delete(handler);
+    };
+  }
+
+  onEventsUnavailable(handler: (reason: EventsUnavailableReason) => void): () => void {
+    this.unavailableHandlers.add(handler);
+    return () => {
+      this.unavailableHandlers.delete(handler);
+    };
+  }
+
+  private eventsUnavailable(reason: EventsUnavailableReason): void {
+    for (const handler of this.unavailableHandlers) handler(reason);
   }
 
   /** Tell the server to stop a started stream. One not started just never starts. */
@@ -250,6 +290,9 @@ export class HttpCoreClient implements CoreClient {
     socket.onopen = () => {
       opened = true;
       stableTimer = setTimeout(proven, this.stableMs);
+      const info = { initial: this.opens === 0 };
+      this.opens += 1;
+      for (const handler of this.resubscribedHandlers) handler(info);
       this.pump();
     };
     socket.onmessage = (message) => {
@@ -278,6 +321,7 @@ export class HttpCoreClient implements CoreClient {
         for (const entry of this.streams.values()) {
           entry.queue.pushError(streamError(TOO_MANY_TABS, message));
         }
+        this.eventsUnavailable(TOO_MANY_TABS);
         return;
       }
       for (const entry of this.streams.values()) {
@@ -307,6 +351,7 @@ export class HttpCoreClient implements CoreClient {
       entry.queue.pushError(streamError(ACCESS_LOST, message));
     }
     this.onAccessLost(message);
+    this.eventsUnavailable(ACCESS_LOST);
   }
 
   private scheduleReconnect(): void {
@@ -331,7 +376,7 @@ export class HttpCoreClient implements CoreClient {
       void log.warn("Ignoring a Core stream frame that isn't JSON");
       return;
     }
-    if (event.type === "connectionClosed") {
+    if (isWorkspaceEvent(event)) {
       for (const handler of this.handlers) handler(event);
       return;
     }

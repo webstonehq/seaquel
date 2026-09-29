@@ -183,7 +183,9 @@ async fn a_workspace_without_git_answers_not_supported() {
         br#"{"method":"git","params":{"method":"status","params":{"path":"/nowhere"}}}"#,
     )
     .unwrap();
-    let err = dispatch_workspace(&core, &ws, req).await.unwrap_err();
+    let err = dispatch_workspace(&core, &ws, req, seaquel_rpc::WriteOrigin::none())
+        .await
+        .unwrap_err();
     assert_eq!(err.code, "NOT_SUPPORTED");
 }
 

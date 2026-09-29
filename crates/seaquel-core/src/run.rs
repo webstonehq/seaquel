@@ -94,6 +94,17 @@ impl Workspace {
     /// feature); `done.history` is the row. A failed append is logged with
     /// its code and doesn't fail the run.
     pub fn run<'a>(&'a self, core: &'a Core, params: RunParams) -> BoxStream<'a, RunEvent> {
+        self.run_from(core, params, crate::WriteOrigin::none())
+    }
+
+    /// [`Workspace::run`] for the window or tab `origin`: the history
+    /// row's `StorageChanged` event carries it (phase 5d, Decision 18).
+    pub fn run_from<'a>(
+        &'a self,
+        core: &'a Core,
+        params: RunParams,
+        origin: crate::WriteOrigin,
+    ) -> BoxStream<'a, RunEvent> {
         let RunParams {
             connection_id,
             stream_id,
@@ -224,7 +235,8 @@ impl Workspace {
             let succeeded = ran > 0 && !failed;
             let recorded = match (succeeded, history, first_shown.or(first)) {
                 (true, Some(ctx), Some(outcome)) => {
-                    self.append_history(&ctx, &plan.history_query, &outcome, &*executor).await
+                    self.append_history(&ctx, &plan.history_query, &outcome, &*executor, &origin)
+                        .await
                 }
                 _ => None,
             };
@@ -334,6 +346,7 @@ impl Workspace {
         query: &str,
         outcome: &Outcome,
         executor: &dyn Executor,
+        origin: &crate::WriteOrigin,
     ) -> Option<seaquel_types::storage::PersistedQueryHistoryItem> {
         let item = history_item(
             ctx,
@@ -344,7 +357,17 @@ impl Workspace {
             format!("hist-{}", uuid::Uuid::new_v4()),
         );
         match seaquel_storage::query_history::append(self.storage(), &item).await {
-            Ok(()) => Some(item),
+            Ok(()) => {
+                // Phase 5d, Decision 16: history appends emit too, with
+                // the running window's origin.
+                self.record_storage_write(
+                    origin,
+                    crate::StoredKind::History,
+                    Some(item.connection_id.clone()),
+                    Some(vec![item.id.clone()]),
+                );
+                Some(item)
+            }
             Err(e) => {
                 warn!(activity = "db.run", code = e.code(); "Recording the run in history failed");
                 None
@@ -360,6 +383,7 @@ impl Workspace {
         _query: &str,
         _outcome: &Outcome,
         _executor: &dyn Executor,
+        _origin: &crate::WriteOrigin,
     ) -> Option<seaquel_types::storage::PersistedQueryHistoryItem> {
         let _ = history_item;
         None

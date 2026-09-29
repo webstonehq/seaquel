@@ -119,10 +119,10 @@ async fn server_files_and_sockets_are_refused() {
 #[tokio::test]
 async fn a_saved_row_is_checked_too() {
     let env = web_env();
-    save_project(&env).await;
-    save(
+    let p = save_project(&env).await;
+    let c1 = save(
         &env,
-        json!({"id": "c1", "projectId": "p1", "name": "Saved", "type": "postgres",
+        json!({"projectId": p, "name": "Saved", "type": "postgres",
                "host": "db.example.invalid", "port": 5432, "databaseName": "app",
                "username": "u", "labelIds": [], "savePassword": false,
                "connectionString": "postgres://u@db.example.invalid/app?sslkey=/data/auth.db"}),
@@ -130,7 +130,7 @@ async fn a_saved_row_is_checked_too() {
     .await;
     assert_refused(
         &env,
-        json!({"type": "saved", "id": "c1"}),
+        json!({"type": "saved", "id": c1}),
         "CONNECTION_OPTION_NOT_ALLOWED",
         StatusCode::BAD_REQUEST,
     )
@@ -160,10 +160,10 @@ async fn ssh_is_refused_before_any_tunnel() {
         assert_refused(&env, target, "NOT_SUPPORTED", StatusCode::NOT_IMPLEMENTED).await;
     }
 
-    save_project(&env).await;
-    save(
+    let p = save_project(&env).await;
+    let c2 = save(
         &env,
-        json!({"id": "c2", "projectId": "p1", "name": "Tunnelled", "type": "postgres",
+        json!({"projectId": p, "name": "Tunnelled", "type": "postgres",
                "host": "10.0.0.5", "port": 5432, "databaseName": "app", "username": "u",
                "labelIds": [], "savePassword": false,
                "sshTunnel": {"enabled": true, "host": "10.255.255.1", "port": 22,
@@ -173,34 +173,48 @@ async fn ssh_is_refused_before_any_tunnel() {
     .await;
     assert_refused(
         &env,
-        json!({"type": "saved", "id": "c2"}),
+        json!({"type": "saved", "id": c2}),
         "NOT_SUPPORTED",
         StatusCode::NOT_IMPLEMENTED,
     )
     .await;
 }
 
-async fn save_project(env: &Env) {
+/// The default project's id, through the library.
+async fn save_project(env: &Env) -> String {
     let (status, body) = env
         .rpc(
             "u1",
-            &json!({"method": "storage", "params": {"method": "projectsSave", "params":
-                {"project": {"id": "p1", "name": "P", "createdAt": "2026-01-02T03:04:05.000Z",
-                             "updatedAt": "2026-01-02T03:04:05.000Z", "customLabels": []}}}}),
+            &json!({"method": "library", "params": {"method": "projectEnsureDefault"}}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = env
+        .rpc(
+            "u1",
+            &json!({"method": "library", "params": {"method": "projectsList"}}),
+        )
+        .await;
+    body["result"]["result"]["value"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
-async fn save(env: &Env, connection: Value) {
+/// Save `connection` (a draft) through the library; its id.
+async fn save(env: &Env, connection: Value) -> String {
     let (status, body) = env
         .rpc(
             "u1",
-            &json!({"method": "storage", "params": {"method": "connectionsSave", "params":
+            &json!({"method": "library", "params": {"method": "connectionCreate", "params":
                 {"connection": connection}}}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    body["result"]["result"]["value"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 /// A form the policy allows reaches the driver: it fails there (nothing

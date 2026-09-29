@@ -40,6 +40,8 @@ function fakeClient(events: StreamEvent[] | null = null) {
       return queue as AsyncIterable<never>;
     },
     events: () => () => {},
+    onResubscribed: () => () => {},
+    onEventsUnavailable: () => () => {},
   };
   return {
     client,

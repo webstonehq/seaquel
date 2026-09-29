@@ -11,9 +11,13 @@ dirs = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
+# JavaScript's encodeURIComponent, for the legacy-string check (already
+# in the build through `url`).
+percent-encoding = "2"
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+# `time`: the write mutex's wait gives up (`Storage::write`).
+tokio = { workspace = true, features = ["time"] }
 # WHATWG URL parsing, for stripping passwords from connection strings exactly as
 # the TypeScript's `new URL` did.
 url = "2"

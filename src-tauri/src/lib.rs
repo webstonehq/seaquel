@@ -7,7 +7,9 @@ use seaquel_core::license::desktop::DesktopClient;
 use seaquel_core::secrets::{KeychainStore, SecretStore};
 use seaquel_core::storage::{LEGACY_STORAGE, STORAGE_CORRUPT};
 use seaquel_core::{ConnectPolicy, Core, CoreError, Workspace, WorkspaceSpec};
-use seaquel_rpc::{ConnectTargetParams, CoreEvent, DbRequest, Request, Response, RpcError};
+use seaquel_rpc::{
+    ConnectTargetParams, CoreEvent, DbRequest, Request, Response, RpcError, WriteOrigin,
+};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -97,8 +99,8 @@ type EventSink = Box<dyn Fn(CoreEvent) -> bool + Send>;
 /// What each webview (by label: `main`, the theme editor, …) has open.
 #[derive(Default)]
 struct Webviews {
-    /// Where [`CoreEvent::ConnectionClosed`] events go: every live sink gets
-    /// every event.
+    /// Where [`CoreEvent::ConnectionClosed`] and [`CoreEvent::StorageChanged`]
+    /// events go: every live sink gets every event.
     sinks: HashMap<String, EventSink>,
     /// The stream ids of each webview's running `core_stream`s.
     streams: HashMap<String, HashSet<String>>,
@@ -183,26 +185,37 @@ impl DesktopWorkspace {
     /// - a failure worth retrying: that error, and the next `db` call tries
     ///   again, like a storage call.
     ///
-    /// Picking it subscribes to its events once, for `core_events`.
+    /// The storage workspace's events already reach `core_events` (see
+    /// [`DesktopWorkspace::workspace`]); picking the stand-in subscribes to
+    /// its events once.
     pub(crate) async fn db(&self, core: &Core) -> Result<&DbWorkspace, RpcError> {
         self.db
             .get_or_try_init(|| async {
-                let db = match self.workspace(core).await {
-                    Ok(ws) => DbWorkspace {
+                match self.workspace(core).await {
+                    Ok(ws) => Ok(DbWorkspace {
                         ws,
                         storage_error: None,
                         _scratch: None,
-                    },
-                    Err(e) if self.storage_failed_for_good() => Self::stand_in(core, e).await?,
-                    Err(e) => return Err(e),
-                };
-                tauri::async_runtime::spawn(pump_events(
-                    seaquel_rpc::workspace_events(&db.ws),
-                    self.webviews.clone(),
-                ));
-                Ok(db)
+                    }),
+                    Err(e) if self.storage_failed_for_good() => {
+                        let db = Self::stand_in(core, e).await?;
+                        self.pump(&db.ws);
+                        Ok(db)
+                    }
+                    Err(e) => Err(e),
+                }
             })
             .await
+    }
+
+    /// Send `ws`'s events to every webview's `core_events` sink from now on.
+    /// Called once per workspace, when it opens, so a storage write made
+    /// before any `db` call is announced too.
+    fn pump(&self, ws: &Workspace) {
+        tauri::async_runtime::spawn(pump_events(
+            seaquel_rpc::workspace_events(ws),
+            self.webviews.clone(),
+        ));
     }
 
     async fn stand_in(core: &Core, storage_error: RpcError) -> Result<DbWorkspace, RpcError> {
@@ -226,8 +239,10 @@ impl DesktopWorkspace {
         })
     }
 
-    /// Send [`CoreEvent::ConnectionClosed`] events to `sink` for webview
-    /// `label` from now on. Every webview's sink gets every event.
+    /// Send [`CoreEvent::ConnectionClosed`] and [`CoreEvent::StorageChanged`]
+    /// events to `sink` for webview `label` from now on. Every webview's
+    /// sink gets every event, the writer's too (it skips its own by
+    /// `origin`, its label).
     ///
     /// A second call for the same label is a reload: its sink replaces the
     /// old one (whose channel may never report that it's gone), and the
@@ -276,6 +291,7 @@ impl DesktopWorkspace {
                 match core.open_workspace(spec).await {
                     Ok(ws) => {
                         info!(activity = "workspace.open", data_dir = data_dir.display().to_string().as_str(); "Workspace open");
+                        self.pump(&ws);
                         Ok(Ok(ws))
                     }
                     Err(e) if e.code == LEGACY_STORAGE || e.code == STORAGE_CORRUPT => {
@@ -292,7 +308,14 @@ impl DesktopWorkspace {
         opened.clone()
     }
 
-    async fn call(&self, core: &Core, req: Request) -> Result<Response, RpcError> {
+    /// Serve `req` from webview `origin` (its label, which the
+    /// `StorageChanged` event of a write carries).
+    async fn call(
+        &self,
+        core: &Core,
+        origin: WriteOrigin,
+        req: Request,
+    ) -> Result<Response, RpcError> {
         match req {
             Request::Secret(r) => seaquel_rpc::dispatch_secret(Some(&*self.secrets), r)
                 .await
@@ -312,11 +335,12 @@ impl DesktopWorkspace {
                         return Err(e.clone());
                     }
                 }
-                seaquel_rpc::dispatch_workspace(core, &db.ws, Request::Db(r)).await
+                seaquel_rpc::dispatch_workspace(core, &db.ws, Request::Db(r), origin).await
             }
+            // Storage and the library.
             req => {
                 let ws = self.workspace(core).await?;
-                seaquel_rpc::dispatch_workspace(core, &ws, req).await
+                seaquel_rpc::dispatch_workspace(core, &ws, req, origin).await
             }
         }
     }
@@ -333,6 +357,12 @@ fn reads_saved_row(req: &DbRequest) -> bool {
 
 /// Hand each workspace event to every webview's sink. With none set, it's
 /// dropped (the desktop only closes connections when asked).
+///
+/// Unlike the web's per-socket queue (`LISTENER_EVENT_BOUND` in
+/// `seaquel-server`), nothing here is bounded: Core's subscriber channel
+/// and each Tauri `Channel` are unbounded. That's acceptable because it's
+/// all in one process: a sink never waits on a network peer, and a webview
+/// that stops reading is one the app itself has hung.
 async fn pump_events(mut events: BoxStream<'static, CoreEvent>, webviews: Arc<Mutex<Webviews>>) {
     while let Some(event) = events.next().await {
         Webviews::lock(&webviews).send(&event);
@@ -366,22 +396,30 @@ fn core_call_body(body: &InvokeBody) -> Result<Cow<'_, [u8]>, RpcError> {
 
 /// The workspace RPC (`seaquel_rpc::Request`). The body is the request's
 /// JSON as bytes; see [`core_call_body`].
+///
+/// The write origin is the calling webview's label, read here from the
+/// webview itself and never from the payload (phase 5d, Decision 18): a
+/// window's writes come back to it as events it can recognise and skip.
 #[tauri::command]
 async fn core_call(
     request: tauri::ipc::Request<'_>,
+    webview: tauri::Webview,
     core: State<'_, Core>,
     workspace: State<'_, DesktopWorkspace>,
 ) -> Result<Response, RpcError> {
-    handle_core_call(&core, &workspace, request.body()).await
+    handle_core_call(&core, &workspace, webview.label(), request.body()).await
 }
 
 async fn handle_core_call(
     core: &Core,
     workspace: &DesktopWorkspace,
+    label: &str,
     body: &InvokeBody,
 ) -> Result<Response, RpcError> {
     let req = seaquel_rpc::parse_request(&core_call_body(body)?)?;
-    workspace.call(core, req).await
+    workspace
+        .call(core, WriteOrigin::new(Some(label)), req)
+        .await
 }
 
 /// A `db.queryStream`, `db.run`, `db.page` or `db.tablePage` request, its
@@ -436,7 +474,10 @@ async fn run_core_stream(
         _ => None,
     };
     let db = workspace.db(core).await?;
-    let mut events = seaquel_rpc::dispatch_stream(core, &db.ws, req)?;
+    // The run's history event carries the webview's label, as `core_call`'s
+    // writes do.
+    let origin = WriteOrigin::new(Some(label));
+    let mut events = seaquel_rpc::dispatch_stream(core, &db.ws, req, origin)?;
     // Tracked once registered, so a reload's cancel always finds it.
     let _tracking = stream_id.map(|stream_id| {
         Webviews::lock(&workspace.webviews)
@@ -460,9 +501,10 @@ async fn run_core_stream(
     Ok(sent)
 }
 
-/// Push the workspace's [`CoreEvent::ConnectionClosed`] events to `channel`.
-/// Each webview calls it once when its page loads; every webview gets every
-/// event. A second call from the same webview is a reload: the new channel
+/// Push the workspace's [`CoreEvent::ConnectionClosed`] and
+/// [`CoreEvent::StorageChanged`] events to `channel`. Each webview calls it
+/// once when its page loads; every webview gets every event (events from
+/// before it registered are gone, so a page reloads what it shows). A second call from the same webview is a reload: the new channel
 /// replaces the old one and the webview's running streams are cancelled
 /// ([`DesktopWorkspace::set_event_sink`]). Closing the window drops both.
 #[tauri::command]
@@ -1118,13 +1160,13 @@ mod workspace_tests {
         InvokeBody::Raw(json.as_bytes().to_vec())
     }
 
-    const LOAD: &str = r#"{"method":"storage","params":{"method":"projectsLoadAll"}}"#;
+    const LOAD: &str = r#"{"method":"storage","params":{"method":"tutorialLoadAll"}}"#;
     const SET: &str =
         r#"{"method":"secret","params":{"method":"set","params":{"key":"db:c1","value":"pw"}}}"#;
     const GET: &str = r#"{"method":"secret","params":{"method":"get","params":{"key":"db:c1"}}}"#;
 
     fn call(core: &Core, ws: &DesktopWorkspace, json: &str) -> Result<serde_json::Value, RpcError> {
-        tauri::async_runtime::block_on(handle_core_call(core, ws, &body(json)))
+        tauri::async_runtime::block_on(handle_core_call(core, ws, "main", &body(json)))
             .map(|res| serde_json::to_value(res).unwrap())
     }
 
@@ -1704,6 +1746,170 @@ mod workspace_tests {
         }
         // The replaced sink was dropped: its channel is closed, and empty.
         assert_eq!(old_rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
+    }
+
+    /// Phase 5d: `core_call` serves the library, and a write's event carries
+    /// the calling webview's label as its origin; every webview's sink gets
+    /// it, including one registered before storage opened.
+    #[test]
+    fn core_call_serves_library_with_the_webview_origin() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (main_tx, main_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(main_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+
+        let lib = |label: &str, method: &str, params: Json| {
+            let body = json!({"method": "library", "params": {"method": method, "params": params}});
+            let res = tauri::async_runtime::block_on(handle_core_call(
+                &core,
+                &ws,
+                label,
+                &InvokeBody::Raw(body.to_string().into_bytes()),
+            ))
+            .unwrap();
+            let res = serde_json::to_value(res).unwrap();
+            assert_eq!(res["result"]["method"], method, "{res}");
+            res["result"]["result"].clone()
+        };
+        let body = json!({"method": "library", "params": {"method": "projectEnsureDefault"}});
+        tauri::async_runtime::block_on(handle_core_call(
+            &core,
+            &ws,
+            "main",
+            &InvokeBody::Raw(body.to_string().into_bytes()),
+        ))
+        .unwrap();
+        let created = lib(
+            "theme-editor",
+            "savedQueryCreate",
+            json!({"query": {"projectId": "default-seaquel", "name": "Q", "query": "SELECT 1"}}),
+        );
+        let id = created["value"]["id"].as_str().unwrap();
+
+        for rx in [&main_rx, &editor_rx] {
+            // The ensure-default's event first, from `main`.
+            let first = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(first["type"], "storageChanged", "{first}");
+            assert_eq!(first["kind"], "project", "{first}");
+            assert_eq!(first["origin"], "main", "{first}");
+            let event = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(
+                event,
+                json!({"type": "storageChanged", "kind": "savedQuery", "scope": "default-seaquel",
+                       "ids": [id], "origin": "theme-editor", "seq": created["seq"]})
+            );
+        }
+
+        // A label that isn't a valid origin writes with none.
+        lib(
+            "odd label/with:chars",
+            "savedQueryUpdate",
+            json!({"id": id, "patch": {"starred": true}}),
+        );
+        assert_eq!(main_rx.recv_timeout(WAIT).unwrap()["origin"], Json::Null);
+    }
+
+    /// Phase 5d review, M1: a run's history event carries the label of the
+    /// webview that started it through `core_stream`.
+    #[test]
+    fn a_runs_history_event_carries_the_webview_label() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (tx, rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(tx));
+        let file = tmp.path().join("h.db");
+        call(
+            &core,
+            &ws,
+            r#"{"method":"library","params":{"method":"projectEnsureDefault"}}"#,
+        )
+        .unwrap();
+        let saved = call(
+            &core,
+            &ws,
+            &json!({"method": "library", "params": {"method": "connectionCreate", "params": {
+                "connection": {"projectId": "default-seaquel", "name": "Lite", "type": "sqlite",
+                    "host": "", "port": 0, "databaseName": file.display().to_string(),
+                    "username": ""}}}})
+            .to_string(),
+        )
+        .unwrap()["result"]["result"]["value"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let id = sqlite(&core, &ws, &file, 1);
+        let body = json!({"method": "db", "params": {"method": "run", "params": {
+            "connectionId": id, "streamId": "r-h", "text": "SELECT 1", "target": {"type": "all"},
+            "pageSize": 10, "history": {"connectionId": saved, "connectionName": "Lite",
+            "connectionLabels": []}}}})
+        .to_string();
+        let mut events = Vec::new();
+        tauri::async_runtime::block_on(run_core_stream(
+            &core,
+            &ws,
+            "log-viewer",
+            body.as_bytes(),
+            |event| {
+                events.push(serde_json::to_value(event).unwrap());
+                true
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            events.last().unwrap()["event"]["type"],
+            "done",
+            "{events:?}"
+        );
+        let history = loop {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            if event["kind"] == "history" {
+                break event;
+            }
+        };
+        assert_eq!(history["scope"], json!(saved));
+        assert_eq!(history["origin"], "log-viewer");
+    }
+
+    /// A storage-group write reaches every webview too, with its origin.
+    #[test]
+    fn a_write_reaches_every_webview_sink() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (main_tx, main_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(main_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        let body = r#"{"method":"storage","params":{"method":"appStateSet","params":{"key":"k","value":"v"}}}"#;
+        tauri::async_runtime::block_on(handle_core_call(
+            &core,
+            &ws,
+            "main",
+            &InvokeBody::Raw(body.as_bytes().to_vec()),
+        ))
+        .unwrap();
+        for rx in [&main_rx, &editor_rx] {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(event["type"], "storageChanged", "{event}");
+            assert_eq!(event["kind"], "storage", "{event}");
+            assert_eq!(event["ids"], json!(["k"]), "{event}");
+            assert_eq!(event["origin"], "main", "{event}");
+        }
+        // One pump per workspace: no second copy once `db` picks it too.
+        tauri::async_runtime::block_on(ws.db(&core)).unwrap();
+        tauri::async_runtime::block_on(handle_core_call(
+            &core,
+            &ws,
+            "main",
+            &InvokeBody::Raw(body.as_bytes().to_vec()),
+        ))
+        .unwrap();
+        assert_eq!(main_rx.recv_timeout(WAIT).unwrap()["kind"], "storage");
+        assert!(main_rx.recv_timeout(Duration::from_millis(200)).is_err());
     }
 
     /// A stream on webview `label`, run in the background; its events as

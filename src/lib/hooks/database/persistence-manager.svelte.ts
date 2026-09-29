@@ -1,5 +1,6 @@
-import { withErrorHandling } from "$lib/errors";
-import { stripConnectionStringSecrets } from "$lib/utils/connection-string-rules";
+import { extractErrorMessage } from "$lib/errors";
+import { errorToast } from "$lib/utils/toast";
+import { m } from "$lib/paraglide/messages.js";
 import type {
   PersistedQueryTab,
   PersistedSchemaTab,
@@ -9,14 +10,10 @@ import type {
   PersistedWorkflowTab,
   PersistedStarterTab,
   PersistedDashboardTab,
-  PersistedSavedQuery,
   PersistedQueryHistoryItem,
   PersistedAIChat,
   PersistedAIMessage,
-  PersistedQueryVersion,
   PersistedDashboardVersion,
-  DatabaseConnection,
-  PersistedProject,
   PersistedProjectState,
   PersistedSharedQueryRepo,
 } from "$lib/types";
@@ -24,29 +21,29 @@ import { serializeRepo } from "$lib/types";
 import type { SavedWorkflow } from "$lib/types/workflow";
 import { toPersistedDashboard } from "./dashboard-serialize.js";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistedConnection } from "./types.js";
 import type { ConnectionOverride } from "$lib/types";
 import { getStorage, type PersistedDashboard } from "$lib/storage";
-import { getKeyringService } from "$lib/services/keyring";
 import { log } from "$lib/utils/logger";
 import { skipUnloadedSave } from "$lib/storage/load-guard";
+
+/** Versions kept per saved query or dashboard when the setting is unset. */
+const DEFAULT_VERSION_LIMIT = 100;
 
 /**
  * A stored collection whose save replaces what's stored, keyed so a failed
  * load can be recorded (see `load-guard.ts`).
  */
-export type LoadKey =
-  | "projects"
-  | "sharedRepos"
-  | `projectState:${string}`
-  | `savedQueries:${string}`
-  | `aiMessages:${string}`;
+export type LoadKey = "sharedRepos" | `projectState:${string}` | `aiMessages:${string}`;
 
 /**
- * Manages persistence of projects, connections, and their state to SQLite.
+ * Manages persistence of the projects' state (tabs, layout, saved
+ * workflows), dashboards, AI chats, shared repos and connection overrides.
  * Handles serialization, debounced saving, and state loading.
  *
- * Storage goes through `getStorage()`.
+ * Storage goes through `getStorage()`. The library (connections, projects,
+ * custom labels, saved queries and their versions) isn't here: it is
+ * written through `LibraryService` with one targeted call per change
+ * (phase 5d-1), so nothing of it is saved whole or on a timer.
  */
 export class PersistenceManager {
   // Keyed per project/connection: a single shared timer meant scheduling a save
@@ -66,7 +63,19 @@ export class PersistenceManager {
   /** The subset of `failedLoads` whose read is still running. */
   private pendingLoads = new Set<LoadKey>();
 
+  /**
+   * Whether the projects were read at startup. Without them the active
+   * project is an in-memory stand-in, whose id must not replace the stored
+   * choice and whose state can't be stored.
+   */
+  private projectsLoaded = true;
+
   constructor(private state: DatabaseState) {}
+
+  /** Set by `ProjectManager.initialize`. */
+  setProjectsLoaded(loaded: boolean): void {
+    this.projectsLoaded = loaded;
+  }
 
   /** True if the last load of `key` failed, so saving it would overwrite it. */
   loadFailed(key: LoadKey): boolean {
@@ -321,61 +330,13 @@ export class PersistenceManager {
     return this.state.savedWorkflowsByProject[projectId] ?? [];
   }
 
-  serializeSavedQueries(projectId: string): PersistedSavedQuery[] {
-    const queries = this.state.queriesByProject[projectId] ?? [];
-    return queries.map((q) => ({
-      id: q.id,
-      name: q.name,
-      query: q.query,
-      projectId: q.projectId,
-      createdAt: q.createdAt.toISOString(),
-      updatedAt: q.updatedAt.toISOString(),
-      parameters: q.parameters,
-      starred: q.starred,
-      shared: q.shared,
-      description: q.description,
-      databaseType: q.databaseType,
-      tags: q.tags,
-      folder: q.folder,
-    }));
-  }
-
-  // === PROJECT PERSISTENCE ===
-
-  async persistProjects(): Promise<void> {
-    if (this.loadFailed("projects")) {
-      this.refuse("projects", "projects");
-      return;
-    }
-    try {
-      const projects: PersistedProject[] = this.state.projects.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        createdAt: p.createdAt.toISOString(),
-        updatedAt: p.updatedAt.toISOString(),
-        customLabels: p.customLabels,
-        gitRepoPath: p.gitRepoPath,
-      }));
-
-      await getStorage().projects.saveAll(projects);
-    } catch (error) {
-      void log.error("Failed to persist projects:", error);
-    }
-  }
-
-  /** The stored projects, or `[]` with `loadFailed("projects")` set if the read failed. */
-  async loadProjects(): Promise<PersistedProject[]> {
-    return this.load("projects", "projects", () => getStorage().projects.loadAll(), []);
-  }
-
   // === APP STATE PERSISTENCE ===
 
   async persistAppState(): Promise<void> {
     // With no stored projects loaded, the active project is an in-memory
     // stand-in whose id must not replace the stored choice.
-    if (this.loadFailed("projects")) {
-      this.refuse("the active project", "projects");
+    if (!this.projectsLoaded) {
+      skipUnloadedSave("the active project", { pending: false });
       return;
     }
     try {
@@ -399,8 +360,12 @@ export class PersistenceManager {
   async persistProjectState(projectId: string): Promise<void> {
     void log.debug(`Persisting project state: ${projectId}`);
     // Saving replaces the project's tabs and saved canvases.
-    if (this.loadFailed("projects") || this.loadFailed(`projectState:${projectId}`)) {
-      this.refuse(`the state of project ${projectId}`, "projects", `projectState:${projectId}`);
+    if (!this.projectsLoaded) {
+      skipUnloadedSave(`the state of project ${projectId}`, { pending: false });
+      return;
+    }
+    if (this.loadFailed(`projectState:${projectId}`)) {
+      this.refuse(`the state of project ${projectId}`, `projectState:${projectId}`);
       return;
     }
     try {
@@ -442,16 +407,6 @@ export class PersistenceManager {
       };
 
       await getStorage().projectState.save(state);
-
-      // Only persist saved queries if they've been loaded into memory for this project.
-      // Otherwise saveAll would delete all queries (since the in-memory list is empty).
-      // The same goes for a project whose saved queries failed to load: its
-      // list holds only what was added since, and saveAll would delete the rest.
-      if (this.loadFailed(`savedQueries:${projectId}`)) {
-        this.refuse(`the saved queries of project ${projectId}`, `savedQueries:${projectId}`);
-      } else if (projectId in this.state.queriesByProject) {
-        await getStorage().savedQueries.saveAll(projectId, this.serializeSavedQueries(projectId));
-      }
     } catch (error) {
       void log.error(`Persistence failed: ${projectId}`);
       void log.error(`Failed to persist state for project ${projectId}:`, error);
@@ -480,22 +435,6 @@ export class PersistenceManager {
     );
   }
 
-  async removeProjectState(projectId: string): Promise<void> {
-    try {
-      await getStorage().projectState.remove(projectId);
-    } catch (error) {
-      void log.error(`Failed to remove persisted state for project ${projectId}:`, error);
-    }
-  }
-
-  async removeProject(projectId: string): Promise<void> {
-    try {
-      await getStorage().projects.remove(projectId);
-    } catch (error) {
-      void log.error(`Failed to remove project ${projectId}:`, error);
-    }
-  }
-
   // === CONNECTION DATA (history) ===
   // History is written by targeted calls in `QueryHistoryManager` (append,
   // set favourite), never by replacing the list, so a failed load has no
@@ -512,46 +451,24 @@ export class PersistenceManager {
     }
   }
 
-  async loadProjectSavedQueries(projectId: string): Promise<PersistedSavedQuery[]> {
-    return this.load(
-      `savedQueries:${projectId}`,
-      `saved queries for project ${projectId}`,
-      () => getStorage().savedQueries.loadByProject(projectId),
-      [],
-    );
-  }
-
-  async loadProjectQueryVersions(projectId: string): Promise<PersistedQueryVersion[]> {
+  /**
+   * A version limit setting (`query_version_limit`, `dashboard_version_limit`),
+   * or 100 when it's unset, unreadable, negative or not a number.
+   */
+  async versionLimit(key: "query_version_limit" | "dashboard_version_limit"): Promise<number> {
     try {
-      return await getStorage().queryVersions.loadByProject(projectId);
+      const value = await getStorage().appState.get(key);
+      const limit = value ? parseInt(value, 10) : NaN;
+      return Number.isNaN(limit) || limit < 0 ? DEFAULT_VERSION_LIMIT : limit;
     } catch (error) {
-      void log.error(`Failed to load query versions for project ${projectId}:`, error);
-      return [];
+      void log.error(`Failed to read ${key}:`, error);
+      return DEFAULT_VERSION_LIMIT;
     }
   }
 
-  async persistQueryVersion(version: PersistedQueryVersion): Promise<void> {
-    try {
-      await getStorage().queryVersions.insert(version);
-    } catch (error) {
-      void log.error(`Failed to persist query version:`, error);
-    }
-  }
-
-  async pruneQueryVersions(queryId: string, keepCount: number): Promise<void> {
-    try {
-      await getStorage().queryVersions.pruneOldVersions(queryId, keepCount);
-    } catch (error) {
-      void log.error(`Failed to prune query versions:`, error);
-    }
-  }
-
+  /** Inserts a dashboard version. Throws on failure, so the caller doesn't prune after it. */
   async persistDashboardVersion(version: PersistedDashboardVersion): Promise<void> {
-    try {
-      await getStorage().dashboardVersions.insert(version);
-    } catch (error) {
-      void log.error(`Failed to persist dashboard version:`, error);
-    }
+    await getStorage().dashboardVersions.insert(version);
   }
 
   async pruneDashboardVersions(dashboardId: string, keepCount: number): Promise<void> {
@@ -577,22 +494,6 @@ export class PersistenceManager {
     } catch (error) {
       void log.error(`Failed to load dashboards for project ${projectId}:`, error);
       return [];
-    }
-  }
-
-  async removeConnectionData(connectionId: string): Promise<void> {
-    // Cancel any pending AI chat persistence timer for this connection
-    const aiTimer = this.aiChatTimers.get(connectionId);
-    if (aiTimer) {
-      clearTimeout(aiTimer);
-      this.aiChatTimers.delete(connectionId);
-    }
-
-    try {
-      await getStorage().queryHistory.removeByConnection(connectionId);
-      await getStorage().aiChats.removeByConnection(connectionId);
-    } catch (error) {
-      void log.error(`Failed to remove data for connection ${connectionId}:`, error);
     }
   }
 
@@ -696,132 +597,6 @@ export class PersistenceManager {
     }
   }
 
-  // === CONNECTION PERSISTENCE ===
-
-  /** The string as stored: without any password (`stripConnectionStringSecrets`). */
-  stripPasswordFromConnectionString(connectionString?: string): string | undefined {
-    return stripConnectionStringSecrets(connectionString);
-  }
-
-  /**
-   * Saves a connection row, and the secrets the caller asked to change.
-   *
-   * `options` describes an intent, not the full state: a flag left out means
-   * "leave that secret alone", so metadata-only callers (label changes, AI
-   * model selection) can omit `options` entirely without wiping the user's
-   * keychain entries. Only an explicit `false` deletes a stored secret.
-   */
-  async persistConnection(
-    connection: DatabaseConnection,
-    options?: {
-      savePassword?: boolean;
-      saveSshPassword?: boolean;
-      saveSshKeyPassphrase?: boolean;
-      sshPassword?: string;
-      sshKeyPassphrase?: string;
-    },
-  ): Promise<void> {
-    await withErrorHandling(
-      async () => {
-        // Fall back to what the connection already carries so an omitted flag
-        // doesn't clear the stored one (auto-reconnect reads these at launch).
-        const savePassword = options?.savePassword ?? connection.savePassword;
-        const saveSshPassword = options?.saveSshPassword ?? connection.saveSshPassword;
-        const saveSshKeyPassphrase =
-          options?.saveSshKeyPassphrase ?? connection.saveSshKeyPassphrase;
-
-        const persistedConnection: PersistedConnection = {
-          id: connection.id,
-          name: connection.name,
-          type: connection.type,
-          host: connection.host,
-          port: connection.port,
-          databaseName: connection.databaseName,
-          username: connection.username,
-          sslMode: connection.sslMode,
-          connectionString: this.stripPasswordFromConnectionString(connection.connectionString),
-          lastConnected: connection.lastConnected,
-          sshTunnel: connection.sshTunnel,
-          savePassword,
-          saveSshPassword,
-          saveSshKeyPassphrase,
-          projectId: connection.projectId,
-          labelIds: connection.labelIds,
-          isLocalOnly: connection.isLocalOnly,
-          sharedConnectionId: connection.sharedConnectionId,
-          aiShareSchema: connection.aiShareSchema,
-          aiShareData: connection.aiShareData,
-          activeAIProviderId: connection.activeAIProviderId,
-          activeAIModel: connection.activeAIModel,
-        };
-
-        await getStorage().connections.save(persistedConnection);
-
-        // Save passwords to keyring if enabled
-        const keyring = getKeyringService();
-        if (keyring.isAvailable()) {
-          await withErrorHandling(
-            async () => {
-              if (options?.savePassword && connection.password) {
-                await keyring.setDbPassword(connection.id, connection.password);
-              } else if (options?.savePassword === false) {
-                await keyring.deleteDbPassword(connection.id);
-              }
-
-              if (options?.saveSshPassword && options.sshPassword) {
-                await keyring.setSshPassword(connection.id, options.sshPassword);
-              } else if (options?.saveSshPassword === false) {
-                await keyring.deleteSshPassword(connection.id);
-              }
-
-              if (options?.saveSshKeyPassphrase && options.sshKeyPassphrase) {
-                await keyring.setSshKeyPassphrase(connection.id, options.sshKeyPassphrase);
-              } else if (options?.saveSshKeyPassphrase === false) {
-                await keyring.deleteSshKeyPassphrase(connection.id);
-              }
-            },
-            "PERSISTENCE_FAILED",
-            "Could not save password to system keychain",
-          );
-        }
-      },
-      "PERSISTENCE_FAILED",
-      "Failed to save connection to storage",
-    );
-  }
-
-  async removePersistedConnection(connectionId: string): Promise<void> {
-    await withErrorHandling(
-      async () => {
-        await getStorage().connections.remove(connectionId);
-
-        // Delete passwords from keyring
-        const keyring = getKeyringService();
-        if (keyring.isAvailable()) {
-          try {
-            await keyring.deleteAllForConnection(connectionId);
-          } catch (error) {
-            void log.warn("Failed to delete credentials from keyring:", error);
-          }
-        }
-
-        // Remove connection data
-        await this.removeConnectionData(connectionId);
-      },
-      "PERSISTENCE_FAILED",
-      "Failed to delete connection from storage",
-    );
-  }
-
-  async loadPersistedConnections(): Promise<PersistedConnection[]> {
-    try {
-      return await getStorage().connections.loadAll();
-    } catch (error) {
-      void log.error("Failed to load persisted connections:", error);
-      return [];
-    }
-  }
-
   // === SHARED QUERY REPOS PERSISTENCE ===
 
   async persistSharedRepos(): Promise<void> {
@@ -863,6 +638,7 @@ export class PersistenceManager {
       });
     } catch (error) {
       void log.error("Failed to persist connection override:", error);
+      errorToast(m.connection_override_save_failed({ message: extractErrorMessage(error) }));
     }
   }
 

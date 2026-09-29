@@ -109,3 +109,14 @@ export function extractErrorMessage(error: unknown): string {
 
   return "An unknown error occurred";
 }
+
+/**
+ * An error the user has already been shown (a toast), rethrown so callers
+ * can undo their change. They shouldn't show it a second time.
+ */
+export class ShownError extends Error {
+  constructor(readonly appError: AppError) {
+    super(appError.message, { cause: appError.cause });
+    this.name = "ShownError";
+  }
+}

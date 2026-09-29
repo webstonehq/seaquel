@@ -18,7 +18,11 @@
  *   2. opens a WebSocket to the Rust service's `/rpc/stream` (a fixed URL:
  *      nothing from the browser's URL is forwarded) with `X-Seaquel-User` set
  *      from the session. No other browser header reaches Rust: no cookie, and
- *      no client-sent `X-Seaquel-User`;
+ *      no client-sent `X-Seaquel-User`. The one value taken from the URL is
+ *      the page's write origin (`?origin=`, phase 5d: a browser can't set
+ *      headers on a WebSocket), sent as `X-Seaquel-Origin` only when it
+ *      matches {@link WRITE_ORIGIN_PATTERN} ({@link streamOrigin}); a run's
+ *      history event carries it;
  *   3. pipes frames both ways as they are, Text as Text and Binary as Binary,
  *      without reading them. Rust checks every frame and enforces ownership.
  *      Browser frames are capped at {@link MAX_FRAME_BYTES}; Rust's aren't
@@ -101,6 +105,28 @@ export const MAX_LIFETIME_MS = 12 * 60 * 60 * 1000;
 const NORMAL = 1000;
 const POLICY_VIOLATION = 1008;
 const TRY_AGAIN_LATER = 1013;
+
+/** The header Rust reads the page's write origin from. */
+export const WRITE_ORIGIN_HEADER = "x-seaquel-origin";
+
+/** 1–64 of `[A-Za-z0-9_-]`, as `/api/rpc` and Rust check it. */
+export const WRITE_ORIGIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The upgrade URL's `origin` query parameter when it is exactly one
+ * well-formed value, else `null`.
+ *
+ * @param {string | undefined} url
+ * @returns {string | null}
+ */
+export function streamOrigin(url) {
+  try {
+    const values = new URL(url ?? "", "http://localhost").searchParams.getAll("origin");
+    return values.length === 1 && WRITE_ORIGIN_PATTERN.test(values[0]) ? values[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Whether `url` (a request URL) is the stream path, exactly. The query
@@ -220,8 +246,9 @@ export function attachRpcStreamProxy(server, options) {
     }
     const userId = session.userId;
 
+    const origin = streamOrigin(req.url);
     wss.handleUpgrade(req, socket, head, (browserWs) => {
-      const closeBoth = pipe(browserWs, rustWsUrl, userId, limits);
+      const closeBoth = pipe(browserWs, rustWsUrl, userId, origin, limits);
 
       // Still allowed? Checked again on a timer, with the same credentials.
       const recheck = setInterval(async () => {
@@ -274,16 +301,20 @@ function sendable(code) {
  * @param {WebSocket} browserWs
  * @param {string} rustWsUrl
  * @param {string} userId
+ * @param {string | null} origin The page's checked write origin, if any.
  * @param {{ pauseAt: number, maxBuffered: number, connectTimeoutMs: number }} limits
  * @returns {(code?: number, reason?: string) => void} Closes both sides; the
  *   browser gets `code` and `reason`.
  */
-function pipe(browserWs, rustWsUrl, userId, limits) {
+function pipe(browserWs, rustWsUrl, userId, origin, limits) {
   // No `maxPayload`: Rust is trusted, and a result frame may pass the
   // browser's limit (Rust splits batches at about 4 MiB, but one wide row
   // can be larger). 0 is no limit in `ws`.
+  /** @type {Record<string, string>} */
+  const headers = { [USER_HEADER]: userId };
+  if (origin !== null) headers[WRITE_ORIGIN_HEADER] = origin;
   const rustWs = new WebSocket(rustWsUrl, {
-    headers: { [USER_HEADER]: userId },
+    headers,
     maxPayload: 0,
   });
 

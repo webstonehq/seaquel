@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { dndzone } from "svelte-dnd-action";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button";
@@ -105,13 +106,17 @@
 		showRemoveDialog = true;
 	};
 
-	const handleRemoveConnection = () => {
-		if (connectionToRemove) {
-			db.connections.remove(connectionToRemove);
-			connectionToRemove = null;
-			connectionToRemoveName = "";
-		}
+	const handleRemoveConnection = async () => {
+		const id = connectionToRemove;
+		connectionToRemove = null;
+		connectionToRemoveName = "";
 		showRemoveDialog = false;
+		if (!id) return;
+		try {
+			await db.connections.remove(id);
+		} catch (error) {
+			showErrorUnlessShown(error);
+		}
 	};
 
 	const getConnectionLabels = (connection: typeof db.state.connections[0]) => {
@@ -218,7 +223,7 @@
 														{...props}
 														type="button"
 														class="shrink-0 cursor-pointer"
-														onclick={(e) => { e.stopPropagation(); db.connections.toggleLocalOnly(connection.id); }}
+														onclick={(e) => { e.stopPropagation(); void db.connections.toggleLocalOnly(connection.id).catch(showErrorUnlessShown); }}
 													>
 														<GitBranchIcon class={["size-3!", connection.isLocalOnly ? "text-muted-foreground/40" : "text-green-500"]} />
 													</button>

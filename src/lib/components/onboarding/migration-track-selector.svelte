@@ -34,8 +34,7 @@
 
 		// Show DBeaver import dialog when user clicks DBeaver card
 		if (background === "dbeaver") {
-			const existingIds = db.state.connections.map((c) => c.id);
-			await dbeaverImportStore.checkAndShowDialog(existingIds);
+			await dbeaverImportStore.checkAndShowDialog(db.state.projectConnections);
 		}
 	};
 

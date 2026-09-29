@@ -1,16 +1,15 @@
 import type {
-  Query,
   Dashboard,
   AIChat,
-  QueryVersion,
-  PersistedSavedQuery,
   PersistedQueryHistoryItem,
   PersistedAIChat,
   PersistedAIMessage,
-  PersistedQueryVersion,
   DashboardVersion,
   PersistedDashboardVersion,
 } from "$lib/types";
+import { log } from "$lib/utils/logger";
+import { getLibrary, rowKey } from "./library/index.js";
+import { queryVersionFromWire, savedQueryFromWire } from "./library/convert.js";
 import type { DatabaseState } from "./state.svelte.js";
 import { fromPersisted, trimHistory } from "./query-history.svelte.js";
 import type { PersistenceManager } from "./persistence-manager.svelte.js";
@@ -89,50 +88,6 @@ export class StateRestorationManager {
   }
 
   /**
-   * Restore saved queries from persisted data (per-project).
-   */
-  restoreSavedQueries(projectId: string, data: PersistedSavedQuery[]): void {
-    const queries: Query[] = data.map((q) => ({
-      id: q.id,
-      name: q.name,
-      query: q.query,
-      projectId: q.projectId,
-      createdAt: new Date(q.createdAt),
-      updatedAt: new Date(q.updatedAt),
-      // Stored JSON `null` loads as `null`; the app's Query uses absent.
-      parameters: q.parameters ?? undefined,
-      starred: q.starred,
-      shared: q.shared ?? false,
-      description: q.description,
-      databaseType: q.databaseType,
-      tags: q.tags ?? undefined,
-      folder: q.folder,
-    }));
-    this.state.queriesByProject = {
-      ...this.state.queriesByProject,
-      [projectId]: queries,
-    };
-  }
-
-  /**
-   * Restore query versions from persisted data (per-project).
-   */
-  restoreQueryVersions(projectId: string, data: PersistedQueryVersion[]): void {
-    const versions: QueryVersion[] = data.map((v) => ({
-      id: v.id,
-      queryId: v.queryId,
-      version: v.version,
-      snapshot: v.snapshot,
-      diff: v.diff,
-      createdAt: new Date(v.createdAt),
-    }));
-    this.state.queryVersionsByProject = {
-      ...this.state.queryVersionsByProject,
-      [projectId]: versions,
-    };
-  }
-
-  /**
    * Restore dashboard versions from persisted data (per-project).
    */
   restoreDashboardVersions(projectId: string, data: PersistedDashboardVersion[]): void {
@@ -164,6 +119,26 @@ export class StateRestorationManager {
       ...this.state.queryHistoryByConnection,
       [connectionId]: trimHistory([...newer, ...loaded]),
     };
+  }
+
+  /**
+   * Read a connection's history again after another window changed it
+   * (phase 5d-1). `replace`: the stored list replaces the page's (its
+   * history was cleared elsewhere); otherwise it's merged as a load is.
+   * Rows the page doesn't hold for a connection it hasn't loaded are left
+   * alone.
+   */
+  async reloadHistory(connectionId: string, replace: boolean): Promise<void> {
+    if (!(connectionId in this.state.queryHistoryByConnection)) return;
+    const { queryHistory } = await this.persistence.loadConnectionData(connectionId);
+    if (replace) {
+      this.state.queryHistoryByConnection = {
+        ...this.state.queryHistoryByConnection,
+        [connectionId]: trimHistory(queryHistory.map(fromPersisted)),
+      };
+    } else {
+      this.restoreQueryHistory(connectionId, queryHistory);
+    }
   }
 
   /**
@@ -258,15 +233,7 @@ export class StateRestorationManager {
    * Load project-specific data (saved queries and dashboards) from persistence.
    */
   async loadProjectData(projectId: string): Promise<void> {
-    const savedQueries = await this.persistence.loadProjectSavedQueries(projectId);
-    if (savedQueries.length > 0) {
-      this.restoreSavedQueries(projectId, savedQueries);
-    }
-
-    const queryVersions = await this.persistence.loadProjectQueryVersions(projectId);
-    if (queryVersions.length > 0) {
-      this.restoreQueryVersions(projectId, queryVersions);
-    }
+    await this.loadSavedQueries(projectId);
 
     const dashboards = await this.persistence.loadProjectDashboards(projectId);
     if (dashboards.length > 0) {
@@ -276,6 +243,45 @@ export class StateRestorationManager {
     const dashboardVersions = await this.persistence.loadProjectDashboardVersions(projectId);
     if (dashboardVersions.length > 0) {
       this.restoreDashboardVersions(projectId, dashboardVersions);
+    }
+  }
+
+  /**
+   * Load a project's saved queries and their versions from the library, and
+   * apply them by the `seq` rule (Decision 17). A failed read leaves the
+   * page's copy as it is: nothing replaces the stored list any more, so a
+   * failed load can't lose queries (the next activation reads them again).
+   */
+  async loadSavedQueries(projectId: string): Promise<void> {
+    const library = getLibrary();
+    try {
+      const [queries, versions] = await Promise.all([
+        library.listSavedQueries(projectId),
+        library.listQueryVersions(projectId),
+      ]);
+      const seqs = this.state.librarySeqs;
+      const shown = this.state.queriesByProject[projectId] ?? [];
+      const byId = new Map(queries.value.map((q) => [q.id, q]));
+      // Every row the list or the page has, each only if the list is newer.
+      let next = [...shown];
+      for (const id of new Set([...shown.map((q) => q.id), ...byId.keys()])) {
+        if (!seqs.take(rowKey("savedQuery", id), queries.seq)) continue;
+        const row = byId.get(id);
+        next = row
+          ? next.some((q) => q.id === id)
+            ? next.map((q) => (q.id === id ? savedQueryFromWire(row) : q))
+            : [...next, savedQueryFromWire(row)]
+          : next.filter((q) => q.id !== id);
+      }
+      this.state.queriesByProject = { ...this.state.queriesByProject, [projectId]: next };
+      if (seqs.take(rowKey("queryVersion", projectId), versions.seq)) {
+        this.state.queryVersionsByProject = {
+          ...this.state.queryVersionsByProject,
+          [projectId]: versions.value.map(queryVersionFromWire),
+        };
+      }
+    } catch (error) {
+      void log.error(`Failed to load saved queries for project ${projectId}:`, error);
     }
   }
 

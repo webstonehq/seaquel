@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
@@ -42,7 +43,7 @@
 
 	const confirmDeleteQuery = () => {
 		if (!queryToDelete) return;
-		db.savedQueries.deleteQuery(queryToDelete.id);
+		void db.savedQueries.deleteQuery(queryToDelete.id).catch(showErrorUnlessShown);
 		showDeleteQueryDialog = false;
 		queryToDelete = null;
 	};
@@ -81,7 +82,7 @@
 		try {
 			await db.savedQueries.shareQuery(item.id);
 		} catch (error) {
-			console.error("Failed to share query:", error);
+			showErrorUnlessShown(error);
 		}
 	};
 
@@ -89,7 +90,7 @@
 		try {
 			await db.savedQueries.unshareQuery(queryId);
 		} catch (error) {
-			console.error("Failed to unshare query:", error);
+			showErrorUnlessShown(error);
 		}
 	};
 
@@ -144,7 +145,7 @@
 						updatedAt={item.updatedAt}
 						onclick={() => handleQueryClick(item)}
 						ondelete={() => deleteQuery(item, "shared")}
-						ontogglestar={() => db.savedQueries.toggleQueryStarred(item.id)}
+						ontogglestar={() => void db.savedQueries.toggleQueryStarred(item.id).catch(showErrorUnlessShown)}
 						onunshare={() => handleUnshareQuery(item.id)}
 					/>
 				{/each}
@@ -157,7 +158,7 @@
 						updatedAt={item.updatedAt}
 						onclick={() => db.queryTabs.loadQuery(item.id, () => db.ui.setActiveView("query"))}
 						ondelete={() => deleteQuery(item, "saved")}
-						ontogglestar={() => db.savedQueries.toggleQueryStarred(item.id)}
+						ontogglestar={() => void db.savedQueries.toggleQueryStarred(item.id).catch(showErrorUnlessShown)}
 						onshare={() => handleShareQuery(item)}
 					/>
 				{/each}
@@ -174,7 +175,7 @@
 						updatedAt={item.updatedAt}
 						onclick={() => db.queryTabs.loadQuery(item.id, () => db.ui.setActiveView("query"))}
 						ondelete={() => deleteQuery(item, "saved")}
-						ontogglestar={() => db.savedQueries.toggleQueryStarred(item.id)}
+						ontogglestar={() => void db.savedQueries.toggleQueryStarred(item.id).catch(showErrorUnlessShown)}
 						onshare={() => handleShareQuery(item)}
 					/>
 				{/each}
@@ -195,7 +196,7 @@
 										updatedAt={item.updatedAt}
 										onclick={() => handleQueryClick(item)}
 										ondelete={() => deleteQuery(item, "shared")}
-										ontogglestar={() => db.savedQueries.toggleQueryStarred(item.id)}
+										ontogglestar={() => void db.savedQueries.toggleQueryStarred(item.id).catch(showErrorUnlessShown)}
 										onunshare={() => handleUnshareQuery(item.id)}
 									/>
 								</ContextMenu.Trigger>

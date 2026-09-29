@@ -263,16 +263,64 @@ impl Env {
             .connection_limits(WEB_CONNECTION_LIMITS)
             .run_limits(seaquel_server::WEB_RUN_LIMITS)
             .edit_limits(seaquel_server::WEB_EDIT_LIMITS)
+            .library_limits(seaquel_server::WEB_LIBRARY_LIMITS)
             .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build();
         Self::with_core(Arc::new(core), capacity, calls)
     }
 
     pub fn with_core(core: Arc<seaquel_core::Core>, capacity: usize, calls: Arc<Calls>) -> Self {
+        Self::with_core_and_bound(core, capacity, calls, seaquel_server::LISTENER_EVENT_BOUND)
+    }
+
+    /// [`Env::new`] whose sockets hold at most `bound` waiting events.
+    pub fn with_event_bound(capacity: usize, bound: usize) -> Self {
+        let env = Self::new(capacity);
+        Self::with_core_and_bound(env.state.core.clone(), capacity, env.calls.clone(), bound)
+    }
+
+    /// [`Env::new`] whose sockets hold at most `bytes` of waiting events.
+    pub fn with_event_byte_bound(capacity: usize, bytes: usize) -> Self {
+        let env = Self::new(capacity);
+        Self::with_core_and_bounds(
+            env.state.core.clone(),
+            capacity,
+            env.calls.clone(),
+            seaquel_server::LISTENER_EVENT_BOUND,
+            bytes,
+        )
+    }
+
+    fn with_core_and_bound(
+        core: Arc<seaquel_core::Core>,
+        capacity: usize,
+        calls: Arc<Calls>,
+        bound: usize,
+    ) -> Self {
+        Self::with_core_and_bounds(
+            core,
+            capacity,
+            calls,
+            bound,
+            seaquel_server::LISTENER_EVENT_BYTE_BOUND,
+        )
+    }
+
+    fn with_core_and_bounds(
+        core: Arc<seaquel_core::Core>,
+        capacity: usize,
+        calls: Arc<Calls>,
+        bound: usize,
+        bytes: usize,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let state = AppState {
             core,
-            workspaces: Arc::new(Workspaces::with_capacity(dir.path(), capacity)),
+            workspaces: Arc::new(
+                Workspaces::with_capacity(dir.path(), capacity)
+                    .with_event_bound(bound)
+                    .with_event_byte_bound(bytes),
+            ),
             license: Arc::new(seaquel_core::license::server::LicenseServer::new(
                 seaquel_core::license::server::ServerConfig::new(dir.path().join("auth.db")),
             )),
@@ -288,17 +336,42 @@ impl Env {
 
     /// POST `body` to /rpc as `user`.
     pub async fn rpc(&self, user: &str, body: &Json) -> (StatusCode, Json) {
-        let req = Request::builder()
+        self.rpc_from(user, &[], body).await
+    }
+
+    /// POST `body` to /rpc as `user`, with each of `origins` as an
+    /// `X-Seaquel-Origin` header (as Node forwards it).
+    pub async fn rpc_from(&self, user: &str, origins: &[&str], body: &Json) -> (StatusCode, Json) {
+        let mut req = Request::builder()
             .method("POST")
             .uri("/rpc")
             .header("content-type", "application/json")
-            .header("x-seaquel-user", user)
-            .body(Body::from(body.to_string()))
-            .unwrap();
+            .header("x-seaquel-user", user);
+        for origin in origins {
+            req = req.header("x-seaquel-origin", *origin);
+        }
+        let req = req.body(Body::from(body.to_string())).unwrap();
         let response = self.app.clone().oneshot(req).await.unwrap();
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    /// A `library` call as `user` from tab `origin` (none: no header).
+    pub async fn library(
+        &self,
+        user: &str,
+        origin: Option<&str>,
+        method: &str,
+        params: Json,
+    ) -> (StatusCode, Json) {
+        let inner = if params.is_null() {
+            json!({"method": method})
+        } else {
+            json!({"method": method, "params": params})
+        };
+        let body = json!({"method": "library", "params": inner});
+        self.rpc_from(user, origin.as_slice(), &body).await
     }
 
     /// A `db` call as `user`: `(status, body)`.
@@ -352,11 +425,21 @@ pub type Ws =
 
 /// Open `/rpc/stream` as `user`.
 pub async fn open_stream(addr: std::net::SocketAddr, user: &str) -> Ws {
+    open_stream_from(addr, user, None).await
+}
+
+/// Open `/rpc/stream` as `user` from tab `origin` (`X-Seaquel-Origin`, as
+/// Node sets it from the page's `?origin=`).
+pub async fn open_stream_from(addr: std::net::SocketAddr, user: &str, origin: Option<&str>) -> Ws {
     let mut req = format!("ws://{addr}/rpc/stream")
         .into_client_request()
         .unwrap();
     req.headers_mut()
         .insert("x-seaquel-user", user.parse().unwrap());
+    if let Some(origin) = origin {
+        req.headers_mut()
+            .insert("x-seaquel-origin", origin.parse().unwrap());
+    }
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     ws
 }

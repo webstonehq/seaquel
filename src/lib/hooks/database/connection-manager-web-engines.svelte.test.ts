@@ -34,6 +34,8 @@ vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), info: vi.fn() } }))
 
 const { ConnectionManager } = await import("./connection-manager.svelte.js");
 const { DatabaseState } = await import("./state.svelte.js");
+const { setLibrary } = await import("./library/index");
+const { RecordingLibrary } = await import("./library/recording-library");
 
 const connect = vi.fn(async (): Promise<string> => "pc-new");
 const test = vi.fn(async () => {});
@@ -44,10 +46,7 @@ function setup() {
   const providers = {
     getForType: async () => ({ connect, test, disconnect }),
   } as unknown as ProviderRegistry;
-  const persistence = {
-    persistConnection: vi.fn(async () => {}),
-    scheduleProject: vi.fn(),
-  } as unknown as PersistenceManager;
+  const persistence = { scheduleProject: vi.fn() } as unknown as PersistenceManager;
   const restoration = {
     initializeConnectionMaps: vi.fn(),
     cleanupConnectionMaps: vi.fn(),
@@ -83,8 +82,12 @@ function fileInput(type: "sqlite" | "duckdb"): Input {
 const message = (label: string) =>
   `${label} connections aren't available in the web app, because they would open files on the server. Use the desktop app for ${label}.`;
 
+let library: InstanceType<typeof RecordingLibrary>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  library = new RecordingLibrary();
+  setLibrary(library);
 });
 
 describe.each([
@@ -136,4 +139,6 @@ it("postgres still connects on web", async () => {
     password: "p",
   } as Input);
   expect(connect).toHaveBeenCalledOnce();
+  // Web: stored through the library, with no secrets in the call.
+  expect(library.callsOf("createConnection")[0]).toHaveLength(1);
 });

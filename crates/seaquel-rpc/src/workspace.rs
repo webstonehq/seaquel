@@ -1,15 +1,23 @@
 //! The workspace RPC: one `Request`/`Response` pair for everything the GUIs
-//! ask of Core: metadata storage, secrets and database calls (`db`, see the
-//! `db` module) on a user's [`Workspace`], plus SSH, git and desktop
-//! licensing, and [`dispatch_workspace`].
+//! ask of Core: metadata storage, the library (`library`, see the `library`
+//! module), secrets and database calls (`db`, see the `db` module) on a
+//! user's [`Workspace`], plus SSH, git and desktop licensing, and
+//! [`dispatch_workspace`].
 //!
 //! The Tauri app serves it as the `core_call` command and `seaquel-server` as
 //! `POST /rpc`. Wire shape, two levels of adjacent tagging:
 //!
 //! ```json
-//! {"method":"storage","params":{"method":"connectionsRemove","params":{"connectionId":"c1"}}}
-//! {"method":"storage","result":{"method":"connectionsRemove","result":null}}
+//! {"method":"storage","params":{"method":"appStateSet","params":{"key":"k","value":"v"}}}
+//! {"method":"storage","result":{"method":"appStateSet","result":null}}
 //! ```
+//!
+//! Phase 5d-1 retired the storage group's connection, project, saved-query
+//! and version methods (`connectionsLoadAll`, `connectionsSave`, …,
+//! `queryVersionsPrune`): the `library` group replaced them, and naming one
+//! is an unknown method (`INVALID_ARGUMENT`). Every write, in either group,
+//! emits one `StorageChanged` event after it committed, carrying the
+//! caller's [`WriteOrigin`].
 //!
 //! **`method` must come before `params`** at both levels. JSON columns in
 //! the storage rows are `serde_json::RawValue`s, which only deserialize when
@@ -30,13 +38,12 @@
 use std::fmt;
 
 use log::debug;
-use seaquel_core::{Core, CoreError, Workspace};
+use seaquel_core::{Core, CoreError, Workspace, WriteOrigin};
 use seaquel_types::storage::{
-    DashboardVersionsPrune, ImportState, PersistedAIChat, PersistedAIMessage, PersistedConnection,
+    DashboardVersionsPrune, ImportState, PersistedAIChat, PersistedAIMessage,
     PersistedConnectionOverride, PersistedCredential, PersistedDashboard,
-    PersistedDashboardVersion, PersistedProject, PersistedProjectState, PersistedQueryHistoryItem,
-    PersistedQueryVersion, PersistedSavedQuery, PersistedVaultState, QueryVersionsPrune,
-    SharedReposState, ThemePreferences, TutorialProgress,
+    PersistedDashboardVersion, PersistedProjectState, PersistedQueryHistoryItem,
+    PersistedVaultState, SharedReposState, ThemePreferences, TutorialProgress,
 };
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -53,11 +60,18 @@ use serde_json::value::RawValue;
 /// - secrets: `INVALID_ARGUMENT` (a bad key), `SECRET_STORE_ERROR`;
 /// - `INVALID_ARGUMENT` for a body that isn't a valid request;
 /// - `NOT_SUPPORTED` when the workspace or build lacks the piece asked for.
+///
+/// A library refusal (phase 5d-1) adds `NAME_TAKEN` with `takenBy`, the id
+/// of the row that has the name, so the GUI can name it; never a value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
 pub struct RpcError {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub taken_by: Option<String>,
 }
 
 pub const INVALID_ARGUMENT: &str = "INVALID_ARGUMENT";
@@ -68,6 +82,7 @@ impl RpcError {
         Self {
             code: code.into(),
             message: message.into(),
+            taken_by: None,
         }
     }
 
@@ -90,7 +105,11 @@ impl std::error::Error for RpcError {}
 
 impl From<CoreError> for RpcError {
     fn from(e: CoreError) -> Self {
-        Self::new(e.code, e.message)
+        Self {
+            code: e.code,
+            message: e.message,
+            taken_by: e.taken_by,
+        }
     }
 }
 
@@ -115,11 +134,17 @@ fn rpc_error(e: impl Into<CoreError>) -> RpcError {
 // so their size doesn't matter; boxing the large rows would only add noise.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "method", content = "params", rename_all = "camelCase")]
+#[serde(
+    tag = "method",
+    content = "params",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
 // `CoreRequest` in TypeScript, where `Request` is the DOM's.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "CoreRequest"))]
 pub enum Request {
     Storage(StorageRequest),
+    Library(crate::library::LibraryRequest),
     Secret(SecretRequest),
     License(crate::license::DesktopLicenseRequest),
     Git(crate::git::GitRequest),
@@ -140,6 +165,7 @@ pub enum Request {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "CoreResponse"))]
 pub enum Response {
     Storage(StorageResponse),
+    Library(crate::library::LibraryResponse),
     Secret(SecretResponse),
     License(crate::license::DesktopLicenseResponse),
     Git(crate::git::GitResponse),
@@ -148,11 +174,12 @@ pub enum Response {
 }
 
 impl Request {
-    /// The group's wire name: `storage`, `secret`, `license`, `git`, `ssh`
-    /// or `db`.
+    /// The group's wire name: `storage`, `library`, `secret`, `license`,
+    /// `git`, `ssh` or `db`.
     pub fn group(&self) -> &'static str {
         match self {
             Request::Storage(_) => "storage",
+            Request::Library(_) => "library",
             Request::Secret(_) => "secret",
             Request::License(_) => "license",
             Request::Git(_) => "git",
@@ -167,6 +194,7 @@ impl Request {
     pub fn method(&self) -> &'static str {
         match self {
             Request::Storage(r) => r.method(),
+            Request::Library(r) => r.method(),
             Request::Secret(r) => r.method(),
             Request::License(r) => r.method(),
             Request::Git(r) => r.method(),
@@ -190,7 +218,12 @@ macro_rules! storage_methods {
         /// rows are the `Persisted*` types from `seaquel_types::storage`.
         #[allow(clippy::large_enum_variant)] // See `Request`.
         #[derive(Debug, Serialize, Deserialize)]
-        #[serde(tag = "method", content = "params", rename_all_fields = "camelCase")]
+        #[serde(
+            tag = "method",
+            content = "params",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
         #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
         pub enum StorageRequest {
             $( $(#[$attr])* #[serde(rename = $name)] $variant $($body)?, )*
@@ -243,11 +276,6 @@ storage_methods! {
     ConnectionOverridesRemove = "connectionOverridesRemove" [{ shared_connection_id: String }]
         -> [()],
 
-    // connections
-    ConnectionsLoadAll = "connectionsLoadAll" [] -> [Vec<PersistedConnection>],
-    ConnectionsSave = "connectionsSave" [{ connection: PersistedConnection }] -> [()],
-    ConnectionsRemove = "connectionsRemove" [{ connection_id: String }] -> [()],
-
     // dashboard_versions
     DashboardVersionsLoadByDashboard = "dashboardVersionsLoadByDashboard"
         [{ dashboard_id: String }] -> [Vec<PersistedDashboardVersion>],
@@ -294,12 +322,6 @@ storage_methods! {
     ProjectStateSave = "projectStateSave" [{ state: PersistedProjectState }] -> [()],
     ProjectStateRemove = "projectStateRemove" [{ project_id: String }] -> [()],
 
-    // projects
-    ProjectsLoadAll = "projectsLoadAll" [] -> [Vec<PersistedProject>],
-    ProjectsSave = "projectsSave" [{ project: PersistedProject }] -> [()],
-    ProjectsSaveAll = "projectsSaveAll" [{ projects: Vec<PersistedProject> }] -> [()],
-    ProjectsRemove = "projectsRemove" [{ project_id: String }] -> [()],
-
     // query_history
     QueryHistoryLoadByConnection = "queryHistoryLoadByConnection" [{ connection_id: String }]
         -> [Vec<PersistedQueryHistoryItem>],
@@ -310,23 +332,6 @@ storage_methods! {
         -> [()],
     QueryHistoryRemoveByConnection = "queryHistoryRemoveByConnection"
         [{ connection_id: String }] -> [()],
-
-    // query_versions
-    QueryVersionsLoadByQuery = "queryVersionsLoadByQuery" [{ query_id: String }]
-        -> [Vec<PersistedQueryVersion>],
-    QueryVersionsLoadByProject = "queryVersionsLoadByProject" [{ project_id: String }]
-        -> [Vec<PersistedQueryVersion>],
-    QueryVersionsInsert = "queryVersionsInsert" [{ version: PersistedQueryVersion }] -> [()],
-    /// `params` is the prune itself (see `DashboardVersionsPrune`).
-    QueryVersionsPrune = "queryVersionsPrune" [(QueryVersionsPrune)] -> [()],
-
-    // saved_queries
-    SavedQueriesLoadByProject = "savedQueriesLoadByProject" [{ project_id: String }]
-        -> [Vec<PersistedSavedQuery>],
-    SavedQueriesSaveAll = "savedQueriesSaveAll"
-        [{ project_id: String, queries: Vec<PersistedSavedQuery> }] -> [()],
-    SavedQueriesRemoveByProject = "savedQueriesRemoveByProject" [{ project_id: String }]
-        -> [()],
 
     // shared_repos
     SharedReposLoadAll = "sharedReposLoadAll" [] -> [SharedReposState],
@@ -371,7 +376,12 @@ storage_methods! {
 /// `license-key` or `ai-api-key:<id>`; anything else is `INVALID_ARGUMENT`.
 /// `Debug` never shows a value.
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "method", content = "params", rename_all = "camelCase")]
+#[serde(
+    tag = "method",
+    content = "params",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum SecretRequest {
     Get { key: String },
@@ -526,7 +536,9 @@ impl<'de> Visitor<'de> for TagOrder {
 
 // ── Dispatch ──
 
-/// Run one workspace call.
+/// Run one workspace call. `origin` is the window or tab that sent it (the
+/// desktop's webview label, the web's checked `X-Seaquel-Origin`); the
+/// `StorageChanged` event of a write carries it, and nothing logs it.
 ///
 /// Logs the group and method name only, never the params or the result:
 /// they can hold passwords, connection strings, keys and user data.
@@ -544,11 +556,15 @@ pub async fn dispatch_workspace(
     core: &Core,
     ws: &Workspace,
     req: Request,
+    origin: WriteOrigin,
 ) -> Result<Response, RpcError> {
     let (group, method) = (req.group(), req.method());
     logged(group, method, async {
         match req {
-            Request::Storage(r) => storage(ws, r).await.map(Response::Storage),
+            Request::Storage(r) => storage(ws, r, &origin).await.map(Response::Storage),
+            Request::Library(r) => crate::library::library(core, ws, r, &origin)
+                .await
+                .map(Response::Library),
             Request::Secret(r) => secret(secrets_of(ws), r).await.map(Response::Secret),
             // The desktop serves this group with `dispatch_license`; a web
             // workspace has no activation client.
@@ -560,7 +576,7 @@ pub async fn dispatch_workspace(
             // whatever features the build unified: a web workspace must not
             // open tunnels from the server.
             Request::Ssh(_) => Err(RpcError::not_supported("SSH tunnels")),
-            Request::Db(r) => crate::db::db(core, ws, r).await.map(Response::Db),
+            Request::Db(r) => crate::db::db(core, ws, r, &origin).await.map(Response::Db),
         }
     })
     .await
@@ -603,13 +619,118 @@ fn secrets_of(_: &Workspace) -> Option<std::convert::Infallible> {
 }
 
 #[cfg(not(feature = "storage"))]
-async fn storage(_: &Workspace, _: StorageRequest) -> Result<StorageResponse, RpcError> {
+async fn storage(
+    _: &Workspace,
+    _: StorageRequest,
+    _: &WriteOrigin,
+) -> Result<StorageResponse, RpcError> {
     Err(RpcError::not_supported("Storage"))
 }
 
 #[cfg(feature = "storage")]
-async fn storage(ws: &Workspace, req: StorageRequest) -> Result<StorageResponse, RpcError> {
-    storage_call(ws, req).await.map_err(rpc_error)
+async fn storage(
+    ws: &Workspace,
+    req: StorageRequest,
+    origin: &WriteOrigin,
+) -> Result<StorageResponse, RpcError> {
+    let change = storage_change(&req);
+    let response = storage_call(ws, req).await.map_err(rpc_error)?;
+    // Phase 5d, Decision 16: every storage write emits one event after it
+    // committed, with the writer's origin so its own window can skip it.
+    if let Some((kind, scope, ids)) = change {
+        ws.record_storage_write(origin, kind, scope, ids);
+    }
+    Ok(response)
+}
+
+/// A storage write's event: its kind, scope and ids.
+#[cfg(feature = "storage")]
+type Change = (
+    seaquel_core::StoredKind,
+    Option<String>,
+    Option<Vec<String>>,
+);
+
+/// For a storage write, the event's kind, scope and ids: the id or key the
+/// method names, never a value (the Rust twin of the TypeScript's
+/// `STORAGE_METHOD_KIND`). `None` for a read. The query history's writes
+/// are kind `history`, as Core's own appends are; `queryHistorySetFavorite`
+/// knows no connection, so its event has the row's id and no scope (the
+/// change feed finds the row by id).
+#[cfg(feature = "storage")]
+fn storage_change(req: &StorageRequest) -> Option<Change> {
+    use seaquel_core::StoredKind::{History, Storage};
+    use StorageRequest as Q;
+    let one = |id: &str| Some((Storage, None, Some(vec![id.to_string()])));
+    let scoped = |scope: &str, id: &str| {
+        Some((Storage, Some(scope.to_string()), Some(vec![id.to_string()])))
+    };
+    let all = || Some((Storage, None, None));
+    match req {
+        // Reads.
+        Q::AiChatsLoadByConnection { .. }
+        | Q::AiChatsLoadMessages { .. }
+        | Q::AppStateGet { .. }
+        | Q::ConnectionOverridesLoad { .. }
+        | Q::ConnectionOverridesLoadAll
+        | Q::DashboardVersionsLoadByDashboard { .. }
+        | Q::DashboardVersionsLoadByProject { .. }
+        | Q::DashboardsLoadByProject { .. }
+        | Q::ImportStateLoad { .. }
+        | Q::LicenseLoad
+        | Q::OnboardingLoad
+        | Q::ProjectStateLoad { .. }
+        | Q::QueryHistoryLoadByConnection { .. }
+        | Q::SharedReposLoadAll
+        | Q::ThemesLoadPreferences
+        | Q::ThemesLoadUserThemes
+        | Q::TutorialLoadAll
+        | Q::UserCredentialsLoad { .. }
+        | Q::VaultStateLoad => None,
+        // Writes.
+        Q::AiChatsSaveChat { chat } => scoped(&chat.connection_id, &chat.id),
+        Q::AiChatsRemoveChat { chat_id } => one(chat_id),
+        Q::AiChatsRemoveByConnection { connection_id } => {
+            Some((Storage, Some(connection_id.clone()), None))
+        }
+        Q::AiChatsReplaceAllMessages { chat_id, .. } => {
+            Some((Storage, Some(chat_id.clone()), None))
+        }
+        Q::AppStateSet { key, .. } => one(key),
+        Q::ConnectionOverridesSave {
+            connection_override,
+        } => one(&connection_override.shared_connection_id),
+        Q::ConnectionOverridesRemove {
+            shared_connection_id,
+        } => one(shared_connection_id),
+        Q::DashboardVersionsInsert { version } => one(&version.dashboard_id),
+        Q::DashboardVersionsPrune(prune) => one(&prune.dashboard_id),
+        Q::DashboardsSave { dashboard } => scoped(&dashboard.project_id, &dashboard.id),
+        Q::DashboardsRemove { id } => one(id),
+        Q::DashboardsRemoveByProject { project_id } => {
+            Some((Storage, Some(project_id.clone()), None))
+        }
+        Q::ImportStateSave { source, .. } => one(source),
+        Q::LicenseSave { .. } | Q::OnboardingSave { .. } | Q::VaultStateSave { .. } => all(),
+        Q::VaultStateReset | Q::TutorialRemoveAll | Q::ThemesSaveUserThemes { .. } => all(),
+        Q::ThemesSavePreferences { .. } | Q::SharedReposSaveAll { .. } => all(),
+        Q::ProjectStateSave { state } => one(&state.project_id),
+        Q::ProjectStateRemove { project_id } => one(project_id),
+        Q::QueryHistoryAppend { item } => Some((
+            History,
+            Some(item.connection_id.clone()),
+            Some(vec![item.id.clone()]),
+        )),
+        Q::QueryHistorySetFavorite { id, .. } => Some((History, None, Some(vec![id.clone()]))),
+        Q::QueryHistoryRemoveByConnection { connection_id } => {
+            Some((History, Some(connection_id.clone()), None))
+        }
+        Q::TutorialSave { lesson_id, .. } | Q::TutorialRemoveLesson { lesson_id } => one(lesson_id),
+        Q::UserCredentialsSave { credential } => one(&credential.key),
+        Q::UserCredentialsRemove { key, .. } | Q::UserCredentialsRemoveAllForKey { key } => {
+            one(key)
+        }
+    }
 }
 
 #[cfg(feature = "storage")]
@@ -663,14 +784,6 @@ async fn storage_call(
         } => R::ConnectionOverridesRemove(
             connection_overrides::remove(st, &shared_connection_id).await?,
         ),
-
-        Q::ConnectionsLoadAll => R::ConnectionsLoadAll(connections::load_all(st).await?),
-        Q::ConnectionsSave { connection } => {
-            R::ConnectionsSave(connections::save(st, &connection).await?)
-        }
-        Q::ConnectionsRemove { connection_id } => {
-            R::ConnectionsRemove(connections::remove(st, &connection_id).await?)
-        }
 
         Q::DashboardVersionsLoadByDashboard { dashboard_id } => {
             R::DashboardVersionsLoadByDashboard(
@@ -729,15 +842,6 @@ async fn storage_call(
             R::ProjectStateRemove(project_state::remove(st, &project_id).await?)
         }
 
-        Q::ProjectsLoadAll => R::ProjectsLoadAll(projects::load_all(st).await?),
-        Q::ProjectsSave { project } => R::ProjectsSave(projects::save(st, &project).await?),
-        Q::ProjectsSaveAll { projects: all } => {
-            R::ProjectsSaveAll(projects::save_all(st, &all).await?)
-        }
-        Q::ProjectsRemove { project_id } => {
-            R::ProjectsRemove(projects::remove(st, &project_id).await?)
-        }
-
         Q::QueryHistoryLoadByConnection { connection_id } => R::QueryHistoryLoadByConnection(
             query_history::load_by_connection(st, &connection_id).await?,
         ),
@@ -750,30 +854,6 @@ async fn storage_call(
         Q::QueryHistoryRemoveByConnection { connection_id } => R::QueryHistoryRemoveByConnection(
             query_history::remove_by_connection(st, &connection_id).await?,
         ),
-
-        Q::QueryVersionsLoadByQuery { query_id } => {
-            R::QueryVersionsLoadByQuery(query_versions::load_by_query(st, &query_id).await?)
-        }
-        Q::QueryVersionsLoadByProject { project_id } => {
-            R::QueryVersionsLoadByProject(query_versions::load_by_project(st, &project_id).await?)
-        }
-        Q::QueryVersionsInsert { version } => {
-            R::QueryVersionsInsert(query_versions::insert(st, &version).await?)
-        }
-        Q::QueryVersionsPrune(prune) => {
-            R::QueryVersionsPrune(query_versions::prune(st, &prune).await?)
-        }
-
-        Q::SavedQueriesLoadByProject { project_id } => {
-            R::SavedQueriesLoadByProject(saved_queries::load_by_project(st, &project_id).await?)
-        }
-        Q::SavedQueriesSaveAll {
-            project_id,
-            queries,
-        } => R::SavedQueriesSaveAll(saved_queries::save_all(st, &project_id, &queries).await?),
-        Q::SavedQueriesRemoveByProject { project_id } => {
-            R::SavedQueriesRemoveByProject(saved_queries::remove_by_project(st, &project_id).await?)
-        }
 
         Q::SharedReposLoadAll => R::SharedReposLoadAll(shared_repos::load_all(st).await?),
         Q::SharedReposSaveAll {

@@ -39,7 +39,7 @@ use futures::StreamExt;
 use seaquel_core::storage::StorageOptions;
 use seaquel_core::{Core, CoreError, Workspace, WorkspaceSpec};
 use seaquel_rpc::CoreEvent;
-use tokio::sync::{mpsc, OnceCell};
+use tokio::sync::{mpsc, oneshot, OnceCell};
 
 /// The env var naming the data root. Node reads the same one (`auth.ts`, for
 /// `auth.db`) and `server.js` passes its whole environment to this process,
@@ -163,21 +163,121 @@ struct Stats {
     evicted: AtomicUsize,
 }
 
+/// How many events one listener (socket) may have waiting before it counts
+/// as lagging: past it the hub drops the listener, and its socket closes
+/// with 1013 and [`EVENTS_LAGGED`] so the client reconnects and reloads
+/// (phase 5d review, I1). A socket that keeps up never gets near it.
+pub const LISTENER_EVENT_BOUND: usize = 1024;
+
+/// How many bytes of events (as [`event_bytes`] counts them) one listener
+/// may have waiting before it counts as lagging, like
+/// [`LISTENER_EVENT_BOUND`] (phase 5d-1 probe fix, c6). Core keeps each
+/// event small (at most 16 KiB of ids, a scope of at most 1 KiB), so this
+/// is the backstop: a user's sockets together hold at most
+/// [`MAX_LISTENERS_PER_USER`] × 8 MiB.
+pub const LISTENER_EVENT_BYTE_BOUND: usize = 8 * 1024 * 1024;
+
+/// The close reason (after code 1013) of a socket whose listener lagged.
+pub const EVENTS_LAGGED: &str = "EVENTS_LAGGED";
+
+/// What one waiting event counts for against
+/// [`LISTENER_EVENT_BYTE_BOUND`]: its JSON length (what the socket will
+/// send) plus a fixed overhead for the allocations behind it.
+pub fn event_bytes(event: &CoreEvent) -> usize {
+    const OVERHEAD: usize = 128;
+    let json = match event {
+        // The only events the hub carries; counted without serialising.
+        CoreEvent::StorageChanged {
+            scope,
+            ids,
+            origin,
+            seq,
+            ..
+        } => {
+            64 + scope.as_ref().map_or(0, String::len)
+                + origin.as_ref().map_or(0, String::len)
+                + seq.epoch.len()
+                + ids
+                    .as_ref()
+                    .map_or(0, |ids| ids.iter().map(|id| id.len() + 3).sum())
+        }
+        CoreEvent::ConnectionClosed {
+            connection_id,
+            code,
+            message,
+        } => 64 + connection_id.len() + code.len() + message.len(),
+        other => serde_json::to_vec(other).map_or(0, |v| v.len()),
+    };
+    json + OVERHEAD
+}
+
+/// One listener as the hub holds it: its bounded channel, the bytes it has
+/// waiting (shared with its [`Listener`], which subtracts what it reads),
+/// and the lag signal, which fires (the receiver sees the sender dropped)
+/// when the hub drops the listener.
+struct HubEntry {
+    tx: mpsc::Sender<CoreEvent>,
+    queued: Arc<AtomicUsize>,
+    _lagged: oneshot::Sender<()>,
+}
+
 /// Each user's event listeners (their open `/rpc/stream` sockets).
-#[derive(Default)]
 struct Hub {
-    listeners: Mutex<HashMap<String, Vec<mpsc::UnboundedSender<CoreEvent>>>>,
+    listeners: Mutex<HashMap<String, Vec<HubEntry>>>,
+    bound: usize,
+    byte_bound: usize,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self::with_bounds(LISTENER_EVENT_BOUND, LISTENER_EVENT_BYTE_BOUND)
+    }
 }
 
 impl Hub {
+    fn with_bounds(bound: usize, byte_bound: usize) -> Self {
+        Self {
+            listeners: Mutex::default(),
+            bound: bound.max(1),
+            byte_bound: byte_bound.max(1),
+        }
+    }
+
+    /// Hand `event` to each of `user_id`'s listeners without waiting. One
+    /// that's gone, or whose channel is full or would go past its byte
+    /// bound (a slow client), is dropped: that fires its lag signal.
     fn send(&self, user_id: &str, event: &CoreEvent) {
+        let size = event_bytes(event);
         let mut listeners = self
             .listeners
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(senders) = listeners.get_mut(user_id) {
-            senders.retain(|tx| tx.send(event.clone()).is_ok());
-            if senders.is_empty() {
+        if let Some(entries) = listeners.get_mut(user_id) {
+            let byte_bound = self.byte_bound;
+            entries.retain(|entry| {
+                // Counted before the send, so the reader can never
+                // subtract an event's bytes before they were added.
+                let before = entry.queued.fetch_add(size, Ordering::SeqCst);
+                if before + size > byte_bound {
+                    entry.queued.fetch_sub(size, Ordering::SeqCst);
+                    if entry.tx.is_closed() {
+                        return false;
+                    }
+                    log::warn!(activity = "rpc.stream", code = EVENTS_LAGGED; "A socket fell behind on events; closing it");
+                    return false;
+                }
+                match entry.tx.try_send(event.clone()) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        entry.queued.fetch_sub(size, Ordering::SeqCst);
+                        if let mpsc::error::TrySendError::Full(_) = e {
+                            log::warn!(activity = "rpc.stream", code = EVENTS_LAGGED; "A socket fell behind on events; closing it");
+                        }
+                        false
+                    }
+                }
+            });
+            if entries.is_empty() {
                 listeners.remove(user_id);
             }
         }
@@ -188,28 +288,57 @@ impl Hub {
             .listeners
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(senders) = listeners.get_mut(user_id) {
-            senders.retain(|tx| !tx.is_closed());
-            if senders.is_empty() {
+        if let Some(entries) = listeners.get_mut(user_id) {
+            entries.retain(|entry| !entry.tx.is_closed());
+            if entries.is_empty() {
                 listeners.remove(user_id);
             }
         }
     }
 }
 
-/// One user's [`CoreEvent::ConnectionClosed`] events, from whichever of
-/// their workspaces is open (see [`Workspaces::listen`]). Dropping it
-/// unsubscribes.
+/// One user's workspace events (`connectionClosed`, `storageChanged`), from
+/// whichever of their workspaces is open (see [`Workspaces::listen`]).
+/// Holds at most [`LISTENER_EVENT_BOUND`] of them, and at most
+/// [`LISTENER_EVENT_BYTE_BOUND`] bytes; dropping it unsubscribes.
 pub struct Listener {
-    rx: mpsc::UnboundedReceiver<CoreEvent>,
+    rx: mpsc::Receiver<CoreEvent>,
+    queued: Arc<AtomicUsize>,
+    lagged: Option<oneshot::Receiver<()>>,
     user_id: String,
     hub: Arc<Hub>,
 }
 
 impl Listener {
-    /// The next event. Never `None` while the [`Workspaces`] lives.
+    /// The next event; `None` once the hub dropped this listener and its
+    /// waiting events are all taken.
     pub async fn recv(&mut self) -> Option<CoreEvent> {
-        self.rx.recv().await
+        let event = self.rx.recv().await?;
+        self.queued.fetch_sub(event_bytes(&event), Ordering::SeqCst);
+        Some(event)
+    }
+
+    /// The signal that the hub dropped this listener because it fell
+    /// [`LISTENER_EVENT_BOUND`] events (or [`LISTENER_EVENT_BYTE_BOUND`]
+    /// bytes) behind, held apart from the listener so a loop can wait on
+    /// both. A second call gets one that never fires.
+    pub fn lag_signal(&mut self) -> LagSignal {
+        LagSignal(self.lagged.take())
+    }
+}
+
+/// See [`Listener::lag_signal`].
+pub struct LagSignal(Option<oneshot::Receiver<()>>);
+
+impl LagSignal {
+    /// Resolves once the listener was dropped as lagging. Cancel-safe.
+    pub async fn fired(&mut self) {
+        match &mut self.0 {
+            Some(rx) => {
+                let _ = rx.await;
+            }
+            None => std::future::pending().await,
+        }
     }
 }
 
@@ -321,6 +450,22 @@ impl Workspaces {
         Self::with_capacity(root, DEFAULT_CAPACITY)
     }
 
+    /// These workspaces with another [`LISTENER_EVENT_BOUND`] (at least 1),
+    /// for tests of a lagging socket. Call it before anyone listens.
+    #[must_use]
+    pub fn with_event_bound(mut self, bound: usize) -> Self {
+        self.hub = Arc::new(Hub::with_bounds(bound, self.hub.byte_bound));
+        self
+    }
+
+    /// These workspaces with another [`LISTENER_EVENT_BYTE_BOUND`] (at least
+    /// 1), for tests of a lagging socket. Call it before anyone listens.
+    #[must_use]
+    pub fn with_event_byte_bound(mut self, bytes: usize) -> Self {
+        self.hub = Arc::new(Hub::with_bounds(self.hub.bound, bytes));
+        self
+    }
+
     /// Like [`Workspaces::new`] with another cap (at least 1). Tests use 2.
     pub fn with_capacity(root: impl Into<PathBuf>, capacity: usize) -> Self {
         Self {
@@ -361,22 +506,44 @@ impl Workspaces {
     /// [`ListenError::TooMany`] beyond that.
     pub fn listen(&self, user_id: &str) -> Result<Listener, ListenError> {
         validate_user_id(user_id).map_err(ListenError::InvalidUser)?;
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(self.hub.bound);
+        let (lag_tx, lagged) = oneshot::channel();
+        let queued = Arc::new(AtomicUsize::new(0));
         let mut listeners = self
             .hub
             .listeners
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let senders = listeners.entry(user_id.to_string()).or_default();
-        senders.retain(|tx| !tx.is_closed());
-        if senders.len() >= MAX_LISTENERS_PER_USER {
+        let entries = listeners.entry(user_id.to_string()).or_default();
+        entries.retain(|entry| !entry.tx.is_closed());
+        if entries.len() >= MAX_LISTENERS_PER_USER {
             return Err(ListenError::TooMany);
         }
-        senders.push(tx);
+        entries.push(HubEntry {
+            tx,
+            queued: Arc::clone(&queued),
+            _lagged: lag_tx,
+        });
         Ok(Listener {
             rx,
+            queued,
+            lagged: Some(lagged),
             user_id: user_id.to_string(),
             hub: Arc::clone(&self.hub),
+        })
+    }
+
+    /// How many event listeners (open `/rpc/stream` sockets) `user_id`
+    /// holds now, for tests and diagnostics.
+    pub fn listener_count(&self, user_id: &str) -> usize {
+        let mut listeners = self
+            .hub
+            .listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        listeners.get_mut(user_id).map_or(0, |entries| {
+            entries.retain(|entry| !entry.tx.is_closed());
+            entries.len()
         })
     }
 
@@ -659,6 +826,53 @@ mod tests {
             PathBuf::from("/data/users/u1/meta.db")
         );
         assert!(w.user_dir("../x").is_err());
+    }
+
+    fn changed(id_len: usize) -> CoreEvent {
+        CoreEvent::StorageChanged {
+            kind: seaquel_core::StoredKind::Storage,
+            scope: None,
+            ids: Some(vec!["k".repeat(id_len)]),
+            origin: None,
+            seq: seaquel_core::ChangeSeq {
+                epoch: "e".into(),
+                n: 1,
+            },
+        }
+    }
+
+    /// Phase 5d-1 probe fix: a listener's queue is bounded by bytes as well
+    /// as by count, and reading an event frees its bytes.
+    #[tokio::test]
+    async fn a_listener_past_its_byte_bound_is_dropped_as_lagging() {
+        let w = Workspaces::new("/d")
+            .with_event_bound(1_000)
+            .with_event_byte_bound(10_000);
+        let mut kept = w.listen("u").unwrap();
+        let mut slow = w.listen("u").unwrap();
+        let mut slow_lag = slow.lag_signal();
+        let event = changed(1_000);
+        let size = event_bytes(&event);
+        assert!(size > 1_000 && size < 2_000, "{size}");
+        // `kept` reads every event, so its bytes never pile up.
+        for _ in 0..20 {
+            w.hub.send("u", &event);
+            assert!(kept.recv().await.is_some());
+        }
+        // `slow` read none: it went past 10,000 bytes long before 1,000
+        // events.
+        assert_eq!(w.listener_count("u"), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(5), slow_lag.fired())
+            .await
+            .expect("the lag signal fired");
+        let mut queued = 0;
+        while slow.recv().await.is_some() {
+            queued += 1;
+        }
+        assert_eq!(queued, 10_000 / size, "it held what fit, no more");
+        // `kept` still gets events.
+        w.hub.send("u", &event);
+        assert!(kept.recv().await.is_some());
     }
 
     #[test]

@@ -12,17 +12,13 @@ import {
   aiChatsRepo,
   appStateRepo,
   connectionOverridesRepo,
-  connectionsRepo,
   dashboardVersionsRepo,
   dashboardsRepo,
   importStateRepo,
   licenseRepo,
   onboardingRepo,
   projectStateRepo,
-  projectsRepo,
   queryHistoryRepo,
-  queryVersionsRepo,
-  savedQueriesRepo,
   sharedReposRepo,
   themeRepo,
   tutorialRepo,
@@ -54,13 +50,9 @@ function bind<R extends object>(repo: R, db: SqliteDatabase): Bound<R> {
 /** Wraps the repositories around an open, bootstrapped database. */
 export function createSqljsStorageClient(db: SqliteDatabase): StorageClient {
   return {
-    projects: bind(projectsRepo, db),
     appState: bind(appStateRepo, db),
-    connections: bind(connectionsRepo, db),
     connectionOverrides: bind(connectionOverridesRepo, db),
     projectState: bind(projectStateRepo, db),
-    savedQueries: bind(savedQueriesRepo, db),
-    queryVersions: bind(queryVersionsRepo, db),
     queryHistory: bind(queryHistoryRepo, db),
     sharedRepos: bind(sharedReposRepo, db),
     themes: bind(themeRepo, db),
@@ -85,10 +77,10 @@ export async function bootstrapSqljsDatabase(db: SqliteDatabase): Promise<void> 
   }
 }
 
-/** Opens the demo's database from `localStorage` and wraps it. */
-export async function openSqljsStorageClient(): Promise<StorageClient> {
+/** Opens the demo's database from `localStorage`, bootstrapped. */
+export async function openSqljsDatabase(): Promise<SqliteDatabase> {
   const { WebSqliteProvider } = await import("./web-sqlite");
   const db = await new WebSqliteProvider().open("seaquel.db");
   await bootstrapSqljsDatabase(db);
-  return createSqljsStorageClient(db);
+  return db;
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import { showErrorUnlessShown } from "$lib/errors";
     import { dndzone } from "svelte-dnd-action";
     import { page } from "$app/state";
     import { resolve } from "$app/paths";
@@ -94,7 +95,7 @@
                     db.dashboards.renameDashboard(dashboard.id, editingTabName.trim());
                 }
             } else {
-                db.queryTabs.rename(editingTabId, editingTabName.trim());
+                void db.queryTabs.rename(editingTabId, editingTabName.trim()).catch(showErrorUnlessShown);
             }
         }
         editingTabId = null;

@@ -18,11 +18,14 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { ORIGIN_HEADER, webPageOrigin } from "$lib/core/origin";
 import type { SavedWorkflow } from "$lib/types/workflow";
 import type { PersistedProjectState } from "$lib/types";
 import type { PersistedConnection } from "$lib/hooks/database/types";
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import type { CoreResponse } from "$lib/types/generated/CoreResponse";
+import type { LibraryRequest } from "$lib/types/generated/LibraryRequest";
+import type { LibraryResponse } from "$lib/types/generated/LibraryResponse";
 import type { PersistedConnection as WireConnection } from "$lib/types/generated/PersistedConnection";
 import type { PersistedProjectState as WireProjectState } from "$lib/types/generated/PersistedProjectState";
 import type { RpcError } from "$lib/types/generated/RpcError";
@@ -32,7 +35,7 @@ import type { StorageRequest } from "$lib/types/generated/StorageRequest";
 import type { StorageResponse } from "$lib/types/generated/StorageResponse";
 import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
-import { planDashboardVersionsPrune, planQueryVersionsPrune } from "$lib/utils/version-prune";
+import { planDashboardVersionsPrune } from "$lib/utils/version-prune";
 import { fromStorable, toStorable } from "$lib/values";
 import type { StorageClient } from "./client";
 
@@ -45,10 +48,13 @@ import type { StorageClient } from "./client";
  */
 export class CoreCallError extends Error {
   readonly code: string;
+  /** For `NAME_TAKEN` (a library call): the id of the row that has the name. */
+  readonly takenBy?: string;
   constructor(error: RpcError) {
     super(`${error.code}: ${error.message}`);
     this.name = "CoreCallError";
     this.code = error.code;
+    if (typeof error.takenBy === "string") this.takenBy = error.takenBy;
   }
 }
 
@@ -89,7 +95,8 @@ export const httpCoreTransport: CoreTransport = async (body) => {
   try {
     response = await fetch("/api/rpc", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      // The page's origin, so its own writes' events can be told apart.
+      headers: { "content-type": "application/json", [ORIGIN_HEADER]: webPageOrigin() },
       body,
       credentials: "same-origin",
     });
@@ -165,9 +172,6 @@ export const STORAGE_METHOD_KIND: Record<StorageMethod, "read" | "write"> = {
   connectionOverridesLoadAll: "read",
   connectionOverridesSave: "write",
   connectionOverridesRemove: "write",
-  connectionsLoadAll: "read",
-  connectionsSave: "write",
-  connectionsRemove: "write",
   dashboardVersionsLoadByDashboard: "read",
   dashboardVersionsLoadByProject: "read",
   dashboardVersionsInsert: "write",
@@ -185,21 +189,10 @@ export const STORAGE_METHOD_KIND: Record<StorageMethod, "read" | "write"> = {
   projectStateLoad: "read",
   projectStateSave: "write",
   projectStateRemove: "write",
-  projectsLoadAll: "read",
-  projectsSave: "write",
-  projectsSaveAll: "write",
-  projectsRemove: "write",
   queryHistoryLoadByConnection: "read",
   queryHistoryAppend: "write",
   queryHistorySetFavorite: "write",
   queryHistoryRemoveByConnection: "write",
-  queryVersionsLoadByQuery: "read",
-  queryVersionsLoadByProject: "read",
-  queryVersionsInsert: "write",
-  queryVersionsPrune: "write",
-  savedQueriesLoadByProject: "read",
-  savedQueriesSaveAll: "write",
-  savedQueriesRemoveByProject: "write",
   sharedReposLoadAll: "read",
   sharedReposSaveAll: "write",
   themesLoadPreferences: "read",
@@ -241,6 +234,62 @@ async function callStorage<M extends StorageMethod>(
   return response.result.result as StorageResult<M>;
 }
 
+// -------- The library group (phase 5d-1) --------
+
+export type LibraryMethod = LibraryRequest["method"];
+type LibraryRequestOf<M extends LibraryMethod> = Extract<LibraryRequest, { method: M }>;
+/** A library method's params, or `undefined` for one that takes none. */
+export type LibraryParams<M extends LibraryMethod> =
+  LibraryRequestOf<M> extends { params: infer P } ? P : undefined;
+export type LibraryResult<M extends LibraryMethod> = Extract<
+  LibraryResponse,
+  { method: M }
+>["result"];
+
+/**
+ * Whether each library call writes. Writes join the storage group's write
+ * queue (Decision 3), so every write this page issues lands in order; the
+ * lists don't wait. A `Record` over every method, so a new one doesn't
+ * compile until it's classified.
+ */
+export const LIBRARY_METHOD_KIND: Record<LibraryMethod, "read" | "write"> = {
+  connectionsList: "read",
+  projectsList: "read",
+  savedQueriesList: "read",
+  queryVersionsList: "read",
+  connectionCreate: "write",
+  connectionUpdate: "write",
+  connectionRemove: "write",
+  projectCreate: "write",
+  // Writes when the file has no project yet.
+  projectEnsureDefault: "write",
+  projectUpdate: "write",
+  projectRemove: "write",
+  labelCreate: "write",
+  labelUpdate: "write",
+  labelRemove: "write",
+  savedQueryCreate: "write",
+  savedQueryUpdate: "write",
+  savedQueryRemove: "write",
+};
+
+/** One library call, without the write queue. Never echoes the request (secrets). */
+async function callLibraryOnce<M extends LibraryMethod>(
+  transport: CoreTransport,
+  method: M,
+  params: LibraryParams<M>,
+): Promise<LibraryResult<M>> {
+  const inner = (params === undefined ? { method } : { method, params }) as LibraryRequest;
+  const response = await send(transport, { method: "library", params: inner });
+  if (response?.method !== "library" || response.result?.method !== method) {
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a library ${method} response`,
+    });
+  }
+  return response.result.result as LibraryResult<M>;
+}
+
 type SecretMethod = SecretRequest["method"];
 export type SecretResult<M extends SecretMethod> = Extract<SecretResponse, { method: M }>["result"];
 
@@ -263,14 +312,15 @@ export async function callSecret<M extends SecretMethod>(
 
 // -------- Mapping between wire and app types --------
 
-function connectionFromWire(wire: WireConnection): PersistedConnection {
+/** A stored connection as the app holds it (the library's lists and writes return these). */
+export function connectionFromWire(wire: WireConnection): PersistedConnection {
   const { lastConnected, ...connection } = wire;
   // As the TypeScript repository did: `new Date(text)` for any non-empty text,
   // so text without a zone reads as local time and garbage is an Invalid Date.
   return lastConnected ? { ...connection, lastConnected: new Date(lastConnected) } : connection;
 }
 
-function connectionToWire(connection: PersistedConnection): WireConnection {
+export function connectionToWire(connection: PersistedConnection): WireConnection {
   const { lastConnected, ...rest } = connection;
   // A `Date` crosses as its ISO text; anything else (a string that slipped
   // in, `null`) passes through as it did before, and `undefined` is dropped.
@@ -330,6 +380,12 @@ export class RustStorageClient implements StorageClient {
     return result;
   }
 
+  /** One `library` call (phase 5d-1); writes share the storage writes' queue. */
+  library<M extends LibraryMethod>(method: M, params: LibraryParams<M>): Promise<LibraryResult<M>> {
+    const run = () => callLibraryOnce(this.transport, method, params);
+    return LIBRARY_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
+  }
+
   private call<M extends StorageMethod>(
     method: M,
     params: StorageParams<M>,
@@ -338,33 +394,10 @@ export class RustStorageClient implements StorageClient {
     return STORAGE_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
   }
 
-  projects: StorageClient["projects"] = {
-    loadAll: () => this.call("projectsLoadAll", undefined),
-    save: async (project) => {
-      await this.call("projectsSave", { project });
-    },
-    saveAll: async (projects) => {
-      await this.call("projectsSaveAll", { projects });
-    },
-    remove: async (projectId) => {
-      await this.call("projectsRemove", { projectId });
-    },
-  };
-
   appState: StorageClient["appState"] = {
     get: (key) => this.call("appStateGet", { key }),
     set: async (key, value) => {
       await this.call("appStateSet", { key, value });
-    },
-  };
-
-  connections: StorageClient["connections"] = {
-    loadAll: async () => (await this.call("connectionsLoadAll", undefined)).map(connectionFromWire),
-    save: async (connection) => {
-      await this.call("connectionsSave", { connection: connectionToWire(connection) });
-    },
-    remove: async (connectionId) => {
-      await this.call("connectionsRemove", { connectionId });
     },
   };
 
@@ -391,34 +424,6 @@ export class RustStorageClient implements StorageClient {
     remove: async (projectId) => {
       await this.call("projectStateRemove", { projectId });
     },
-  };
-
-  savedQueries: StorageClient["savedQueries"] = {
-    loadByProject: (projectId) => this.call("savedQueriesLoadByProject", { projectId }),
-    saveAll: async (projectId, queries) => {
-      await this.call("savedQueriesSaveAll", { projectId, queries });
-    },
-    removeByProject: async (projectId) => {
-      await this.call("savedQueriesRemoveByProject", { projectId });
-    },
-  };
-
-  queryVersions: StorageClient["queryVersions"] = {
-    loadByQuery: (queryId) => this.call("queryVersionsLoadByQuery", { queryId }),
-    loadByProject: (projectId) => this.call("queryVersionsLoadByProject", { projectId }),
-    insert: async (version) => {
-      await this.call("queryVersionsInsert", { version });
-    },
-    // Read, plan and prune in one queue slot, so the read sees every earlier
-    // insert and no later write lands between the read and the prune.
-    pruneOldVersions: (queryId, keepCount) =>
-      this.enqueueWrite(async () => {
-        const versions = await callStorage(this.transport, "queryVersionsLoadByQuery", {
-          queryId,
-        });
-        const plan = planQueryVersionsPrune(queryId, versions, keepCount);
-        if (plan) await callStorage(this.transport, "queryVersionsPrune", plan);
-      }),
   };
 
   queryHistory: StorageClient["queryHistory"] = {

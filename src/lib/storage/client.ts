@@ -16,14 +16,10 @@ import type {
   PersistedAIChat,
   PersistedAIMessage,
   PersistedDashboardVersion,
-  PersistedProject,
   PersistedProjectState,
   PersistedQueryHistoryItem,
-  PersistedQueryVersion,
-  PersistedSavedQuery,
   PersistedSharedQueryRepo,
 } from "$lib/types";
-import type { PersistedConnection } from "$lib/hooks/database/types";
 
 /** This machine's settings for a shared connection. */
 export interface PersistedConnectionOverride {
@@ -94,21 +90,15 @@ export interface TutorialProgressRow {
  */
 export const HISTORY_KEEP = 500;
 
+/**
+ * Connections, projects, custom labels, saved queries and their versions
+ * aren't here: phase 5d-1 moved them to the library (`LibraryService`,
+ * `$lib/hooks/database/library`), whose writes are targeted calls.
+ */
 export interface StorageClient {
-  projects: {
-    loadAll(): Promise<PersistedProject[]>;
-    save(project: PersistedProject): Promise<void>;
-    saveAll(projects: PersistedProject[]): Promise<void>;
-    remove(projectId: string): Promise<void>;
-  };
   appState: {
     get(key: string): Promise<string | null>;
     set(key: string, value: string | null): Promise<void>;
-  };
-  connections: {
-    loadAll(): Promise<PersistedConnection[]>;
-    save(connection: PersistedConnection): Promise<void>;
-    remove(connectionId: string): Promise<void>;
   };
   connectionOverrides: {
     load(sharedConnectionId: string): Promise<PersistedConnectionOverride | null>;
@@ -120,21 +110,6 @@ export interface StorageClient {
     load(projectId: string): Promise<PersistedProjectState | null>;
     save(state: PersistedProjectState): Promise<void>;
     remove(projectId: string): Promise<void>;
-  };
-  savedQueries: {
-    loadByProject(projectId: string): Promise<PersistedSavedQuery[]>;
-    saveAll(projectId: string, queries: PersistedSavedQuery[]): Promise<void>;
-    removeByProject(projectId: string): Promise<void>;
-  };
-  queryVersions: {
-    loadByQuery(queryId: string): Promise<PersistedQueryVersion[]>;
-    loadByProject(projectId: string): Promise<PersistedQueryVersion[]>;
-    insert(version: PersistedQueryVersion): Promise<void>;
-    /**
-     * Keep the newest `keepCount` versions and turn the oldest survivor into
-     * a keyframe. `keepCount` 0 keeps everything.
-     */
-    pruneOldVersions(queryId: string, keepCount: number): Promise<void>;
   };
   queryHistory: {
     loadByConnection(connectionId: string): Promise<PersistedQueryHistoryItem[]>;

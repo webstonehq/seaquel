@@ -63,7 +63,7 @@ keeps the TypeScript runner behind a `QueryRunner` seam. The web server
 bounds a run's text, statement count and parameter values, Core bounds
 what substitution may add everywhere, and the Node proxy applies
 backpressure. Its measured cost is in "Phase 5b cost" below.
-Phase 5c: implemented, manual checks pending (see
+Phase 5c: implemented, manual checks passed (see
 2026-10-03-rust-core-phase-5c-plan.md). On desktop and web, every write
 the grid makes and the data tab's query go through Core: the grid sends
 edit intents, and Core reads the table's metadata per call, checks the key
@@ -81,6 +81,24 @@ user's calls in flight and `/api/rpc`'s body, and an apply stops when the
 browser goes away or the workspace is evicted. The slice took the name 5c
 from the connection, project and saved-query CRUD, which is now 5d. Its
 measured cost is in "Phase 5c cost" below.
+Phase 5d-1: implemented, manual checks pending (see
+2026-10-04-rust-core-phase-5d-plan.md). On desktop and web, saved
+connections, projects, custom labels, saved queries and their versions are
+written only through Core's `library` RPC group, one targeted call per
+change, each in one write transaction (`Storage::write`, `WriteTx`). Core
+assigns ids and times, validates, refuses duplicate names (`NAME_TAKEN`,
+compared by a stored, fully case-folded `name_key`), writes the desktop
+keychain inside the call, strips connection strings, and stores query
+versions as keyframes. Every stored write then emits `StorageChanged`
+(kind, ids, the writer's origin and a change sequence, never a value),
+which the desktop's `core_events` and the web's `/rpc/stream` deliver to
+every window and tab of the user; the GUI's `ChangeFeed` refetches what
+changed and applies it by the sequence. Opening a writable workspace moves
+secrets left in pre-5a connection strings to the keychain and strips them,
+once. The web bounds library calls (`LibraryLimits`) and each socket's
+event queue. The demo keeps the TypeScript behind a `LibraryService` seam.
+Dashboards, chats, tabs and settings (5d-2) still go through the storage
+group. Its measured cost is in "Phase 5d-1 cost" below.
 
 ## Problem
 
@@ -455,6 +473,28 @@ As built in phase 4:
   on the migrator's own connection and is re-checked under the lock, so two
   processes or two pools opening one file apply it once. This fixed the race
   phase 3 left on web.
+
+As built in phase 5d-1 (details in that plan's Decisions 3, 12a and 16–18):
+
+- **Every library write is one Core call in one write transaction.**
+  `Storage::write` queues writers on an in-process mutex, then takes the
+  SQLite write lock with `BEGIN IMMEDIATE`. Inside it, reads go through the
+  transaction, never the pool.
+- **`StorageChanged` exists, in-process only.** Core emits one after every
+  stored write (library calls, the storage group's remaining writes,
+  history appends), with ids and a change sequence but no values, and the
+  GUIs refetch. The second writers so far are other windows and tabs of the
+  same process, so there is still no `data_version` polling: the CLI and
+  MCP only read. Polling waits for phase 7's `seaquel conn add`.
+- **The first numbered migration and two more data steps.**
+  `0001_name_keys.sql` adds `name_key` columns (with triggers that clear a
+  key an older release leaves stale); `drop_legacy_built_connection_strings`
+  and `backfill_name_keys` are data steps. The read-only CLI refuses a file
+  until the app has run them, as designed in phase 4.
+- **Secrets left in stored strings** are moved to the keychain and
+  stripped once, by Core, when a writable workspace opens, not by a data
+  step: a step can't reach the keychain, and the desktop must not strip a
+  password before it's stored safely.
 
 ### Secrets
 
@@ -838,8 +878,10 @@ that's fine.
 - `hooks/database/*` shrinks to view models over `CoreClient`.
 - This is the largest phase. Do it one manager at a time.
 - (As built so far: 5a connections, 5b query execution and history, 5c
-  edits, pending changes, the data tab and workflows. 5d is the connection,
-  project and saved-query CRUD.)
+  edits, pending changes, the data tab and workflows, 5d-1 the library
+  (connections, projects, labels, saved queries and versions) and
+  `StorageChanged`. 5d-2 is tabs and project state, workflows, settings,
+  dashboards, chats and overrides.)
 
 **Phase 6: `seaquel-ai`**
 - LLM calls move out of the webview into Rust.
@@ -2611,6 +2653,207 @@ per-call metadata read, which the probe measured at ~6 ms on Postgres
   42%), lower only if 5d really adds no large inputs from the browser.
   Count live-suite waiting inside the task estimates; it's most of why
   Task 3 ran over.
+
+## Phase 5d-1 cost
+
+Source: `2026-10-04-phase-5d-effort.md` and the phase 5d plan's execution
+notes, plus line counts measured against the phase 5c commit (`1cf3ddb`);
+5d-1 is in the working tree on top of it. Times are agent wall time as
+logged, review and probe fixes included, but not the plan, the review
+passes themselves or the owner's decisions. Tasks 1, 2 and 3 overlapped.
+The probe run has no row in the effort log; its scratch files span about
+40 minutes, so it's counted at ~0.65 h.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes and added scope | Logged |
+|---|---|---|---|---|
+| 1. TS fixes (silent failures, stale-tab stopgap, labels, imports, shared rename, dashboards) | 0.3–0.45 h | ~0.27 h | ~0.1 h | ~0.37 h |
+| 2. Library fixtures and the recorder | 0.3–0.5 h | ~0.35 h | ~0.8 h | ~1.15 h |
+| 3. Storage: `WriteTx`, targeted queries, data step | 0.3–0.5 h | ~0.47 h | ~1.13 h (0.85 h of it the secrets decision's three rounds) | ~1.6 h |
+| 4. Core: library, secrets, limits, events, `seq`, the secrets upgrade | 0.8–1.2 h | ~1.2 h | ~0.55 h | ~1.75 h |
+| 5. RPC, transports, delivery | 0.45–0.7 h | ~0.95 h | ~1.5 h (two review rounds) | ~2.45 h |
+| 6. GUI onto `LibraryService`, `ChangeFeed`, `TsLibrary` | 0.9–1.3 h | ~1.9 h | ~0.55 h | ~2.45 h |
+| 7. Probe | 0.25–0.4 h | ~0.65 h | ~3.9 h wall (~1.5 h of it work) | ~4.55 h |
+| 8. Docs, measure, checks | 0.5–0.65 h | ~0.5 h | — | ~0.5 h |
+| Review fixes (the plan's row) | 0.75–1.15 h | | | |
+| Probe fixes (the plan's row) | 1.5–2.3 h | | | |
+| **Total** | **~6–9 h** | **~6.3 h** | **~8.5 h** | **~14.8 h** |
+
+About 2.3 h of the logged time was waiting on the probe-fix round's live
+workspace run, because each live test binary takes 30–60 s to start on this
+machine. The checkpoint skipped that run at the owner's request (see the
+plan's "Checkpoint (5d-1)").
+
+**The slice ran about twice its estimate**, ~14.8 h against 6–9 h and the
+plan's "expect about 7 h". First passes came in near the top of their
+range (~6.3 h against 3.8–5.7 h): Tasks 5 and 6 ran long (the web socket's
+event delivery, and four managers plus the feed), the rest landed inside
+or near their ranges. The overrun is in the fixes, ~8.5 h against a budget
+of 2.25–3.45 h:
+
+- **Review fixes were ~3.8 h, about 70% of the first passes** against the
+  20% budgeted (5c: 22%). Task 5's two review rounds (~1.5 h) bounded the
+  event queues and made the socket loop non-blocking; Task 2's (~0.8 h)
+  re-recorded the fixtures after moving import names and `name_key` into
+  Core.
+- **Added scope, ~0.85 h in Task 3 and part of Task 4.** Task 3's review
+  found that rows saved before phase 5a can still hold secrets in their
+  strings, which the plan's "no new data step" premise missed. The owner's
+  answer (move them to the keychain, then strip and list) became Decision
+  12a: three storage rounds, then Core's one-time upgrade with its keychain
+  ordering and scrub.
+- **Probe fixes were ~3.9 h wall**, of which ~1.5 h was work, inside the
+  1.5–2.3 h budget; the rest was the live suite.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~6,670 | ~360 |
+| Rust, tests (test files, inline `#[cfg(test)]`, the test migrations) | ~9,020 | ~200 |
+| Fixtures (116 recorded library cases in 6 files) | ~35,970 | 0 |
+| TypeScript/Svelte/JS, production | ~5,050 | ~1,550 |
+| TypeScript/JS, tests (with the recorder-replay helpers) | ~4,160 | ~310 |
+| Generated TS types | ~190 | ~20 |
+
+Measured with `git diff -U0` against `1cf3ddb` plus the untracked files,
+with `Cargo.lock`, `Cargo.toml` files, the docs, READMEs outside the fixtures
+and the message files left out; inline test modules counted from their
+`#[cfg(test)]` line. The recorder in `docs/plans/artifacts` (~2,700 lines)
+isn't counted.
+
+Where the production Rust went: `seaquel-storage` ~2,140 (`WriteTx`, the
+targeted queries and `project_labels`, the exact port of the TypeScript
+string strip, the secret split and the legacy-string rule, the two data
+steps and the migration), Core ~1,890 (the library methods, the secrets
+upgrade and its scrub, the change sequence and events), `seaquel-workspace`
+~1,570 (the `library` module: drafts, patches, checks, the version prune,
+`LibraryLimits`), `seaquel-rpc` ~530 added and ~110 removed (the `library`
+group in, 14 storage methods out, `StorageChanged`, the origin),
+`seaquel-server` ~430 (the bounded per-user hub, the lag and pending
+signals, statuses, `WEB_LIBRARY_LIMITS`), `src-tauri` ~70 and
+`seaquel-types` ~50 (`names`). On the TS side the new seam is ~2,470 lines:
+`TsLibrary` ~1,280, which phase 8 deletes, and the feed, sync, sequence
+rule, conversions and `CoreLibrary` ~1,190. `ConnectionManager` went from
+967 to 1,234 lines, `ProjectManager` from 975 to 1,205 and
+`SavedQueryManager` from 317 to 446 (remote changes, forms and the
+deleted-elsewhere paths); `PersistenceManager` from 898 to 674.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's notes
+(a finding that bundles several small ones counts once per item). The
+bracketed number is how many were older than phase 5d. The plan's survey
+found thirteen before any code (the two-tab deletion, silent save and
+removal failures, the lost dashboard star, the ignored dashboard version
+limit, colliding version numbers, removed labels left on connections,
+imports skipping connections, the shared rename duplicating a query,
+non-Latin names sharing a file, non-atomic project removal, the MCP
+server's pre-5a strings, unawaited removals and the shared paths writing to
+the active project's repo), all older; they aren't in the table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Library rules (versions, labels, imports, names) | 4 [4] | 3 [2] | — |
+| Secrets and the string upgrade | 1 | 4 [1] | — |
+| Storage (write lock, name keys) | — | 3 | — |
+| Events, origin and delivery | 2 | 4 | 2 |
+| GUI view models and the wire | 1 | 6 [1] | 1 [1] |
+| Web limits and scale | — | — | 2 |
+| **Total** | **8 [4]** | **20 [4]** | **5 [1]** |
+
+The review column includes the review of the probe fixes. One probe
+finding (the upgrade's events reach no web socket) was kept as documented
+behaviour.
+
+The serious ones:
+
+- **Stored query versions were corrupted** (the recorder, older). After a
+  prune the TypeScript diffed new versions against a base it no longer
+  had; below a limit of 10, reachable because the input's `min="10"`
+  wasn't enforced, the stored diffs were wrong, and a limit of 0 kept only
+  version 1. Core's keyframes stop new damage and the setting now clamps;
+  existing rows can't be told apart, so nothing is repaired.
+- **Secrets in pre-5a connection strings** (Task 3 review, older). Before
+  5a the TypeScript stripped only a URL's password, and rows are re-saved
+  only on connect or edit, so libpq passwords, DuckDB keys, `+ssh`
+  passwords and more could still sit in `seaquel.db`. The review of Task 4
+  then found that stripping alone left copies in free pages and the WAL,
+  hence `secure_delete`, `VACUUM` and a truncating checkpoint, each retried
+  on the next open.
+- **Event memory on the web** (Task 5 review and the probe). The per-user
+  hub queued without bound for a paused socket, and a storage-group write's
+  key became an event id: 40 writes of an 8 MiB `appStateSet` key with 4
+  paused sockets took the server from 150 to 674 MiB (8 sockets: 1,382 MiB).
+  Queues are bounded by count and bytes, ids by count and size, and a
+  socket that falls behind is closed with `EVENTS_LAGGED` and reloads; the
+  same run peaked at 124 and 133 MiB, most of it the request bodies.
+- **The duplicate-name check was quadratic** (the probe). It folded every
+  name in the project on each write: saved-query creates slowed from 2.5 ms
+  to 46 ms by 50,000. A stored `name_key` with an index keeps them flat
+  (0.4–0.6 ms at 10,000 and 50,000), which took a migration, a data step,
+  triggers against older releases and a refill after a downgrade.
+- **A label write hid another tab's rename** (Task 6 review). A label
+  answer holds only the label, but its `seq` was recorded for the whole
+  project, so a remote rename with a lower number was dropped. Writes now
+  record a `seq` only for what their answer holds whole.
+- **Unknown fields were ignored** (the probe, older). A misspelt patch field
+  (`secret` for `secrets`) answered 200 and did nothing. Every group but
+  `db` now refuses unknown fields.
+
+### What was harder than expected
+
+- **Old data.** The plan assumed the stored library was clean apart from
+  the legacy strings. It wasn't: secrets in pre-5a strings, corrupted
+  version diffs, labels left on connections. Each one needed an owner
+  decision, and the secrets one a Core upgrade with keychain ordering,
+  retries and a scrub.
+- **Delivering events under backpressure.** Sending an event to every
+  socket is simple; bounding it isn't. The hub needed count and byte bounds,
+  a lag signal separate from the channel, a socket loop that reads cancels
+  while events back up, and a cap on refusals queued behind them. One test
+  hung about one run in three until it checked the server side, because a
+  client that floods without reading deadlocks on its own writes.
+- **The GUI's side of the sequence.** The `seq` rule is one line in the
+  plan; in the managers it meant tombstones, writes in flight, label
+  answers that hold only part of what changed, forms with their own copy,
+  and closing a removed connection's tabs in projects the tab managers
+  don't have loaded.
+- **Scale.** The probe's 50,000-query run was the first time the name
+  check met a large file.
+
+What went to plan: the fixtures, which the Core replay matched on all 147
+replayed steps with exactly the 49 listed changes on its first run; the
+write transaction and the change sequence; the origin through Node and
+Tauri; and the demo's seam.
+
+### What this means for the next slice
+
+- **5d-2 reuses all of 5d-1's machinery**: `WriteTx`, `StorageChanged`,
+  the sequence, the origin, `ChangeFeed` and the `LibraryService` seam. Its
+  new risks are the per-window view state (the second migration, window
+  identity, pruning and the legacy mirror), 43 debounced save calls across
+  15 files, a streaming chat meeting the feed, and the `aiSettings` record
+  the MCP server reads.
+- **Store name keys from the start.** Dashboards get `NAME_TAKEN` in 5d-2;
+  give them a `name_key` column in `0002` rather than folding in memory.
+  The second migration also makes the CLI refuse the file again until the
+  app has opened it.
+- **Survey the stored data, not only the code.** 5d-1's added scope came
+  from rows older releases left behind. Before Task 2 of 5d-2, check what
+  old releases stored in project state, dashboards, chats and settings, and
+  what a strict parser would refuse.
+- **Move the override credentials.** A shared connection's override
+  credentials are still written to the keychain from TypeScript; they
+  belong in `overrideSave`.
+- **Estimating.** Keep first passes sized as the plan has them (5d-1's
+  landed near the top of their ranges), but budget review fixes at about
+  half the first passes rather than 20%, and count the live suite's wait
+  on this machine (~2 h per full run) as its own line. That puts 5d-2 at
+  about 11–14 h rather than 7.5 h. Running only the affected crates' live
+  tests between rounds, and the full suite once at the checkpoint, would
+  cut most of the wait.
 
 ## Risks
 

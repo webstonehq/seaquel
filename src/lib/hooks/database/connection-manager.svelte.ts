@@ -1,5 +1,7 @@
 import { errorToast } from "$lib/utils/toast";
+import { toast } from "svelte-sonner";
 import { m } from "$lib/paraglide/messages.js";
+import { extractErrorMessage } from "$lib/errors";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
@@ -16,8 +18,7 @@ import {
 import type { ConnectRequest, ProviderRegistry } from "$lib/providers";
 import type { ConnectionForm } from "$lib/types/generated/ConnectionForm";
 import type { SuppliedSecrets } from "$lib/types/generated/SuppliedSecrets";
-import { isDemo, isWeb } from "$lib/utils/environment";
-import { storedConnectionString } from "$lib/utils/connection-string-rules";
+import { isDemo, isTauri, isWeb } from "$lib/utils/environment";
 import {
   assertDatabaseTypeAvailable,
   databaseTypeUnavailableMessage,
@@ -25,10 +26,37 @@ import {
   isFeatureEnabled,
 } from "$lib/features";
 import { getKeyringService } from "$lib/services/keyring";
-import { VaultCancelledError } from "$lib/services/vault/vault-state.svelte";
+import { VaultCancelledError, getVault } from "$lib/services/vault/vault-state.svelte";
 import { SvelteSet } from "svelte/reactivity";
 import type { SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import { log } from "$lib/utils/logger";
+import { isAlreadySaved } from "$lib/services/connection-import";
+import {
+  NEW,
+  getLibrary,
+  isDemoLibrary,
+  rowKey,
+  type ChangeSeq,
+  type ConnectionDraft,
+  type ConnectionPatch,
+  type SecretChanges,
+  type WireConnection,
+} from "./library/index.js";
+import {
+  connectionFromWire,
+  connectionPatch,
+  isEmptyPatch,
+  type ConnectionFields,
+} from "./library/convert.js";
+import { LibraryError, libraryError } from "./library/messages.js";
+import { closeConnectionTabs } from "./connection-tabs-cleanup.js";
+import {
+  applyConnectionRow,
+  bumpRevisions,
+  libraryNameOf,
+  patchConnection,
+  storedFieldsDiffer,
+} from "./library/view.js";
 
 export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
   projectId?: string;
@@ -41,6 +69,109 @@ export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "lab
   saveSshKeyPassphrase?: boolean;
   createIfMissing?: boolean;
 };
+
+/** A connection read from another tool (TablePlus, DBeaver), to save without connecting. */
+export type ImportedConnection = Pick<
+  DatabaseConnection,
+  "name" | "type" | "host" | "port" | "databaseName" | "username" | "sslMode" | "sshTunnel"
+>;
+
+/** Whether `add` would store a secret for `connection`: the vault must be unlocked first on web. */
+function hasSecretsToSave(connection: ConnectionInput): boolean {
+  return (
+    (!!connection.savePassword && !!connection.password) ||
+    (!!connection.saveSshPassword && !!connection.sshPassword) ||
+    (!!connection.saveSshKeyPassphrase && !!connection.sshKeyPassphrase)
+  );
+}
+
+/** The prefix of `connectingIds`' entry for a connection `add` hasn't saved yet. */
+const NEW_CONNECTION = "new-connection-";
+
+/** A patch's fields as the page's connection holds them (`null` clears). */
+function fieldsOfPatch(patch: ConnectionPatch): Partial<DatabaseConnection> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (key !== "connected") out[key] = value === null ? undefined : value;
+  }
+  return out as Partial<DatabaseConnection>;
+}
+
+/** A shown connection's stored fields, as a form would send them. */
+export function fieldsOf(c: DatabaseConnection): ConnectionFields {
+  return {
+    name: c.name,
+    type: c.type,
+    host: c.host,
+    port: c.port,
+    databaseName: c.databaseName,
+    username: c.username,
+    sslMode: c.sslMode,
+    connectionString: c.connectionString,
+    sshTunnel: c.sshTunnel,
+    savePassword: c.savePassword,
+    saveSshPassword: c.saveSshPassword,
+    saveSshKeyPassphrase: c.saveSshKeyPassphrase,
+    aiShareSchema: c.aiShareSchema,
+    aiShareData: c.aiShareData,
+  };
+}
+
+/**
+ * The `connectionCreate` draft for a form's connection in `projectId`. An
+ * empty SSL mode ("Default") or string is left out; the string is stored
+ * without its secrets (Core strips them).
+ */
+export function connectionDraft(
+  input: Omit<ConnectionInput, "password"> & {
+    password?: string;
+    labelIds?: string[];
+    isLocalOnly?: boolean;
+    sharedConnectionId?: string;
+    activeAIProviderId?: string;
+    activeAIModel?: string;
+  },
+  projectId: string,
+): ConnectionDraft {
+  const draft: ConnectionDraft = {
+    projectId,
+    name: input.name,
+    type: input.type,
+    host: input.host ?? "",
+    port: input.port ?? 0,
+    databaseName: input.databaseName ?? "",
+    username: input.username ?? "",
+    savePassword: !!input.savePassword,
+    saveSshPassword: !!input.saveSshPassword,
+    saveSshKeyPassphrase: !!input.saveSshKeyPassphrase,
+    labelIds: input.labelIds ?? [],
+    isLocalOnly: input.isLocalOnly ?? true,
+    connected: true,
+  };
+  if (input.sslMode) draft.sslMode = input.sslMode;
+  if (input.connectionString) draft.connectionString = input.connectionString;
+  if (input.sshTunnel) draft.sshTunnel = input.sshTunnel;
+  if (input.sharedConnectionId) draft.sharedConnectionId = input.sharedConnectionId;
+  if (input.aiShareSchema !== undefined) draft.aiShareSchema = input.aiShareSchema;
+  if (input.aiShareData !== undefined) draft.aiShareData = input.aiShareData;
+  if (input.activeAIProviderId) draft.activeAIProviderId = input.activeAIProviderId;
+  if (input.activeAIModel) draft.activeAIModel = input.activeAIModel;
+  return draft;
+}
+
+/**
+ * Desktop: the secrets a form saves with the connection, set in Core's
+ * call (Decision 8). Only a typed secret whose flag is on is sent; Core
+ * deletes the entries whose flag the save turns off. `undefined` when
+ * there's none. Never used on web, whose vault stays in the browser.
+ */
+export function newSecrets(input: ConnectionInput): SecretChanges | undefined {
+  const secrets: SecretChanges = {};
+  if (input.savePassword && input.password) secrets.db = input.password;
+  if (input.saveSshPassword && input.sshPassword) secrets.ssh = input.sshPassword;
+  if (input.saveSshKeyPassphrase && input.sshKeyPassphrase) secrets.sshKey = input.sshKeyPassphrase;
+  return Object.keys(secrets).length > 0 ? secrets : undefined;
+}
 
 /**
  * The connection form Core connects (`{type:"form",form}`): the wizard's or
@@ -121,6 +252,9 @@ function connectionClosedMessage(name: string, event: ConnectionClosedEvent): st
 export class ConnectionManager {
   // Track which connections are currently being connected (for UI loading indicators)
   readonly connectingIds = new SvelteSet<string>();
+  private pendingCount = 0;
+  /** Whether the saved connections were read at startup. */
+  loaded = false;
 
   private sharedRepos: SharedRepoManager | null = null;
 
@@ -144,98 +278,141 @@ export class ConnectionManager {
   ) {}
 
   /**
-   * Initialize persisted connections on app startup.
+   * Load the saved connections on app startup: one `connectionsList`, whose
+   * `seq` each row is applied at. Core dropped the strings the old builder
+   * rebuilt from the fields when it opened the file (a data step), so
+   * nothing is saved here.
    */
   async initializePersistedConnections(): Promise<void> {
+    this.loaded = false;
     try {
-      const persistedConnections = await this.persistence.loadPersistedConnections();
-
-      // Register saved connections without waiting for the OS keychain. A
-      // keychain read can take seconds on macOS and Core reads saved desktop
-      // secrets itself when connecting. Web reads the vault on demand in
-      // heldSecrets, so neither target needs a startup secret fetch.
-      const connectionEntries = persistedConnections.map((persisted) => {
-        // Extract username from connection string if not stored separately (backwards compat)
-        let username = persisted.username ?? "";
-        if (!username && persisted.connectionString) {
-          try {
-            const connStr = persisted.connectionString.replace("postgresql://", "postgres://");
-            // SQLite and DuckDB use file-based connection strings, not URLs
-            if (!connStr.startsWith("sqlite") && !connStr.startsWith("duckdb")) {
-              const url = new URL(connStr);
-              username = url.username ? decodeURIComponent(url.username) : "";
-            }
-          } catch {
-            // Ignore parsing errors
-          }
-        }
-
-        const connection: DatabaseConnection = {
-          id: persisted.id,
-          name: persisted.name,
-          type: persisted.type,
-          host: persisted.host,
-          port: persisted.port,
-          databaseName: persisted.databaseName,
-          username,
-          password: "",
-          sslMode: persisted.sslMode,
-          connectionString: persisted.connectionString,
-          lastConnected: persisted.lastConnected ? new Date(persisted.lastConnected) : undefined,
-          // A stored JSON `null` loads as `null`.
-          sshTunnel: persisted.sshTunnel ?? undefined,
-          savePassword: persisted.savePassword,
-          saveSshPassword: persisted.saveSshPassword,
-          saveSshKeyPassphrase: persisted.saveSshKeyPassphrase,
-          projectId: persisted.projectId || DEFAULT_PROJECT_ID,
-          labelIds: persisted.labelIds || [],
-          isLocalOnly: persisted.isLocalOnly,
-          sharedConnectionId: persisted.sharedConnectionId,
-          // Every field a save writes back must be carried over here, or
-          // the first save of this object (the migration below, a label
-          // change) would clear it.
-          aiShareSchema: persisted.aiShareSchema,
-          aiShareData: persisted.aiShareData,
-          activeAIProviderId: persisted.activeAIProviderId,
-          activeAIModel: persisted.activeAIModel,
-        };
-        return connection;
-      });
-
-      // Rows written before phase 5a hold the string the old builder rebuilt
-      // from their fields. Core would connect with it and ignore the fields,
-      // so drop it, and save the row once so a saved connect (which Core
-      // reads from storage) sees the same.
-      const legacy = connectionEntries.filter(
-        (c) => c.connectionString && !storedConnectionString(c),
-      );
-      for (const c of legacy) c.connectionString = undefined;
-      await Promise.all(
-        legacy.map((c) =>
-          this.persistence
-            .persistConnection(c)
-            .catch((e) => void log.warn(`Couldn't drop the old string of ${c.id}:`, e)),
-        ),
-      );
-
-      // Phase 2: Register all connections in state (must complete before loading data)
-      for (const connection of connectionEntries) {
-        this.state.connections.push(connection);
-        this.stateRestoration.initializeConnectionMaps(connection.id);
-        // Ensure legacy rows (pre-connection-order migration) are represented
-        // in the in-memory order; the first persist writes them back to disk.
-        this.appendToOrder(connection.projectId, connection.id);
-      }
-
-      // Phase 3: Load connection data (query history, AI chats) in parallel
-      await Promise.all(
-        connectionEntries.map((conn) => this.stateRestoration.loadConnectionData(conn.id)),
-      );
+      const { value, seq } = await getLibrary().listConnections();
+      this.loaded = true;
+      this.applyConnections(value, seq, null, false);
+      // Load connection data (query history, AI chats) in parallel
+      await Promise.all(value.map((c) => this.stateRestoration.loadConnectionData(c.id)));
     } catch (error) {
-      void log.error("Failed to load persisted connections:", error);
-      // Silently fail - app will continue with no persisted connections
+      void log.error("Failed to load saved connections:", error);
+      // The app continues with no saved connections; nothing replaces the
+      // stored list, so a failed load can't lose any.
     } finally {
       this.state.connectionsLoading = false;
+    }
+  }
+
+  // -------- The library's rows (phase 5d-1) --------
+
+  /** The names the page holds, for a `NAME_TAKEN` message. */
+  private nameOf = (id: string) => libraryNameOf(this.state, id);
+
+  /** A library call's failure, worded for the user. */
+  private failed(error: unknown): LibraryError {
+    return libraryError(error, this.nameOf);
+  }
+
+  /** Apply one of this page's write answers for connection `row`. */
+  private applyOwn(row: WireConnection, seq: ChangeSeq, keep?: Partial<DatabaseConnection>) {
+    return applyConnectionRow(this.state, row, seq, keep);
+  }
+
+  /**
+   * Apply a `connectionsList` taken at `seq` to the rows `ids` names (every
+   * row when `null`), each only if `seq` is newer than what it shows
+   * (Decision 17). A row the list lacks was deleted. `remote`: the list is
+   * a refetch for another window's change, so a changed row is counted for
+   * the forms editing it, and a deleted one is disconnected with a toast.
+   */
+  applyConnections(
+    rows: readonly WireConnection[],
+    seq: ChangeSeq,
+    ids: readonly string[] | null,
+    remote: boolean,
+  ): void {
+    const seqs = this.state.librarySeqs;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const scope = new Set(ids ?? [...this.state.connections.map((c) => c.id), ...byId.keys()]);
+    let next = [...this.state.connections];
+    const added: DatabaseConnection[] = [];
+    const removed: DatabaseConnection[] = [];
+    const revisions: string[] = [];
+    for (const id of scope) {
+      const key = rowKey("connection", id);
+      if (!seqs.take(key, seq)) continue;
+      const row = byId.get(id);
+      const current = next.find((c) => c.id === id);
+      if (row) {
+        const updated = connectionFromWire(row, current);
+        if (current) {
+          if (remote && storedFieldsDiffer(current, updated)) revisions.push(key);
+          next = next.map((c) => (c.id === id ? updated : c));
+        } else {
+          next.push(updated);
+          added.push(updated);
+        }
+      } else if (current) {
+        removed.push(current);
+      }
+    }
+    this.state.connections = next;
+    for (const connection of added) {
+      this.stateRestoration.initializeConnectionMaps(connection.id);
+      this.appendToOrder(connection.projectId, connection.id);
+      if (remote) void this.stateRestoration.loadConnectionData(connection.id);
+    }
+    bumpRevisions(this.state, revisions);
+    for (const connection of removed) this.forgetRemoved(connection, remote);
+  }
+
+  /**
+   * Refetch the connections another window changed (`ids`, or all) and
+   * apply them by the `seq` rule, after this page's own writes to them.
+   */
+  async refreshFromLibrary(
+    ids: readonly string[] | null,
+    { remote = true }: { remote?: boolean } = {},
+  ): Promise<void> {
+    await this.state.librarySeqs.settled("connection:");
+    const { value, seq } = await getLibrary().listConnections();
+    this.applyConnections(value, seq, ids, remote);
+  }
+
+  /**
+   * A connection that is gone from storage (deleted in another window, or
+   * with its project): close its Core connection and schema tabs, and take
+   * it out of the page. `notify` says so with a toast.
+   */
+  forgetRemoved(connection: DatabaseConnection, notify: boolean): void {
+    if (connection.providerConnectionId) {
+      const coreId = connection.providerConnectionId;
+      void this.providers
+        .getForType(connection.type)
+        .then((provider) => provider.disconnect(coreId))
+        .catch((e) => void log.warn("Disconnecting a removed connection failed:", e));
+      this.markDisconnected(connection);
+    }
+    this.forget(connection);
+    if (notify) toast.info(m.library_connection_removed_elsewhere({ name: connection.name }));
+  }
+
+  /**
+   * Take a connection that is gone from storage out of the page: its maps,
+   * its place in the order and as the active one, and its tabs in every
+   * project (local removal and another window's share this).
+   */
+  private forget(connection: DatabaseConnection): void {
+    this.state.connections = this.state.connections.filter((c) => c.id !== connection.id);
+    this.stateRestoration.cleanupConnectionMaps(connection.id);
+    this.removeFromOrder(connection.projectId, connection.id);
+    const panes = this.tabOrdering?.paneManager;
+    const syncActive = panes ? (tabId: string) => panes.syncGlobalActiveState(tabId) : undefined;
+    for (const projectId of closeConnectionTabs(this.state, connection.id, syncActive)) {
+      this.persistence.scheduleProject(projectId);
+    }
+    if (this.state.activeConnectionIdByProject[connection.projectId] === connection.id) {
+      const nextConnection = this.state.connections.find(
+        (c) => c.projectId === connection.projectId && !!c.providerConnectionId,
+      );
+      this.setActiveForProject(nextConnection?.id ?? null, connection.projectId);
     }
   }
 
@@ -269,7 +446,10 @@ export class ConnectionManager {
    * per page; returns the unsubscribe.
    */
   listenForCoreEvents(): () => void {
-    return getCoreClient().events((event) => this.handleConnectionClosed(event));
+    return getCoreClient().events((event) => {
+      // `storageChanged` is for the change feed (phase 5d-1, Task 6).
+      if (event.type === "connectionClosed") this.handleConnectionClosed(event);
+    });
   }
 
   /** Mark the connection `event` names as disconnected, and say why. */
@@ -284,15 +464,21 @@ export class ConnectionManager {
   }
 
   /**
-   * Add a new database connection.
+   * Add a new database connection: connect the form, load its schema, then
+   * save it through the library, whose answer carries Core's id (Decision
+   * 1). Only then does it join the page, so a failed save leaves nothing
+   * and disconnects. On desktop its secrets go in the same call; on web the
+   * vault is unlocked first (a cancelled unlock saves nothing) and its
+   * ciphertext is written after the row, under Core's id.
    */
   async add(connection: ConnectionInput): Promise<string> {
     void log.info(`Adding connection: type=${connection.type}`);
     // SQLite and DuckDB on web (Decision 11b): refuse before anything runs.
     assertDatabaseTypeAvailable(connection.type);
     this.assertSshAvailable(connection);
-    const connectionId = `conn-${crypto.randomUUID()}`;
-    this.connectingIds.add(connectionId);
+    // The row's id is Core's, known once it's saved.
+    const pendingId = `${NEW_CONNECTION}${++this.pendingCount}`;
+    this.connectingIds.add(pendingId);
 
     try {
       const providerConnectionId = await this.connectCore(
@@ -300,100 +486,163 @@ export class ConnectionManager {
         formConnectRequest(connection),
         sshServerOf(connection),
       );
-
       const projectId = connection.projectId || this.state.activeProjectId || DEFAULT_PROJECT_ID;
-      // createIfMissing applies to this connect only — don't persist it, or a
-      // deleted/moved database would be silently recreated on reconnect.
-      const { createIfMissing: _createIfMissing, ...persisted } = connection;
-      const newConnection: DatabaseConnection = {
-        ...persisted,
-        id: connectionId,
-        projectId,
-        isLocalOnly: connection.isLocalOnly ?? true,
-        labelIds: connection.labelIds || [],
-        lastConnected: new Date(),
-        providerConnectionId,
-      };
 
-      if (!this.state.connections.find((c) => c.id === newConnection.id)) {
-        this.state.connections.push(newConnection);
-      }
-      this.appendToOrder(projectId, newConnection.id);
-
-      this.stateRestoration.initializeConnectionMaps(newConnection.id);
-
-      // Load schema - wrap in try-catch to handle failures gracefully
-      let client: EngineClient;
+      // Load the schema before saving, so a database that can't be read
+      // isn't saved. The client reads the Core id from the connection.
       let schemasWithTables: SchemaTable[];
       try {
-        client = getEngineClient(newConnection, this.state);
-        schemasWithTables = await client.schemaTables();
+        schemasWithTables = await getEngineClient({
+          id: pendingId,
+          type: connection.type,
+          providerConnectionId,
+        }).schemaTables();
       } catch (error) {
-        // Cleanup: remove the connection we just added
-        this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
-        this.stateRestoration.cleanupConnectionMaps(newConnection.id);
-        const cleanupProvider = await this.providers.getForType(newConnection.type);
-        await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+        await this.disconnectCore(connection.type, providerConnectionId);
         throw new Error(`Failed to load database schema: ${String(error)}`);
       }
 
-      // Only set active connection after schema loading succeeds
-      this.setActiveForProject(newConnection.id, projectId);
+      let saved: DatabaseConnection;
+      try {
+        if (isWeb() && hasSecretsToSave(connection)) {
+          await getVault().ensureUnlocked();
+        }
+        const { value, seq } = await this.state.librarySeqs.write([rowKey("connection", NEW)], () =>
+          getLibrary().createConnection(
+            connectionDraft(connection, projectId),
+            isTauri() ? newSecrets(connection) : undefined,
+          ),
+        );
+        saved = this.applyOwn(value, seq, {
+          password: connection.password,
+          providerConnectionId,
+        });
+      } catch (err) {
+        await this.disconnectCore(connection.type, providerConnectionId);
+        if (err instanceof VaultCancelledError) {
+          errorToast(m.connection_vault_unlock_cancelled());
+          throw err;
+        }
+        throw this.failed(err);
+      }
+      if (isWeb()) await this.saveVaultSecrets(saved.id, connection, {});
 
-      // Store tables immediately (without column metadata) so UI is responsive
-      this.state.schemas = {
-        ...this.state.schemas,
-        [newConnection.id]: schemasWithTables,
-      };
+      this.appendToOrder(projectId, saved.id);
+      this.stateRestoration.initializeConnectionMaps(saved.id);
+      this.state.schemas = { ...this.state.schemas, [saved.id]: schemasWithTables };
+      void log.info(`Schema loaded for ${saved.id}: ${schemasWithTables.length} tables`);
 
-      // Load column metadata asynchronously in the background
-      void this.onSchemaLoaded(newConnection.id, schemasWithTables, client);
+      // Only set active connection once the schema loaded and the row is saved
+      this.setActiveForProject(saved.id, projectId);
 
-      void log.info(`Schema loaded for ${newConnection.id}: ${schemasWithTables.length} tables`);
+      // Load column metadata asynchronously in the background, with the
+      // saved connection's engine client.
+      void this.onSchemaLoaded(saved.id, schemasWithTables, getEngineClient(saved, this.state));
 
       // Create initial query tab for new connection
       this.onCreateInitialTab();
 
-      // Persist the connection to store (password saved to keyring if enabled).
-      //
-      // Separate the "vault unlock cancelled" path from any other persistence
-      // failure: the connection is already in memory, fully usable this
-      // session — we just can't encrypt its credentials to disk yet. Roll it
-      // back from memory + disconnect the provider so we don't leave an
-      // orphaned half-state, then surface a specific toast.
-      try {
-        await this.persistence.persistConnection(newConnection, {
-          savePassword: connection.savePassword,
-          saveSshPassword: connection.saveSshPassword,
-          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-          sshPassword: connection.sshPassword,
-          sshKeyPassphrase: connection.sshKeyPassphrase,
-        });
-      } catch (err) {
-        if (err instanceof VaultCancelledError) {
-          this.state.connections = this.state.connections.filter((c) => c.id !== newConnection.id);
-          this.stateRestoration.cleanupConnectionMaps(newConnection.id);
-          const cleanupProvider = await this.providers.getForType(newConnection.type);
-          await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
-          errorToast(
-            "Vault unlock cancelled — connection not saved. Unlock the vault and try again.",
-          );
-          throw err;
-        }
-        throw err;
-      }
-
-      void log.info(`Connection established: ${newConnection.id}`);
-      return newConnection.id;
+      void log.info(`Connection established: ${saved.id}`);
+      return saved.id;
     } finally {
-      this.connectingIds.delete(connectionId);
+      this.connectingIds.delete(pendingId);
     }
+  }
+
+  /** Close a Core connection this page opened, ignoring a failure. */
+  private async disconnectCore(type: DatabaseConnection["type"], providerConnectionId: string) {
+    const provider = await this.providers.getForType(type);
+    await provider.disconnect(providerConnectionId).catch(() => {});
+  }
+
+  /**
+   * Web: write the secrets the form saves to the vault under the saved
+   * connection's id, and delete those whose flag the save turned off.
+   * Core has no store on web (Decision 8). A failure is shown, not thrown:
+   * the row is saved.
+   */
+  private async saveVaultSecrets(
+    id: string,
+    input: ConnectionInput,
+    before: Pick<DatabaseConnection, "savePassword" | "saveSshPassword" | "saveSshKeyPassphrase">,
+  ): Promise<void> {
+    const keyring = getKeyringService();
+    if (!keyring.isAvailable()) return;
+    try {
+      if (input.savePassword && input.password) await keyring.setDbPassword(id, input.password);
+      else if (input.savePassword === false && before.savePassword)
+        await keyring.deleteDbPassword(id);
+      if (input.saveSshPassword && input.sshPassword)
+        await keyring.setSshPassword(id, input.sshPassword);
+      else if (input.saveSshPassword === false && before.saveSshPassword)
+        await keyring.deleteSshPassword(id);
+      if (input.saveSshKeyPassphrase && input.sshKeyPassphrase)
+        await keyring.setSshKeyPassphrase(id, input.sshKeyPassphrase);
+      else if (input.saveSshKeyPassphrase === false && before.saveSshKeyPassphrase)
+        await keyring.deleteSshKeyPassphrase(id);
+    } catch (error) {
+      void log.warn("Saving a password to the vault failed:", error);
+      errorToast(m.connection_vault_save_failed({ message: extractErrorMessage(error) }));
+    }
+  }
+
+  /**
+   * Save connections read from another tool into the active project,
+   * without connecting (no passwords come with them). One the project
+   * already has (same type, host, port, database and user) is skipped. Each
+   * draft carries `renameIfTaken`, so Core stores a taken name as the first
+   * free "<name> (2)" (Decision 13). Each saved one is listed like `add`'s:
+   * in memory with its maps and at the end of the project's order. Failed
+   * ones are counted and named.
+   */
+  async importConnections(drafts: readonly ImportedConnection[]): Promise<{
+    imported: number;
+    skipped: number;
+    failed: number;
+    failures: string[];
+  }> {
+    const projectId = this.state.activeProjectId || DEFAULT_PROJECT_ID;
+    const result = { imported: 0, skipped: 0, failed: 0, failures: [] as string[] };
+    for (const draft of drafts) {
+      const existing = this.state.connections.filter((c) => c.projectId === projectId);
+      if (isAlreadySaved(draft, existing)) {
+        result.skipped++;
+        continue;
+      }
+      try {
+        const { value, seq } = await this.state.librarySeqs.write([rowKey("connection", NEW)], () =>
+          getLibrary().createConnection({
+            ...connectionDraft({ ...draft, password: "" }, projectId),
+            connected: false,
+            // Local-only, like a connection made in the wizard: an import
+            // from another tool isn't meant for the project's shared repo.
+            isLocalOnly: true,
+            renameIfTaken: true,
+          }),
+        );
+        const saved = this.applyOwn(value, seq);
+        this.stateRestoration.initializeConnectionMaps(saved.id);
+        this.appendToOrder(projectId, saved.id);
+        result.imported++;
+      } catch (error) {
+        void log.warn(`Importing a ${draft.type} connection failed:`, error);
+        result.failed++;
+        result.failures.push(draft.name);
+      }
+    }
+    // The order is saved with the project's state.
+    if (result.imported > 0) this.persistence.scheduleProject(projectId);
+    return result;
   }
 
   /**
    * Reconnect to an existing connection from the reconnect tab's form.
    */
-  async reconnect(connectionId: string, connection: ConnectionInput): Promise<string> {
+  async reconnect(
+    connectionId: string,
+    connection: ConnectionInput,
+    baseline?: ConnectionFields,
+  ): Promise<string> {
     void log.info(`Reconnecting: ${connectionId}`);
     const existingConnection = this.state.connections.find((c) => c.id === connectionId);
     if (!existingConnection) {
@@ -410,27 +659,10 @@ export class ConnectionManager {
         existingConnection,
         formConnectRequest(connection),
         sshServerOf(connection),
-        {
-          // What was connected is what the row shows and stores.
-          host: connection.host,
-          port: connection.port,
-          databaseName: connection.databaseName,
-          username: connection.username,
-          password: connection.password,
-          sslMode: connection.sslMode,
-          connectionString: connection.connectionString,
-          sshTunnel: connection.sshTunnel,
-          savePassword: connection.savePassword,
-          saveSshPassword: connection.saveSshPassword,
-          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-        },
-        {
-          savePassword: connection.savePassword,
-          saveSshPassword: connection.saveSshPassword,
-          saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-          sshPassword: connection.sshPassword,
-          sshKeyPassphrase: connection.sshKeyPassphrase,
-        },
+        // What was connected is what the row stores: the fields the form
+        // changed since `baseline` (what it opened with), so another
+        // window's edit to another field survives, and the secrets it saves.
+        { input: connection, baseline },
       );
       return connectionId;
     } finally {
@@ -440,15 +672,16 @@ export class ConnectionManager {
 
   /**
    * Connect a listed connection again: drop its old Core connection, connect
-   * `request`, load its schema, then save the row with `changes` (and
-   * `secrets`, when the form had them).
+   * `request`, load its schema, then store that it connected (`connected`,
+   * so `lastConnected` is now) with the fields a form changed since its
+   * `baseline` and the secrets it saves. If that save is refused, the page
+   * shows the stored fields again (the connection stays open).
    */
   private async connectExisting(
     existingConnection: DatabaseConnection,
     request: ConnectRequest,
     ssh: SshServer,
-    changes: Partial<DatabaseConnection>,
-    secrets?: Parameters<PersistenceManager["persistConnection"]>[1],
+    form?: { input: ConnectionInput; baseline?: ConnectionFields },
   ): Promise<void> {
     const connectionId = existingConnection.id;
     // Disconnect the existing connection first and mark it disconnected (Core
@@ -464,16 +697,19 @@ export class ConnectionManager {
 
     const providerConnectionId = await this.connectCore(existingConnection.type, request, ssh);
 
-    // Create updated connection object to ensure Svelte reactivity sees the change
+    // The fields the form changed are shown at once (and stored below).
     const current = this.state.connections.find((c) => c.id === connectionId) ?? existingConnection;
+    const input = form?.input;
+    const changed = input
+      ? connectionPatch(form?.baseline ?? fieldsOf(existingConnection), input)
+      : {};
     const updatedConnection: DatabaseConnection = {
       ...current,
-      ...changes,
+      ...fieldsOfPatch(changed),
+      ...(input ? { password: input.password } : {}),
       providerConnectionId,
       lastConnected: new Date(),
     };
-
-    // Replace the old connection with the updated one in the connections array
     this.state.connections = this.state.connections.map((c) =>
       c.id === connectionId ? updatedConnection : c,
     );
@@ -491,8 +727,7 @@ export class ConnectionManager {
       this.state.connections = this.state.connections.map((c) =>
         c.id === connectionId ? { ...c, providerConnectionId: undefined } : c,
       );
-      const cleanupProvider = await this.providers.getForType(existingConnection.type);
-      await cleanupProvider.disconnect(providerConnectionId).catch(() => {});
+      await this.disconnectCore(existingConnection.type, providerConnectionId);
       throw new Error(`Failed to load database schema: ${String(error)}`);
     }
 
@@ -515,61 +750,93 @@ export class ConnectionManager {
       this.onCreateInitialTab();
     }
 
-    // Persist the connection (and, from a form, its secrets under its flags)
-    await this.persistence.persistConnection(updatedConnection, secrets);
+    // Store it. The connection is open and usable either way: a failed save
+    // is shown, and failing the connect for it would be wrong.
+    const patch: ConnectionPatch = { ...changed, connected: true };
+    try {
+      const { value, seq } = await this.state.librarySeqs.write(
+        [rowKey("connection", connectionId)],
+        () =>
+          getLibrary().updateConnection(
+            connectionId,
+            patch,
+            input && isTauri() ? newSecrets(input) : undefined,
+          ),
+      );
+      this.applyOwn(value, seq);
+      if (input && isWeb()) await this.saveVaultSecrets(connectionId, input, existingConnection);
+    } catch (error) {
+      void log.warn(`Saving reconnected ${connectionId} failed:`, error);
+      // Show what's stored again for the fields the refused save changed
+      // (a taken name, say); the connection stays open.
+      const restore = Object.fromEntries(
+        Object.keys(fieldsOfPatch(changed)).map((k) => [k, current[k as keyof DatabaseConnection]]),
+      ) as Partial<DatabaseConnection>;
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? { ...c, ...restore } : c,
+      );
+      errorToast(extractErrorMessage(this.failed(error)));
+      // Then the newest stored row: another window may have changed a field
+      // while this save was refused.
+      await this.refreshFromLibrary([connectionId], { remote: false }).catch(
+        (e) => void log.warn(`Reading ${connectionId} again failed:`, e),
+      );
+    }
   }
 
   /**
-   * Update connection settings without reconnecting.
-   * Used for editing connection details while preserving the connection state.
+   * Save an edited connection without reconnecting. Only the fields the
+   * form changed are sent (Decision 2): `baseline` is what the form opened
+   * with, so another window's change to a field this form didn't touch
+   * survives (Decision 18). Without one, the page's copy is the baseline.
+   * A refusal (`NAME_TAKEN`, a removed row) throws, worded for the user,
+   * and changes nothing.
    */
-  async update(connectionId: string, connection: ConnectionInput): Promise<void> {
+  async update(
+    connectionId: string,
+    connection: ConnectionInput,
+    baseline?: ConnectionFields,
+  ): Promise<void> {
     const existingConnection = this.state.connections.find((c) => c.id === connectionId);
     if (!existingConnection) {
       throw new Error(`Connection with id ${connectionId} not found`);
     }
-
     const oldName = existingConnection.name;
+    const patch = connectionPatch(baseline ?? fieldsOf(existingConnection), connection);
+    const secrets = isTauri() ? newSecrets(connection) : undefined;
 
-    // Update connection properties (but preserve connection state like providerConnectionId)
-    const updatedConnection: DatabaseConnection = {
-      ...existingConnection,
-      name: connection.name,
-      type: connection.type,
-      host: connection.host,
-      port: connection.port,
-      databaseName: connection.databaseName,
-      username: connection.username,
-      password: connection.password,
-      sslMode: connection.sslMode,
-      connectionString: connection.connectionString,
-      sshTunnel: connection.sshTunnel,
-      savePassword: connection.savePassword,
-      saveSshPassword: connection.saveSshPassword,
-      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-      // undefined means "follow the global AI setting", so copy it as is.
-      aiShareSchema: connection.aiShareSchema,
-      aiShareData: connection.aiShareData,
-    };
-
-    // Replace the connection in the array
-    this.state.connections = this.state.connections.map((c) =>
-      c.id === connectionId ? updatedConnection : c,
-    );
-
-    // Persist the updated connection
-    await this.persistence.persistConnection(updatedConnection, {
-      savePassword: connection.savePassword,
-      saveSshPassword: connection.saveSshPassword,
-      saveSshKeyPassphrase: connection.saveSshKeyPassphrase,
-      sshPassword: connection.sshPassword,
-      sshKeyPassphrase: connection.sshKeyPassphrase,
-    });
+    let updatedConnection: DatabaseConnection;
+    if (isEmptyPatch(patch) && !secrets) {
+      updatedConnection = { ...existingConnection, password: connection.password };
+      this.state.connections = this.state.connections.map((c) =>
+        c.id === connectionId ? updatedConnection : c,
+      );
+    } else {
+      try {
+        const { value, seq } = await this.state.librarySeqs.write(
+          [rowKey("connection", connectionId)],
+          () => getLibrary().updateConnection(connectionId, patch, secrets),
+        );
+        updatedConnection = this.applyOwn(value, seq, { password: connection.password });
+      } catch (error) {
+        throw this.failed(error);
+      }
+    }
+    if (isWeb()) await this.saveVaultSecrets(connectionId, connection, existingConnection);
 
     // Update the shared YAML file if the connection is shared
     if (!updatedConnection.isLocalOnly && this.sharedRepos) {
       await this.sharedRepos.updateSharedConnection(oldName, updatedConnection);
     }
+  }
+
+  /**
+   * Change a saved connection's stored fields with `patch`: one targeted
+   * call, then the page shows Core's row. A refusal throws, worded for the
+   * user, and changes nothing.
+   */
+  patch(connectionId: string, patch: ConnectionPatch): Promise<DatabaseConnection> {
+    return patchConnection(this.state, connectionId, patch);
   }
 
   /**
@@ -589,7 +856,9 @@ export class ConnectionManager {
   }
 
   /**
-   * Remove a connection and all its state.
+   * Remove a connection and all its state. Core deletes the row (its
+   * history, chats and labels cascade) and its secrets (Decision 9); a
+   * failed delete throws, worded for the user, and the connection stays.
    */
   async remove(id: string, { skipUnshare = false } = {}): Promise<void> {
     void log.info(`Removing connection: ${id}`);
@@ -600,6 +869,16 @@ export class ConnectionManager {
 
     const connection = this.state.connections.find((c) => c.id === id);
 
+    try {
+      const { seq } = await this.state.librarySeqs.write([rowKey("connection", id)], () =>
+        getLibrary().removeConnection(id),
+      );
+      // A tombstone: an older list can't bring it back.
+      this.state.librarySeqs.note(rowKey("connection", id), seq);
+    } catch (error) {
+      throw this.failed(error);
+    }
+
     // Close the Core connection (and its SSH tunnel) if there is one
     if (connection?.providerConnectionId) {
       await this.providers.getForType(connection.type).then((provider) => {
@@ -607,27 +886,18 @@ export class ConnectionManager {
       });
     }
 
+    if (connection) {
+      // Out of the page, with its tabs in every project, and another
+      // connection made active if it was.
+      this.forget(connection);
+    }
+
     // Remove the YAML file from the git directory if the connection is shared
     // Skip unsharing when removing as part of project deletion — the user is only
     // removing the project from their local Seaquel instance, not from the git repo.
+    // Last, so a failure here (it throws) finds the connection already gone.
     if (!skipUnshare && connection && !connection.isLocalOnly && this.sharedRepos) {
       await this.sharedRepos.unshareConnection(connection);
-    }
-
-    // Remove from persistence (both connection and its data)
-    await this.persistence.removePersistedConnection(id);
-    this.state.connections = this.state.connections.filter((c) => c.id !== id);
-    this.stateRestoration.cleanupConnectionMaps(id);
-    if (connection) {
-      this.removeFromOrder(connection.projectId, id);
-    }
-
-    // If this was the active connection for its project, switch to another
-    if (connection && this.state.activeConnectionIdByProject[connection.projectId] === id) {
-      const nextConnection = this.state.connections.find(
-        (c) => c.projectId === connection.projectId && !!c.providerConnectionId,
-      );
-      this.setActiveForProject(nextConnection?.id ?? null, connection.projectId);
     }
   }
 
@@ -677,28 +947,38 @@ export class ConnectionManager {
       labelIds: ["prod"],
     };
 
-    // Check if connection already exists (from persisted storage) and update it,
-    // otherwise add new connection. A persisted row keeps the user's edits
-    // (labels, AI model) and its project.
-    const existing = persisted;
-    const connection: DatabaseConnection = existing
-      ? {
-          ...newConnection,
-          labelIds: existing.labelIds,
-          activeAIProviderId: existing.activeAIProviderId,
-          activeAIModel: existing.activeAIModel,
-          aiShareSchema: existing.aiShareSchema,
-          aiShareData: existing.aiShareData,
-        }
-      : newConnection;
-    this.state.connections = existing
-      ? this.state.connections.map((c) => (c.id === connectionId ? connection : c))
-      : [...this.state.connections, connection];
-
-    // Save the row (an upsert, so every load is safe): history, AI chats and
-    // the other rows that reference this connection need it, now that the
-    // demo's foreign keys hold.
-    await this.persistence.persistConnection(connection);
+    // Store the row (the demo's fixed id, Q2): history, AI chats and the
+    // other rows that reference this connection need it. A stored row keeps
+    // the user's edits (labels, AI model) and its project. The demo still
+    // opens if that fails.
+    const library = getLibrary();
+    let stored: DatabaseConnection | undefined;
+    if (isDemoLibrary(library)) {
+      try {
+        const { value, seq } = await library.putDemoConnection(connectionId, {
+          ...connectionDraft(newConnection, projectId),
+          connected: true,
+        });
+        stored = this.applyOwn(value, seq, { providerConnectionId, password: "" });
+      } catch (error) {
+        void log.warn("Saving the demo connection failed:", error);
+      }
+    }
+    if (!stored) {
+      const connection: DatabaseConnection = persisted
+        ? {
+            ...newConnection,
+            labelIds: persisted.labelIds,
+            activeAIProviderId: persisted.activeAIProviderId,
+            activeAIModel: persisted.activeAIModel,
+            aiShareSchema: persisted.aiShareSchema,
+            aiShareData: persisted.aiShareData,
+          }
+        : newConnection;
+      this.state.connections = persisted
+        ? this.state.connections.map((c) => (c.id === connectionId ? connection : c))
+        : [...this.state.connections, connection];
+    }
 
     this.stateRestoration.initializeConnectionMaps(connectionId);
     this.appendToOrder(projectId, connectionId);
@@ -760,7 +1040,6 @@ export class ConnectionManager {
         connection,
         { target: { type: "saved", id: connectionId }, ...(secrets ? { secrets } : {}) },
         sshServerOf(connection),
-        {},
       );
       void log.info(`Auto-reconnect successful: ${connectionId}`);
       return true;
@@ -845,24 +1124,12 @@ export class ConnectionManager {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) return;
 
-    const newIsLocalOnly = !connection.isLocalOnly;
-
-    // Update in-memory state
-    this.state.connections = this.state.connections.map((c) =>
-      c.id === connectionId ? { ...c, isLocalOnly: newIsLocalOnly } : c,
-    );
-
-    // Persist the change
-    const updated = this.state.connections.find((c) => c.id === connectionId)!;
-    await this.persistence.persistConnection(updated, {
-      savePassword: updated.savePassword,
-      saveSshPassword: updated.saveSshPassword,
-      saveSshKeyPassphrase: updated.saveSshKeyPassphrase,
-    });
+    // Store the change, then show it (a refusal throws, worded for the user)
+    const updated = await this.patch(connectionId, { isLocalOnly: !connection.isLocalOnly });
 
     // Write or remove the connection YAML in the shared repo
     if (this.sharedRepos) {
-      if (newIsLocalOnly) {
+      if (updated.isLocalOnly) {
         await this.sharedRepos.unshareConnection(updated);
       } else {
         await this.sharedRepos.shareConnection(updated);

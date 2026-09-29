@@ -13,8 +13,11 @@
 	import SettingsIcon from "@lucide/svelte/icons/settings";
 	import UsersIcon from "@lucide/svelte/icons/users";
 	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
+	import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+	import { untrack } from "svelte";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
+	import { showErrorUnlessShown } from "$lib/errors";
 	import { m } from "$lib/paraglide/messages.js";
 	import { isTauri } from "$lib/utils/environment";
 	import { DEFAULT_PROJECT_ID } from "$lib/types";
@@ -73,15 +76,42 @@
 	let pendingGitRepoPath = $state<string | undefined>(undefined);
 	let hasPendingGitChange = $state(false);
 
-	// Reset form when project changes
+	// What the form loaded (phase 5d-1): saving sends only the fields that
+	// differ from it, so another window's change to another field survives.
+	// While nothing is edited, the form follows the stored project; once the
+	// user edits, a change from another window shows a banner instead.
+	let loadedFor = $state<string | null>(null);
+	let baselineName = $state("");
+	let baselineDescription = $state("");
+	let openedRevision = $state(0);
+	const revision = $derived(db.state.libraryRemoteRevision[`project:${projectId}`] ?? 0);
+	const dirty = $derived(
+		nameInput !== baselineName || descriptionInput !== baselineDescription || hasPendingGitChange,
+	);
+	const changedElsewhere = $derived(dirty && revision > openedRevision);
+
+	const loadForm = () => {
+		if (!project) return;
+		nameInput = project.name;
+		descriptionInput = project.description ?? "";
+		baselineName = nameInput;
+		baselineDescription = descriptionInput;
+		remoteUrlInput = repo?.remoteUrl ?? "";
+		pendingGitRepoPath = project.gitRepoPath;
+		hasPendingGitChange = false;
+		openedRevision = revision;
+		loadedFor = projectId;
+	};
+
+	// Load the form for a project, and follow its stored fields while the
+	// form isn't being edited.
 	$effect(() => {
-		if (project) {
-			nameInput = project.name;
-			descriptionInput = project.description ?? "";
-			remoteUrlInput = repo?.remoteUrl ?? "";
-			pendingGitRepoPath = project.gitRepoPath;
-			hasPendingGitChange = false;
-		}
+		if (!project) return;
+		// Tracked: the project's fields, its repo and its remote changes.
+		void [projectId, project.name, project.description, project.gitRepoPath, repo, revision];
+		untrack(() => {
+			if (loadedFor !== projectId || !dirty) loadForm();
+		});
 	});
 
 	const handleSave = async () => {
@@ -91,15 +121,39 @@
 		const saveHasPendingGitChange = hasPendingGitChange;
 		const saveRemoteUrlInput = remoteUrlInput.trim();
 
-		await db.projects.update(projectId, {
-			name: nameInput.trim(),
-			description: descriptionInput.trim() || undefined,
-		});
+		const updates: { name?: string; description?: string } = {};
+		if (nameInput.trim() !== baselineName.trim()) updates.name = nameInput.trim();
+		if (descriptionInput.trim() !== baselineDescription.trim()) {
+			updates.description = descriptionInput.trim() || undefined;
+		}
+		if (Object.keys(updates).length > 0) {
+			try {
+				await db.projects.update(projectId, updates);
+			} catch (error) {
+				// A taken name, say: the form keeps what the user typed.
+				showErrorUnlessShown(error);
+				return;
+			}
+		}
+		baselineName = nameInput.trim();
+		baselineDescription = descriptionInput.trim();
+		nameInput = baselineName;
+		descriptionInput = baselineDescription;
+		openedRevision = revision;
 
 		if (saveHasPendingGitChange) {
-			await db.projects.setGitRepoPath(projectId, savePendingGitRepoPath);
+			try {
+				await db.projects.setGitRepoPath(projectId, savePendingGitRepoPath);
+			} catch (error) {
+				showErrorUnlessShown(error);
+				return;
+			}
 			if (savePendingGitRepoPath) {
-				await db.projects.importSharedConnections(projectId);
+				try {
+					await db.projects.importSharedConnections(projectId);
+				} catch (error) {
+					showErrorUnlessShown(error);
+				}
 			}
 		}
 
@@ -192,9 +246,15 @@
 	let showDeleteConfirm = $state(false);
 
 	const handleDeleteProject = async () => {
-		await db.projects.remove(projectId);
-		showDeleteConfirm = false;
-		db.settingsTabs.remove(tab.id);
+		let removed = false;
+		try {
+			removed = await db.projects.remove(projectId);
+		} catch (error) {
+			showErrorUnlessShown(error);
+		} finally {
+			showDeleteConfirm = false;
+		}
+		if (removed) db.settingsTabs.remove(tab.id);
 	};
 </script>
 
@@ -280,6 +340,19 @@
 							Basic information about this project
 						</p>
 					</div>
+
+					{#if changedElsewhere}
+						<div
+							class="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+							role="status"
+						>
+							<span>{m.library_changed_elsewhere()}</span>
+							<Button size="sm" variant="outline" onclick={loadForm}>
+								<RefreshCwIcon class="size-3.5 me-1" />
+								{m.library_changed_elsewhere_reload()}
+							</Button>
+						</div>
+					{/if}
 
 					<div class="space-y-4">
 						<div class="space-y-2">

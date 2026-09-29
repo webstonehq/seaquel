@@ -16,6 +16,7 @@ pub mod connect;
 mod dialect;
 pub mod git;
 pub mod license;
+pub mod names;
 pub mod ssh;
 pub mod storage;
 mod value;

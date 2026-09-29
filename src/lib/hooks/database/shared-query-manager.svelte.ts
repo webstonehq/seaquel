@@ -1,4 +1,4 @@
-import type { Query, QueryParameter } from "$lib/types";
+import type { Query } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import { SEAQUEL_DIR, type SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import {
@@ -207,74 +207,5 @@ export class SharedQueryManager {
     }
 
     return result;
-  }
-
-  // === Legacy methods kept for backward compatibility during migration ===
-
-  /**
-   * @deprecated Use writeQueryFile instead
-   */
-  async createQuery(
-    name: string,
-    query: string,
-    folder: string = "",
-    options?: {
-      description?: string;
-      databaseType?: string;
-      tags?: string[];
-      parameters?: QueryParameter[];
-    },
-  ): Promise<string | null> {
-    const activeRepo = this.getActiveRepo();
-    if (!activeRepo) return null;
-
-    const queriesBase = this.getQueriesBasePath();
-    if (!queriesBase) return null;
-
-    const filename = queryNameToFilename(name);
-    const relPath = folder ? `${folder}/${filename}` : filename;
-    const filePath = `${queriesBase}/${relPath}`;
-
-    if (!isValidQueryPath(filePath)) {
-      throw new Error("Invalid query file path");
-    }
-
-    const sharedQuery: Query = {
-      id: `saved-${crypto.randomUUID()}`,
-      name,
-      query,
-      projectId: this.state.activeProjectId ?? "",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      parameters: options?.parameters,
-      shared: true,
-      description: options?.description,
-      databaseType: options?.databaseType,
-      tags: options?.tags,
-      folder: folder || undefined,
-    };
-
-    const content = serializeQueryFile(sharedQuery);
-    const fullPath = await join(activeRepo.repoPath, filePath);
-    const folderPathStr = await dirname(fullPath);
-
-    if (!(await exists(folderPathStr))) {
-      await mkdir(folderPathStr, { recursive: true });
-    }
-
-    await writeTextFile(fullPath, content);
-    await this.repoManager.refreshRepoStatus(activeRepo.repoId);
-    return sharedQuery.id;
-  }
-
-  /**
-   * @deprecated Queries are now looked up from state.queriesByProject
-   */
-  getQuery(queryId: string): Query | null {
-    for (const queries of Object.values(this.state.queriesByProject)) {
-      const found = queries.find((q) => q.id === queryId);
-      if (found) return found;
-    }
-    return null;
   }
 }

@@ -129,6 +129,52 @@ describe("/api/rpc proxy", () => {
     expect([...headers.keys()].sort()).toEqual(["content-type", "x-seaquel-user"]);
   });
 
+  it("forwards a valid X-Seaquel-Origin and drops a bad one", async () => {
+    const fetchMock = stubFetch(() => new Response("{}", { status: 200 }));
+    const long = "x".repeat(65);
+    const cases: Array<[Record<string, string>, string | null]> = [
+      [{ "X-Seaquel-Origin": "tab-1_A9" }, "tab-1_A9"],
+      [
+        { "X-Seaquel-Origin": "0f8f5b0e-3d7a-4f4e-9a38-6f1d1c2b3a4d" },
+        "0f8f5b0e-3d7a-4f4e-9a38-6f1d1c2b3a4d",
+      ],
+      [{ "X-Seaquel-Origin": "x".repeat(64) }, "x".repeat(64)],
+      [{ "X-Seaquel-Origin": long }, null],
+      [{ "X-Seaquel-Origin": "a b" }, null],
+      [{ "X-Seaquel-Origin": "a/b" }, null],
+      [{ "X-Seaquel-Origin": "a,b" }, null],
+      [{ "X-Seaquel-Origin": "" }, null],
+      [{}, null],
+    ];
+    for (const [sent, forwarded] of cases) {
+      fetchMock.mockClear();
+      await POST(rpcEvent("user-1", BODY, sent));
+      const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+      expect(headers.get("x-seaquel-origin"), JSON.stringify(sent)).toBe(forwarded);
+      expect(headers.get("x-seaquel-user")).toBe("user-1");
+      const expected = forwarded === null ? [] : ["x-seaquel-origin"];
+      expect([...headers.keys()].sort()).toEqual(["content-type", ...expected, "x-seaquel-user"]);
+    }
+  });
+
+  it("drops a repeated X-Seaquel-Origin", async () => {
+    const fetchMock = stubFetch(() => new Response("{}", { status: 200 }));
+    const event = rpcEvent("user-1", BODY);
+    event.request.headers.append("X-Seaquel-Origin", "tab-1");
+    event.request.headers.append("X-Seaquel-Origin", "tab-2");
+    await POST(event);
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(headers.get("x-seaquel-origin")).toBeNull();
+  });
+
+  it("still drops a client-sent user alongside a valid origin", async () => {
+    const fetchMock = stubFetch(() => new Response("{}", { status: 200 }));
+    await POST(rpcEvent("user-1", BODY, { "X-Seaquel-User": "user-2", "X-Seaquel-Origin": "t1" }));
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(headers.get("x-seaquel-user")).toBe("user-1");
+    expect(headers.get("x-seaquel-origin")).toBe("t1");
+  });
+
   it("forwards the body byte for byte", async () => {
     const fetchMock = stubFetch(() => new Response("{}"));
     const bytes = new TextEncoder().encode(BODY);

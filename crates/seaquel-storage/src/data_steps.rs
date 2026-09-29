@@ -5,6 +5,8 @@
 
 use sqlx::{Row, SqliteConnection, SqlitePool};
 
+use crate::connection_string::{is_legacy_built_string, username_from_string, StringFields};
+use crate::queries::codec::{number, opt_text, text};
 use crate::{strip_connection_string_password, StorageError};
 
 /// Where applied steps are recorded, with the time they ran.
@@ -19,14 +21,26 @@ struct Step {
 
 enum StepKind {
     StripConnectionStringPasswords,
+    DropLegacyBuiltConnectionStrings,
+    BackfillNameKeys,
 }
 
 /// Every step, in the order they run. Append only; never rename or remove
 /// one that has shipped.
-const STEPS: &[Step] = &[Step {
-    name: "strip_connection_string_passwords",
-    kind: StepKind::StripConnectionStringPasswords,
-}];
+const STEPS: &[Step] = &[
+    Step {
+        name: "strip_connection_string_passwords",
+        kind: StepKind::StripConnectionStringPasswords,
+    },
+    Step {
+        name: "drop_legacy_built_connection_strings",
+        kind: StepKind::DropLegacyBuiltConnectionStrings,
+    },
+    Step {
+        name: "backfill_name_keys",
+        kind: StepKind::BackfillNameKeys,
+    },
+];
 
 /// Runs the steps this file hasn't had yet, each in its own `BEGIN
 /// IMMEDIATE` transaction. A file that has them all only gets a read.
@@ -100,6 +114,10 @@ async fn run_step(pool: &SqlitePool, step: &Step) -> Result<(), StorageError> {
         StepKind::StripConnectionStringPasswords => {
             strip_connection_string_passwords(&mut tx).await?
         }
+        StepKind::DropLegacyBuiltConnectionStrings => {
+            drop_legacy_built_connection_strings(&mut tx).await?
+        }
+        StepKind::BackfillNameKeys => backfill_name_keys(&mut tx).await?,
     }
     sqlx::query(&format!(
         "INSERT INTO {DATA_STEPS_TABLE} (name, applied_at) VALUES (?, datetime('now'))"
@@ -163,4 +181,131 @@ async fn strip_connection_string_passwords(
         }
     }
     Ok(())
+}
+
+/// Phase 5d Decision 12: the strings rows written before phase 5a hold,
+/// which the old `buildConnectionString` rebuilt from the row's own fields
+/// on every save, become NULL. Core connects with a string when there is one
+/// and ignores the fields, so such a string went stale the moment a field
+/// was edited; until now the TypeScript dropped them on every load
+/// (`initializePersistedConnections`), but the MCP server reads rows the app
+/// may not have loaded since.
+///
+/// It does exactly what that load did, row by row:
+/// - fields are read as `connections::load_all` reads them;
+/// - an empty `username` is taken from the string's URL user, as the load
+///   did before comparing ([`username_from_string`]);
+/// - a non-empty string that [`is_legacy_built_string`] says the old
+///   builder made from those fields is set to NULL, and a user taken from
+///   it is written to `username`, as the load's save wrote it back.
+///
+/// Rows are addressed by rowid, only rows that change are written, and a
+/// row with a value that doesn't decode (text that isn't UTF-8) is left
+/// alone, so the step can't fail on data a user can't fix.
+async fn drop_legacy_built_connection_strings(
+    conn: &mut SqliteConnection,
+) -> Result<(), StorageError> {
+    let rows = sqlx::query(
+        "SELECT rowid, type, host, port, database_name, username, ssl_mode, connection_string \
+         FROM connections WHERE typeof(connection_string) = 'text' AND connection_string <> ''",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for row in rows {
+        let rowid: i64 = row.try_get(0)?;
+        let Some(change) = legacy_row(&row) else {
+            continue;
+        };
+        match change {
+            LegacyRow::Drop => {
+                sqlx::query("UPDATE connections SET connection_string = NULL WHERE rowid = ?")
+                    .bind(rowid)
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            LegacyRow::DropKeepingUser(username) => {
+                sqlx::query(
+                    "UPDATE connections SET connection_string = NULL, username = ? WHERE rowid = ?",
+                )
+                .bind(username)
+                .bind(rowid)
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The tables with a `name_key` column (migration `0001_name_keys.sql`).
+pub(crate) const NAME_KEY_TABLES: [&str; 3] = ["connections", "projects", "saved_queries"];
+
+/// Phase 5d-1 probe fix: fills `name_key` (added by `0001_name_keys.sql`)
+/// for the rows written before it, with [`seaquel_types::names::name_key`],
+/// the function storage's writes use, so stored keys and new ones agree by
+/// construction. Only rows whose key is NULL and whose name is UTF-8 text
+/// are written, by rowid; one pass, linear in rows. A row it leaves NULL
+/// (no name, or a name that isn't UTF-8) is still found by the duplicate
+/// check, which folds the names of NULL-key rows itself.
+pub(crate) async fn backfill_name_keys(conn: &mut SqliteConnection) -> Result<(), StorageError> {
+    for table in NAME_KEY_TABLES {
+        let rows = sqlx::query(&format!(
+            "SELECT rowid, name FROM {table} WHERE name_key IS NULL AND typeof(name) = 'text'"
+        ))
+        .fetch_all(&mut *conn)
+        .await?;
+        let update = format!("UPDATE {table} SET name_key = ? WHERE rowid = ?");
+        for row in rows {
+            let rowid: i64 = row.try_get(0)?;
+            let bytes: Vec<u8> = row.try_get_unchecked(1)?;
+            let Ok(name) = String::from_utf8(bytes) else {
+                continue;
+            };
+            sqlx::query(&update)
+                .bind(seaquel_types::names::name_key(&name))
+                .bind(rowid)
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+enum LegacyRow {
+    Drop,
+    /// The row's `username` was empty and the string supplied this one.
+    DropKeepingUser(String),
+}
+
+/// What the step does to one row: `None` leaves it alone, including when a
+/// value doesn't decode.
+fn legacy_row(row: &sqlx::sqlite::SqliteRow) -> Option<LegacyRow> {
+    let string = opt_text(row, "connection_string").ok()??;
+    let ty = text(row, "type").ok()?;
+    let host = text(row, "host").ok()?;
+    let port = number(row, "port").ok()?;
+    let database_name = text(row, "database_name").ok()?;
+    let stored_user = text(row, "username").ok()?;
+    let ssl_mode = opt_text(row, "ssl_mode").ok()?;
+    let username = if stored_user.is_empty() {
+        username_from_string(&string)
+    } else {
+        stored_user.clone()
+    };
+    let fields = StringFields {
+        ty: &ty,
+        host: &host,
+        port,
+        database_name: &database_name,
+        username: &username,
+        ssl_mode: ssl_mode.as_deref(),
+    };
+    if !is_legacy_built_string(&string, &fields) {
+        return None;
+    }
+    Some(if username == stored_user {
+        LegacyRow::Drop
+    } else {
+        LegacyRow::DropKeepingUser(username)
+    })
 }

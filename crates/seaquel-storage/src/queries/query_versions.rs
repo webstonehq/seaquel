@@ -4,12 +4,17 @@
 //! resolves the diff-match-patch deltas, which count UTF-16 code units, and
 //! decides what to delete and which survivor becomes a keyframe; [`prune`]
 //! runs that.
+//!
+//! From phase 5d, Core writes versions as keyframes only
+//! ([`append_keyframe`], numbered inside its write transaction) and prunes
+//! back to a keyframe from [`list_meta`] with [`delete_ids`], so no diff is
+//! ever resolved in Rust.
 
 use seaquel_types::storage::{PersistedQueryVersion, QueryVersionsPrune};
 use sqlx::sqlite::SqliteRow;
 
-use super::codec::{begin, insert_sql, number, opt_text, text, Result};
-use crate::Storage;
+use super::codec::{begin, insert_sql, number, opt_number, opt_text, text, Result};
+use crate::{Reader, Storage, WriteTx};
 
 const COLUMNS: [&str; 6] = [
     "id",
@@ -96,4 +101,100 @@ pub async fn prune(st: &Storage, p: &QueryVersionsPrune) -> Result<()> {
     }
     tx.commit().await?;
     Ok(())
+}
+
+/// Appends a keyframe (`snapshot`, no `diff`) to a saved query's versions,
+/// numbered one past its highest version (1 for the first). Run inside the
+/// caller's write transaction, the number can't collide with another
+/// writer's. Returns the row as stored.
+pub async fn append_keyframe(
+    tx: &mut WriteTx,
+    id: &str,
+    saved_query_id: &str,
+    snapshot: &str,
+    created_at: &str,
+) -> Result<PersistedQueryVersion> {
+    let conn = tx.conn();
+    let highest: Option<f64> = {
+        let row = sqlx::query(
+            "SELECT MAX(version) AS highest FROM query_versions WHERE saved_query_id = ?",
+        )
+        .bind(saved_query_id)
+        .fetch_one(&mut *conn)
+        .await?;
+        opt_number(&row, "highest")?
+    };
+    let version = highest.map_or(1.0, |v| v.floor() + 1.0);
+    sqlx::query(&insert_sql("query_versions", &COLUMNS))
+        .bind(id)
+        .bind(saved_query_id)
+        .bind(version as i64)
+        .bind(snapshot)
+        .bind(None::<&str>)
+        .bind(created_at)
+        .execute(&mut *conn)
+        .await?;
+    Ok(PersistedQueryVersion {
+        id: id.to_string(),
+        query_id: saved_query_id.to_string(),
+        version,
+        snapshot: Some(snapshot.to_string()),
+        diff: None,
+        created_at: created_at.to_string(),
+    })
+}
+
+/// A version without its text, for planning a prune.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VersionMeta {
+    pub id: String,
+    pub version: f64,
+    /// It holds a `snapshot` (whole text), not a `diff`.
+    pub keyframe: bool,
+    pub created_at: String,
+    /// The bytes of its stored text (`octet_length` of the snapshot or the
+    /// diff, which SQLite reads from the record header, not the text).
+    pub bytes: u64,
+}
+
+/// A saved query's versions, oldest first, without reading their text.
+pub async fn list_meta(r: impl Into<Reader<'_>>, saved_query_id: &str) -> Result<Vec<VersionMeta>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query(
+        "SELECT id, version, snapshot IS NOT NULL AS keyframe, created_at, \
+         COALESCE(octet_length(snapshot), octet_length(diff), 0) AS bytes FROM query_versions \
+         WHERE saved_query_id = ? ORDER BY version ASC",
+    )
+    .bind(saved_query_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let keyframe: i64 = sqlx::Row::try_get(row, "keyframe")?;
+            let bytes: i64 = sqlx::Row::try_get(row, "bytes")?;
+            Ok(VersionMeta {
+                id: text(row, "id")?,
+                version: number(row, "version")?,
+                keyframe: keyframe == 1,
+                created_at: text(row, "created_at")?,
+                bytes: bytes.max(0) as u64,
+            })
+        })
+        .collect()
+}
+
+/// Deletes those of `ids` that are versions of `saved_query_id` (another
+/// query's are left alone), and returns how many it deleted.
+pub async fn delete_ids(tx: &mut WriteTx, saved_query_id: &str, ids: &[String]) -> Result<u64> {
+    let conn = tx.conn();
+    let mut deleted = 0;
+    for id in ids {
+        deleted += sqlx::query("DELETE FROM query_versions WHERE saved_query_id = ? AND id = ?")
+            .bind(saved_query_id)
+            .bind(id)
+            .execute(&mut *conn)
+            .await?
+            .rows_affected();
+    }
+    Ok(deleted)
 }

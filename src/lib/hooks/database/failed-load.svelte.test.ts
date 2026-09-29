@@ -47,6 +47,56 @@ vi.mock("$lib/stores/license-nudge.svelte.js", () => ({
 }));
 
 const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { setLibrary } = await import("./library/index");
+const { SavedQueryManager } = await import("./saved-queries.svelte.js");
+
+/**
+ * The library (phase 5d-1): every call is recorded as `library.method`;
+ * lists fail while `failLoads`, and writes answer a row like Core's.
+ */
+const seq = { epoch: "e1", n: 1 };
+setLibrary(
+  new Proxy({} as never, {
+    get:
+      (_t, method: string) =>
+      async (...args: unknown[]) => {
+        calls.push(`library.${method}`);
+        if (/^list|^ensure/.test(method)) {
+          if (failLoads) throw new Error("STORAGE_ERROR: upstream unavailable");
+          return {
+            value:
+              method === "ensureDefaultProject"
+                ? [
+                    {
+                      id: "default-seaquel",
+                      name: "Seaquel",
+                      createdAt: "2026-01-01T00:00:00.000Z",
+                      updatedAt: "2026-01-01T00:00:00.000Z",
+                      customLabels: [],
+                    },
+                  ]
+                : [],
+            seq,
+          };
+        }
+        if (method === "createSavedQuery") {
+          const draft = args[0] as { projectId: string; name: string; query: string };
+          return {
+            value: {
+              id: "saved-new",
+              ...draft,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              starred: false,
+              shared: false,
+            },
+            seq: { ...seq, n: 2 },
+          };
+        }
+        throw new Error(`unexpected library.${method}`);
+      },
+  }),
+);
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
@@ -54,10 +104,8 @@ const { resetLoadGuardToast } = await import("$lib/storage/load-guard");
 
 /** Writes that replace or delete stored rows. */
 const REPLACING = [
-  "projects.saveAll",
   "appState.set",
   "projectState.save",
-  "savedQueries.saveAll",
   "sharedRepos.saveAll",
   "queryHistory.replaceAll",
   "aiChats.replaceAllMessages",
@@ -92,45 +140,22 @@ describe("a failed load blocks the save that would replace it", () => {
     expect(toasts).toHaveLength(1);
   });
 
-  it("saved queries: saving one query doesn't delete the project's others", async () => {
+  it("saved queries: a failed load leaves the page's copy, and saving one writes only it", async () => {
     const { state, persistence, restoration } = setup();
     await restoration.loadProjectData("p1"); // saved queries fail
     failLoads = false;
     await persistence.loadProjectState("p1"); // project state loads fine
+    state.activeProjectId = "p1";
     calls.length = 0;
-    // The user saves a new query: it's now the only one in memory.
-    const now = new Date();
-    state.queriesByProject = {
-      p1: [
-        {
-          id: "q-new",
-          name: "new",
-          query: "select 1",
-          projectId: "p1",
-          createdAt: now,
-          updatedAt: now,
-        } as never,
-      ],
-    };
+    const saved = new SavedQueryManager(state, () => {}, persistence);
 
+    // The user saves a new query: one targeted create, nothing replaced.
+    await saved.saveQuery("new", "select 1");
     await persistence.persistProjectState("p1");
 
+    expect(calls.filter((c) => c.startsWith("library."))).toEqual(["library.createSavedQuery"]);
     expect(calls).toContain("projectState.save");
-    expect(calls).not.toContain("savedQueries.saveAll");
-  });
-
-  it("saved queries: a later successful load lets saves through again", async () => {
-    const { state, persistence, restoration } = setup();
-    await restoration.loadProjectData("p1");
-    failLoads = false;
-    await restoration.loadProjectData("p1");
-    await persistence.loadProjectState("p1");
-    state.queriesByProject = { p1: [] };
-    calls.length = 0;
-
-    await persistence.persistProjectState("p1");
-
-    expect(calls).toContain("savedQueries.saveAll");
+    expect(replacingWrites()).toEqual(["projectState.save"]);
   });
 
   it("shared repos: a failed load isn't saved back as none", async () => {
@@ -160,22 +185,20 @@ describe("a failed load blocks the save that would replace it", () => {
 
     // The app still gets a project to work in, in memory only.
     expect(state.projects).toHaveLength(1);
-    expect(calls).not.toContain("projects.saveAll");
     await persistence.persistAppState();
-    await persistence.persistProjects();
     await persistence.persistProjectState(state.projects[0].id);
     expect(replacingWrites()).toEqual([]);
   });
 
-  it("projects: an empty successful load still creates and stores the default project", async () => {
+  it("projects: an empty file gets the default project from Core", async () => {
     failLoads = false;
     const { state, persistence, restoration } = setup();
     const projects = new ProjectManager(state, persistence, restoration);
 
     await projects.initialize();
 
-    expect(state.projects).toHaveLength(1);
-    expect(calls).toContain("projects.saveAll");
+    expect(state.projects.map((p) => p.id)).toEqual(["default-seaquel"]);
+    expect(calls).toContain("library.ensureDefaultProject");
   });
 });
 

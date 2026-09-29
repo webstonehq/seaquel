@@ -44,14 +44,15 @@ async fn fresh_file_is_todays_schema_exactly() {
         .unwrap();
     storage.close().await;
 
-    let expected = fixture_shape("schemas/current.sql").await;
+    // The baseline's schema, then the numbered migrations.
+    let expected = migrated_shape("schemas/current.sql").await;
     assert_same_shape(&schema_shape_of(&path).await, &expected, "fresh file");
 
     // A fresh file is made by the same statements, in the same order, so even
     // the stored `CREATE` text matches.
     let mut actual = raw_connect(&path).await;
     let reference_path = dir.path().join("reference.db");
-    load_fixture(&reference_path, "schemas/current.sql").await;
+    load_migrated(&reference_path, "schemas/current.sql").await;
     let mut reference = raw_connect(&reference_path).await;
     assert_eq!(
         schema_text(&mut actual).await,
@@ -75,11 +76,11 @@ async fn every_release_upgrades_to_todays_shape() {
         storage.close().await;
 
         let actual = schema_shape_of(&path).await;
-        let expected = fixture_shape(target).await;
+        let expected = migrated_shape(target).await;
         assert_same_shape(&actual, &expected, release);
 
         if SAME_AS_CURRENT.contains(release) {
-            let current = fixture_shape("schemas/current.sql").await;
+            let current = migrated_shape("schemas/current.sql").await;
             assert_same_shape(&actual, &current, &format!("{release} against current.sql"));
         }
 
@@ -153,7 +154,7 @@ async fn beta1_file_with_data_upgrades_and_keeps_its_data() {
         .close()
         .await;
 
-    let expected = fixture_shape("schemas/upgraded/v2026.4.5-beta.1-via-v2026.4.5.sql").await;
+    let expected = migrated_shape("schemas/upgraded/v2026.4.5-beta.1-via-v2026.4.5.sql").await;
     assert_same_shape(&schema_shape_of(&path).await, &expected, "beta.1 with data");
 
     let mut conn = raw_connect(&path).await;
@@ -168,11 +169,17 @@ async fn beta1_file_with_data_upgrades_and_keeps_its_data() {
             .collect();
         // Column order is part of the structure, and upgraded files keep
         // their own.
-        let actual_columns: Vec<String> =
-            sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{table}')"))
-                .fetch_all(&mut conn)
-                .await
-                .unwrap();
+        // The numbered migrations' columns come last and aren't in the
+        // frozen data.
+        let actual_columns: Vec<String> = sqlx::query_scalar::<_, String>(&format!(
+            "SELECT name FROM pragma_table_info('{table}')"
+        ))
+        .fetch_all(&mut conn)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|c| !MIGRATION_COLUMNS.contains(&(table.as_str(), c.as_str())))
+        .collect();
         if table != "schema_version" {
             assert_eq!(actual_columns, columns, "{table} columns");
         }
@@ -309,4 +316,56 @@ async fn is_current_is_true_exactly_when_the_baseline_changes_nothing() {
     }
     // Both answers are covered.
     assert!(seen.contains(&true) && seen.contains(&false), "{seen:?}");
+}
+
+/// The `drop_legacy_built_connection_strings` data step (phase 5d) on every
+/// release's file: a string the old builder made from the row's fields
+/// becomes NULL, a user taken from it is kept, and a hand-typed string
+/// stays, whatever release wrote the file.
+#[tokio::test]
+async fn the_legacy_string_step_runs_on_every_release() {
+    for (release, _) in RELEASES {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seaquel.db");
+        load_fixture(&path, &format!("schemas/{release}.sql")).await;
+        exec_file(
+            &path,
+            "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p', 'P', 'c', 'u'); \
+             INSERT INTO connections (id, project_id, name, type, host, port, database_name, \
+               username, connection_string) \
+             VALUES ('legacy', 'p', 'n', 'postgres', 'h', 5432, 'app', 'me', 'postgresql://me@h/app'), \
+                    ('user', 'p', 'n', 'mysql', 'db', 3307, 'shop', '', 'mysql://root@db:3307/shop'), \
+                    ('typed', 'p', 'n', 'postgres', 'h', 5432, 'app', 'me', \
+                     'postgresql://me@h/app?application_name=x');",
+        )
+        .await;
+
+        Storage::open(&path, StorageOptions::default())
+            .await
+            .unwrap_or_else(|e| panic!("{release}: {e}"))
+            .close()
+            .await;
+
+        let mut conn = raw_connect(&path).await;
+        let rows: Vec<(String, Option<String>, String)> = sqlx::query_as(
+            "SELECT id, connection_string, username FROM connections ORDER BY rowid",
+        )
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("legacy".to_string(), None, "me".to_string()),
+                ("user".to_string(), None, "root".to_string()),
+                (
+                    "typed".to_string(),
+                    Some("postgresql://me@h/app?application_name=x".to_string()),
+                    "me".to_string()
+                ),
+            ],
+            "{release}"
+        );
+    }
 }

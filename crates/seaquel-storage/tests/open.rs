@@ -570,7 +570,7 @@ async fn a_read_only_open_with_an_unapplied_migration_needs_an_upgrade() {
     let err = Storage::open_with_migrator(&path, read_only(), test_migrator().await)
         .await
         .unwrap_err();
-    assert_needs_upgrade(&err, "migration 1");
+    assert_needs_upgrade(&err, "migration 9001");
     assert_eq!(disk_state(&path), before);
 }
 
@@ -690,12 +690,14 @@ async fn two_pools_racing_a_pending_migration_both_open_and_apply_it_once() {
             .collect();
 
         let pool = opened[0].pool();
-        let applied: Vec<(i64, bool)> =
-            sqlx::query_as("SELECT version, success FROM _sqlx_migrations ORDER BY version")
-                .fetch_all(pool)
-                .await
-                .unwrap();
-        assert_eq!(applied, vec![(1, true)], "round {round}");
+        let applied: Vec<(i64, bool)> = sqlx::query_as(
+            "SELECT version, success FROM _sqlx_migrations WHERE version > 9000 \
+                 ORDER BY version",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        assert_eq!(applied, vec![(9001, true)], "round {round}");
         let markers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM race_marker")
             .fetch_one(pool)
             .await
@@ -742,7 +744,7 @@ async fn a_leftover_canvas_column_next_to_the_workflow_one_is_current() {
 }
 
 /// Under the lock, a failing migration takes the ones this open applied
-/// before it down too: 0001 succeeds, 0002 fails, and neither leaves a
+/// before it down too: 9001 succeeds, 9002 fails, and neither leaves a
 /// table or a `_sqlx_migrations` row. The next open works.
 #[tokio::test]
 async fn a_failed_migration_rolls_back_everything_under_the_lock() {
@@ -759,7 +761,7 @@ async fn a_failed_migration_rolls_back_everything_under_the_lock() {
         .await
         .unwrap_err();
     assert_eq!(err.code(), STORAGE_ERROR, "{err}");
-    assert!(err.to_string().contains("migration 2"), "{err}");
+    assert!(err.to_string().contains("migration 9002"), "{err}");
 
     let mut conn = raw_connect(&path).await;
     let tables: Vec<String> = sqlx::query_scalar(
@@ -769,10 +771,11 @@ async fn a_failed_migration_rolls_back_everything_under_the_lock() {
     .await
     .unwrap();
     assert!(tables.is_empty(), "{tables:?}");
-    let recorded: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-        .fetch_one(&mut conn)
-        .await
-        .unwrap();
+    let recorded: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations WHERE version > 9000")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
     assert_eq!(recorded, 0);
     conn.close().await.unwrap();
 
