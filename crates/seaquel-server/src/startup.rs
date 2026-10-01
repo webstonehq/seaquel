@@ -248,10 +248,11 @@ pub fn raise_nofile_limit() -> Option<NofileLimit> {
         // Try the hard limit first. macOS refuses a soft limit above
         // OPEN_MAX (10240) even when the hard limit is unlimited, so fall
         // back to that.
-        let mut targets = vec![hard];
-        #[cfg(target_os = "macos")]
-        targets.push(hard.min(10240));
-        for target in targets {
+        let targets = [
+            Some(hard),
+            cfg!(target_os = "macos").then(|| hard.min(10240)),
+        ];
+        for target in targets.into_iter().flatten() {
             if target > before && set(target, hard) {
                 break;
             }
