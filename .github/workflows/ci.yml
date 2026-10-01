@@ -210,7 +210,9 @@ jobs:
       - name: Placeholder seaquel-cli sidecar
         # tauri-build copies bundle.externalBin (src-tauri/binaries/seaquel-cli-<triple>)
         # even for `cargo check`; the real one comes from scripts/build-cli.mjs.
-        run: mkdir -p src-tauri/binaries && touch "src-tauri/binaries/seaquel-cli-$(rustc -vV | sed -n 's/^host: //p')"
+        run: |
+          mkdir -p src-tauri/binaries
+          touch "src-tauri/binaries/seaquel-cli-$(rustc -vV | sed -n 's/^host: //p')"
       - run: cargo check -p seaquel
 
   frontend:
