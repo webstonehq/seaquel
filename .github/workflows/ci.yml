@@ -69,7 +69,10 @@ jobs:
           deps=$(cargo tree -p seaquel-server -e normal --prefix none | sed 's/ .*//' | sort -u)
           # Substrings, so a renamed or -sys crate (libduckdb-sys,
           # libgit2-sys, openssl-sys, libdbus-sys, ...) is caught too.
-          banned=$(echo "$deps" | grep -E '(duckdb|git2|russh|openssl|native-tls|keyring|dbus|libssh2|seaquel-engine-(sqlite|duckdb)|seaquel-(ssh|git|secrets))' || true)
+          # openssl-probe is allowed: pure Rust with no dependencies, it only
+          # looks for the system CA bundle's path (rustls-native-certs on
+          # Linux, through tiberius and reqwest) and links no OpenSSL.
+          banned=$(echo "$deps" | grep -E '(duckdb|git2|russh|openssl|native-tls|keyring|dbus|libssh2|seaquel-engine-(sqlite|duckdb)|seaquel-(ssh|git|secrets))' | grep -vx 'openssl-probe' || true)
           if [ -n "$banned" ]; then
             echo "::error::seaquel-server depends on: $banned"
             exit 1
