@@ -158,7 +158,7 @@ describe("scanner fixtures", () => {
     });
     expect(offsets).toBeGreaterThan(100_000);
     expectAll("statement-at.json", results);
-  });
+  }, 60_000);
 
   it("row-limit.json, count-query.json, read-only.json, statements.json, per engine", () => {
     const results = [

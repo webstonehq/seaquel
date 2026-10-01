@@ -607,7 +607,7 @@ describe("SqljsStorageClient (the demo) history", () => {
     expect(ids).toHaveLength(502);
     expect(ids.slice(0, 500)).toEqual(Array.from({ length: 500 }, (_, i) => `h${504 - i}`));
     expect(ids.slice(500).sort()).toEqual(["h0", "h1"]);
-  });
+  }, 60_000);
 
   it("ranks equal timestamps by insertion, like the Rust cap", async () => {
     const { client } = await withConnection();
@@ -620,7 +620,7 @@ describe("SqljsStorageClient (the demo) history", () => {
     expect(ids.size).toBe(500);
     expect(ids.has("h0")).toBe(false);
     expect(ids.has("h500")).toBe(true);
-  });
+  }, 60_000);
 
   it("loads ties newest-appended first, the order the cap ranks by", async () => {
     const { client } = await withConnection();

@@ -967,10 +967,7 @@ pub fn check_user_theme(theme: &RawValue, lib: &LibraryLimits, limits: &StateLim
     let Some(obj) = parse_obj(theme.get()) else {
         return Err(LibraryError::invalid("A theme is a JSON object."));
     };
-    match name_of(&obj, "theme") {
-        Ok(name) => short(&name, "theme name", lib)?,
-        Err(e) => return Err(e),
-    }
+    short(&name_of(&obj, "theme")?, "theme name", lib)?;
     if obj_get(&obj, "isBuiltIn").is_some_and(|v| v.get().trim() == "true") {
         return Err(LibraryError::invalid("Built-in themes aren't stored."));
     }
