@@ -636,12 +636,11 @@ fn read_detail(detail: &str, n: &mut ExplainPlanNode) -> Option<()> {
         set(n, "Bloom Filter");
         n.relation_name = Some(table.to_string());
         n.filter = cond.map(str::to_string);
-    } else if let Some(table) = d.strip_prefix("RIGHT-JOIN ") {
+    } else {
         // The pass over the right table's unmatched rows.
+        let table = d.strip_prefix("RIGHT-JOIN ")?;
         set(n, "Right Join");
         n.relation_name = Some(table.to_string());
-    } else {
-        return None;
     }
     if left_join {
         n.join_type = Some("Left".into());
