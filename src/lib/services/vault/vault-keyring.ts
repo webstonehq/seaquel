@@ -15,7 +15,7 @@
  *
  * If the user cancels a dialog, the pending call rejects with
  * `VaultCancelledError`. Callers already handle keyring errors (see
- * `connection-manager.svelte.ts` and `persistence-manager.svelte.ts`).
+ * `connection-manager.svelte.ts`).
  */
 import type { KeyringService } from "$lib/services/keyring";
 import { getStorage } from "$lib/storage";

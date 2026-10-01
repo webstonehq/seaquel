@@ -69,6 +69,7 @@ export class PaneManager {
     if (pane.activeTabId) {
       this.syncGlobalActiveState(pane.activeTabId);
     }
+    this.schedulePersistence(projectId);
   }
 
   /**
@@ -444,6 +445,7 @@ export class PaneManager {
     if (!viewType) return;
 
     this.state.activeView = viewType;
+    this.state.activeViewByProject[projectId] = viewType;
 
     // Update the corresponding per-type active ID
     const setters: Record<ActiveViewType, (id: string) => void> = {

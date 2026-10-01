@@ -3,10 +3,12 @@
  */
 import type { DatabaseConnection } from "$lib/types";
 import { log } from "$lib/utils/logger";
+import { errorToast } from "$lib/utils/toast";
+import { m } from "$lib/paraglide/messages.js";
 import type { DatabaseState } from "../state.svelte.js";
 import { connectionFromWire, queryVersionFromWire } from "./convert";
 import { getLibrary } from "./index";
-import { libraryError } from "./messages";
+import { libraryError, libraryErrorMessage } from "./messages";
 import { rowKey, type ChangeSeq, type ConnectionPatch, type WireConnection } from "./types";
 
 /** The name of the library row `id`, if the page holds it (for `NAME_TAKEN`). */
@@ -121,5 +123,81 @@ export async function refreshQueryVersions(state: DatabaseState, projectId: stri
     };
   } catch (error) {
     void log.warn("Reading the saved query versions again failed:", error);
+  }
+}
+
+/**
+ * Show a project's connection order taken at `seq`, if it is newer than the
+ * one shown (the order is shared by the project's windows, Decision 22).
+ */
+export function applyConnectionOrder(
+  state: DatabaseState,
+  projectId: string,
+  order: readonly string[],
+  seq: ChangeSeq,
+): void {
+  if (!state.librarySeqs.take(rowKey("projectSidebar", projectId), seq)) return;
+  state.connectionOrderByProject = { ...state.connectionOrderByProject, [projectId]: [...order] };
+  state.connectionOrderStored.set(projectId, [...order]);
+}
+
+/**
+ * Store a project's connection order if the page's differs from the one it
+ * last read or stored (a connection added since, which only appends to the
+ * page's order): what the project state's save used to carry. A project
+ * whose order was never read is left alone.
+ */
+export async function storeConnectionOrderIfChanged(
+  state: DatabaseState,
+  projectId: string,
+): Promise<void> {
+  const stored = state.connectionOrderStored.get(projectId);
+  const shown = state.connectionOrderByProject[projectId];
+  if (!stored || !shown) return;
+  if (stored.length === shown.length && stored.every((id, i) => id === shown[i])) return;
+  await storeConnectionOrder(state, projectId);
+}
+
+/**
+ * Read a project's connection order (`projectSidebarGet`) and show it by
+ * the `seq` rule, after this page's own order writes for it have answered.
+ * A failed read is logged and leaves the order shown.
+ */
+export async function refreshConnectionOrder(
+  state: DatabaseState,
+  projectId: string,
+): Promise<void> {
+  const key = rowKey("projectSidebar", projectId);
+  try {
+    await state.librarySeqs.settled(key);
+    const { value, seq } = await getLibrary().getProjectSidebar(projectId);
+    applyConnectionOrder(state, projectId, value, seq);
+  } catch (error) {
+    void log.warn(`Reading the connection order of project ${projectId} failed:`, error);
+  }
+}
+
+/**
+ * Store a project's connection order as the page shows it, at once
+ * (`projectSidebarSet`; it isn't part of a window's view state). Another
+ * window of the project sees it through its `project` event. A failure is
+ * shown and leaves the page's order as it is.
+ */
+export async function storeConnectionOrder(state: DatabaseState, projectId: string): Promise<void> {
+  const key = rowKey("projectSidebar", projectId);
+  const order = [...(state.connectionOrderByProject[projectId] ?? [])];
+  try {
+    const { seq } = await state.librarySeqs.write([key], () =>
+      getLibrary().setProjectSidebar(projectId, order),
+    );
+    state.librarySeqs.note(key, seq);
+    state.connectionOrderStored.set(projectId, order);
+  } catch (error) {
+    void log.warn(`Storing the connection order of project ${projectId} failed:`, error);
+    errorToast(
+      m.connection_order_save_failed({
+        message: libraryErrorMessage(error, (id) => libraryNameOf(state, id)),
+      }),
+    );
   }
 }

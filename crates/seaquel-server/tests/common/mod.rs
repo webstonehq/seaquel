@@ -264,6 +264,7 @@ impl Env {
             .run_limits(seaquel_server::WEB_RUN_LIMITS)
             .edit_limits(seaquel_server::WEB_EDIT_LIMITS)
             .library_limits(seaquel_server::WEB_LIBRARY_LIMITS)
+            .state_limits(seaquel_server::WEB_STATE_LIMITS)
             .executor(Arc::new(seaquel_runtime::TokioExecutor))
             .build();
         Self::with_core(Arc::new(core), capacity, calls)

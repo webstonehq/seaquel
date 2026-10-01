@@ -6,12 +6,20 @@
 import { m } from "$lib/paraglide/messages.js";
 import { errorCode } from "$lib/core/client";
 import {
+  AI_PROVIDER_NOT_FOUND,
+  CHAT_NOT_FOUND,
   CONNECTION_NOT_FOUND,
+  DASHBOARD_NOT_FOUND,
+  DASHBOARD_VERSION_NOT_FOUND,
+  INVALID_ARGUMENT,
   LABEL_NOT_FOUND,
   LAST_PROJECT,
   NAME_TAKEN,
   PROJECT_NOT_FOUND,
   SAVED_QUERY_NOT_FOUND,
+  STORAGE_FULL,
+  THEME_NOT_FOUND,
+  WORKFLOW_NOT_FOUND,
   takenByOf,
 } from "./types";
 
@@ -47,6 +55,7 @@ export function libraryErrorMessage(error: unknown, nameOf: NameOf = () => undef
       if (id.startsWith("conn-")) return m.library_name_taken_connection({ name });
       if (id.startsWith("saved-")) return m.library_name_taken_saved_query({ name });
       if (id.startsWith("label-")) return m.library_name_taken_label({ name });
+      if (id.startsWith("dashboard-")) return m.library_name_taken_dashboard({ name });
       return m.library_name_taken_project({ name });
     }
     case LAST_PROJECT:
@@ -55,10 +64,43 @@ export function libraryErrorMessage(error: unknown, nameOf: NameOf = () => undef
     case CONNECTION_NOT_FOUND:
     case SAVED_QUERY_NOT_FOUND:
     case LABEL_NOT_FOUND:
+    case DASHBOARD_NOT_FOUND:
+    case DASHBOARD_VERSION_NOT_FOUND:
+    case WORKFLOW_NOT_FOUND:
+    case CHAT_NOT_FOUND:
+    case THEME_NOT_FOUND:
+    case AI_PROVIDER_NOT_FOUND:
       return m.library_not_found();
+    case STORAGE_FULL:
+      return m.storage_full();
     default:
       return plainMessage(error, code);
   }
+}
+
+/**
+ * The web limit a refusal names (`INVALID_ARGUMENT` whose message names a
+ * `max_*` limit, Decision 27), or `null` for any other error.
+ */
+export function limitOf(error: unknown): string | null {
+  if (errorCode(error) !== INVALID_ARGUMENT) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(max_[a-z_]+)\b/.exec(message)?.[1] ?? null;
+}
+
+/**
+ * A limit refusal worded by the kind of limit: a name too long, a count
+ * reached, or (`null`) a size the caller words for its item.
+ */
+export function limitMessage(limit: string): string | null {
+  if (limit === "max_name_bytes") return m.limit_name_too_long({ limit });
+  if (!limit.endsWith("_bytes")) return m.limit_count_reached({ limit });
+  return null;
+}
+
+/** Whether `error` is Core's refusal of a chat put past the web budget (Q17). */
+export function isChatFull(error: unknown): boolean {
+  return limitOf(error) === "max_chat_bytes";
 }
 
 /** `error` as a `LibraryError` with the user's wording, for a caller to show. */

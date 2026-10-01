@@ -89,12 +89,18 @@
 		});
 	});
 
-	const handleSend = () => {
-		if (messageInput.trim()) {
-			userScrolledUp = false;
-			db.ui.sendAIMessage(messageInput);
-			messageInput = "";
-		}
+	const handleSend = async () => {
+		if (!messageInput.trim() || chatFull) return;
+		userScrolledUp = false;
+		const text = messageInput;
+		messageInput = "";
+		// Nothing was sent (a chat Core refused to make, say): the text comes back.
+		if (!(await db.ui.sendAIMessage(text)) && messageInput === "") messageInput = text;
+	};
+
+	const startNewChat = () => {
+		if (db.state.isAIStreaming) db.ui.cancelAIStream();
+		void db.aiChats.createChat();
 	};
 
 	const handleKeydown = (e: KeyboardEvent) => {
@@ -103,7 +109,7 @@
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			handleSend();
+			void handleSend();
 		}
 	};
 
@@ -191,6 +197,8 @@
 
 	const chats = $derived(db.state.activeConnectionAIChats);
 	const activeChatId = $derived(db.state.activeAIChatId);
+	/** The web's per-chat budget filled this chat (Q17): sending is off until a new chat. */
+	const chatFull = $derived(activeChatId ? !!db.state.aiChatFull[activeChatId] : false);
 	const activeChat = $derived(db.state.activeAIChat);
 	const userMessages = $derived(db.state.aiMessages.filter((msg) => msg.role === "user"));
 
@@ -215,7 +223,7 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-0.5">
-			<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_new_chat()} onclick={() => { if (db.state.isAIStreaming) db.ui.cancelAIStream(); db.aiChats.createChat(); }}>
+			<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_new_chat()} onclick={startNewChat}>
 				<PlusIcon />
 			</Button>
 			<Button size="icon" variant="ghost" class="size-6 [&_svg:not([class*='size-'])]:size-4" aria-label={m.ai_close()} onclick={() => db.ui.toggleAI()}>
@@ -429,6 +437,17 @@
 
 <Sidebar.Footer class="border-t p-3">
 	<div class="flex flex-col gap-2 w-full">
+		{#if chatFull}
+			<div
+				class="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+				role="status"
+			>
+				<span>{m.ai_chat_full()}</span>
+				<Button size="sm" variant="outline" class="h-7 shrink-0" onclick={startNewChat}>
+					{m.ai_new_chat()}
+				</Button>
+			</div>
+		{/if}
 		<div class="flex gap-2">
 			<div class="relative flex-1">
 				{#if mentionActive}
@@ -445,6 +464,7 @@
 					bind:value={messageInput}
 					placeholder={m.ai_placeholder()}
 					class="min-h-[60px] max-h-[120px] resize-none text-sm"
+					disabled={chatFull}
 					onkeydown={handleKeydown}
 					oninput={handleInput}
 				/>
@@ -454,7 +474,7 @@
 					<SquareIcon class="size-4" />
 				</Button>
 			{:else}
-				<Button size="icon" class="shrink-0" aria-label={m.ai_send()} onclick={handleSend} disabled={!messageInput.trim()}>
+				<Button size="icon" class="shrink-0" aria-label={m.ai_send()} onclick={handleSend} disabled={!messageInput.trim() || chatFull}>
 					<SendIcon class="size-4" />
 				</Button>
 			{/if}

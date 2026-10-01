@@ -2,10 +2,11 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { Button } from "$lib/components/ui/button";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
-	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
+	import { aiSettingsStore, ProviderKeyNotSavedError } from "$lib/stores/ai-settings.svelte.js";
 	import { getKeyringService } from "$lib/services/keyring";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
+	import { libraryErrorMessage } from "$lib/hooks/database/library/messages";
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import PencilIcon from "@lucide/svelte/icons/pencil";
 	import TrashIcon from "@lucide/svelte/icons/trash-2";
@@ -25,7 +26,7 @@
 		try {
 			await aiSettingsStore.deleteProvider(providerToDelete);
 		} catch (error) {
-			errorToast(error instanceof Error ? error.message : String(error));
+			errorToast(libraryErrorMessage(error));
 			return;
 		}
 		providerToDelete = null;
@@ -86,9 +87,8 @@
 				}, providerFormClearKey ? "" : (providerFormApiKey || undefined));
 				if (providerFormApiKey.trim()) providerFormHasExistingKey = true;
 			} else {
-				const id = crypto.randomUUID();
+				// Core gives the provider its id (and, on the desktop, stores the key with it).
 				await aiSettingsStore.addProvider({
-					id,
 					name: providerFormName.trim(),
 					type: providerFormType,
 					baseUrl: providerFormBaseUrl.trim(),
@@ -98,7 +98,16 @@
 			cancelProviderForm();
 			toast.success(m.settings_ai_saved());
 		} catch (error) {
-			errorToast(error instanceof Error ? error.message : String(error));
+			if (error instanceof ProviderKeyNotSavedError) {
+				// Saved without its key: the form edits it now, so saving again
+				// stores the key instead of adding the provider twice.
+				isAddingProvider = false;
+				editingProviderId = error.providerId;
+				providerFormHasExistingKey = false;
+				errorToast(error.message);
+			} else {
+				errorToast(libraryErrorMessage(error));
+			}
 		} finally {
 			isSavingProvider = false;
 		}

@@ -1,0 +1,1118 @@
+[
+  {
+    "name": "onboarding/wizard-and-hints",
+    "note": "No stored record: the store starts from its defaults. Each setter saves the whole record today; on Core each sends the fields it changed.",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "onboardingStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingGet"
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.load",
+            "args": [],
+            "result": null
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": true,
+          "userBackground": "none",
+          "hasCompletedWizard": false,
+          "showWizardHints": true,
+          "dismissedHints": [],
+          "learnEnabled": true
+        }
+      },
+      {
+        "op": "onboardingStore.completeWizard",
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "isFirstRun": false,
+                "hasCompletedWizard": true
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "none",
+                "hasCompletedWizard": true,
+                "showWizardHints": true,
+                "dismissedHints": [],
+                "learnEnabled": true
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"none\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[],\"learnEnabled\":true}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "none",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [],
+          "learnEnabled": true
+        }
+      },
+      {
+        "op": "onboardingStore.setBackground",
+        "args": {
+          "background": "dbeaver"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "userBackground": "dbeaver"
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "dbeaver",
+                "hasCompletedWizard": true,
+                "showWizardHints": true,
+                "dismissedHints": [],
+                "learnEnabled": true
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"dbeaver\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[],\"learnEnabled\":true}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "dbeaver",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [],
+          "learnEnabled": true
+        }
+      },
+      {
+        "op": "onboardingStore.dismissHint",
+        "args": {
+          "hintId": "sidebar"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "dismissedHints": [
+                  "sidebar"
+                ]
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "dbeaver",
+                "hasCompletedWizard": true,
+                "showWizardHints": true,
+                "dismissedHints": [
+                  "sidebar"
+                ],
+                "learnEnabled": true
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"dbeaver\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":true}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "dbeaver",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [
+            "sidebar"
+          ],
+          "learnEnabled": true
+        }
+      },
+      {
+        "op": "onboardingStore.setShowWizardHints",
+        "args": {
+          "show": false
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "showWizardHints": false
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "dbeaver",
+                "hasCompletedWizard": true,
+                "showWizardHints": false,
+                "dismissedHints": [
+                  "sidebar"
+                ],
+                "learnEnabled": true
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"dbeaver\",\"hasCompletedWizard\":true,\"showWizardHints\":false,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":true}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "dbeaver",
+          "hasCompletedWizard": true,
+          "showWizardHints": false,
+          "dismissedHints": [
+            "sidebar"
+          ],
+          "learnEnabled": true
+        }
+      },
+      {
+        "op": "onboardingStore.setLearnEnabled",
+        "args": {
+          "enabled": false
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "learnEnabled": false
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "dbeaver",
+                "hasCompletedWizard": true,
+                "showWizardHints": false,
+                "dismissedHints": [
+                  "sidebar"
+                ],
+                "learnEnabled": false
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"dbeaver\",\"hasCompletedWizard\":true,\"showWizardHints\":false,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":false}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "dbeaver",
+          "hasCompletedWizard": true,
+          "showWizardHints": false,
+          "dismissedHints": [
+            "sidebar"
+          ],
+          "learnEnabled": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "onboarding/stored-record",
+    "file": "current",
+    "seed": {
+      "onboarding_state": [
+        {
+          "id": 1,
+          "data": "{\"isFirstRun\":false,\"userBackground\":\"datagrip\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":false}"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "onboardingStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingGet"
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.load",
+            "args": [],
+            "result": {
+              "isFirstRun": false,
+              "userBackground": "datagrip",
+              "hasCompletedWizard": true,
+              "showWizardHints": true,
+              "dismissedHints": [
+                "sidebar"
+              ],
+              "learnEnabled": false
+            }
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"datagrip\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":false}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "datagrip",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [
+            "sidebar"
+          ],
+          "learnEnabled": false
+        }
+      },
+      {
+        "op": "onboardingStore.dismissHint",
+        "args": {
+          "hintId": "editor"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "onboardingPatch",
+            "params": {
+              "patch": {
+                "dismissedHints": [
+                  "sidebar",
+                  "editor"
+                ]
+              }
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "onboarding.save",
+            "args": [
+              {
+                "isFirstRun": false,
+                "userBackground": "datagrip",
+                "hasCompletedWizard": true,
+                "showWizardHints": true,
+                "dismissedHints": [
+                  "sidebar",
+                  "editor"
+                ],
+                "learnEnabled": false
+              }
+            ]
+          }
+        ],
+        "rows": {
+          "onboarding_state": [
+            {
+              "id": 1,
+              "data": "{\"isFirstRun\":false,\"userBackground\":\"datagrip\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[\"sidebar\",\"editor\"],\"learnEnabled\":false}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "datagrip",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [
+            "sidebar",
+            "editor"
+          ],
+          "learnEnabled": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "onboarding/web-writes-nothing",
+    "note": "Onboarding is desktop-only: on web nothing is loaded and nothing is written, with no toast (Task 1).",
+    "file": "current",
+    "seed": {},
+    "target": "web",
+    "steps": [
+      {
+        "op": "onboardingStore.completeWizard",
+        "core": null,
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "isFirstRun": false,
+          "userBackground": "none",
+          "hasCompletedWizard": true,
+          "showWizardHints": true,
+          "dismissedHints": [],
+          "learnEnabled": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "tutorial/progress",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "tutorialProgressStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialList"
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.loadAll",
+            "args": [],
+            "result": []
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {},
+          "states": {}
+        }
+      },
+      {
+        "op": "tutorialProgressStore.completeChallenge",
+        "args": {
+          "lessonId": "select-basics",
+          "challengeId": "c1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialSave",
+            "params": {
+              "lessonId": "select-basics",
+              "challengeId": "c1",
+              "state": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.save",
+            "args": [
+              "select-basics",
+              "c1",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "tutorial_progress": [
+            {
+              "lesson_id": "select-basics",
+              "challenge_id": "c1",
+              "state": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {
+            "select-basics": [
+              "c1"
+            ]
+          },
+          "states": {}
+        }
+      },
+      {
+        "op": "tutorialProgressStore.saveChallengeState",
+        "args": {
+          "lessonId": "select-basics",
+          "challengeId": "c2",
+          "state": {
+            "tables": [
+              {
+                "name": "orders",
+                "alias": "o"
+              }
+            ],
+            "filters": []
+          }
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialSave",
+            "params": {
+              "lessonId": "select-basics",
+              "challengeId": "c2",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.save",
+            "args": [
+              "select-basics",
+              "c2",
+              "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            ]
+          }
+        ],
+        "rows": {
+          "tutorial_progress": [
+            {
+              "lesson_id": "select-basics",
+              "challenge_id": "c1",
+              "state": null
+            },
+            {
+              "lesson_id": "select-basics",
+              "challenge_id": "c2",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {
+            "select-basics": [
+              "c1"
+            ]
+          },
+          "states": {
+            "select-basics": {
+              "c2": {
+                "tables": [
+                  {
+                    "name": "orders",
+                    "alias": "o"
+                  }
+                ],
+                "filters": []
+              }
+            }
+          }
+        }
+      },
+      {
+        "op": "tutorialProgressStore.completeChallenge",
+        "args": {
+          "lessonId": "joins",
+          "challengeId": "c1",
+          "state": {
+            "tables": [
+              {
+                "name": "orders",
+                "alias": "o"
+              }
+            ],
+            "filters": []
+          }
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialSave",
+            "params": {
+              "lessonId": "joins",
+              "challengeId": "c1",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.save",
+            "args": [
+              "joins",
+              "c1",
+              "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            ]
+          }
+        ],
+        "rows": {
+          "tutorial_progress": [
+            {
+              "lesson_id": "joins",
+              "challenge_id": "c1",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            },
+            {
+              "lesson_id": "select-basics",
+              "challenge_id": "c1",
+              "state": null
+            },
+            {
+              "lesson_id": "select-basics",
+              "challenge_id": "c2",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {
+            "joins": [
+              "c1"
+            ],
+            "select-basics": [
+              "c1"
+            ]
+          },
+          "states": {
+            "joins": {
+              "c1": {
+                "tables": [
+                  {
+                    "name": "orders",
+                    "alias": "o"
+                  }
+                ],
+                "filters": []
+              }
+            },
+            "select-basics": {
+              "c2": {
+                "tables": [
+                  {
+                    "name": "orders",
+                    "alias": "o"
+                  }
+                ],
+                "filters": []
+              }
+            }
+          }
+        }
+      },
+      {
+        "op": "tutorialProgressStore.resetLesson",
+        "args": {
+          "lessonId": "select-basics"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialRemoveLesson",
+            "params": {
+              "lessonId": "select-basics"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.removeLesson",
+            "args": [
+              "select-basics"
+            ]
+          }
+        ],
+        "rows": {
+          "tutorial_progress": [
+            {
+              "lesson_id": "joins",
+              "challenge_id": "c1",
+              "state": "{\"tables\":[{\"name\":\"orders\",\"alias\":\"o\"}],\"filters\":[]}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {
+            "joins": [
+              "c1"
+            ]
+          },
+          "states": {
+            "joins": {
+              "c1": {
+                "tables": [
+                  {
+                    "name": "orders",
+                    "alias": "o"
+                  }
+                ],
+                "filters": []
+              }
+            }
+          }
+        }
+      },
+      {
+        "op": "tutorialProgressStore.resetAll",
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialReset"
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.removeAll",
+            "args": []
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {},
+          "states": {}
+        }
+      }
+    ]
+  },
+  {
+    "name": "tutorial/reset-lesson-with-no-progress",
+    "note": "Resetting a lesson with nothing stored sends nothing.",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "tutorialProgressStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "tutorialList"
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "tutorial.loadAll",
+            "args": [],
+            "result": []
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {},
+          "states": {}
+        }
+      },
+      {
+        "op": "tutorialProgressStore.resetLesson",
+        "args": {
+          "lessonId": "joins"
+        },
+        "core": null,
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "completed": {},
+          "states": {}
+        }
+      }
+    ]
+  },
+  {
+    "name": "import-state/tableplus-dismiss",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "tablePlusImportStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "importStateGet",
+            "params": {
+              "source": "tableplus"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "importState.load",
+            "args": [
+              "tableplus"
+            ],
+            "result": null
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "tableplus": false,
+          "dbeaver": false
+        }
+      },
+      {
+        "op": "tablePlusImportStore.dismiss",
+        "core": [
+          {
+            "group": "settings",
+            "method": "importStateSave",
+            "params": {
+              "source": "tableplus",
+              "hasOfferedImport": true,
+              "lastCheckTimestamp": "<now>"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "importState.save",
+            "args": [
+              "tableplus",
+              true,
+              "<now>"
+            ]
+          }
+        ],
+        "rows": {
+          "import_state": [
+            {
+              "source": "tableplus",
+              "has_offered_import": 1,
+              "last_check_timestamp": "<now>"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "tableplus": true,
+          "dbeaver": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "import-state/dbeaver-complete",
+    "file": "current",
+    "seed": {
+      "import_state": [
+        {
+          "source": "dbeaver",
+          "has_offered_import": 0,
+          "last_check_timestamp": "2024-01-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "dbeaverImportStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "importStateGet",
+            "params": {
+              "source": "dbeaver"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "importState.load",
+            "args": [
+              "dbeaver"
+            ],
+            "result": {
+              "hasOfferedImport": false,
+              "lastCheckTimestamp": "2024-01-01T00:00:00.000Z"
+            }
+          }
+        ],
+        "rows": {
+          "import_state": [
+            {
+              "source": "dbeaver",
+              "has_offered_import": 0,
+              "last_check_timestamp": "2024-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "tableplus": false,
+          "dbeaver": false
+        }
+      },
+      {
+        "op": "dbeaverImportStore.completeImport",
+        "core": [
+          {
+            "group": "settings",
+            "method": "importStateSave",
+            "params": {
+              "source": "dbeaver",
+              "hasOfferedImport": true,
+              "lastCheckTimestamp": "<now>"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "importState.save",
+            "args": [
+              "dbeaver",
+              true,
+              "<now>"
+            ]
+          }
+        ],
+        "rows": {
+          "import_state": [
+            {
+              "source": "dbeaver",
+              "has_offered_import": 1,
+              "last_check_timestamp": "<now>"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "tableplus": false,
+          "dbeaver": true
+        }
+      }
+    ]
+  }
+]

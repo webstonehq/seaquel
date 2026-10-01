@@ -78,7 +78,7 @@ async function sentBytes(init: RequestInit): Promise<Uint8Array> {
 // `params` after `method`, keys out of order, odd number spellings and
 // non-ASCII text: a parse and re-stringify would change every one of them.
 const BODY =
-  '{"method":"storage","params":{"method":"onboardingSave","params":{"data":{"zeta":1e+21,"alpha":{"b":1.50,"a":-0.0},"mid":"éé \\u00e9","big":12345678901234567890}}}}';
+  '{"method":"storage","params":{"method":"licenseSave","params":{"data":{"zeta":1e+21,"alpha":{"b":1.50,"a":-0.0},"mid":"éé \\u00e9","big":12345678901234567890}}}}';
 
 describe("/api/rpc proxy", () => {
   afterEach(() => {
@@ -213,7 +213,7 @@ describe("/api/rpc proxy", () => {
   });
 
   it("passes a successful response's bytes through", async () => {
-    const ok = `{"method":"storage","result":{"method":"onboardingLoad","result":{"z":1e+21,"a":"é"}}}`;
+    const ok = `{"method":"storage","result":{"method":"licenseLoad","result":{"z":1e+21,"a":"é"}}}`;
     stubFetch(
       () => new Response(ok, { status: 200, headers: { "content-type": "application/json" } }),
     );

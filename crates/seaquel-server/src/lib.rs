@@ -9,7 +9,9 @@ use axum::{
     Router,
 };
 use seaquel_core::license::server::{LicenseServer, ServerConfig};
-use seaquel_core::{ConnectPolicy, ConnectionLimits, Core, EditLimits, LibraryLimits, RunLimits};
+use seaquel_core::{
+    ConnectPolicy, ConnectionLimits, Core, EditLimits, LibraryLimits, RunLimits, StateLimits,
+};
 use std::sync::Arc;
 
 mod error;
@@ -119,9 +121,42 @@ pub const WEB_LIBRARY_LIMITS: LibraryLimits = LibraryLimits {
     max_version_bytes: Some(16 * 1024 * 1024),
 };
 
+/// What one user may store in state on the web (phase 5d-2, Decision
+/// 27): a window's view state of 8 MiB (one tab's text 2 MiB, 500 tabs),
+/// 50 windows and 20 view states per project (windows unused for 30 days
+/// pruned, `main` not spared), a saved workflow of 16 MiB and 1,000 of
+/// them, a dashboard's widgets, viewport and filter of 4 MiB, 1,000
+/// dashboards and 16 MiB of versions each, an AI message of 1 MiB, 5,000
+/// messages and 64 MiB of content per chat (Q17) and 10,000 chats, and a
+/// setting, the AI settings record or a user theme of 256 KiB, with 200
+/// user themes and 50 AI providers. Names are bounded by
+/// [`WEB_LIBRARY_LIMITS`]' `max_name_bytes`. Sizes are refused before
+/// anything is read, counts inside the write.
+pub const WEB_STATE_LIMITS: StateLimits = StateLimits {
+    max_view_state_bytes: Some(8 * 1024 * 1024),
+    max_tab_text_bytes: Some(2 * 1024 * 1024),
+    max_tabs: Some(500),
+    max_windows: 50,
+    max_window_states_per_project: 20,
+    spare_main_window: false,
+    max_workflow_bytes: Some(16 * 1024 * 1024),
+    max_workflows: Some(1_000),
+    max_dashboard_bytes: Some(4 * 1024 * 1024),
+    max_dashboards: Some(1_000),
+    max_dashboard_version_bytes: Some(16 * 1024 * 1024),
+    max_message_bytes: Some(1024 * 1024),
+    max_messages_per_chat: Some(5_000),
+    max_chat_bytes: Some(64 * 1024 * 1024),
+    max_chats: Some(10_000),
+    max_setting_bytes: Some(256 * 1024),
+    max_user_themes: Some(200),
+    max_ai_providers: Some(50),
+};
+
 /// The server's Core: the compiled-in engines in [`WEB_ENGINES`] and no
 /// others, under [`web_connect_policy`], [`WEB_CONNECTION_LIMITS`],
-/// [`WEB_RUN_LIMITS`], [`WEB_EDIT_LIMITS`] and [`WEB_LIBRARY_LIMITS`]. Core refuses any other driver on
+/// [`WEB_RUN_LIMITS`], [`WEB_EDIT_LIMITS`], [`WEB_LIBRARY_LIMITS`] and
+/// [`WEB_STATE_LIMITS`]. Core refuses any other driver on
 /// `db.connect` and `db.test` with `ENGINE_NOT_AVAILABLE`, whatever features
 /// Cargo unified into this build.
 pub fn web_core() -> Core {
@@ -131,6 +166,7 @@ pub fn web_core() -> Core {
         .run_limits(WEB_RUN_LIMITS)
         .edit_limits(WEB_EDIT_LIMITS)
         .library_limits(WEB_LIBRARY_LIMITS)
+        .state_limits(WEB_STATE_LIMITS)
         .executor(Arc::new(seaquel_runtime::TokioExecutor))
         .build()
 }

@@ -10,33 +10,38 @@
  * - **No params, no key.** A method without params sends `{"method": …}`;
  *   Rust refuses `"params": {}`.
  * - **Write order.** Writes go through one queue, so they land in the order
- *   they were issued (`PersistenceManager`'s debounced saves rely on it).
+ *   they were issued (the debounced saves rely on it).
  *   Reads skip the queue.
  * - **Mapping.** The generated `Persisted*` wire types stay in this file:
  *   callers see the app's types. `lastConnected` crosses as text and becomes
- *   a `Date`; saved workflows cross in their `toStorable` form.
+ *   a `Date`.
+ * - **Phase 5d-2** moved app state, project state, dashboards, chats,
+ *   themes, onboarding, tutorial and import state to the `library`,
+ *   `settings` and `ui` groups (`library()`, `settings()`, `ui()` here,
+ *   used by `CoreLibrary`, `CoreSettings` and `CoreUi`). The storage group
+ *   keeps query history, shared repos, the license and the web vault.
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { ORIGIN_HEADER, webPageOrigin } from "$lib/core/origin";
-import type { SavedWorkflow } from "$lib/types/workflow";
-import type { PersistedProjectState } from "$lib/types";
+import { ORIGIN_HEADER } from "$lib/core/origin";
+import { windowId, windowIdReady } from "$lib/core/window-id";
 import type { PersistedConnection } from "$lib/hooks/database/types";
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import type { CoreResponse } from "$lib/types/generated/CoreResponse";
 import type { LibraryRequest } from "$lib/types/generated/LibraryRequest";
 import type { LibraryResponse } from "$lib/types/generated/LibraryResponse";
 import type { PersistedConnection as WireConnection } from "$lib/types/generated/PersistedConnection";
-import type { PersistedProjectState as WireProjectState } from "$lib/types/generated/PersistedProjectState";
 import type { RpcError } from "$lib/types/generated/RpcError";
 import type { SecretRequest } from "$lib/types/generated/SecretRequest";
+import type { SettingsRequest } from "$lib/types/generated/SettingsRequest";
+import type { SettingsResponse } from "$lib/types/generated/SettingsResponse";
+import type { UiRequest } from "$lib/types/generated/UiRequest";
+import type { UiResponse } from "$lib/types/generated/UiResponse";
 import type { SecretResponse } from "$lib/types/generated/SecretResponse";
 import type { StorageRequest } from "$lib/types/generated/StorageRequest";
 import type { StorageResponse } from "$lib/types/generated/StorageResponse";
 import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
-import { planDashboardVersionsPrune } from "$lib/utils/version-prune";
-import { fromStorable, toStorable } from "$lib/values";
 import type { StorageClient } from "./client";
 
 // -------- Transport --------
@@ -89,14 +94,19 @@ export const tauriCoreTransport: CoreTransport = async (body) => {
   }
 };
 
-/** Web: `POST /api/rpc`, same bytes, same JSON back. Errors are `RpcError` JSON. */
+/**
+ * Web: `POST /api/rpc`, same bytes, same JSON back. Errors are `RpcError`
+ * JSON. Every call waits for the page's window id (Decision 22), which is
+ * its origin: the first call can't go out under another id.
+ */
 export const httpCoreTransport: CoreTransport = async (body) => {
+  const origin = await windowIdReady();
   let response: Response;
   try {
     response = await fetch("/api/rpc", {
       method: "POST",
       // The page's origin, so its own writes' events can be told apart.
-      headers: { "content-type": "application/json", [ORIGIN_HEADER]: webPageOrigin() },
+      headers: { "content-type": "application/json", [ORIGIN_HEADER]: origin },
       body,
       credentials: "same-origin",
     });
@@ -124,6 +134,13 @@ export const httpCoreTransport: CoreTransport = async (body) => {
   }
   return parsed;
 };
+
+/**
+ * The largest `keepalive` body sent. Browsers carry at most 64 KiB of
+ * keepalive bodies in flight together, so this leaves room for headers and
+ * any other request the page sends while it goes.
+ */
+export const KEEPALIVE_MAX_BYTES = 60 * 1024;
 
 /** Picked per call, so tests and late environment detection see the current mode. */
 const defaultTransport: CoreTransport = (body) =>
@@ -160,49 +177,14 @@ export type StorageResult<M extends StorageMethod> = Extract<
  * it's classified here.
  */
 export const STORAGE_METHOD_KIND: Record<StorageMethod, "read" | "write"> = {
-  aiChatsLoadByConnection: "read",
-  aiChatsSaveChat: "write",
-  aiChatsRemoveChat: "write",
-  aiChatsRemoveByConnection: "write",
-  aiChatsLoadMessages: "read",
-  aiChatsReplaceAllMessages: "write",
-  appStateGet: "read",
-  appStateSet: "write",
-  connectionOverridesLoad: "read",
-  connectionOverridesLoadAll: "read",
-  connectionOverridesSave: "write",
-  connectionOverridesRemove: "write",
-  dashboardVersionsLoadByDashboard: "read",
-  dashboardVersionsLoadByProject: "read",
-  dashboardVersionsInsert: "write",
-  dashboardVersionsPrune: "write",
-  dashboardsLoadByProject: "read",
-  dashboardsSave: "write",
-  dashboardsRemove: "write",
-  dashboardsRemoveByProject: "write",
-  importStateLoad: "read",
-  importStateSave: "write",
   licenseLoad: "read",
   licenseSave: "write",
-  onboardingLoad: "read",
-  onboardingSave: "write",
-  projectStateLoad: "read",
-  projectStateSave: "write",
-  projectStateRemove: "write",
   queryHistoryLoadByConnection: "read",
   queryHistoryAppend: "write",
   queryHistorySetFavorite: "write",
   queryHistoryRemoveByConnection: "write",
   sharedReposLoadAll: "read",
   sharedReposSaveAll: "write",
-  themesLoadPreferences: "read",
-  themesSavePreferences: "write",
-  themesLoadUserThemes: "read",
-  themesSaveUserThemes: "write",
-  tutorialLoadAll: "read",
-  tutorialSave: "write",
-  tutorialRemoveLesson: "write",
-  tutorialRemoveAll: "write",
   userCredentialsLoad: "read",
   userCredentialsSave: "write",
   userCredentialsRemove: "write",
@@ -253,6 +235,29 @@ export type LibraryResult<M extends LibraryMethod> = Extract<
  * compile until it's classified.
  */
 export const LIBRARY_METHOD_KIND: Record<LibraryMethod, "read" | "write"> = {
+  // Phase 5d-2.
+  dashboardsList: "read",
+  dashboardVersionsList: "read",
+  dashboardVersionGet: "read",
+  dashboardCreate: "write",
+  dashboardUpdate: "write",
+  dashboardRemove: "write",
+  workflowsList: "read",
+  workflowGet: "read",
+  workflowCreate: "write",
+  workflowUpdate: "write",
+  workflowRemove: "write",
+  workflowRename: "write",
+  chatsList: "read",
+  chatMessagesList: "read",
+  chatCreate: "write",
+  chatUpdate: "write",
+  chatRemove: "write",
+  chatMessagesPut: "write",
+  chatMessagesRemove: "write",
+  projectSidebarGet: "read",
+  projectSidebarSet: "write",
+  // Phase 5d-1.
   connectionsList: "read",
   projectsList: "read",
   savedQueriesList: "read",
@@ -288,6 +293,134 @@ async function callLibraryOnce<M extends LibraryMethod>(
     });
   }
   return response.result.result as LibraryResult<M>;
+}
+
+// -------- The settings and ui groups (phase 5d-2) --------
+
+export type SettingsMethod = SettingsRequest["method"];
+type SettingsRequestOf<M extends SettingsMethod> = Extract<SettingsRequest, { method: M }>;
+/** A settings method's params, or `undefined` for one that takes none. */
+export type SettingsParams<M extends SettingsMethod> =
+  SettingsRequestOf<M> extends { params: infer P } ? P : undefined;
+export type SettingsResult<M extends SettingsMethod> = Extract<
+  SettingsResponse,
+  { method: M }
+>["result"];
+
+/** Whether each settings call writes (writes join the write queue). */
+export const SETTINGS_METHOD_KIND: Record<SettingsMethod, "read" | "write"> = {
+  settingGet: "read",
+  settingSet: "write",
+  aiSettingsGet: "read",
+  aiSettingsPatch: "write",
+  aiProviderCreate: "write",
+  aiProviderUpdate: "write",
+  aiProviderRemove: "write",
+  themesGet: "read",
+  themePreferencesSet: "write",
+  userThemeCreate: "write",
+  userThemeUpdate: "write",
+  userThemeRemove: "write",
+  onboardingGet: "read",
+  onboardingPatch: "write",
+  tutorialList: "read",
+  tutorialSave: "write",
+  tutorialRemoveLesson: "write",
+  tutorialReset: "write",
+  importStateGet: "read",
+  importStateSave: "write",
+};
+
+export type UiMethod = UiRequest["method"];
+type UiRequestOf<M extends UiMethod> = Extract<UiRequest, { method: M }>;
+/** A ui method's params (every ui method takes the window id). */
+export type UiParams<M extends UiMethod> =
+  UiRequestOf<M> extends { params: infer P } ? P : undefined;
+export type UiResult<M extends UiMethod> = Extract<UiResponse, { method: M }>["result"];
+
+/**
+ * Whether each ui call writes. `windowStateLoad` counts as a write: a first
+ * load copies another window's state into this window's row.
+ */
+export const UI_METHOD_KIND: Record<UiMethod, "read" | "write"> = {
+  windowGet: "read",
+  windowActivate: "write",
+  windowStateLoad: "write",
+  windowStateSave: "write",
+};
+
+/** The group's request with `params` left out when there are none. */
+function inner<R>(method: string, params: unknown): R {
+  return (params === undefined ? { method } : { method, params }) as R;
+}
+
+/** One settings call, without the write queue. Never echoes the request (API keys). */
+async function callSettingsOnce<M extends SettingsMethod>(
+  transport: CoreTransport,
+  method: M,
+  params: SettingsParams<M>,
+): Promise<SettingsResult<M>> {
+  const response = await send(transport, {
+    method: "settings",
+    params: inner<SettingsRequest>(method, params),
+  });
+  if (response?.method !== "settings" || response.result?.method !== method) {
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a settings ${method} response`,
+    });
+  }
+  return response.result.result as SettingsResult<M>;
+}
+
+/** One ui call, without the write queue. */
+async function callUiOnce<M extends UiMethod>(
+  transport: CoreTransport,
+  method: M,
+  params: UiParams<M>,
+): Promise<UiResult<M>> {
+  const response = await send(transport, {
+    method: "ui",
+    params: inner<UiRequest>(method, params),
+  });
+  if (response?.method !== "ui" || response.result?.method !== method) {
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a ui ${method} response`,
+    });
+  }
+  return response.result.result as UiResult<M>;
+}
+
+/**
+ * Sends one request as a `keepalive` `POST /api/rpc` (web only), outside
+ * any write queue and without waiting for its answer: for a page that is
+ * going away. It carries the page's origin in `X-Seaquel-Origin` like
+ * every call, which the `ui` group needs (the window id must equal it).
+ * Returns false, sending nothing, on desktop, before the window id is
+ * settled, or when the body is over `KEEPALIVE_MAX_BYTES`.
+ */
+export function sendKeepaliveRequest(request: CoreRequest, what: string): boolean {
+  if (isTauri()) return false;
+  const origin = windowId();
+  if (origin === null) return false;
+  const body = encodeCoreRequest(request);
+  if (body.byteLength > KEEPALIVE_MAX_BYTES) {
+    void log.warn(
+      `keepalive ${what} not sent: ${body.byteLength} bytes is over the ${KEEPALIVE_MAX_BYTES}-byte cap`,
+    );
+    return false;
+  }
+  void fetch("/api/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/json", [ORIGIN_HEADER]: origin },
+    body,
+    credentials: "same-origin",
+    keepalive: true,
+  }).catch((error: unknown) => {
+    void log.error(`keepalive ${what} failed:`, error);
+  });
+  return true;
 }
 
 type SecretMethod = SecretRequest["method"];
@@ -328,38 +461,6 @@ export function connectionToWire(connection: PersistedConnection): WireConnectio
   return { ...rest, lastConnected: text } as WireConnection;
 }
 
-function projectStateFromWire(wire: WireProjectState): PersistedProjectState {
-  const { savedWorkflows, ...rest } = wire;
-  // Result and chart nodes keep their rows, which can hold bigint, bytes and
-  // decimals, tagged by `toStorable`. A workflow that won't decode is dropped,
-  // one at a time, as the TypeScript repository did.
-  const workflows: SavedWorkflow[] = [];
-  for (const stored of savedWorkflows ?? []) {
-    try {
-      const workflow = fromStorable(stored) as SavedWorkflow | null;
-      if (workflow !== null) workflows.push(workflow);
-    } catch (error) {
-      void log.warn("Dropping a saved workflow that doesn't decode:", error);
-    }
-  }
-  // `activeView` is `ActiveViewType` in Rust's hands too; a stored `canvas`
-  // (from before the workflow rename) passes through, as it always did.
-  return {
-    ...rest,
-    activeView: rest.activeView as PersistedProjectState["activeView"],
-    savedWorkflows: workflows,
-  };
-}
-
-function projectStateToWire(state: PersistedProjectState): WireProjectState {
-  const { savedWorkflows, ...rest } = state;
-  // A workflow that can't be encoded fails the whole save, as before, so the
-  // stored copy survives instead of being deleted and not replaced.
-  return savedWorkflows === undefined
-    ? rest
-    : { ...rest, savedWorkflows: savedWorkflows.map((w) => toStorable(w)) };
-}
-
 // -------- The client --------
 
 export class RustStorageClient implements StorageClient {
@@ -386,6 +487,36 @@ export class RustStorageClient implements StorageClient {
     return LIBRARY_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
   }
 
+  /** One `settings` call (phase 5d-2); writes share the write queue. */
+  settings<M extends SettingsMethod>(
+    method: M,
+    params: SettingsParams<M>,
+  ): Promise<SettingsResult<M>> {
+    const run = () => callSettingsOnce(this.transport, method, params);
+    return SETTINGS_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
+  }
+
+  /**
+   * One `ui` call (phase 5d-2) for this page's window. The window id must
+   * equal the page's origin (`windowId()`; on web `X-Seaquel-Origin`).
+   */
+  ui<M extends UiMethod>(method: M, params: UiParams<M>): Promise<UiResult<M>> {
+    const run = () => callUiOnce(this.transport, method, params);
+    return UI_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
+  }
+
+  /**
+   * Sends a `windowStateSave` as a `keepalive` request (web only), for
+   * `pagehide`: outside the write queue, `rev` orders it against queued
+   * saves. False when nothing was sent (desktop, or over the size cap).
+   */
+  saveWindowStateKeepalive(params: UiParams<"windowStateSave">): boolean {
+    return sendKeepaliveRequest(
+      { method: "ui", params: { method: "windowStateSave", params } },
+      "ui windowStateSave",
+    );
+  }
+
   private call<M extends StorageMethod>(
     method: M,
     params: StorageParams<M>,
@@ -394,37 +525,14 @@ export class RustStorageClient implements StorageClient {
     return STORAGE_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
   }
 
-  appState: StorageClient["appState"] = {
-    get: (key) => this.call("appStateGet", { key }),
-    set: async (key, value) => {
-      await this.call("appStateSet", { key, value });
-    },
-  };
-
-  connectionOverrides: StorageClient["connectionOverrides"] = {
-    load: (sharedConnectionId) => this.call("connectionOverridesLoad", { sharedConnectionId }),
-    loadAll: () => this.call("connectionOverridesLoadAll", undefined),
-    save: async (connectionOverride) => {
-      await this.call("connectionOverridesSave", { connectionOverride });
-    },
-    remove: async (sharedConnectionId) => {
-      await this.call("connectionOverridesRemove", { sharedConnectionId });
-    },
-  };
-
-  projectState: StorageClient["projectState"] = {
-    load: async (projectId) => {
-      const state = await this.call("projectStateLoad", { projectId });
-      return state === null ? null : projectStateFromWire(state);
-    },
-    save: async (state) => {
-      const wire = projectStateToWire(state);
-      await this.call("projectStateSave", { state: wire });
-    },
-    remove: async (projectId) => {
-      await this.call("projectStateRemove", { projectId });
-    },
-  };
+  /**
+   * Sends one storage call as a `keepalive` request (web only); see
+   * `sendKeepaliveRequest`.
+   */
+  sendKeepalive<M extends StorageMethod>(method: M, params: StorageParams<M>): boolean {
+    const inner = (params === undefined ? { method } : { method, params }) as StorageRequest;
+    return sendKeepaliveRequest({ method: "storage", params: inner }, `storage ${method}`);
+  }
 
   queryHistory: StorageClient["queryHistory"] = {
     loadByConnection: (connectionId) => this.call("queryHistoryLoadByConnection", { connectionId }),
@@ -446,95 +554,10 @@ export class RustStorageClient implements StorageClient {
     },
   };
 
-  themes: StorageClient["themes"] = {
-    loadPreferences: () => this.call("themesLoadPreferences", undefined),
-    savePreferences: async (lightThemeId, darkThemeId) => {
-      await this.call("themesSavePreferences", { lightThemeId, darkThemeId });
-    },
-    loadUserThemes: () => this.call("themesLoadUserThemes", undefined),
-    saveUserThemes: async (themes) => {
-      await this.call("themesSaveUserThemes", { themes });
-    },
-  };
-
   license: StorageClient["license"] = {
     load: () => this.call("licenseLoad", undefined),
     save: async (data) => {
       await this.call("licenseSave", { data });
-    },
-  };
-
-  onboarding: StorageClient["onboarding"] = {
-    load: () => this.call("onboardingLoad", undefined),
-    save: async (data) => {
-      await this.call("onboardingSave", { data });
-    },
-  };
-
-  tutorial: StorageClient["tutorial"] = {
-    loadAll: () => this.call("tutorialLoadAll", undefined),
-    save: async (lessonId, challengeId, state) => {
-      await this.call("tutorialSave", { lessonId, challengeId, state });
-    },
-    removeLesson: async (lessonId) => {
-      await this.call("tutorialRemoveLesson", { lessonId });
-    },
-    removeAll: async () => {
-      await this.call("tutorialRemoveAll", undefined);
-    },
-  };
-
-  importState: StorageClient["importState"] = {
-    load: (source) => this.call("importStateLoad", { source }),
-    save: async (source, hasOfferedImport, lastCheckTimestamp) => {
-      await this.call("importStateSave", { source, hasOfferedImport, lastCheckTimestamp });
-    },
-  };
-
-  dashboards: StorageClient["dashboards"] = {
-    loadByProject: (projectId) => this.call("dashboardsLoadByProject", { projectId }),
-    save: async (dashboard) => {
-      await this.call("dashboardsSave", { dashboard });
-    },
-    remove: async (id) => {
-      await this.call("dashboardsRemove", { id });
-    },
-    removeByProject: async (projectId) => {
-      await this.call("dashboardsRemoveByProject", { projectId });
-    },
-  };
-
-  dashboardVersions: StorageClient["dashboardVersions"] = {
-    loadByDashboard: (dashboardId) =>
-      this.call("dashboardVersionsLoadByDashboard", { dashboardId }),
-    loadByProject: (projectId) => this.call("dashboardVersionsLoadByProject", { projectId }),
-    insert: async (version) => {
-      await this.call("dashboardVersionsInsert", { version });
-    },
-    pruneOldVersions: (dashboardId, keepCount) =>
-      this.enqueueWrite(async () => {
-        const versions = await callStorage(this.transport, "dashboardVersionsLoadByDashboard", {
-          dashboardId,
-        });
-        const plan = planDashboardVersionsPrune(dashboardId, versions, keepCount);
-        if (plan) await callStorage(this.transport, "dashboardVersionsPrune", plan);
-      }),
-  };
-
-  aiChats: StorageClient["aiChats"] = {
-    loadByConnection: (connectionId) => this.call("aiChatsLoadByConnection", { connectionId }),
-    saveChat: async (chat) => {
-      await this.call("aiChatsSaveChat", { chat });
-    },
-    removeChat: async (chatId) => {
-      await this.call("aiChatsRemoveChat", { chatId });
-    },
-    removeByConnection: async (connectionId) => {
-      await this.call("aiChatsRemoveByConnection", { connectionId });
-    },
-    loadMessages: (chatId) => this.call("aiChatsLoadMessages", { chatId }),
-    replaceAllMessages: async (chatId, messages) => {
-      await this.call("aiChatsReplaceAllMessages", { chatId, messages });
     },
   };
 

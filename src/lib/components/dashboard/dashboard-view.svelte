@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import type { DashboardWidget, ResolvedDashboardVersion } from '$lib/types';
+	import type { DashboardVersion, DashboardWidget, ResolvedDashboardVersion } from '$lib/types';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import { createDashboardSnapshot } from '$lib/utils/dashboard-versions';
 	import DashboardToolbar from './dashboard-toolbar.svelte';
@@ -33,24 +33,40 @@
 	let pendingWidget = $state<DashboardWidget | null>(null);
 	const isFullscreen = $derived(db.state.isDashboardFullscreen);
 
-	// Version history / diff mode
+	// Version history / diff mode. The history lists versions without their
+	// snapshots; the ones picked are fetched (5d-2 Task 7).
 	const versions = $derived(
-		dashboard ? db.dashboards.getResolvedVersionsForDashboard(dashboard.id) : []
+		dashboard ? db.dashboards.getVersionsForDashboard(dashboard.id) : []
 	);
 	let diffLeft = $state<ResolvedDashboardVersion | null>(null);
 	let diffRight = $state<ResolvedDashboardVersion | null>(null);
 	const diffMode = $derived(diffLeft !== null && diffRight !== null);
+	/** The latest pick: an older pick's snapshots landing later are dropped. */
+	let diffPick = 0;
 
 	let dashboardToolbar = $state<ReturnType<typeof DashboardToolbar> | undefined>();
 	let diffView = $state<ReturnType<typeof DashboardDiffView> | undefined>();
 
-	function handleDiffVersions(selected: ResolvedDashboardVersion[]) {
-		if (selected.length === 0) {
+	async function handleDiffVersions(selected: DashboardVersion[]) {
+		const pick = ++diffPick;
+		if (selected.length === 0 || !dashboard) {
 			diffLeft = null;
 			diffRight = null;
-		} else if (selected.length === 1 && dashboard) {
+			return;
+		}
+		const loaded = await Promise.all(
+			selected.map((v) => db.dashboards.loadVersion(v.dashboardId, v.id))
+		);
+		if (pick !== diffPick) return;
+		// One that can't be read is said by the manager; the diff closes.
+		const resolved = loaded.filter((v): v is ResolvedDashboardVersion => v !== null);
+		if (resolved.length !== selected.length) {
+			handleCloseDiff();
+			return;
+		}
+		if (resolved.length === 1 && dashboard) {
 			// Diff selected version against current dashboard state
-			diffLeft = selected[0];
+			diffLeft = resolved[0];
 			diffRight = {
 				id: 'current',
 				dashboardId: dashboard.id,
@@ -58,13 +74,14 @@
 				dashboard: createDashboardSnapshot(dashboard),
 				createdAt: dashboard.updatedAt,
 			};
-		} else if (selected.length === 2) {
-			diffLeft = selected[0];
-			diffRight = selected[1];
+		} else if (resolved.length === 2) {
+			diffLeft = resolved[0];
+			diffRight = resolved[1];
 		}
 	}
 
 	function handleCloseDiff() {
+		diffPick++;
 		diffLeft = null;
 		diffRight = null;
 		dashboardToolbar?.clearVersionSelection();
@@ -115,9 +132,12 @@
 
 	async function createDashboardForTab() {
 		if (!tab) return;
-		const newDashboard = await db.dashboards.createDashboard(tab.name);
+		// The tab's name may be taken ("New Dashboard"): Core picks the next free one.
+		const newDashboard = await db.dashboards.createDashboard(tab.name, { renameIfTaken: true });
 		if (newDashboard) {
 			db.dashboardTabs.setDashboardId(tab.id, newDashboard.id);
+			// Core may have stored it under the next free name ("New Dashboard (2)").
+			if (newDashboard.name !== tab.name) db.dashboardTabs.rename(tab.id, newDashboard.name);
 		}
 	}
 

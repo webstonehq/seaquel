@@ -1,4 +1,5 @@
 import type {
+  Dashboard,
   Project,
   ConnectionLabel,
   DatabaseConnection,
@@ -8,7 +9,8 @@ import type {
 } from "$lib/types";
 import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
+import type { WindowStateManager } from "./window-state.svelte.js";
+import type { DashboardManager } from "./dashboard-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import { SEAQUEL_DIR, type SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import type { SharedQueryManager } from "./shared-query-manager.svelte.js";
@@ -28,14 +30,21 @@ import {
   type ProjectPatch,
   type WireProject,
 } from "./library/index.js";
-import { projectFromWire, savedQueryFromWire, savedQueryPatch } from "./library/convert.js";
+import {
+  projectFromWire,
+  savedQueryFromWire,
+  savedQueryPatch,
+  workflowSummaryFromWire,
+} from "./library/convert.js";
 import { LAST_PROJECT } from "./library/types.js";
 import { libraryError, libraryErrorMessage } from "./library/messages.js";
 import {
   applyConnectionRow,
   bumpRevisions,
   libraryNameOf,
+  refreshConnectionOrder,
   refreshQueryVersions,
+  storeConnectionOrder,
 } from "./library/view.js";
 import { errorToast } from "$lib/utils/toast";
 import { errorCode } from "$lib/core/client";
@@ -43,13 +52,17 @@ import { mkdir, rename as renameFs, exists, writeTextFile } from "@tauri-apps/pl
 import { join } from "@tauri-apps/api/path";
 import { nameToFilename, serializeProjectFile } from "$lib/services/config-file-parser";
 import type { PersistedWorkflowTab } from "$lib/types/persisted";
-import type { SavedWorkflow } from "$lib/types/workflow";
 import type { PersistedProjectState } from "$lib/types/project";
+import { toPersistedDashboard } from "./dashboard-serialize.js";
+
+/** A dashboard as stored, for telling which ones a change touched. */
+function storedForm(dashboard: Dashboard): string {
+  return JSON.stringify(toPersistedDashboard(dashboard));
+}
 
 /** Legacy persisted state from before canvas→workflow rename */
-interface LegacyPersistedProjectState extends PersistedProjectState {
+export interface LegacyPersistedProjectState extends PersistedProjectState {
   canvasTabs?: PersistedWorkflowTab[];
-  savedCanvases?: SavedWorkflow[];
   activeCanvasTabId?: string | null;
 }
 
@@ -76,9 +89,14 @@ export class ProjectManager {
 
   constructor(
     private state: DatabaseState,
-    private persistence: PersistenceManager,
+    private windowState: WindowStateManager,
     private stateRestoration: StateRestorationManager,
-  ) {}
+    /** The reconcile's dashboard saves (Core calls, phase 5d-2). */
+    private dashboardStore?: Pick<DashboardManager, "storeReconciled">,
+  ) {
+    // A stale save with nothing changed here reads the window's state again.
+    windowState.setReloader((projectId) => this.reloadViewState(projectId));
+  }
 
   setLifecycleListener(listener: {
     removed?: (id: string) => void;
@@ -141,29 +159,33 @@ export class ProjectManager {
 
   /**
    * Initialize projects on app startup: `projectEnsureDefault` makes the
-   * default project on a file with none, and lists them all.
+   * default project on a file with none, and lists them all. The window
+   * opens on its own active project (`windowGet`: this window's, else the
+   * most recently used window's, else `lastActiveProjectId`), checked
+   * against the projects listed.
    */
   async initialize(): Promise<void> {
     try {
       const { value, seq } = await getLibrary().ensureDefaultProject();
       this.applyProjects(value, seq, null, false);
-      this.persistence.setProjectsLoaded(true);
+      this.windowState.setProjectsLoaded(true);
     } catch (error) {
       void log.error("Failed to load projects:", error);
       // The projects couldn't be read. Work in an in-memory default project,
-      // which isn't stored: the active project isn't saved over the stored
-      // choice, and writes naming it are refused by Core.
-      this.persistence.setProjectsLoaded(false);
+      // which isn't stored: it isn't recorded as the window's active project,
+      // and writes naming it are refused by Core.
+      this.windowState.setProjectsLoaded(false);
       this.state.projects = [this.createDefaultProject()];
     }
 
     // Set active project
-    const lastActiveProjectId = await this.persistence.getLastActiveProjectId();
-    const validProjectId = this.state.projects.find((p) => p.id === lastActiveProjectId)?.id;
+    const storedActive = await this.windowState.activeProject();
+    const validProjectId = this.state.projects.find((p) => p.id === storedActive)?.id;
     this.state.activeProjectId = validProjectId || this.state.projects[0]?.id || null;
 
     // Load project state if there's an active project
     if (this.state.activeProjectId) {
+      await this.windowState.activate(this.state.activeProjectId);
       await this.loadProjectState(this.state.activeProjectId);
     }
 
@@ -224,11 +246,31 @@ export class ProjectManager {
     for (const project of removed) void this.forgetRemovedProject(project, remote);
   }
 
-  /** Refetch the projects another window changed (`ids`, or all) and apply them. */
+  /**
+   * Refetch the projects another window changed (`ids`, or all) and apply
+   * them, and their connection order (`projectsList` rows don't hold it;
+   * Decision 22) for the ones this page has loaded.
+   */
   async refreshFromLibrary(ids: readonly string[] | null): Promise<void> {
     await this.state.librarySeqs.settled("project:");
     const { value, seq } = await getLibrary().listProjects();
     this.applyProjects(value, seq, ids, true);
+    const loaded = Object.keys(this.state.connectionOrderByProject);
+    const orders = ids === null ? loaded : ids.filter((id) => loaded.includes(id));
+    await Promise.all(orders.map((id) => refreshConnectionOrder(this.state, id)));
+  }
+
+  /**
+   * Read this window's view state of `projectId` again: after a stale save
+   * with nothing changed here (another page of this window saved later),
+   * and for Decision 22's own-id `projectState` event (`LibrarySync`; a
+   * no-op in practice, see there). The active project is read again;
+   * another is read when it's next opened.
+   */
+  async reloadViewState(projectId: string): Promise<void> {
+    if (projectId === this.state.activeProjectId) {
+      await this.loadProjectState(projectId, { reload: true });
+    }
   }
 
   /**
@@ -242,7 +284,7 @@ export class ProjectManager {
     }
     // After the connections: forgetting them schedules the project's save,
     // which would now fail on the removed project.
-    this.persistence.cancelPendingPersistenceFor(project.id);
+    this.windowState.forgetProject(project.id);
     this.state.projects = this.state.projects.filter((p) => p.id !== project.id);
     this.lifecycle.removed?.(project.id);
     if (this.state.activeProjectId === project.id) {
@@ -464,7 +506,7 @@ export class ProjectManager {
           for (const conn of importedConnections) {
             await this.removeStoredConnection(conn.id);
           }
-          // Out of the project's connection order too (saved with its state).
+          // Out of the project's connection order too, stored at once.
           const removed = new Set(importedConnections.map((c) => c.id));
           const order = this.state.connectionOrderByProject[projectId] ?? [];
           if (order.some((id) => removed.has(id))) {
@@ -472,7 +514,7 @@ export class ProjectManager {
               ...this.state.connectionOrderByProject,
               [projectId]: order.filter((id) => !removed.has(id)),
             };
-            this.persistence.scheduleProject(projectId);
+            await storeConnectionOrder(this.state, projectId);
           }
           this.state.connections = this.state.connections.filter(
             (c) =>
@@ -532,24 +574,30 @@ export class ProjectManager {
 
     void log.info(`Project changed: from=${this.state.activeProjectId} to=${id}`);
 
-    // Save current project state before switching
+    // Save current project state before switching, with the view it's left on
     if (this.state.activeProjectId) {
-      await this.persistence.persistProjectState(this.state.activeProjectId);
+      this.state.activeViewByProject[this.state.activeProjectId] = this.state.activeView;
+      await this.windowState.saveNow(this.state.activeProjectId, { leaving: true });
     }
 
     // Preload saved queries/dashboards before changing activeProjectId so that
-    // $derived values (e.g. projectQueries) see the data immediately.
+    // $derived values (e.g. projectQueries) see the data immediately. Read
+    // once per activation (bug 18): `loadProjectState` then skips it.
+    let dataLoaded = false;
     if (id && !(id in this.state.queriesByProject)) {
       await this.stateRestoration.loadProjectData(id);
+      dataLoaded = true;
     }
 
     this.state.activeProjectId = id;
     this.lifecycle.activated?.(id);
-    await this.persistence.persistAppState();
 
     // Load new project state
     if (id) {
-      await this.loadProjectState(id);
+      // This window's active project (and `lastActiveProjectId`, which Core
+      // writes with it for older releases).
+      await this.windowState.activate(id);
+      await this.loadProjectState(id, { dataLoaded });
 
       // Auto-link repo when project has gitRepoPath
       const project = this.state.projects.find((p) => p.id === id);
@@ -727,11 +775,14 @@ export class ProjectManager {
       const dashboards = this.state.dashboardsByProject[projectId] ?? [];
       const reconciled = this.sharedDashboardManager.reconcileWithGitFiles(projectId, dashboards);
       if (reconciled !== dashboards) {
-        this.state.dashboardsByProject = {
-          ...this.state.dashboardsByProject,
-          [projectId]: reconciled,
-        };
-        await this.persistence.persistProjectDashboards(projectId);
+        // Only what the reconcile changed, compared in stored form; each is
+        // shown as Core stores it (a new file's placeholder never is).
+        const before = new Map(dashboards.map((d) => [d.id, storedForm(d)]));
+        await this.dashboardStore?.storeReconciled(
+          projectId,
+          dashboards,
+          reconciled.filter((d) => before.get(d.id) !== storedForm(d)),
+        );
       }
     }
   }
@@ -905,8 +956,8 @@ export class ProjectManager {
         ...this.state.connectionOrderByProject,
         [connection.projectId]: [...order, connection.id],
       };
-      // The order is saved with the project's state.
-      this.persistence.scheduleProject(connection.projectId);
+      // The order is shared by the project's windows: stored at once.
+      await storeConnectionOrder(this.state, connection.projectId);
     }
   }
 
@@ -934,18 +985,130 @@ export class ProjectManager {
     };
   }
 
-  private async loadProjectState(projectId: string): Promise<void> {
+  /**
+   * The connections a restored tab may name, or `null` while they aren't
+   * read yet (startup restores the project before the connections load):
+   * then a tab is kept whichever connection it names.
+   */
+  private knownConnections(): ReadonlySet<string> | null {
+    return this.connectionManager?.loaded ? new Set(this.state.connections.map((c) => c.id)) : null;
+  }
+
+  /**
+   * Read the project's connection order, shared by its windows, and show it
+   * by the `seq` rule. It is left as shown when the read fails.
+   */
+  private async loadConnectionOrder(projectId: string): Promise<void> {
+    await refreshConnectionOrder(this.state, projectId);
+    // Known as loaded from now on (a `project` event refetches it).
+    if (!(projectId in this.state.connectionOrderByProject)) {
+      this.state.connectionOrderByProject[projectId] = [];
+    }
+  }
+
+  /**
+   * Read the project's saved workflows (Decision 23: no longer in the view
+   * state) as the sidebar lists them, without their bodies (5d-2 Task 7):
+   * opening one reads it (`WorkflowManager.loadWorkflow`), and one whose
+   * body won't decode says so then. A failed read leaves the page's list.
+   */
+  private async loadSavedWorkflows(projectId: string): Promise<void> {
+    try {
+      const { value, seq } = await getLibrary().listWorkflows(projectId);
+      const workflows = value.map(workflowSummaryFromWire);
+      // A later `workflow` event's refetch applies only what is newer.
+      for (const w of workflows) this.state.librarySeqs.note(rowKey("workflow", w.id), seq);
+      this.state.savedWorkflowsByProject[projectId] = workflows;
+    } catch (error) {
+      void log.error(`Failed to load the saved workflows of project ${projectId}:`, error);
+      this.state.savedWorkflowsByProject[projectId] ??= [];
+    }
+  }
+
+  /**
+   * Load and restore a project's view state. `reload`: the project is shown
+   * already and is read again (`reloadViewState`); its tabs are left alone
+   * when the read fails or the project is no longer the active one by then.
+   */
+  private async loadProjectState(
+    projectId: string,
+    { reload = false, dataLoaded = false } = {},
+  ): Promise<void> {
     // Its tabs are replaced below: a run still going on one of them would
-    // lose its results, so cancel it cleanly first.
-    this.lifecycle.reloading?.(projectId);
+    // lose its results, so cancel it cleanly first (a reload does it once
+    // it knows it will restore).
+    if (!reload) this.lifecycle.reloading?.(projectId);
     // Load saved queries and dashboards FIRST, before any state assignments
     // that trigger UI re-renders via $derived. This ensures queriesByProject
     // is populated when projectQueries recomputes after activeProjectId changes.
-    await this.stateRestoration.loadProjectData(projectId);
+    if (!dataLoaded) await this.stateRestoration.loadProjectData(projectId);
 
-    const persistedState = (await this.persistence.loadProjectState(
-      projectId,
-    )) as LegacyPersistedProjectState | null;
+    // This window's view state (Decision 22), and what the project's windows
+    // share: the connection order and the saved workflows.
+    const [loaded] = await Promise.all([
+      this.windowState.load(projectId, { reload }),
+      this.loadConnectionOrder(projectId),
+      this.loadSavedWorkflows(projectId),
+    ]);
+    if (reload) {
+      // A failed read leaves what the page shows, still saveable.
+      if (!loaded) return;
+      if (projectId !== this.state.activeProjectId) {
+        this.windowState.dropLoad(projectId);
+        return;
+      }
+      this.lifecycle.reloading?.(projectId);
+    }
+    const persistedState = (loaded?.state ?? null) as LegacyPersistedProjectState | null;
+    const known = await this.connectionsNamedBy(persistedState);
+    let restored = false;
+    try {
+      this.restoreViewState(projectId, persistedState, known);
+      restored = true;
+    } finally {
+      // Saveable only now: a save between the load's answer and here would
+      // store what the page showed before the restore.
+      if (loaded) this.windowState.markLoaded(projectId, restored);
+    }
+  }
+
+  /**
+   * The connections a restored tab may name (see `knownConnections`). When
+   * the saved state names one this page doesn't list, the connections are
+   * read again first: another window may just have made it.
+   */
+  private async connectionsNamedBy(
+    saved: LegacyPersistedProjectState | null,
+  ): Promise<ReadonlySet<string> | null> {
+    const known = this.knownConnections();
+    if (!known || !saved || !this.connectionManager) return known;
+    const named = [
+      saved.schemaTabs,
+      saved.erdTabs,
+      saved.statisticsTabs,
+      saved.workflowTabs ?? saved.canvasTabs,
+      saved.createTableTabs,
+      saved.dataTabs,
+      saved.extensionsDuckdbTabs,
+    ].flatMap((tabs) => (tabs ?? []).map((t) => t.connectionId).filter((id) => !!id) as string[]);
+    const missing = [...new Set(named)].filter((id) => !known.has(id));
+    if (missing.length === 0) return known;
+    try {
+      await this.connectionManager.refreshFromLibrary(missing);
+    } catch (error) {
+      void log.warn("Reading the connections again before a restore failed:", error);
+    }
+    return this.knownConnections();
+  }
+
+  /** Put a project's loaded view state (or none) in memory. */
+  private restoreViewState(
+    projectId: string,
+    persistedState: LegacyPersistedProjectState | null,
+    known: ReadonlySet<string> | null,
+  ): void {
+    const keep = <T extends { connectionId?: string }>(tabs: readonly T[] | undefined) =>
+      (tabs ?? []).filter((t) => keepsConnectionTab(t, known));
     if (!persistedState) {
       // Initialize empty state for this project
       this.state.queryTabsByProject[projectId] = [];
@@ -954,10 +1117,8 @@ export class ProjectManager {
       this.state.erdTabsByProject[projectId] = [];
       this.state.statisticsTabsByProject[projectId] = [];
       this.state.workflowTabsByProject[projectId] = [];
-      this.state.savedWorkflowsByProject[projectId] = [];
       this.state.dashboardTabsByProject[projectId] = [];
       this.state.tabOrderByProject[projectId] = [];
-      this.state.connectionOrderByProject[projectId] = [];
       this.state.activeQueryTabIdByProject[projectId] = null;
       this.state.activeSchemaTabIdByProject[projectId] = null;
       this.state.activeExplainTabIdByProject[projectId] = null;
@@ -990,19 +1151,17 @@ export class ProjectManager {
 
     // Restore schema tabs (we'll need to look up the table info later)
     // For now, create placeholder tabs that will be populated when the connection loads
-    this.state.schemaTabsByProject[projectId] = persistedState.schemaTabs
-      .filter((t) => t.connectionId)
-      .map((t) => ({
-        id: t.id,
-        connectionId: t.connectionId!,
-        table: {
-          schema: t.schemaName,
-          name: t.tableName,
-          type: "table" as const, // Default to table, will be updated when metadata loads
-          columns: [],
-          indexes: [],
-        },
-      }));
+    this.state.schemaTabsByProject[projectId] = keep(persistedState.schemaTabs).map((t) => ({
+      id: t.id,
+      connectionId: t.connectionId!,
+      table: {
+        schema: t.schemaName,
+        name: t.tableName,
+        type: "table" as const, // Default to table, will be updated when metadata loads
+        columns: [],
+        indexes: [],
+      },
+    }));
 
     // Restore explain tabs
     this.state.explainTabsByProject[projectId] = persistedState.explainTabs.map((t) => ({
@@ -1013,44 +1172,33 @@ export class ProjectManager {
     }));
 
     // Restore ERD tabs (connectionId may be missing in old persisted data)
-    this.state.erdTabsByProject[projectId] = persistedState.erdTabs
-      .filter((t) => t.connectionId)
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        connectionId: t.connectionId!,
-      }));
+    this.state.erdTabsByProject[projectId] = keep(persistedState.erdTabs).map((t) => ({
+      id: t.id,
+      name: t.name,
+      connectionId: t.connectionId!,
+    }));
 
     // Restore statistics tabs
-    this.state.statisticsTabsByProject[projectId] = (persistedState.statisticsTabs ?? [])
-      .filter((t) => t.connectionId)
-      .map((t) => ({
+    this.state.statisticsTabsByProject[projectId] = keep(persistedState.statisticsTabs).map(
+      (t) => ({
         id: t.id,
         name: t.name,
         connectionId: t.connectionId,
         isLoading: false,
-      }));
+      }),
+    );
 
-    // Restore workflow tabs
-    this.state.workflowTabsByProject[projectId] = (
-      persistedState.workflowTabs ??
-      persistedState.canvasTabs ??
-      []
-    )
-      .filter((t) => t.connectionId)
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        connectionId: t.connectionId,
-      }));
-
-    // Restore saved workflows
-    this.state.savedWorkflowsByProject[projectId] =
-      persistedState.savedWorkflows ?? persistedState.savedCanvases ?? [];
+    // Restore workflow tabs (`canvasTabs` before the workflow rename)
+    this.state.workflowTabsByProject[projectId] = keep(
+      persistedState.workflowTabs ?? persistedState.canvasTabs,
+    ).map((t) => ({
+      id: t.id,
+      name: t.name,
+      connectionId: t.connectionId,
+    }));
 
     // Restore tab order and active IDs
     this.state.tabOrderByProject[projectId] = persistedState.tabOrder ?? [];
-    this.state.connectionOrderByProject[projectId] = persistedState.connectionOrder ?? [];
     this.state.activeQueryTabIdByProject[projectId] = persistedState.activeQueryTabId;
     this.state.activeSchemaTabIdByProject[projectId] = persistedState.activeSchemaTabId;
     this.state.activeExplainTabIdByProject[projectId] = persistedState.activeExplainTabId;
@@ -1059,15 +1207,17 @@ export class ProjectManager {
       persistedState.activeStatisticsTabId ?? null;
     this.state.activeWorkflowTabIdByProject[projectId] =
       persistedState.activeWorkflowTabId ?? persistedState.activeCanvasTabId ?? null;
-    // Restore the active connection ID if the connection exists (even if not yet reconnected).
-    // Auto-reconnect runs after restore and will establish providerConnectionId.
+    // The window's own active connection (Q14), if the connection exists
+    // (even if not yet reconnected). Auto-reconnect runs after restore and
+    // will establish providerConnectionId.
     const restoredConnectionExists = persistedState.activeConnectionId
       ? this.state.connections.some((c) => c.id === persistedState.activeConnectionId)
       : false;
     this.state.activeConnectionIdByProject[projectId] = restoredConnectionExists
       ? persistedState.activeConnectionId
       : null;
-    this.state.activeView = persistedState.activeView;
+    this.state.activeViewByProject[projectId] = persistedState.activeView;
+    if (projectId === this.state.activeProjectId) this.state.activeView = persistedState.activeView;
 
     // Restore starter tabs
     if (persistedState.starterTabs && persistedState.starterTabs.length > 0) {
@@ -1088,17 +1238,13 @@ export class ProjectManager {
         this.state.tabOrderByProject[projectId] = [...newIds, ...tabOrder];
       }
     } else {
-      // Only show starter tabs if the project has no other open tabs
+      // Only show starter tabs if the project has no other open tabs: read
+      // from what was saved and kept (the tab lists below aren't restored
+      // yet), over every saved tab type, plus the settings tabs, which
+      // aren't saved.
       const hasOtherTabs =
-        (this.state.queryTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.schemaTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.connectionTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.explainTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.erdTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.dashboardTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.settingsTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.createTableTabsByProject[projectId]?.length ?? 0) > 0 ||
-        (this.state.dataTabsByProject[projectId]?.length ?? 0) > 0;
+        hasSavedTabs(persistedState, known) ||
+        (this.state.settingsTabsByProject[projectId]?.length ?? 0) > 0;
       if (!hasOtherTabs) {
         this.starterTabManager?.initializeDefaults(projectId);
       }
@@ -1126,9 +1272,8 @@ export class ProjectManager {
     }
 
     // Restore create table tabs
-    this.state.createTableTabsByProject[projectId] = (persistedState.createTableTabs ?? [])
-      .filter((t) => t.connectionId)
-      .map((t) => ({
+    this.state.createTableTabsByProject[projectId] = keep(persistedState.createTableTabs).map(
+      (t) => ({
         id: t.id,
         connectionId: t.connectionId,
         name: t.name,
@@ -1136,39 +1281,36 @@ export class ProjectManager {
           typeof t.tableDefinition === "string"
             ? JSON.parse(t.tableDefinition)
             : { tableName: "", schemaName: "public", columns: [], indexes: [], foreignKeys: [] },
-      }));
+      }),
+    );
     this.state.activeCreateTableTabIdByProject[projectId] =
       persistedState.activeCreateTableTabId ?? null;
 
     // Restore data tabs (results will be fetched fresh on activation)
-    this.state.dataTabsByProject[projectId] = (persistedState.dataTabs ?? [])
-      .filter((t) => t.connectionId)
-      .map((t) => ({
-        id: t.id,
-        connectionId: t.connectionId,
-        tableName: t.tableName,
-        schemaName: t.schemaName,
-        filters: [],
-        filterLogic: "AND" as const,
-        sortColumns: [],
-        page: 1,
-        pageSize: 100,
-        isLoading: false,
-        pendingNewRows: [],
-      }));
+    this.state.dataTabsByProject[projectId] = keep(persistedState.dataTabs).map((t) => ({
+      id: t.id,
+      connectionId: t.connectionId,
+      tableName: t.tableName,
+      schemaName: t.schemaName,
+      filters: [],
+      filterLogic: "AND" as const,
+      sortColumns: [],
+      page: 1,
+      pageSize: 100,
+      isLoading: false,
+      pendingNewRows: [],
+    }));
     this.state.activeDataTabIdByProject[projectId] = persistedState.activeDataTabId ?? null;
 
-    // Restore DuckDB extensions tabs
-    this.state.extensionsDuckdbTabsByProject[projectId] = (
-      persistedState.extensionsDuckdbTabs ?? []
-    )
-      .filter((t) => t.connectionId)
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        connectionId: t.connectionId,
-        isLoading: false,
-      }));
+    // Restore DuckDB extensions tabs (kept in the window's row since 5d-2)
+    this.state.extensionsDuckdbTabsByProject[projectId] = keep(
+      persistedState.extensionsDuckdbTabs,
+    ).map((t) => ({
+      id: t.id,
+      name: t.name,
+      connectionId: t.connectionId,
+      isLoading: false,
+    }));
     this.state.activeExtensionsDuckdbTabIdByProject[projectId] =
       persistedState.activeExtensionsDuckdbTabId ?? null;
 
@@ -1193,6 +1335,45 @@ export class ProjectManager {
       this.state.paneLayoutByProject = rest;
     }
   }
+}
+
+/**
+ * Whether a restored tab bound to a connection is kept: it names one, and
+ * (once the connections are known) one that still exists.
+ */
+function keepsConnectionTab(
+  tab: { connectionId?: string },
+  known: ReadonlySet<string> | null,
+): boolean {
+  return !!tab.connectionId && (known === null || known.has(tab.connectionId));
+}
+
+/**
+ * Whether a saved project state holds any open tab the restore keeps,
+ * besides the starter tabs: every saved tab type counts, the old
+ * `canvasTabs` name for workflow tabs too, but not a tab the restore drops
+ * (a connection-bound tab with no connection, or one naming a connection
+ * that's gone once `known` lists them; a dashboard tab with no dashboard).
+ * Starter tabs are added to a project only when this is false.
+ */
+export function hasSavedTabs(
+  saved: LegacyPersistedProjectState,
+  known: ReadonlySet<string> | null = null,
+): boolean {
+  const bound = (tabs: readonly { connectionId?: string }[] | undefined) =>
+    (tabs ?? []).some((t) => keepsConnectionTab(t, known));
+  return (
+    (saved.queryTabs?.length ?? 0) > 0 ||
+    (saved.explainTabs?.length ?? 0) > 0 ||
+    (saved.dashboardTabs ?? []).some((t) => !!t.dashboardId) ||
+    bound(saved.schemaTabs) ||
+    bound(saved.erdTabs) ||
+    bound(saved.statisticsTabs) ||
+    bound(saved.workflowTabs ?? saved.canvasTabs) ||
+    bound(saved.createTableTabs) ||
+    bound(saved.dataTabs) ||
+    bound(saved.extensionsDuckdbTabs)
+  );
 }
 
 /** Whether another window's refetch changed what the project settings edit. */

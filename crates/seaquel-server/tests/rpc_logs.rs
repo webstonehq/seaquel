@@ -417,3 +417,92 @@ async fn library_calls_log_group_method_and_code_only() {
         assert!(!record.contains(&canary), "{record}");
     }
 }
+
+/// Phase 5d-2: `settings`, `ui` and the new `library` calls log their
+/// group, method and code, never a setting's value, a name, JSON, tab text,
+/// an API key or the tab's origin (which is also its window id).
+#[tokio::test]
+async fn state_calls_log_group_method_and_code_only() {
+    capture_logs();
+    let env = Env::new(4);
+    let canary = format!("canaryState{}", std::process::id());
+    let origin = format!("{canary}-win");
+    let call = |group: &'static str, method: &'static str, params: serde_json::Value| {
+        let env = &env;
+        let origin = origin.clone();
+        async move {
+            let body = json!({"method": group, "params": {"method": method, "params": params}});
+            env.rpc_from("alice", &[origin.as_str()], &body).await
+        }
+    };
+    let (status, body) = env
+        .library("alice", Some(&origin), "projectEnsureDefault", json!(null))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (group, method, params, want) in [
+        (
+            "settings",
+            "settingSet",
+            json!({"key": "license_nudge", "value": format!("{{\"n\":\"{canary}\"}}")}),
+            StatusCode::OK,
+        ),
+        (
+            "settings",
+            "userThemeCreate",
+            json!({"theme": {"name": format!("{canary}-theme"), "c": canary}}),
+            StatusCode::OK,
+        ),
+        (
+            "settings",
+            "aiProviderCreate",
+            json!({"provider": {"name": format!("{canary}-p"), "type": "anthropic"},
+                "apiKey": format!("{canary}-key")}),
+            StatusCode::NOT_IMPLEMENTED,
+        ),
+        (
+            "library",
+            "dashboardCreate",
+            json!({"dashboard": {"projectId": "default-seaquel", "name": format!("{canary}-d"),
+                "widgets": [{"sql": canary}], "viewport": {}}}),
+            StatusCode::OK,
+        ),
+        (
+            "ui",
+            "windowStateSave",
+            json!({"windowId": origin, "projectId": "default-seaquel", "rev": 1,
+                "state": {"projectId": "default-seaquel", "queryTabs": [{"id": "t1",
+                    "name": "Q", "query": format!("SELECT '{canary}'")}], "schemaTabs": [],
+                    "explainTabs": [], "erdTabs": [], "tabOrder": ["t1"], "activeView": "query"}}),
+            StatusCode::OK,
+        ),
+        // A refusal: another window's id.
+        (
+            "ui",
+            "windowGet",
+            json!({"windowId": format!("{canary}-other")}),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let (status, body) = call(group, method, params).await;
+        assert_eq!(status, want, "{group}.{method}: {body}");
+    }
+
+    let records = records();
+    for record in &records {
+        assert!(!record.contains(&canary), "{record}");
+    }
+    assert!(
+        records.iter().any(|r| r.contains("activity=rpc.error")
+            && r.contains("code=INVALID_ARGUMENT")
+            && r.contains("group=ui")
+            && r.contains("method=windowGet")),
+        "{records:#?}"
+    );
+    assert!(
+        records.iter().any(|r| r.contains("activity=rpc.error")
+            && r.contains("code=NOT_SUPPORTED")
+            && r.contains("group=settings")
+            && r.contains("method=aiProviderCreate")),
+        "{records:#?}"
+    );
+}

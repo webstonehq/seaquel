@@ -10,13 +10,12 @@
 import type { DatabaseState } from "./state.svelte.js";
 
 type TabRecords = {
-  [K in keyof DatabaseState]: DatabaseState[K] extends Record<
-    string,
-    Array<{ id: string; connectionId?: string | null }>
-  >
+  [K in keyof DatabaseState]: DatabaseState[K] extends Record<string, Array<{ id: string }>>
     ? K
     : never;
 }[keyof DatabaseState];
+
+type Tab = { id: string; connectionId?: string | null; dashboardId?: string };
 type ActiveRecords = {
   [K in keyof DatabaseState]: DatabaseState[K] extends Record<string, string | null> ? K : never;
 }[keyof DatabaseState];
@@ -46,19 +45,43 @@ export function closeConnectionTabs(
    */
   syncActive?: (tabId: string) => void,
 ): string[] {
+  return closeTabs(state, KINDS, (t) => t.connectionId === connectionId, syncActive);
+}
+
+/**
+ * Close the tabs showing dashboard `dashboardId` in every project (it was
+ * deleted in another window, phase 5d-2). Returns the projects whose tabs
+ * changed.
+ */
+export function closeDashboardTabs(
+  state: DatabaseState,
+  dashboardId: string,
+  syncActive?: (tabId: string) => void,
+): string[] {
+  return closeTabs(
+    state,
+    [["dashboardTabsByProject", "activeDashboardTabIdByProject"]],
+    (t) => t.dashboardId === dashboardId,
+    syncActive,
+  );
+}
+
+function closeTabs(
+  state: DatabaseState,
+  kinds: Array<[TabRecords, ActiveRecords]>,
+  matches: (tab: Tab) => boolean,
+  syncActive?: (tabId: string) => void,
+): string[] {
   const touched = new Set<string>();
   const removed = new Set<string>();
-  for (const [tabsKey, activeKey] of KINDS) {
-    const byProject = state[tabsKey] as Record<
-      string,
-      Array<{ id: string; connectionId?: string | null }>
-    >;
+  for (const [tabsKey, activeKey] of kinds) {
+    const byProject = state[tabsKey] as unknown as Record<string, Tab[]>;
     let next: typeof byProject | null = null;
     for (const [projectId, tabs] of Object.entries(byProject)) {
-      const gone = tabs.filter((t) => t.connectionId === connectionId);
+      const gone = tabs.filter(matches);
       if (gone.length === 0) continue;
       next ??= { ...byProject };
-      next[projectId] = tabs.filter((t) => t.connectionId !== connectionId);
+      next[projectId] = tabs.filter((t) => !matches(t));
       for (const t of gone) removed.add(t.id);
       touched.add(projectId);
       const active = state[activeKey] as Record<string, string | null>;
@@ -69,7 +92,7 @@ export function closeConnectionTabs(
         };
       }
     }
-    if (next) (state[tabsKey] as typeof byProject) = next;
+    if (next) (state[tabsKey] as unknown as typeof byProject) = next;
   }
   if (removed.size === 0) return [];
 

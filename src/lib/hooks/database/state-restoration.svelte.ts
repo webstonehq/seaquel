@@ -1,19 +1,24 @@
-import type {
-  Dashboard,
-  AIChat,
-  PersistedQueryHistoryItem,
-  PersistedAIChat,
-  PersistedAIMessage,
-  DashboardVersion,
-  PersistedDashboardVersion,
-} from "$lib/types";
+import type { PersistedQueryHistoryItem } from "$lib/types";
 import { log } from "$lib/utils/logger";
-import { getLibrary, rowKey } from "./library/index.js";
-import { queryVersionFromWire, savedQueryFromWire } from "./library/convert.js";
+import {
+  getLibrary,
+  rowKey,
+  type ChangeSeq,
+  type ChatMessages,
+  type WireChat,
+} from "./library/index.js";
+import {
+  chatFromWire,
+  dashboardFromWire,
+  dashboardVersionFromWire,
+  messageDraft,
+  messageFromWire,
+  queryVersionFromWire,
+  savedQueryFromWire,
+} from "./library/convert.js";
 import type { DatabaseState } from "./state.svelte.js";
 import { fromPersisted, trimHistory } from "./query-history.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
-import type { PersistedDashboard } from "$lib/storage";
+import { getStorage } from "$lib/storage";
 
 /**
  * Manages restoration of persisted connection data when loading the app.
@@ -23,10 +28,22 @@ import type { PersistedDashboard } from "$lib/storage";
  * Note: Tab restoration is handled by ProjectManager since tabs are per-project.
  */
 export class StateRestorationManager {
-  constructor(
-    private state: DatabaseState,
-    private persistence: PersistenceManager,
-  ) {}
+  constructor(private state: DatabaseState) {}
+
+  /**
+   * A connection's stored history. History is written by targeted calls in
+   * `QueryHistoryManager` (append, set favourite), never by replacing the
+   * list, so a failed load has no save to block: it reads as empty and
+   * appends still reach the file.
+   */
+  private async loadHistory(connectionId: string): Promise<PersistedQueryHistoryItem[]> {
+    try {
+      return await getStorage().queryHistory.loadByConnection(connectionId);
+    } catch (error) {
+      void log.error(`Failed to load data for connection ${connectionId}:`, error);
+      return [];
+    }
+  }
 
   /**
    * Initialize connection data maps for a new connection.
@@ -88,23 +105,6 @@ export class StateRestorationManager {
   }
 
   /**
-   * Restore dashboard versions from persisted data (per-project).
-   */
-  restoreDashboardVersions(projectId: string, data: PersistedDashboardVersion[]): void {
-    const versions: DashboardVersion[] = data.map((v) => ({
-      id: v.id,
-      dashboardId: v.dashboardId,
-      version: v.version,
-      snapshot: v.snapshot,
-      createdAt: new Date(v.createdAt),
-    }));
-    this.state.dashboardVersionsByProject = {
-      ...this.state.dashboardVersionsByProject,
-      [projectId]: versions,
-    };
-  }
-
-  /**
    * Restore query history from persisted data. Rows already cached that the
    * load didn't return (a query run while it was reading) stay on top, and
    * the list is trimmed like the file.
@@ -130,7 +130,7 @@ export class StateRestorationManager {
    */
   async reloadHistory(connectionId: string, replace: boolean): Promise<void> {
     if (!(connectionId in this.state.queryHistoryByConnection)) return;
-    const { queryHistory } = await this.persistence.loadConnectionData(connectionId);
+    const queryHistory = await this.loadHistory(connectionId);
     if (replace) {
       this.state.queryHistoryByConnection = {
         ...this.state.queryHistoryByConnection,
@@ -142,107 +142,156 @@ export class StateRestorationManager {
   }
 
   /**
-   * Restore AI chats from persisted data.
+   * Show a connection's stored chats (newest first) by the `seq` rule per
+   * chat. The page's own chats the list doesn't hold yet (one being
+   * created) stay. The first time, the most recent becomes active.
    */
-  restoreAIChats(connectionId: string, data: PersistedAIChat[]): void {
-    const chats: AIChat[] = data.map((c) => ({
-      id: c.id,
-      connectionId: c.connectionId,
-      title: c.title,
-      createdAt: new Date(c.createdAt),
-      updatedAt: new Date(c.updatedAt),
-    }));
-    this.state.aiChatsByConnection = {
-      ...this.state.aiChatsByConnection,
-      [connectionId]: chats,
-    };
-    // Set most recent chat as active
-    if (chats.length > 0) {
+  restoreAIChats(connectionId: string, data: WireChat[], seq: ChangeSeq): void {
+    const seqs = this.state.librarySeqs;
+    const shown = this.state.aiChatsByConnection[connectionId] ?? [];
+    const byId = new Map(data.map((c) => [c.id, c]));
+    let next = [...shown];
+    const removed: string[] = [];
+    for (const id of new Set([...shown.map((c) => c.id), ...byId.keys()])) {
+      if (seqs.busy(rowKey("chat", id))) continue;
+      if (!seqs.take(rowKey("chat", id), seq)) continue;
+      const row = byId.get(id);
+      if (row) {
+        const chat = chatFromWire(row);
+        next = next.some((c) => c.id === id)
+          ? next.map((c) => (c.id === id ? chat : c))
+          : [...next, chat];
+      } else {
+        next = next.filter((c) => c.id !== id);
+        removed.push(id);
+      }
+    }
+    next.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    this.state.aiChatsByConnection = { ...this.state.aiChatsByConnection, [connectionId]: next };
+    if (removed.length > 0) {
+      const messages = { ...this.state.aiMessagesByChat };
+      for (const id of removed) delete messages[id];
+      this.state.aiMessagesByChat = messages;
+    }
+    if (!(connectionId in this.state.activeAIChatIdByConnection) && next.length > 0) {
       this.state.activeAIChatIdByConnection = {
         ...this.state.activeAIChatIdByConnection,
-        [connectionId]: chats[0].id,
+        [connectionId]: next[0].id,
       };
     }
   }
 
   /**
-   * Restore AI chat messages from persisted data.
+   * Show a chat's stored messages (Decision 24), and whether Core says the
+   * chat is full (it opens with sending off; a flag a refusal set is never
+   * cleared here). Messages this page shows that aren't stored as they are
+   * (a turn whose put failed, a message waiting for a model) stay, merged
+   * by time, and the next put sends them.
    */
-  restoreAIChatMessages(chatId: string, data: PersistedAIMessage[]): void {
-    this.state.aiMessagesByChat = {
-      ...this.state.aiMessagesByChat,
-      [chatId]: data.map((m) => ({
-        id: m.id,
-        chatId: m.chatId,
-        role: m.role,
-        content: m.content,
-        timestamp: new Date(m.timestamp),
-        query: m.query,
-        dashboardId: m.dashboardId,
-      })),
-    };
-  }
-
-  /**
-   * Restore dashboards from persisted data (per-project).
-   */
-  restoreDashboards(projectId: string, data: PersistedDashboard[]): void {
-    const dashboards: Dashboard[] = data.map((r) => ({
-      id: r.id,
-      name: r.name,
-      projectId: r.projectId,
-      widgets: JSON.parse(r.widgets),
-      viewport: JSON.parse(r.viewport),
-      dateFilter: r.dateFilter ? JSON.parse(r.dateFilter) : null,
-      shared: r.shared ?? false,
-      starred: r.starred ?? false,
-      description: r.description,
-      createdAt: new Date(r.createdAt),
-      updatedAt: new Date(r.updatedAt),
-    }));
-    this.state.dashboardsByProject = {
-      ...this.state.dashboardsByProject,
-      [projectId]: dashboards,
-    };
+  restoreAIChatMessages(chatId: string, data: ChatMessages, seq: ChangeSeq): void {
+    if (!this.state.librarySeqs.take(rowKey("chatMessages", chatId), seq)) return;
+    const sent = this.state.aiMessagesSent.get(chatId);
+    const unstored = (this.state.aiMessagesByChat[chatId] ?? []).filter(
+      (msg) =>
+        msg.pendingModelSelection !== undefined ||
+        sent?.get(msg.id) !== JSON.stringify(messageDraft(msg)),
+    );
+    const local = new Map(unstored.map((msg) => [msg.id, msg]));
+    const merged = data.messages.map((msg) => local.get(msg.id) ?? messageFromWire(msg));
+    for (const msg of unstored) if (!data.messages.some((s) => s.id === msg.id)) merged.push(msg);
+    // Stable: stored order (timestamp, then insertion) for equal times.
+    const order = new Map(merged.map((msg, i) => [msg.id, i]));
+    merged.sort(
+      (a, b) =>
+        a.timestamp.getTime() - b.timestamp.getTime() || order.get(a.id)! - order.get(b.id)!,
+    );
+    this.state.aiMessagesByChat = { ...this.state.aiMessagesByChat, [chatId]: merged };
+    // What's stored now: a later put sends only what differs from it.
+    this.state.aiMessagesSent.set(
+      chatId,
+      new Map(
+        data.messages.map((msg) => [
+          msg.id,
+          JSON.stringify(messageDraft(messageFromWire(msg), msg.timestamp)),
+        ]),
+      ),
+    );
+    if (data.full && !this.state.aiChatFull[chatId]) {
+      this.state.aiChatFull = { ...this.state.aiChatFull, [chatId]: true };
+    }
   }
 
   /**
    * Load connection data (query history and AI chats) from persistence.
    */
   async loadConnectionData(connectionId: string): Promise<void> {
-    const data = await this.persistence.loadConnectionData(connectionId);
-
-    if (data.queryHistory.length > 0) {
-      this.restoreQueryHistory(connectionId, data.queryHistory);
+    const queryHistory = await this.loadHistory(connectionId);
+    if (queryHistory.length > 0) {
+      this.restoreQueryHistory(connectionId, queryHistory);
     }
+    await this.loadAIChats(connectionId);
+  }
 
-    // Load AI chats
-    const aiChats = await this.persistence.loadAIChats(connectionId);
-    if (aiChats.length > 0) {
-      this.restoreAIChats(connectionId, aiChats);
-      // Load messages for the most recent (active) chat only
-      const activeChatId = aiChats[0].id;
-      const messages = await this.persistence.loadAIChatMessages(activeChatId);
-      if (messages.length > 0) {
-        this.restoreAIChatMessages(activeChatId, messages);
-      }
+  /**
+   * A connection's chats, and the messages of its active one. A failed
+   * read leaves what the page shows (nothing is replaced whole any more,
+   * so there is no save to block: Decision 24).
+   */
+  async loadAIChats(connectionId: string): Promise<void> {
+    try {
+      const { value, seq } = await getLibrary().listChats(connectionId);
+      this.restoreAIChats(connectionId, value, seq);
+    } catch (error) {
+      void log.error(`Failed to load AI chats for connection ${connectionId}:`, error);
+      return;
+    }
+    const active = this.state.activeAIChatIdByConnection[connectionId];
+    if (active && !(active in this.state.aiMessagesByChat)) {
+      await this.loadAIChatMessages(active);
     }
   }
 
   /**
-   * Load project-specific data (saved queries and dashboards) from persistence.
+   * Load a project's saved queries and dashboards (with their versions)
+   * from the library, by the `seq` rule. An empty list applies too (bug
+   * 18: a project whose dashboards were all deleted elsewhere shows none).
    */
   async loadProjectData(projectId: string): Promise<void> {
-    await this.loadSavedQueries(projectId);
+    await Promise.all([this.loadSavedQueries(projectId), this.loadDashboards(projectId)]);
+  }
 
-    const dashboards = await this.persistence.loadProjectDashboards(projectId);
-    if (dashboards.length > 0) {
-      this.restoreDashboards(projectId, dashboards);
-    }
-
-    const dashboardVersions = await this.persistence.loadProjectDashboardVersions(projectId);
-    if (dashboardVersions.length > 0) {
-      this.restoreDashboardVersions(projectId, dashboardVersions);
+  /** A project's dashboards and their versions; a failed read leaves what's shown. */
+  async loadDashboards(projectId: string): Promise<void> {
+    const library = getLibrary();
+    try {
+      const [dashboards, versions] = await Promise.all([
+        library.listDashboards(projectId),
+        library.listDashboardVersions(projectId),
+      ]);
+      const seqs = this.state.librarySeqs;
+      const shown = this.state.dashboardsByProject[projectId] ?? [];
+      const byId = new Map(dashboards.value.map((d) => [d.id, d]));
+      let next = [...shown];
+      for (const id of new Set([...shown.map((d) => d.id), ...byId.keys()])) {
+        if (!seqs.take(rowKey("dashboard", id), dashboards.seq)) continue;
+        const row = byId.get(id);
+        const current = next.find((d) => d.id === id);
+        next = row
+          ? current
+            ? next.map((d) => (d.id === id ? dashboardFromWire(row, d) : d))
+            : [...next, dashboardFromWire(row)]
+          : next.filter((d) => d.id !== id);
+      }
+      this.state.dashboardsByProject = { ...this.state.dashboardsByProject, [projectId]: next };
+      if (seqs.take(rowKey("dashboardVersion", projectId), versions.seq)) {
+        this.state.dashboardVersionsByProject = {
+          ...this.state.dashboardVersionsByProject,
+          [projectId]: versions.value.map(dashboardVersionFromWire),
+        };
+      }
+    } catch (error) {
+      void log.error(`Failed to load dashboards for project ${projectId}:`, error);
+      this.state.dashboardsByProject[projectId] ??= [];
     }
   }
 
@@ -286,13 +335,19 @@ export class StateRestorationManager {
   }
 
   /**
-   * Load messages for a specific AI chat (lazy loading when switching chats).
+   * Load messages for a specific AI chat (lazy loading when switching
+   * chats, and another window's change). A failed load leaves the chat out
+   * of `aiMessagesByChat`, so the next switch loads it again instead of
+   * showing it empty.
    */
   async loadAIChatMessages(chatId: string): Promise<void> {
-    const messages = await this.persistence.loadAIChatMessages(chatId);
-    // After a failed load, leave the chat out of `aiMessagesByChat` so the
-    // next `switchChat` loads it again instead of showing it empty.
-    if (this.persistence.loadFailed(`aiMessages:${chatId}`)) return;
-    this.restoreAIChatMessages(chatId, messages);
+    try {
+      // After this page's own puts of the chat: the read then holds them.
+      await this.state.librarySeqs.settled(rowKey("chatMessages", chatId));
+      const { value, seq } = await getLibrary().listChatMessages(chatId);
+      this.restoreAIChatMessages(chatId, value, seq);
+    } catch (error) {
+      void log.error(`Failed to load AI chat messages for chat ${chatId}:`, error);
+    }
   }
 }

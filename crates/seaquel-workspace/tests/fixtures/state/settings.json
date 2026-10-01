@@ -1,0 +1,2333 @@
+[
+  {
+    "name": "settings/editor-keybinding-mode",
+    "file": "current",
+    "seed": {
+      "app_state": [
+        {
+          "key": "editorKeybindingMode",
+          "value": "emacs"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "editorSettingsStore.load",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "editorKeybindingMode"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "editorKeybindingMode"
+            ],
+            "result": "emacs"
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "editorKeybindingMode",
+              "value": "emacs"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "emacs",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "editorSettingsStore.setKeybindingMode",
+        "args": {
+          "value": "vim"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "editorKeybindingMode",
+              "value": "vim"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "editorKeybindingMode",
+              "vim"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "editorKeybindingMode",
+              "value": "vim"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "vim",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "editorSettingsStore.setKeybindingMode",
+        "args": {
+          "value": "hyper"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "editorKeybindingMode",
+              "value": "hyper"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "editorKeybindingMode",
+              "hyper"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "editorKeybindingMode",
+              "value": "hyper"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "hyper",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "editorKeybindingMode",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "editorKeybindingMode",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "editorKeybindingMode",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "editorKeybindingMode",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "hyper",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/pending-changes-enabled",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "pendingChangesSettingsStore.load",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "pending_changes_enabled"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "pending_changes_enabled"
+            ],
+            "result": null
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "pendingChangesSettingsStore.setEnabled",
+        "args": {
+          "value": false
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "pending_changes_enabled",
+              "value": "false"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "pending_changes_enabled",
+              "false"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "pending_changes_enabled",
+              "value": "false"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": false,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "pending_changes_enabled",
+          "value": "maybe"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "pending_changes_enabled",
+              "value": "maybe"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "pending_changes_enabled",
+              "maybe"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "pending_changes_enabled",
+              "value": "maybe"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": false,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "pending_changes_enabled",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "pending_changes_enabled",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "pending_changes_enabled",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "pending_changes_enabled",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": false,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/skipped-update-version",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "updateStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "skippedUpdateVersion"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "skippedUpdateVersion"
+            ],
+            "result": null
+          }
+        ],
+        "rows": {},
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "updateStore.skip",
+        "args": {
+          "version": "2030.1.2"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "skippedUpdateVersion",
+              "value": "2030.1.2"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "skippedUpdateVersion",
+              "2030.1.2"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "skippedUpdateVersion",
+              "value": "2030.1.2"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": "2030.1.2",
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "skippedUpdateVersion",
+          "value": "2030.1.3\u0000"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "skippedUpdateVersion",
+              "value": "2030.1.3\u0000"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "skippedUpdateVersion",
+              "2030.1.3\u0000"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "skippedUpdateVersion",
+              "value": "2030.1.3"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": "2030.1.2",
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "skippedUpdateVersion",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "skippedUpdateVersion",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "skippedUpdateVersion",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "skippedUpdateVersion",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": "2030.1.2",
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/query-version-limit",
+    "note": "The settings UI saves the typed number clamped to at least 10 (clampVersionLimit); a hand-set 0 still round-trips.",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "settings.saveQueryVersionLimit",
+        "args": {
+          "typed": 50
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "50"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "50"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "50"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "settings.saveQueryVersionLimit",
+        "args": {
+          "typed": 3
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "10"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "10"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "10"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "query_version_limit",
+          "value": "0"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "0"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "0"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "0"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "query_version_limit",
+          "value": "100000"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "100000"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "100000"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "100000"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "query_version_limit",
+          "value": "abc"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "abc"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "abc"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "abc"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "query_version_limit",
+          "value": "100001"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": "100001"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              "100001"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": "100001"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "query_version_limit",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "query_version_limit",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "query_version_limit",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "query_version_limit",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/dashboard-version-limit",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "settings.saveDashboardVersionLimit",
+        "args": {
+          "typed": 20
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "dashboard_version_limit",
+              "value": "20"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "dashboard_version_limit",
+              "20"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "dashboard_version_limit",
+              "value": "20"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "dashboard_version_limit",
+          "value": "-1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "dashboard_version_limit",
+              "value": "-1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "dashboard_version_limit",
+              "-1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "dashboard_version_limit",
+              "value": "-1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "dashboard_version_limit",
+          "value": "1.5"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "dashboard_version_limit",
+              "value": "1.5"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "dashboard_version_limit",
+              "1.5"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "dashboard_version_limit",
+              "value": "1.5"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "dashboard_version_limit",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "dashboard_version_limit",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "dashboard_version_limit",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "dashboard_version_limit",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/license-nudge",
+    "file": "current",
+    "seed": {
+      "app_state": [
+        {
+          "key": "license_nudge",
+          "value": "{\"queryCount\":99,\"activeDays\":3,\"lastActiveDay\":\"2029-12-31\",\"answer\":null,\"snoozedUntil\":null}"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "licenseNudgeStore.initialize",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "license_nudge"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "license_nudge"
+            ],
+            "result": "{\"queryCount\":99,\"activeDays\":3,\"lastActiveDay\":\"2029-12-31\",\"answer\":null,\"snoozedUntil\":null}"
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": "{\"queryCount\":99,\"activeDays\":3,\"lastActiveDay\":\"2029-12-31\",\"answer\":null,\"snoozedUntil\":null}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 99,
+            "activeDays": 3,
+            "lastActiveDay": "2029-12-31",
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "licenseNudgeStore.recordQuery",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "license_nudge",
+              "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":null,\"snoozedUntil\":null}"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "license_nudge",
+              "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":null,\"snoozedUntil\":null}"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":null,\"snoozedUntil\":null}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 100,
+            "activeDays": 4,
+            "lastActiveDay": "2030-01-01",
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "licenseNudgeStore.respond",
+        "args": {
+          "answer": "work"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "license_nudge",
+              "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":\"work\",\"snoozedUntil\":\"2030-01-31T00:00:07.200Z\"}"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "license_nudge",
+              "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":\"work\",\"snoozedUntil\":\"2030-01-31T00:00:07.200Z\"}"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":\"work\",\"snoozedUntil\":\"2030-01-31T00:00:07.200Z\"}"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 100,
+            "activeDays": 4,
+            "lastActiveDay": "2030-01-01",
+            "answer": "work",
+            "snoozedUntil": "2030-01-31T00:00:07.200Z"
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "license_nudge",
+          "value": "[1]"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "license_nudge",
+              "value": "[1]"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "license_nudge",
+              "[1]"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": "[1]"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 100,
+            "activeDays": 4,
+            "lastActiveDay": "2030-01-01",
+            "answer": "work",
+            "snoozedUntil": "2030-01-31T00:00:07.200Z"
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "license_nudge",
+          "value": "nope"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "license_nudge",
+              "value": "nope"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "license_nudge",
+              "nope"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": "nope"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 100,
+            "activeDays": 4,
+            "lastActiveDay": "2030-01-01",
+            "answer": "work",
+            "snoozedUntil": "2030-01-31T00:00:07.200Z"
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "license_nudge",
+          "value": null
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "license_nudge",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "license_nudge",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "license_nudge",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 100,
+            "activeDays": 4,
+            "lastActiveDay": "2030-01-01",
+            "answer": "work",
+            "snoozedUntil": "2030-01-31T00:00:07.200Z"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/last-active-project-id",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "lastActiveProjectId",
+          "value": "p2"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "lastActiveProjectId",
+              "value": "p2"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "lastActiveProjectId",
+              "p2"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "lastActiveProjectId",
+              "value": "p2"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/connection-string-secrets-notice",
+    "file": "current",
+    "seed": {
+      "app_state": [
+        {
+          "key": "connectionStringSecretsNotice",
+          "value": "[\"c1\"]"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "connectionSecretsNotice.dismiss",
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "connectionStringSecretsNotice",
+              "value": null
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "connectionStringSecretsNotice",
+              null
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "connectionStringSecretsNotice",
+              "value": null
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "connectionStringSecretsNotice",
+          "value": "[\"c1\"]"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "connectionStringSecretsNotice",
+              "value": "[\"c1\"]"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "connectionStringSecretsNotice",
+              "[\"c1\"]"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "connectionStringSecretsNotice",
+              "value": "[\"c1\"]"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "settings/refused-keys",
+    "file": "current",
+    "seed": {},
+    "steps": [
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "somethingElse",
+          "value": "1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "somethingElse",
+              "1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "activeRepoId",
+          "value": "repo-1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "activeRepoId",
+              "repo-1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "connectionStringSecretsVacuum",
+          "value": "1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "connectionStringSecretsVacuum",
+              "1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "connectionStringSecretsUpgraded",
+          "value": "1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "connectionStringSecretsUpgraded",
+              "1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "connectionStringSecretsCheckpoint",
+          "value": "1"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "connectionStringSecretsCheckpoint",
+              "value": "1"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "connectionStringSecretsCheckpoint",
+              "1"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "connectionStringSecretsCheckpoint",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.set",
+        "args": {
+          "key": "aiSettings",
+          "value": "{\"enabled\":false}"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingSet",
+            "params": {
+              "key": "aiSettings",
+              "value": "{\"enabled\":false}"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": null
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.set",
+            "args": [
+              "aiSettings",
+              "{\"enabled\":false}"
+            ]
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "aiSettings",
+              "value": "{\"enabled\":false}"
+            },
+            {
+              "key": "connectionStringSecretsCheckpoint",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.get",
+        "args": {
+          "key": "somethingElse"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "somethingElse"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": "1"
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "somethingElse"
+            ],
+            "result": "1"
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "aiSettings",
+              "value": "{\"enabled\":false}"
+            },
+            {
+              "key": "connectionStringSecretsCheckpoint",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      },
+      {
+        "op": "storage.appState.get",
+        "args": {
+          "key": "connectionStringSecretsCheckpoint"
+        },
+        "core": [
+          {
+            "group": "settings",
+            "method": "settingGet",
+            "params": {
+              "key": "connectionStringSecretsCheckpoint"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": "1"
+        },
+        "storage": [
+          {
+            "page": "main",
+            "call": "appState.get",
+            "args": [
+              "connectionStringSecretsCheckpoint"
+            ],
+            "result": "1"
+          }
+        ],
+        "rows": {
+          "app_state": [
+            {
+              "key": "activeRepoId",
+              "value": "repo-1"
+            },
+            {
+              "key": "aiSettings",
+              "value": "{\"enabled\":false}"
+            },
+            {
+              "key": "connectionStringSecretsCheckpoint",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsUpgraded",
+              "value": "1"
+            },
+            {
+              "key": "connectionStringSecretsVacuum",
+              "value": "1"
+            },
+            {
+              "key": "somethingElse",
+              "value": "1"
+            }
+          ]
+        },
+        "secretCalls": [],
+        "secretStore": {},
+        "files": [],
+        "toasts": [],
+        "view": {
+          "editorKeybindingMode": "default",
+          "pendingChangesEnabled": true,
+          "skippedUpdateVersion": null,
+          "licenseNudge": {
+            "queryCount": 0,
+            "activeDays": 0,
+            "lastActiveDay": null,
+            "answer": null,
+            "snoozedUntil": null
+          }
+        }
+      }
+    ]
+  }
+]

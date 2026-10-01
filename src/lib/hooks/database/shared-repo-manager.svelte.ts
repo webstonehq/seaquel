@@ -36,6 +36,9 @@ import {
 import { join } from "@tauri-apps/api/path";
 import { log } from "$lib/utils/logger";
 import { extractErrorMessage } from "$lib/errors";
+import { getStorage } from "$lib/storage";
+import { skipUnloadedSave } from "$lib/storage/load-guard";
+import { serializeRepo, type PersistedSharedQueryRepo } from "$lib/types";
 
 export const SEAQUEL_DIR = ".seaquel";
 
@@ -68,10 +71,70 @@ export class SharedRepoManager {
   /** Default refresh interval in milliseconds (5 minutes) */
   private static readonly DEFAULT_REFRESH_INTERVAL = 5 * 60 * 1000;
 
-  constructor(
-    private state: DatabaseState,
-    private schedulePersistence: () => void,
-  ) {}
+  /** The debounced save of the repo list (it stays in the storage group). */
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly PERSISTENCE_DEBOUNCE_MS = 500;
+  /**
+   * The last load of the stored repos failed or is still running: saving
+   * replaces every stored repo, so saves are refused until a load succeeds.
+   */
+  private loadFailed = false;
+  private loadPending = false;
+
+  constructor(private state: DatabaseState) {}
+
+  // -------- Storing the repo list --------
+
+  /** Save the repo list after the debounce. */
+  private schedulePersistence(): void {
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persistRepos();
+    }, SharedRepoManager.PERSISTENCE_DEBOUNCE_MS);
+  }
+
+  /** The stored repos and the active one; empty when the load fails (recorded). */
+  async loadPersistedRepos(): Promise<{
+    repos: PersistedSharedQueryRepo[];
+    activeRepoId: string | null;
+  }> {
+    this.loadFailed = true;
+    this.loadPending = true;
+    try {
+      const loaded = await getStorage().sharedRepos.loadAll();
+      this.loadFailed = false;
+      return loaded;
+    } catch (error) {
+      void log.error("Failed to load shared repos:", error);
+      return { repos: [], activeRepoId: null };
+    } finally {
+      this.loadPending = false;
+    }
+  }
+
+  /** Store the repo list (replacing the stored one), unless its load failed. */
+  async persistRepos(): Promise<void> {
+    if (this.loadFailed) {
+      skipUnloadedSave("shared query repositories", { pending: this.loadPending });
+      return;
+    }
+    try {
+      const repos: PersistedSharedQueryRepo[] = this.state.sharedRepos.map(serializeRepo);
+      await getStorage().sharedRepos.saveAll(repos, this.state.activeRepoId);
+    } catch (error) {
+      void log.error("Failed to persist shared repos:", error);
+    }
+  }
+
+  /** Save the repo list now (a closing page), if there is one. */
+  async flushPersistence(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    if (this.state.sharedRepos.length > 0) await this.persistRepos();
+  }
 
   /**
    * Serialize async operations per-repo to prevent concurrent mutations.

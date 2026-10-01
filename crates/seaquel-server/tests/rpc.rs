@@ -85,13 +85,24 @@ impl Env {
         body["result"]["result"].clone()
     }
 
+    /// Store `value` under `key` in `user`'s file: a storage-group write
+    /// that takes any key (phase 5d-2 retired `appStateSet`; the web
+    /// vault's credential rows are opaque text to the server).
     async fn set(&self, user: &str, key: &str, value: &str) {
-        self.storage(user, "appStateSet", json!({"key": key, "value": value}))
+        self.storage(user, "userCredentialsSave", credential(key, value))
             .await;
     }
 
+    /// What [`Self::set`] stored under `key`, or `null`.
     async fn get(&self, user: &str, key: &str) -> Value {
-        self.storage(user, "appStateGet", json!({"key": key})).await
+        let row = self
+            .storage(
+                user,
+                "userCredentialsLoad",
+                json!({"scope": "db", "key": key}),
+            )
+            .await;
+        row["ciphertext"].clone()
     }
 
     /// Wait (up to 5 s) until `n` workspaces have finished closing.
@@ -107,6 +118,12 @@ impl Env {
             self.workspaces.closed()
         );
     }
+}
+
+/// `userCredentialsSave`'s params storing `value` under `key`.
+fn credential(key: &str, value: &str) -> Value {
+    json!({"credential": {"scope": "db", "key": key, "nonce": "n", "ciphertext": value,
+        "updatedAt": "2026-01-01T00:00:00Z"}})
 }
 
 fn users_dir_is_empty(root: &Path) -> bool {
@@ -267,7 +284,7 @@ async fn json_keeps_its_bytes_through_http() {
         .post_raw(
             &["u1"],
             &format!(
-                r#"{{"method":"storage","params":{{"method":"onboardingSave","params":{{"data":{odd}}}}}}}"#
+                r#"{{"method":"storage","params":{{"method":"licenseSave","params":{{"data":{odd}}}}}}}"#
             ),
         )
         .await;
@@ -275,13 +292,13 @@ async fn json_keeps_its_bytes_through_http() {
     let (status, text) = env
         .post_raw(
             &["u1"],
-            r#"{"method":"storage","params":{"method":"onboardingLoad"}}"#,
+            r#"{"method":"storage","params":{"method":"licenseLoad"}}"#,
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{text}");
     assert_eq!(
         text,
-        format!(r#"{{"method":"storage","result":{{"method":"onboardingLoad","result":{odd}}}}}"#)
+        format!(r#"{{"method":"storage","result":{{"method":"licenseLoad","result":{odd}}}}}"#)
     );
 }
 
@@ -307,26 +324,18 @@ async fn two_users_dont_see_each_others_saves() {
     let env = env();
     env.set("alice", "theme", "dark").await;
     env.set("bob", "theme", "light").await;
-    env.storage(
-        "alice",
-        "tutorialSave",
-        json!({"lessonId": "l1", "challengeId": "c1", "state": "done"}),
-    )
-    .await;
+    env.storage("alice", "licenseSave", json!({"data": {"tier": "pro"}}))
+        .await;
 
     assert_eq!(env.get("alice", "theme").await, "dark");
     assert_eq!(env.get("bob", "theme").await, "light");
     assert_eq!(
-        env.storage("alice", "tutorialLoadAll", Value::Null)
-            .await
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        env.storage("alice", "licenseLoad", Value::Null).await,
+        json!({"tier": "pro"})
     );
     assert_eq!(
-        env.storage("bob", "tutorialLoadAll", Value::Null).await,
-        json!([])
+        env.storage("bob", "licenseLoad", Value::Null).await,
+        Value::Null
     );
     assert_eq!(env.get("carol", "theme").await, Value::Null);
 }
@@ -372,7 +381,7 @@ async fn simultaneous_first_requests_open_the_workspace_once() {
         let app = env.app.clone();
         tasks.push(tokio::spawn(async move {
             let body = json!({"method": "storage", "params": {
-                "method": "appStateSet", "params": {"key": format!("k{i}"), "value": "v"}
+                "method": "userCredentialsSave", "params": credential(&format!("k{i}"), "v")
             }});
             let response = app
                 .oneshot(
@@ -418,13 +427,16 @@ async fn an_evicted_workspace_in_use_keeps_working_until_released() {
 
     // The held workspace still reads and writes.
     let ws = held.workspace();
-    seaquel_core::storage::app_state::set(ws.storage(), "k", Some("during"))
+    let row: seaquel_types::storage::PersistedCredential =
+        serde_json::from_value(credential("k", "during")["credential"].clone()).unwrap();
+    seaquel_core::storage::user_credentials::save(ws.storage(), &row)
         .await
         .unwrap();
     assert_eq!(
-        seaquel_core::storage::app_state::get(ws.storage(), "k")
+        seaquel_core::storage::user_credentials::load(ws.storage(), "db", "k")
             .await
             .unwrap()
+            .map(|c| c.ciphertext)
             .as_deref(),
         Some("during")
     );

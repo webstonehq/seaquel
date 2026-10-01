@@ -53,7 +53,20 @@ pub struct StorageOptions {
     /// - a missing file fails with [`StorageError::NotFound`]
     ///   (`STORAGE_NOT_FOUND`), and nothing is created.
     pub read_only: bool,
+    /// The most bytes the file may grow to (phase 5d-2 review: the web's
+    /// per-user backstop). Every connection runs `PRAGMA max_page_count`
+    /// for it, at [`CAP_PAGE_SIZE`]-byte pages, and a write past it fails
+    /// with [`StorageError::code`] `STORAGE_FULL`. `None` (the default, and
+    /// the desktop's): no cap. `Storage::open`'s own schema work
+    /// (baseline, migrations, data steps, the name-key refill) runs
+    /// uncapped, so a file at or over the cap still opens; it stays
+    /// readable, and deletes still work so its user can make room.
+    pub max_bytes: Option<u64>,
 }
+
+/// The page size [`StorageOptions::max_bytes`] is counted in: SQLite's
+/// default, which every Seaquel file uses.
+pub const CAP_PAGE_SIZE: u64 = 4096;
 
 impl Default for StorageOptions {
     fn default() -> Self {
@@ -61,6 +74,7 @@ impl Default for StorageOptions {
             max_connections: 4,
             idle_timeout: None,
             read_only: false,
+            max_bytes: None,
         }
     }
 }
@@ -140,10 +154,17 @@ impl Storage {
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(BUSY_TIMEOUT)
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(options.max_connections.max(1))
-            .idle_timeout(options.idle_timeout)
-            .connect_with(connect)
+        let pool_options = || {
+            SqlitePoolOptions::new()
+                .max_connections(options.max_connections.max(1))
+                .idle_timeout(options.idle_timeout)
+        };
+        // The schema work (baseline, migrations, data steps, the name-key
+        // refill) runs uncapped: a file at or over `max_bytes` must still
+        // open, or every call would fail with `STORAGE_FULL`. The cap
+        // applies to the pool that serves calls afterwards.
+        let pool = pool_options()
+            .connect_with(connect.clone())
             .await
             .map_err(|e| classify(&path, e, false))?;
 
@@ -158,7 +179,24 @@ impl Storage {
                 other => other,
             });
         }
-        Ok(Self::new(pool, path, false))
+        let Some(max) = options.max_bytes else {
+            return Ok(Self::new(pool, path, false));
+        };
+        if let Err(e) = crate::refill_name_keys(&Self::new(pool.clone(), path.clone(), false)).await
+        {
+            log::warn!(activity = "storage.open", code = e.code(); "Refilling name keys failed");
+        }
+        if let Err(e) = crate::refill_list_meta(&Self::new(pool.clone(), path.clone(), false)).await
+        {
+            log::warn!(activity = "storage.open", code = e.code(); "Refilling list metadata failed");
+        }
+        pool.close().await;
+        let pages = (max / CAP_PAGE_SIZE).max(1);
+        let capped = pool_options()
+            .connect_with(connect.pragma("max_page_count", pages.to_string()))
+            .await
+            .map_err(|e| classify(&path, e, false))?;
+        Ok(Self::new(capped, path, false))
     }
 
     fn new(pool: SqlitePool, path: PathBuf, read_only: bool) -> Self {
@@ -312,9 +350,23 @@ async fn probe(path: &Path) -> Result<(), StorageError> {
 /// The baseline in one transaction, then the numbered migrations, then the
 /// data steps.
 async fn prepare(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageError> {
+    // Only an open with schema work waits past one busy timeout for the
+    // write lock (another pool's migration can hold it that long). A file
+    // that is up to date, which is every open but the first after an
+    // upgrade, fails after one, as before, so a lock held by another
+    // process doesn't stall startup for a minute (5d-2 Task 7 re-review).
+    let pending = {
+        let mut conn = pool.acquire().await?;
+        !schema::is_current(&mut conn).await?
+            || migration_state(&mut conn, migrator).await? != MigrationState::Current
+    };
     // IMMEDIATE takes the write lock up front, so a second process opening
     // the same file waits (busy_timeout) instead of failing halfway.
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut tx = if pending {
+        begin_immediate_waiting(pool).await?
+    } else {
+        pool.begin_with("BEGIN IMMEDIATE").await?
+    };
     schema::baseline(&mut tx).await?;
     tx.commit().await?;
     migrate(pool, migrator).await?;
@@ -350,10 +402,42 @@ async fn migrate(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
     if state == MigrationState::Current {
         return Ok(());
     }
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut tx = begin_immediate_waiting(pool).await?;
     migrator.run_direct(&mut *tx).await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// How many busy timeouts an open with schema work to do (the baseline or
+/// a migration) waits for the write lock before it fails: another pool's
+/// migration can hold it longer than one (`0003`'s
+/// fill runs about 3 s per GB, ~6.5 s on a 2 GiB web file), so an open
+/// racing it (the web server's evicted workspace next to a fresh one)
+/// waits up to about a minute (5d-2 Task 7 review).
+const MIGRATION_WAIT_ATTEMPTS: u32 = 12;
+
+/// `BEGIN IMMEDIATE`, tried again while another connection holds the
+/// write lock (`SQLITE_BUSY` after the busy timeout), up to
+/// [`MIGRATION_WAIT_ATTEMPTS`] times. Any other error fails at once.
+async fn begin_immediate_waiting(
+    pool: &SqlitePool,
+) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+    let mut attempt = 1;
+    loop {
+        match pool.begin_with("BEGIN IMMEDIATE").await {
+            Err(sqlx::Error::Database(e)) if attempt < MIGRATION_WAIT_ATTEMPTS && is_busy(&*e) => {
+                attempt += 1;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// `SQLITE_BUSY` or one of its extended codes (their low byte is 5).
+fn is_busy(e: &dyn sqlx::error::DatabaseError) -> bool {
+    e.code()
+        .and_then(|c| c.parse::<i32>().ok())
+        .is_some_and(|n| n & 0xff == 5)
 }
 
 /// What the migrator would do to a file, read without writing.

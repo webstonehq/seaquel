@@ -183,12 +183,12 @@ fn query_history_replace_all_is_an_unknown_method() {
 async fn a_method_without_params_needs_no_params_key() {
     let env = env(false).await;
     let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"tutorialLoadAll"}}"#)
+        .call_text(r#"{"method":"storage","params":{"method":"vaultStateLoad"}}"#)
         .await
         .unwrap();
     assert_eq!(
         text,
-        r#"{"method":"storage","result":{"method":"tutorialLoadAll","result":[]}}"#
+        r#"{"method":"storage","result":{"method":"vaultStateLoad","result":null}}"#
     );
 }
 
@@ -210,10 +210,7 @@ async fn storage_failures_keep_their_code() {
 async fn a_closed_workspace_fails_with_a_storage_error() {
     let env = env(false).await;
     env.ws.close().await;
-    let err = env
-        .storage("tutorialLoadAll", Json::Null)
-        .await
-        .unwrap_err();
+    let err = env.storage("vaultStateLoad", Json::Null).await.unwrap_err();
     assert_eq!(err.code, "STORAGE_ERROR", "{err}");
 }
 
@@ -226,16 +223,16 @@ async fn json_columns_keep_their_bytes() {
 
     // A top-level JSON value.
     let body = format!(
-        r#"{{"method":"storage","params":{{"method":"onboardingSave","params":{{"data":{odd}}}}}}}"#
+        r#"{{"method":"storage","params":{{"method":"licenseSave","params":{{"data":{odd}}}}}}}"#
     );
     env.call_text(&body).await.unwrap();
     let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"onboardingLoad"}}"#)
+        .call_text(r#"{"method":"storage","params":{"method":"licenseLoad"}}"#)
         .await
         .unwrap();
     assert_eq!(
         text,
-        format!(r#"{{"method":"storage","result":{{"method":"onboardingLoad","result":{odd}}}}}"#)
+        format!(r#"{{"method":"storage","result":{{"method":"licenseLoad","result":{odd}}}}}"#)
     );
 
     // A JSON row (a shared repo, stored as the JSON given).
@@ -250,20 +247,11 @@ async fn json_columns_keep_their_bytes() {
         .unwrap();
     assert!(text.contains(repo), "{text}");
 
-    // A list of JSON values.
-    let themes = [r#"{"z":1,"a":1E+2}"#, r#"[1.0,"x"]"#];
-    let body = format!(
-        r#"{{"method":"storage","params":{{"method":"themesSaveUserThemes","params":{{"themes":[{}]}}}}}}"#,
-        themes.join(",")
-    );
-    env.call_text(&body).await.unwrap();
-    let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"themesLoadUserThemes"}}"#)
-        .await
-        .unwrap();
-    for theme in themes {
-        assert!(text.contains(theme), "{text}");
-    }
+    // A JSON body in the settings group (phase 5d-2): Core rewrites only
+    // the top level of an onboarding patch, and keeps each value's bytes.
+    let body = r#"{"method":"settings","params":{"method":"onboardingPatch","params":{"patch":{"dismissedHints":[ "b" ,"a"]}}}}"#;
+    let text = env.call_text(body).await.unwrap();
+    assert!(text.contains(r#""dismissedHints":[ "b" ,"a"]"#), "{text}");
 }
 
 // ── Secrets ──
@@ -327,11 +315,13 @@ async fn a_bad_secret_key_is_an_invalid_argument() {
 fn params_before_method_fails_clearly() {
     let bodies = [
         // The request itself.
-        r#"{"params":{"method":"tutorialLoadAll"},"method":"storage"}"#,
+        r#"{"params":{"method":"vaultStateLoad"},"method":"storage"}"#,
         // The group's request, for a method with a JSON column...
-        r#"{"method":"storage","params":{"params":{"data":{"a":1}},"method":"onboardingSave"}}"#,
+        r#"{"method":"storage","params":{"params":{"data":{"a":1}},"method":"licenseSave"}}"#,
+        r#"{"method":"settings","params":{"params":{"patch":{"a":1}},"method":"onboardingPatch"}}"#,
+        r#"{"method":"ui","params":{"params":{"windowId":"w","projectId":"p","rev":1,"state":{}},"method":"windowStateSave"}}"#,
         // ...and for one without, which serde alone would accept.
-        r#"{"method":"storage","params":{"params":{"connectionId":"c1"},"method":"aiChatsRemoveByConnection"}}"#,
+        r#"{"method":"storage","params":{"params":{"connectionId":"c1"},"method":"queryHistoryRemoveByConnection"}}"#,
         r#"{"method":"secret","params":{"params":{"key":"db:c1"},"method":"get"}}"#,
     ];
     for body in bodies {
@@ -354,8 +344,8 @@ fn invalid_bodies_are_invalid_arguments() {
         "[]",
         r#"{"method":"nope"}"#,
         r#"{"method":"storage","params":{"method":"nope"}}"#,
-        r#"{"method":"storage","params":{"method":"aiChatsRemoveByConnection","params":{}}}"#,
-        r#"{"method":"storage","params":{"method":"aiChatsRemoveByConnection","params":{"connection_id":"c1"}}}"#,
+        r#"{"method":"storage","params":{"method":"queryHistoryRemoveByConnection","params":{}}}"#,
+        r#"{"method":"storage","params":{"method":"queryHistoryRemoveByConnection","params":{"connection_id":"c1"}}}"#,
     ] {
         let err = parse_request(body.as_bytes()).unwrap_err();
         assert_eq!(err.code, "INVALID_ARGUMENT", "{body}");
@@ -405,27 +395,21 @@ fn storage_request_snapshot() {
     let back: Json = serde_json::from_str(&serde_json::to_string(&append).unwrap()).unwrap();
     assert_eq!(back, serde_json::from_str::<Json>(&append_body).unwrap());
 
-    let unit = Request::Storage(StorageRequest::TutorialRemoveAll);
+    let unit = Request::Storage(StorageRequest::VaultStateReset);
     assert_eq!(
         serde_json::to_string(&unit).unwrap(),
-        r#"{"method":"storage","params":{"method":"tutorialRemoveAll"}}"#
+        r#"{"method":"storage","params":{"method":"vaultStateReset"}}"#
     );
 
-    let prune: Request = parse_request(
-        br#"{"method":"storage","params":{"method":"dashboardVersionsPrune","params":{"dashboardId":"d1","deleteIds":["v1"]}}}"#,
-    )
-    .unwrap();
-    assert_eq!(prune.method(), "dashboardVersionsPrune");
-
-    let res = Response::Storage(StorageResponse::AppStateGet(Some("dark".into())));
+    let res = Response::Storage(StorageResponse::VaultStateLoad(None));
     assert_eq!(
         serde_json::to_string(&res).unwrap(),
-        r#"{"method":"storage","result":{"method":"appStateGet","result":"dark"}}"#
+        r#"{"method":"storage","result":{"method":"vaultStateLoad","result":null}}"#
     );
-    let res = Response::Storage(StorageResponse::TutorialRemoveAll(()));
+    let res = Response::Storage(StorageResponse::VaultStateReset(()));
     assert_eq!(
         serde_json::to_string(&res).unwrap(),
-        r#"{"method":"storage","result":{"method":"tutorialRemoveAll","result":null}}"#
+        r#"{"method":"storage","result":{"method":"vaultStateReset","result":null}}"#
     );
 }
 
@@ -578,13 +562,17 @@ async fn storage_writes_emit_and_reads_dont() {
     use seaquel_core::{StoredKind, WorkspaceEvent};
     let e = env(false).await;
     let mut events = e.ws.events();
-    e.storage("appStateSet", json!({"key": "k1", "value": "canary-value"}))
+    e.storage(
+        "userCredentialsSave",
+        json!({"credential": {"scope": "db", "key": "k1", "nonce": "n",
+            "ciphertext": "canary-value", "updatedAt": "t"}}),
+    )
+    .await
+    .unwrap();
+    e.storage("userCredentialsLoad", json!({"scope": "db", "key": "k1"}))
         .await
         .unwrap();
-    e.storage("appStateGet", json!({"key": "k1"}))
-        .await
-        .unwrap();
-    e.storage("tutorialLoadAll", Json::Null).await.ok();
+    e.storage("vaultStateLoad", Json::Null).await.ok();
     // A connection whose project doesn't exist fails on the foreign key.
     let failed = e
         .storage(

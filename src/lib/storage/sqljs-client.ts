@@ -1,6 +1,7 @@
 /**
  * The demo's `StorageClient`: the TypeScript repositories over sql.js
- * (`web-sqlite.ts`), persisted to `localStorage`. The demo has no Rust core,
+ * (`web-sqlite.ts`), persisted to `localStorage`. The library, settings and
+ * view state are `TsLibrary`, `TsSettings` and `TsUi` over the same file. The demo has no Rust core,
  * so it keeps these until phase 8, the same way it keeps `duckdb.ts`.
  *
  * Desktop and web never load this module (`getStorage()` imports it lazily
@@ -9,19 +10,9 @@
 
 import type { StorageClient } from "./client";
 import {
-  aiChatsRepo,
-  appStateRepo,
-  connectionOverridesRepo,
-  dashboardVersionsRepo,
-  dashboardsRepo,
-  importStateRepo,
   licenseRepo,
-  onboardingRepo,
-  projectStateRepo,
   queryHistoryRepo,
   sharedReposRepo,
-  themeRepo,
-  tutorialRepo,
   userCredentialsRepo,
   vaultStateRepo,
 } from "./repository";
@@ -50,19 +41,9 @@ function bind<R extends object>(repo: R, db: SqliteDatabase): Bound<R> {
 /** Wraps the repositories around an open, bootstrapped database. */
 export function createSqljsStorageClient(db: SqliteDatabase): StorageClient {
   return {
-    appState: bind(appStateRepo, db),
-    connectionOverrides: bind(connectionOverridesRepo, db),
-    projectState: bind(projectStateRepo, db),
     queryHistory: bind(queryHistoryRepo, db),
     sharedRepos: bind(sharedReposRepo, db),
-    themes: bind(themeRepo, db),
     license: bind(licenseRepo, db),
-    onboarding: bind(onboardingRepo, db),
-    tutorial: bind(tutorialRepo, db),
-    importState: bind(importStateRepo, db),
-    dashboards: bind(dashboardsRepo, db),
-    dashboardVersions: bind(dashboardVersionsRepo, db),
-    aiChats: bind(aiChatsRepo, db),
     vaultState: bind(vaultStateRepo, db),
     userCredentials: bind(userCredentialsRepo, db),
   };

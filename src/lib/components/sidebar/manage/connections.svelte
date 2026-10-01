@@ -276,7 +276,7 @@
 									</ContextMenu.Item>
 									<ContextMenu.Item onclick={async () => {
 										db.connections.setActive(connection.id);
-										const dashboard = await db.dashboards.createDashboard("New Dashboard");
+										const dashboard = await db.dashboards.createDashboard("New Dashboard", { renameIfTaken: true });
 										if (dashboard) {
 											db.dashboardTabs.add(dashboard.id, dashboard.name);
 										}

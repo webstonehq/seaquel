@@ -20,6 +20,17 @@ pub async fn set_in(tx: &mut WriteTx, key: &str, value: Option<&str>) -> Result<
     set_with(tx.conn(), key, value).await
 }
 
+/// Deletes `key`'s row inside a write transaction (phase 5d-2: a setting
+/// set to `null` has no row, where [`set`] with `None` keeps one holding
+/// NULL; loads read both as unset). `false` when there was no row.
+pub async fn delete_in(tx: &mut WriteTx, key: &str) -> Result<bool> {
+    let done = sqlx::query("DELETE FROM app_state WHERE key = ?")
+        .bind(key)
+        .execute(tx.conn())
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// Sets `key`. `None` keeps a row whose value is NULL.
 pub async fn set(st: &Storage, key: &str, value: Option<&str>) -> Result<()> {
     set_with(st.pool(), key, value).await

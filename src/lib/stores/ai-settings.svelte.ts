@@ -1,111 +1,204 @@
-import { getStorage } from "$lib/storage";
+import { getSettings } from "$lib/hooks/database/library/index";
+import { RowSeqs } from "$lib/hooks/database/library/seqs";
+import type { ChangeSeq } from "$lib/hooks/database/library/types";
 import { getKeyringService } from "$lib/services/keyring";
-import { DEFAULT_AI_SETTINGS, type AISettings, type AIProvider } from "$lib/types/ai";
+import {
+  DEFAULT_AI_SETTINGS,
+  type AISettings,
+  type AIProvider,
+  type AIProviderType,
+} from "$lib/types/ai";
+import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
-import { NotLoadedError } from "$lib/storage/load-guard";
+import { onStoredChange } from "./settings-sync";
+import { m } from "$lib/paraglide/messages.js";
 
 const ANTHROPIC_API_VERSION = "2023-06-01";
 
-const AI_SETTINGS_KEY = "aiSettings";
+/** The record's key for the `seq` rule. */
+const RECORD = "aiSettings";
 
-class AISettingsStore {
+/**
+ * Web: the provider was saved (Core answered with its id) but the vault
+ * didn't take its API key. The form edits that provider from here, so a
+ * retry stores the key and makes no second provider.
+ */
+export class ProviderKeyNotSavedError extends Error {
+  readonly providerId: string;
+  constructor(providerId: string, cause: unknown) {
+    super(
+      m.settings_ai_key_not_saved({
+        message: cause instanceof Error ? cause.message : String(cause),
+      }),
+      { cause },
+    );
+    this.name = "ProviderKeyNotSavedError";
+    this.providerId = providerId;
+  }
+}
+
+/** A new provider as the settings form makes it; Core gives it its id. */
+export type AIProviderInput = Omit<AIProvider, "id">;
+
+/**
+ * The record Core answers (legacy fields already cleaned) as the store holds
+ * it: the known fields typed, and any other field (a newer release's) kept
+ * as it is, on the record and on each provider.
+ */
+function toSettings(value: unknown): AISettings {
+  const record = (value ?? {}) as Record<string, unknown>;
+  const providers: unknown[] = Array.isArray(record.providers) ? record.providers : [];
+  const flag = (key: keyof AISettings, fallback: boolean) =>
+    typeof record[key] === "boolean" ? (record[key] as boolean) : fallback;
+  return {
+    ...record,
+    enabled: flag("enabled", DEFAULT_AI_SETTINGS.enabled),
+    shareSchemaGlobally: flag("shareSchemaGlobally", DEFAULT_AI_SETTINGS.shareSchemaGlobally),
+    shareDataGlobally: flag("shareDataGlobally", DEFAULT_AI_SETTINGS.shareDataGlobally),
+    providers: providers
+      .filter((p): p is Record<string, unknown> => typeof p === "object" && p !== null)
+      .map(
+        (p) =>
+          ({
+            ...p,
+            id: typeof p.id === "string" ? p.id : "",
+            name: typeof p.name === "string" ? p.name : "",
+            type: (p.type ?? "anthropic") as AIProviderType,
+          }) as AIProvider,
+      ),
+  };
+}
+
+/** A base URL as stored: an empty one is none. */
+function baseUrlOf(url: string | undefined): string | undefined {
+  return url ? url : undefined;
+}
+
+/**
+ * The AI settings (phase 5d-2, Decision 20): each change is one targeted
+ * `settings` call (a provider added, changed or removed, or the flags), so
+ * Core rewrites the record from its stored copy and another window's
+ * change isn't lost. Every answer holds the whole record, applied by the
+ * `seq` rule; another window's change is read again at once.
+ *
+ * API keys (Decision 8, Q19): on the desktop the key goes with the Core
+ * call, which writes the keychain; on the web the vault keeps it in the
+ * browser, written here after Core answers (Core deletes a removed
+ * provider's vault rows). The demo stores none.
+ */
+export class AISettingsStore {
   settings = $state<AISettings>({ ...DEFAULT_AI_SETTINGS });
-  /**
-   * True once the stored settings were read. Saving writes the whole record,
-   * so until then a save would replace the stored providers with defaults.
-   */
+  /** True once the stored settings were read. */
   private loaded = false;
+  private loading: Promise<void> | null = null;
+  private readonly seqs = new RowSeqs();
+
+  constructor() {
+    onStoredChange("aiSettings", () => (this.loaded ? this.read() : undefined));
+  }
 
   getProvider(id: string): AIProvider | null {
     return this.settings.providers.find((p) => p.id === id) ?? null;
   }
 
-  /** Loads the stored settings. A failed read leaves the store unloaded. */
-  async initialize(): Promise<void> {
-    let raw: string | null;
-    try {
-      raw = await getStorage().appState.get(AI_SETTINGS_KEY);
-    } catch (err) {
-      void log.error("[AI] Failed to load AI settings; saving is off until they load:", err);
-      return;
-    }
+  /** Loads the stored settings. A failed read leaves the defaults showing. */
+  initialize(): Promise<void> {
+    this.loading = this.read().catch((err) => {
+      void log.error("[AI] Failed to load AI settings:", err);
+    });
+    return this.loading;
+  }
+
+  private async read(): Promise<void> {
+    const { value, seq } = await getSettings().getAiSettings();
     this.loaded = true;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        // Migration: strip legacy fields from old AIProviderConfig shape
-        const providers = (parsed.providers ?? []).map(
-          (p: AIProvider & { model?: string; provider?: string }) => {
-            const {
-              model: _model,
-              provider,
-              ...rest
-            } = p as AIProvider & { model?: string; provider?: string };
-            return { ...rest, type: rest.type ?? provider ?? "anthropic" } as AIProvider;
-          },
-        );
-        this.settings = { ...DEFAULT_AI_SETTINGS, ...parsed, providers };
-      } catch (err) {
-        void log.error("[AI] Failed to parse saved AI settings, using defaults:", err);
-      }
-    }
+    this.apply(value, seq);
+  }
+
+  private apply(value: unknown, seq: ChangeSeq): void {
+    if (this.seqs.take(RECORD, seq)) this.settings = toSettings(value);
   }
 
   /**
-   * Before a change: the settings must have loaded, or load now. Throws
-   * `NotLoadedError` if they can't, so the change isn't saved over them.
+   * Before a change: a load still out is waited for, and one that never
+   * ran is made, so the settings on screen are the stored ones. The change
+   * itself is targeted, so it's sent whether or not the load worked.
    */
-  private async ensureLoaded(): Promise<void> {
-    if (!this.loaded) await this.initialize();
-    if (!this.loaded) throw new NotLoadedError("AI settings");
+  private async ready(): Promise<void> {
+    if (!this.loading) void this.initialize();
+    await this.loading;
   }
 
-  private async persistSettings(settings: AISettings): Promise<void> {
-    if (!this.loaded) throw new NotLoadedError("AI settings");
-    this.settings = settings;
-    await getStorage().appState.set(AI_SETTINGS_KEY, JSON.stringify(settings));
-  }
-
-  async addProvider(config: AIProvider, apiKey?: string): Promise<void> {
-    await this.ensureLoaded();
-    const providers = [...this.settings.providers, config];
-    await this.persistSettings({ ...this.settings, providers });
-    if (apiKey) {
-      await getKeyringService().setAIApiKeyForProvider(config.id, apiKey);
-    }
-  }
-
-  async updateProvider(config: AIProvider, apiKey?: string): Promise<void> {
-    await this.ensureLoaded();
-    const providers = this.settings.providers.map((p) => (p.id === config.id ? config : p));
-    await this.persistSettings({ ...this.settings, providers });
-    if (apiKey !== undefined) {
-      const keyring = getKeyringService();
-      if (apiKey === "") {
-        await keyring.deleteAIApiKeyForProvider(config.id);
-      } else {
-        await keyring.setAIApiKeyForProvider(config.id, apiKey);
+  /** Adds a provider and answers the id Core gave it. */
+  async addProvider(input: AIProviderInput, apiKey?: string): Promise<string> {
+    await this.ready();
+    const desktop = isTauri();
+    const draft = {
+      name: input.name,
+      type: input.type,
+      ...(baseUrlOf(input.baseUrl) ? { baseUrl: input.baseUrl } : {}),
+    };
+    const { value, seq } = await getSettings().createAiProvider(
+      draft,
+      desktop && apiKey ? apiKey : undefined,
+    );
+    this.apply(value.settings, seq);
+    if (!desktop && apiKey) {
+      try {
+        await getKeyringService().setAIApiKeyForProvider(value.id, apiKey);
+      } catch (error) {
+        throw new ProviderKeyNotSavedError(value.id, error);
       }
     }
+    return value.id;
   }
 
+  /**
+   * Changes a provider: only the fields that differ from the one shown.
+   * `apiKey`: left out keeps it, `""` deletes it, anything else sets it.
+   */
+  async updateProvider(config: AIProvider, apiKey?: string): Promise<void> {
+    await this.ready();
+    const existing = this.getProvider(config.id);
+    const patch: { name?: string; type?: AIProviderType; baseUrl?: string | null } = {};
+    if (config.name !== existing?.name) patch.name = config.name;
+    if (config.type !== existing?.type) patch.type = config.type;
+    const url = baseUrlOf(config.baseUrl);
+    if (url !== baseUrlOf(existing?.baseUrl)) patch.baseUrl = url ?? null;
+    const desktop = isTauri();
+    const key = apiKey === undefined ? undefined : apiKey === "" ? null : apiKey;
+    const { value, seq } = await getSettings().updateAiProvider(
+      config.id,
+      patch,
+      desktop ? key : undefined,
+    );
+    this.apply(value, seq);
+    if (!desktop && key !== undefined) {
+      const keyring = getKeyringService();
+      if (key === null) await keyring.deleteAIApiKeyForProvider(config.id);
+      else await keyring.setAIApiKeyForProvider(config.id, key);
+    }
+  }
+
+  /** Removes a provider; Core deletes its API key too (keychain or vault). */
   async deleteProvider(id: string): Promise<void> {
-    await this.ensureLoaded();
-    const providers = this.settings.providers.filter((p) => p.id !== id);
-    await this.persistSettings({ ...this.settings, providers });
-    await getKeyringService().deleteAIApiKeyForProvider(id);
+    await this.ready();
+    const { value, seq } = await getSettings().removeAiProvider(id);
+    this.apply(value, seq);
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
-    await this.ensureLoaded();
-    await this.persistSettings({ ...this.settings, enabled });
+    await this.ready();
+    const { value, seq } = await getSettings().patchAiSettings({ enabled });
+    this.apply(value, seq);
   }
 
   async savePrivacySettings(
     patch: Pick<AISettings, "shareSchemaGlobally" | "shareDataGlobally">,
   ): Promise<void> {
-    await this.ensureLoaded();
-    await this.persistSettings({ ...this.settings, ...patch });
+    await this.ready();
+    const { value, seq } = await getSettings().patchAiSettings(patch);
+    this.apply(value, seq);
   }
 
   /**

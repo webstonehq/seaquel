@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectRequest, ProviderRegistry } from "$lib/providers";
 import type { DatabaseConnection } from "$lib/types";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
+import type { WindowStateManager } from "./window-state.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 
@@ -95,7 +95,7 @@ function setup() {
   } as unknown as ProviderRegistry;
   const persistence = {
     scheduleProject: vi.fn(),
-  } as unknown as PersistenceManager;
+  } as unknown as WindowStateManager;
   const restoration = {
     loadConnectionData: vi.fn(async () => {}),
     initializeConnectionMaps: vi.fn(),

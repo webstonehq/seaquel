@@ -1,10 +1,9 @@
 /**
  * Never save what failed to load.
  *
- * Several stored collections are saved by replacing everything (user themes,
- * shared repos, a project's tabs and canvases, a chat's messages) or by
- * writing one record whole
- * (AI settings, onboarding, license). If the load failed and the store fell
+ * A few stored things are still saved by replacing everything (the shared
+ * repos, a window's view state of a project) or by writing one record whole
+ * (the license). If the load failed and the store fell
  * back to empty or default state, the next save would overwrite the stored
  * data with that. So a store marks a failed load, and its saves refuse until
  * a later load succeeds.

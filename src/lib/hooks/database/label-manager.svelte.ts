@@ -1,18 +1,14 @@
 import type { ConnectionLabel, DatabaseConnection } from "$lib/types";
 import { PREDEFINED_LABELS } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import { patchConnection } from "./library/view.js";
 
 /**
  * Manages connection labels and their operations.
  */
 export class LabelManager {
-  constructor(
-    private state: DatabaseState,
-    // Kept for the call sites; labels are stored through the library.
-    _persistence?: PersistenceManager,
-  ) {}
+  /** Labels are stored through the library. */
+  constructor(private state: DatabaseState) {}
 
   /**
    * Get all available labels for a project (predefined + custom).

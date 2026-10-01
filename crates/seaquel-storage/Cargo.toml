@@ -16,8 +16,9 @@ serde_json = { workspace = true, features = ["raw_value"] }
 percent-encoding = "2"
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-# `time`: the write mutex's wait gives up (`Storage::write`).
-tokio = { workspace = true, features = ["time"] }
+# `time`: the write mutex's wait gives up (`Storage::write`). `rt`: a
+# dropped `WriteTx` runs its `ROLLBACK` on a task (`Handle::spawn`).
+tokio = { workspace = true, features = ["time", "rt"] }
 # WHATWG URL parsing, for stripping passwords from connection strings exactly as
 # the TypeScript's `new URL` did.
 url = "2"

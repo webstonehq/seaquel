@@ -281,7 +281,7 @@ fn unknown_request_fields_are_refused() {
         // the request itself
         r#"{"method":"library","params":{"method":"connectionsList"},"extra":1}"#,
         // storage, secret, license, git, ssh
-        r#"{"method":"storage","params":{"method":"appStateGet","params":{"key":"k","extra":1}}}"#,
+        r#"{"method":"storage","params":{"method":"userCredentialsLoad","params":{"scope":"db","key":"k","extra":1}}}"#,
         r#"{"method":"secret","params":{"method":"get","params":{"key":"db:c","extra":1}}}"#,
         r#"{"method":"license","params":{"method":"validate","params":{"key":"k","instanceId":"i","extra":1}}}"#,
         r#"{"method":"git","params":{"method":"status","params":{"path":"/p","extra":1}}}"#,
@@ -300,7 +300,7 @@ fn unknown_request_fields_are_refused() {
         r#"{"method":"library","params":{"method":"connectionRemove","params":{"id":"c"}}}"#,
         r#"{"method":"library","params":{"method":"connectionUpdate","params":{"id":"c","patch":{"name":"n"},"secrets":{"db":"x"}}}}"#,
         r#"{"method":"library","params":{"method":"connectionsList"}}"#,
-        r#"{"method":"storage","params":{"method":"appStateGet","params":{"key":"k"}}}"#,
+        r#"{"method":"storage","params":{"method":"userCredentialsLoad","params":{"scope":"db","key":"k"}}}"#,
         r#"{"method":"secret","params":{"method":"get","params":{"key":"db:c"}}}"#,
         r#"{"method":"license","params":{"method":"validate","params":{"key":"k","instanceId":"i"}}}"#,
         r#"{"method":"git","params":{"method":"status","params":{"path":"/p"}}}"#,
@@ -492,8 +492,9 @@ async fn storage_group_writes_carry_the_origin_too() {
     let mut events = workspace_events(&env.ws);
     env.call_as(
         Some("tab-2"),
-        &json!({"method": "storage", "params": {"method": "appStateSet",
-            "params": {"key": "k1", "value": "canary-value"}}}),
+        &json!({"method": "storage", "params": {"method": "userCredentialsSave",
+            "params": {"credential": {"scope": "db", "key": "k1", "nonce": "n",
+                "ciphertext": "canary-value", "updatedAt": "t"}}}}),
     )
     .await
     .unwrap();

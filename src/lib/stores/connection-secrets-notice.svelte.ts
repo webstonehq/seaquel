@@ -7,11 +7,11 @@
  * JSON id list. After the page has loaded its connections it reads the
  * list, names them once, and clears the key when the user dismisses it.
  */
-import { getStorage } from "$lib/storage";
+import { getSettings } from "$lib/hooks/database/library/index";
 import { log } from "$lib/utils/logger";
 
 /** Core's `app_state` key for the notice (`seaquel-core`'s upgrade). */
-export const CONNECTION_SECRETS_NOTICE_KEY = "connectionStringSecretsNotice";
+export const CONNECTION_SECRETS_NOTICE_KEY = "connectionStringSecretsNotice" as const;
 
 /** The ids in the stored list, or `[]` when it's missing or not a list of strings. */
 export function parseNoticeIds(value: string | null): string[] {
@@ -37,7 +37,7 @@ class ConnectionSecretsNotice {
   async check(nameOf: (id: string) => string | undefined): Promise<void> {
     let ids: string[];
     try {
-      ids = parseNoticeIds(await getStorage().appState.get(CONNECTION_SECRETS_NOTICE_KEY));
+      ids = parseNoticeIds((await getSettings().getSetting(CONNECTION_SECRETS_NOTICE_KEY)).value);
     } catch (error) {
       void log.warn("Reading the connection secrets notice failed:", error);
       return;
@@ -62,7 +62,7 @@ class ConnectionSecretsNotice {
 
   private async clear(): Promise<void> {
     try {
-      await getStorage().appState.set(CONNECTION_SECRETS_NOTICE_KEY, null);
+      await getSettings().setSetting(CONNECTION_SECRETS_NOTICE_KEY, null);
     } catch (error) {
       void log.warn("Clearing the connection secrets notice failed:", error);
     }

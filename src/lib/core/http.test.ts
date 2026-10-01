@@ -4,7 +4,7 @@
  * started streams when the socket closes, reconnecting with backoff, a 1008
  * close (access lost), and `connectionClosed` events.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreEvent } from "$lib/types/generated/CoreEvent";
 
 vi.mock("$lib/utils/logger", () => ({
@@ -14,6 +14,12 @@ vi.mock("$lib/utils/toast", () => ({ errorToast: vi.fn() }));
 
 const { HttpCoreClient } = await import("./http");
 const { webPageOrigin } = await import("./origin");
+const { windowIdReady } = await import("./window-id");
+// The page's window id is settled before its first call (`window-id.test.ts`
+// covers the wait itself).
+beforeAll(async () => {
+  await windowIdReady();
+});
 import type { QueryStreamRequest, RunRequest, StreamEvent } from "./client";
 import type { RunEvent } from "$lib/types/generated/RunEvent";
 
@@ -392,13 +398,13 @@ describe("HttpCoreClient.call", () => {
     const fetchMock = vi.fn(
       async (_url: string, _init: RequestInit) =>
         new Response(
-          JSON.stringify({ method: "storage", result: { method: "tutorialLoadAll", result: [] } }),
+          JSON.stringify({ method: "storage", result: { method: "vaultStateLoad", result: null } }),
         ),
     );
     vi.stubGlobal("fetch", fetchMock);
     const c = client();
-    await c.call({ method: "storage", params: { method: "tutorialLoadAll" } });
-    await c.call({ method: "storage", params: { method: "tutorialLoadAll" } });
+    await c.call({ method: "storage", params: { method: "vaultStateLoad" } });
+    await c.call({ method: "storage", params: { method: "vaultStateLoad" } });
     const origins = fetchMock.mock.calls.map(([, init]) =>
       new Headers(init.headers).get("x-seaquel-origin"),
     );

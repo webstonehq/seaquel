@@ -126,7 +126,7 @@ impl fmt::Display for LibraryError {
 
 impl std::error::Error for LibraryError {}
 
-type Checked<T = ()> = Result<T, LibraryError>;
+pub(crate) type Checked<T = ()> = Result<T, LibraryError>;
 
 // ── Limits ──
 
@@ -177,14 +177,14 @@ pub type Clearable<T> = Option<Option<T>>;
 
 /// Deserializes a [`Clearable`]: a present field (even `null`) is `Some`.
 /// With `#[serde(default)]`, an absent one stays `None`.
-fn clearable<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+pub fn clearable<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
     d: D,
 ) -> Result<Clearable<T>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
 }
 
 /// Which of a patch's fields are present, for `Debug`.
-fn present<T>(field: &Option<T>) -> bool {
+pub(crate) fn present<T>(field: &Option<T>) -> bool {
     field.is_some()
 }
 
@@ -222,6 +222,27 @@ pub enum StoredKind {
     History,
     /// A write through the storage group.
     Storage,
+    // Phase 5d-2 (Decision 16).
+    /// One window's view state of a project (scope: the project; ids: the
+    /// window).
+    ProjectState,
+    /// A saved workflow (scope: the project).
+    Workflow,
+    /// An app-state setting (ids: the key).
+    Setting,
+    /// The AI settings record, its providers and their API keys.
+    AiSettings,
+    /// The theme preferences and the user themes.
+    Theme,
+    /// A dashboard, its versions included (scope: the project).
+    Dashboard,
+    /// An AI chat (scope: the connection).
+    Chat,
+    /// An AI chat's messages (scope: the chat).
+    ChatMessages,
+    Onboarding,
+    Tutorial,
+    ImportState,
 }
 
 impl StoredKind {
@@ -233,6 +254,17 @@ impl StoredKind {
             StoredKind::SavedQuery => "savedQuery",
             StoredKind::History => "history",
             StoredKind::Storage => "storage",
+            StoredKind::ProjectState => "projectState",
+            StoredKind::Workflow => "workflow",
+            StoredKind::Setting => "setting",
+            StoredKind::AiSettings => "aiSettings",
+            StoredKind::Theme => "theme",
+            StoredKind::Dashboard => "dashboard",
+            StoredKind::Chat => "chat",
+            StoredKind::ChatMessages => "chatMessages",
+            StoredKind::Onboarding => "onboarding",
+            StoredKind::Tutorial => "tutorial",
+            StoredKind::ImportState => "importState",
         }
     }
 }
@@ -276,7 +308,7 @@ pub fn free_name(name: &str, taken: &HashSet<String>) -> String {
 
 // ── Field checks ──
 
-fn no_nul(s: &str, what: &str) -> Checked {
+pub(crate) fn no_nul(s: &str, what: &str) -> Checked {
     if s.contains('\0') {
         Err(LibraryError::invalid(format!(
             "The {what} can't contain a NUL character."
@@ -286,7 +318,7 @@ fn no_nul(s: &str, what: &str) -> Checked {
     }
 }
 
-fn within(s: &str, what: &str, limit: Option<usize>, limit_name: &str) -> Checked {
+pub(crate) fn within(s: &str, what: &str, limit: Option<usize>, limit_name: &str) -> Checked {
     no_nul(s, what)?;
     match limit {
         Some(max) if s.len() > max => Err(LibraryError::invalid(format!(
@@ -296,16 +328,16 @@ fn within(s: &str, what: &str, limit: Option<usize>, limit_name: &str) -> Checke
     }
 }
 
-fn field(s: &str, what: &str, limits: &LibraryLimits) -> Checked {
+pub(crate) fn field(s: &str, what: &str, limits: &LibraryLimits) -> Checked {
     within(s, what, limits.max_field_bytes, "max_field_bytes")
 }
 
-fn opt_field(s: Option<&str>, what: &str, limits: &LibraryLimits) -> Checked {
+pub(crate) fn opt_field(s: Option<&str>, what: &str, limits: &LibraryLimits) -> Checked {
     s.map_or(Ok(()), |s| field(s, what, limits))
 }
 
 /// An id, label id, folder or tag: bounded by `max_name_bytes`.
-fn short(s: &str, what: &str, limits: &LibraryLimits) -> Checked {
+pub(crate) fn short(s: &str, what: &str, limits: &LibraryLimits) -> Checked {
     within(s, what, limits.max_name_bytes, "max_name_bytes")
 }
 
@@ -320,7 +352,7 @@ pub fn check_name(name: &str, what: &str, limits: &LibraryLimits) -> Checked {
     Ok(())
 }
 
-fn list_len(len: usize, what: &str, limits: &LibraryLimits) -> Checked {
+pub(crate) fn list_len(len: usize, what: &str, limits: &LibraryLimits) -> Checked {
     match limits.max_list_items {
         Some(max) if len > max => Err(LibraryError::invalid(format!(
             "There are more {what} than allowed here (max_list_items: {max})."

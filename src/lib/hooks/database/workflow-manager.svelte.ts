@@ -9,6 +9,7 @@ import type {
   WorkflowResultNodeData,
   WorkflowChartNodeData,
   SavedWorkflow,
+  SavedWorkflowSummary,
   WorkflowTimelineEntry,
   SerializedWorkflowNode,
   SerializedWorkflowEdge,
@@ -18,6 +19,13 @@ import type { ReadOnlyRows } from "$lib/providers";
 import { createDefaultChartConfig } from "$lib/components/charts/chart-utils";
 import { READ_ONLY_REFUSAL } from "$lib/sql";
 import { m } from "$lib/paraglide/messages.js";
+import { fromStorable, toStorable } from "$lib/values";
+import { errorToast } from "$lib/utils/toast";
+import { log } from "$lib/utils/logger";
+import { errorCode } from "$lib/core/client";
+import { getLibrary, rowKey, NEW, WORKFLOW_NOT_FOUND } from "./library/index.js";
+import { workflowSummaryFromWire } from "./library/convert.js";
+import { libraryErrorMessage, limitMessage, limitOf } from "./library/messages.js";
 
 const DEFAULT_NODE_WIDTH = 320;
 
@@ -49,6 +57,51 @@ function nodeError(error: unknown): string {
   return message;
 }
 
+/** A node's rows, if its data holds any. */
+function rowsOf(data: WorkflowNodeData | undefined): unknown[][] | null {
+  const rows = (data as { rows?: unknown } | undefined)?.rows;
+  return Array.isArray(rows) && rows.length > 0 ? (rows as unknown[][]) : null;
+}
+
+/**
+ * The nodes as stored (Q16, Decision 23): a chart node whose source, in the
+ * same workflow, holds rows is stored with `rows: []`, since the load
+ * rebuilds it from there. Any other chart keeps its rows.
+ */
+export function dropChartCopies(nodes: SerializedWorkflowNode[]): SerializedWorkflowNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return nodes.map((node) => {
+    if (node.data.type !== "chart") return node;
+    const data = node.data as WorkflowChartNodeData;
+    const source = byId.get(data.sourceNodeId)?.data;
+    // A chart fed by another chart keeps its rows: that source's own copy
+    // may be dropped here too, and the load fills from the stored nodes,
+    // so there would be nothing to rebuild this one from.
+    if (source?.type === "chart") return node;
+    if (!rowsOf(data) || !rowsOf(source)) return node;
+    return { ...node, data: { ...data, rows: [] } };
+  });
+}
+
+/**
+ * The nodes as shown: a chart node stored without rows takes its source's
+ * columns and rows, as a run does, keeping its chart config. A chart that
+ * has rows (a workflow saved before 5d-2) uses them as they are.
+ */
+export function fillChartsFromSources(nodes: SerializedWorkflowNode[]): SerializedWorkflowNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return nodes.map((node) => {
+    if (node.data.type !== "chart") return node;
+    const data = node.data as WorkflowChartNodeData;
+    if (rowsOf(data)) return node;
+    const source = byId.get(data.sourceNodeId)?.data;
+    const rows = rowsOf(source);
+    if (!rows) return node;
+    const columns = (source as { columns?: string[] }).columns ?? data.columns;
+    return { ...node, data: { ...data, columns, rows } };
+  });
+}
+
 /**
  * Workflow manager - handles all workflow operations
  */
@@ -56,10 +109,16 @@ export class WorkflowManager {
   /** Each query node's run in flight: re-running or deleting the node cancels it. */
   private runs = new Map<string, AbortController>();
 
+  /** Workflows (by id, or `new:<name>`) whose save was refused as too large, told once. */
+  private toldTooLarge = new Set<string>();
+  /** Counts opens (and new workflows): only the latest open's body lands. */
+  private opening = 0;
+  /** The workflow the latest open is reading, until it lands. */
+  private openingId: string | null = null;
+
   constructor(
     private state: DatabaseState,
     private workflowState: WorkflowState,
-    private schedulePersistence: (projectId: string | null) => void,
     private executeQuery: RunWorkflowQuery,
   ) {}
 
@@ -584,32 +643,44 @@ export class WorkflowManager {
    * Clear the current workflow
    */
   clearWorkflow(): void {
+    // An open still reading its body doesn't land over the new workflow.
+    this.opening++;
     this.workflowState.nodes = [];
     this.workflowState.edges = [];
     this.workflowState.activeWorkflowId = null;
   }
 
   /**
-   * Save the current workflow
+   * Save the current workflow (Decision 23): a new one is `workflowCreate`
+   * (Core gives it its id and times), one already saved `workflowUpdate`.
+   * `activeWorkflowId` is looked up in every project the page holds, since
+   * the canvas is global: after a project switch it still names the
+   * workflow it shows, which is updated where it lives (bug 22); an id no
+   * project holds (deleted) saves a new one here. Chart nodes don't store
+   * their source's rows again (Q16). `null` when it wasn't saved: the error
+   * is shown and the canvas stays as it is.
    */
-  saveWorkflow(name: string): SavedWorkflow {
+  async saveWorkflow(name?: string): Promise<SavedWorkflowSummary | null> {
     const projectId = this.state.activeProjectId;
     if (!projectId) {
       throw new Error("No active project");
     }
+    const existing = this.findSaved(this.workflowState.activeWorkflowId);
+    // Named: the name given; else the workflow's own (in whichever project
+    // holds it), or a new one's default.
+    const saveName = name ?? existing?.workflow.name ?? `Workflow ${new Date().toLocaleString()}`;
 
-    const now = new Date().toISOString();
-    const existingId = this.workflowState.activeWorkflowId;
-
-    // Serialize nodes and edges
-    const serializedNodes: SerializedWorkflowNode[] = this.workflowState.nodes.map((node) => ({
-      id: node.id,
-      type: node.type ?? "unknown",
-      position: node.position,
-      data: node.data,
-      width: node.measured?.width ?? node.width,
-      height: node.measured?.height ?? node.height,
-    }));
+    // Serialize nodes and edges; chart nodes don't store their source's rows again
+    const serializedNodes: SerializedWorkflowNode[] = dropChartCopies(
+      this.workflowState.nodes.map((node) => ({
+        id: node.id,
+        type: node.type ?? "unknown",
+        position: node.position,
+        data: node.data,
+        width: node.measured?.width ?? node.width,
+        height: node.measured?.height ?? node.height,
+      })),
+    );
 
     const serializedEdges: SerializedWorkflowEdge[] = this.workflowState.edges.map((edge) => ({
       id: edge.id,
@@ -619,86 +690,169 @@ export class WorkflowManager {
       targetHandle: edge.targetHandle,
     }));
 
-    if (existingId) {
-      // Update existing workflow
-      const savedWorkflows = this.state.savedWorkflowsByProject[projectId] ?? [];
-      const index = savedWorkflows.findIndex((c) => c.id === existingId);
-
-      if (index !== -1) {
-        const updated: SavedWorkflow = {
-          ...savedWorkflows[index],
-          name,
-          nodes: serializedNodes,
-          edges: serializedEdges,
-          viewport: this.workflowState.viewport,
-          updatedAt: now,
-        };
-
-        this.state.savedWorkflowsByProject = {
-          ...this.state.savedWorkflowsByProject,
-          [projectId]: [
-            ...savedWorkflows.slice(0, index),
-            updated,
-            ...savedWorkflows.slice(index + 1),
-          ],
-        };
-
-        this.addTimelineEntry({
-          type: "workflow-save",
-          description: `Saved workflow "${name}"`,
-        });
-
-        this.schedulePersistence(projectId);
-        return updated;
-      }
-    }
-
-    // Create new workflow
-    const newWorkflow: SavedWorkflow = {
-      id: `workflow-${crypto.randomUUID()}`,
-      name,
-      projectId,
+    const body = {
+      name: saveName,
       nodes: serializedNodes,
       edges: serializedEdges,
       viewport: this.workflowState.viewport,
-      createdAt: now,
-      updatedAt: now,
     };
-
-    const savedWorkflows = this.state.savedWorkflowsByProject[projectId] ?? [];
-    this.state.savedWorkflowsByProject = {
-      ...this.state.savedWorkflowsByProject,
-      [projectId]: [...savedWorkflows, newWorkflow],
-    };
-    this.workflowState.activeWorkflowId = newWorkflow.id;
-
+    const saved = existing
+      ? await this.update(existing.workflow.id, body, saveName)
+      : await this.create(projectId, body, saveName);
+    if (!saved) return null;
+    this.workflowState.activeWorkflowId = saved.id;
     this.addTimelineEntry({
       type: "workflow-save",
-      description: `Saved workflow "${name}"`,
+      description: `Saved workflow "${saveName}"`,
     });
+    return saved;
+  }
 
-    this.schedulePersistence(projectId);
-    return newWorkflow;
+  /** The saved workflow with `id` in any project the page holds, with its project. */
+  private findSaved(
+    id: string | null,
+  ): { projectId: string; workflow: SavedWorkflowSummary } | null {
+    if (!id) return null;
+    for (const [projectId, list] of Object.entries(this.state.savedWorkflowsByProject)) {
+      const workflow = list.find((w) => w.id === id);
+      if (workflow) return { projectId, workflow };
+    }
+    return null;
   }
 
   /**
-   * Load a saved workflow
+   * The stored workflow Core answered, listed as the sidebar lists it (the
+   * page holds no bodies: opening one reads it, 5d-2 Task 7).
    */
-  loadWorkflow(workflowId: string): void {
+  private show(stored: unknown): SavedWorkflowSummary | null {
+    const o = (stored ?? {}) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : null);
+    const id = str(o.id);
+    const projectId = str(o.projectId);
+    if (!id || !projectId) return null;
+    const workflow: SavedWorkflowSummary = {
+      id,
+      projectId,
+      name: str(o.name) ?? "",
+      createdAt: str(o.createdAt),
+      updatedAt: str(o.updatedAt),
+    };
+    this.list(workflow);
+    return workflow;
+  }
+
+  /** Shows `workflow` in its project's list, in place or at the end. */
+  private list(workflow: SavedWorkflowSummary): void {
+    const list = this.state.savedWorkflowsByProject[workflow.projectId] ?? [];
+    this.state.savedWorkflowsByProject = {
+      ...this.state.savedWorkflowsByProject,
+      [workflow.projectId]: list.some((w) => w.id === workflow.id)
+        ? list.map((w) => (w.id === workflow.id ? workflow : w))
+        : [...list, workflow],
+    };
+  }
+
+  private async create(
+    projectId: string,
+    body: Record<string, unknown>,
+    name: string,
+  ): Promise<SavedWorkflowSummary | null> {
+    try {
+      const { value, seq } = await this.state.librarySeqs.write([rowKey("workflow", NEW)], () =>
+        getLibrary().createWorkflow(projectId, toStorable(body)),
+      );
+      const workflow = this.show(value);
+      if (workflow) this.state.librarySeqs.note(rowKey("workflow", workflow.id), seq);
+      return workflow;
+    } catch (error) {
+      this.refused(`new:${projectId}:${name}`, name, error);
+      return null;
+    }
+  }
+
+  private async update(
+    id: string,
+    body: Record<string, unknown>,
+    name: string,
+  ): Promise<SavedWorkflowSummary | null> {
+    try {
+      const { value, seq } = await this.state.librarySeqs.write([rowKey("workflow", id)], () =>
+        getLibrary().updateWorkflow(id, toStorable(body)),
+      );
+      this.state.librarySeqs.note(rowKey("workflow", id), seq);
+      return this.show(value);
+    } catch (error) {
+      this.refused(id, name, error);
+      return null;
+    }
+  }
+
+  /**
+   * A refused save. Past the web's `max_workflow_bytes` (Q16) it says so
+   * once per workflow, naming it and the limit; anything else each time.
+   */
+  private refused(key: string, name: string, error: unknown): void {
+    void log.error("Failed to save a workflow:", error);
+    const limit = limitOf(error);
+    if (limit) {
+      const other = limitMessage(limit);
+      if (other) {
+        errorToast(m.workflow_save_failed({ message: other }));
+        return;
+      }
+      if (this.toldTooLarge.has(key)) return;
+      this.toldTooLarge.add(key);
+      errorToast(m.workflow_too_large({ name, limit }));
+      return;
+    }
+    errorToast(m.workflow_save_failed({ message: libraryErrorMessage(error) }));
+  }
+
+  /**
+   * Open a saved workflow on the canvas: its body is read now
+   * (`workflowGet`), since the list holds none (5d-2 Task 7). Only the
+   * latest open lands: one clicked while another is being read wins. A
+   * workflow that can't be read is said and the canvas stays; one deleted
+   * elsewhere is also dropped from the list. False when nothing opened.
+   */
+  async loadWorkflow(workflowId: string): Promise<boolean> {
     const projectId = this.state.activeProjectId;
     if (!projectId) {
       throw new Error("No active project");
     }
 
     const savedWorkflows = this.state.savedWorkflowsByProject[projectId] ?? [];
-    const workflow = savedWorkflows.find((c) => c.id === workflowId);
+    const listed = savedWorkflows.find((c) => c.id === workflowId);
 
-    if (!workflow) {
+    if (!listed) {
       throw new Error("Workflow not found");
     }
 
-    // Restore nodes
-    this.workflowState.nodes = workflow.nodes.map((serialized) => ({
+    const open = ++this.opening;
+    this.openingId = workflowId;
+    let workflow: SavedWorkflow;
+    try {
+      const { value } = await getLibrary().getWorkflow(workflowId);
+      workflow = fromStorable(value) as SavedWorkflow;
+      if (!workflow || !Array.isArray(workflow.nodes) || !Array.isArray(workflow.edges)) {
+        throw new Error("The saved workflow isn't a workflow.");
+      }
+    } catch (error) {
+      if (open !== this.opening) return false;
+      void log.error("Failed to open a saved workflow:", error);
+      errorToast(m.workflow_open_failed({ message: libraryErrorMessage(error) }));
+      if (errorCode(error) === WORKFLOW_NOT_FOUND) {
+        void this.refreshFromLibrary(projectId, [workflowId]).catch(() => {});
+      }
+      return false;
+    }
+    // Another open (or a new workflow, or deleting this one) since this
+    // one started wins.
+    if (open !== this.opening) return false;
+    this.openingId = null;
+
+    // Restore nodes, charts filled from their sources' rows
+    this.workflowState.nodes = fillChartsFromSources(workflow.nodes).map((serialized) => ({
       id: serialized.id,
       type: serialized.type,
       position: serialized.position,
@@ -722,47 +876,124 @@ export class WorkflowManager {
 
     this.addTimelineEntry({
       type: "workflow-load",
-      description: `Loaded workflow "${workflow.name}"`,
+      description: `Loaded workflow "${listed.name}"`,
     });
+    return true;
   }
 
   /**
-   * Delete a saved workflow
+   * Delete a saved workflow (`workflowRemove`). The canvas showing it keeps
+   * its nodes, no longer linked to it.
    */
-  deleteWorkflow(workflowId: string): void {
-    const projectId = this.state.activeProjectId;
-    if (!projectId) return;
+  async deleteWorkflow(workflowId: string): Promise<void> {
+    const found = this.findSaved(workflowId);
+    try {
+      const { seq } = await this.state.librarySeqs.write([rowKey("workflow", workflowId)], () =>
+        getLibrary().removeWorkflow(workflowId),
+      );
+      this.state.librarySeqs.note(rowKey("workflow", workflowId), seq);
+    } catch (error) {
+      void log.error("Failed to delete a workflow:", error);
+      errorToast(m.workflow_delete_failed({ message: libraryErrorMessage(error) }));
+      return;
+    }
+    this.forget(found?.projectId ?? this.state.activeProjectId, workflowId);
 
-    const savedWorkflows = this.state.savedWorkflowsByProject[projectId] ?? [];
-    this.state.savedWorkflowsByProject = {
-      ...this.state.savedWorkflowsByProject,
-      [projectId]: savedWorkflows.filter((c) => c.id !== workflowId),
-    };
+    // An open of it still reading its body never lands (5d-2 Task 7 review).
+    if (this.openingId === workflowId) {
+      this.opening++;
+      this.openingId = null;
+    }
 
     // Clear workflow if it was the active one
     if (this.workflowState.activeWorkflowId === workflowId) {
       this.clearWorkflow();
     }
-
-    this.schedulePersistence(projectId);
   }
 
-  /**
-   * Rename a saved workflow
-   */
-  renameWorkflow(workflowId: string, newName: string): void {
-    const projectId = this.state.activeProjectId;
+  /** Drops a workflow from the page's list of its project. */
+  private forget(projectId: string | null, workflowId: string): void {
     if (!projectId) return;
-
     const savedWorkflows = this.state.savedWorkflowsByProject[projectId] ?? [];
     this.state.savedWorkflowsByProject = {
       ...this.state.savedWorkflowsByProject,
-      [projectId]: savedWorkflows.map((c) =>
-        c.id === workflowId ? { ...c, name: newName, updatedAt: new Date().toISOString() } : c,
-      ),
+      [projectId]: savedWorkflows.filter((c) => c.id !== workflowId),
     };
+  }
 
-    this.schedulePersistence(projectId);
+  /**
+   * Rename a saved workflow (`workflowRename`): Core changes only the
+   * stored name, on the row as stored, so a save another window made isn't
+   * undone and the body never crosses (5d-2 Task 7 review). A workflow
+   * saved before 5d-2 keeps its chart copies: only `saveWorkflow` drops them
+   * (Decision 23).
+   */
+  async renameWorkflow(workflowId: string, newName: string): Promise<void> {
+    const found = this.findSaved(workflowId);
+    if (!found) return;
+    try {
+      const { value, seq } = await this.state.librarySeqs.write(
+        [rowKey("workflow", workflowId)],
+        () => getLibrary().renameWorkflow(workflowId, newName),
+      );
+      this.state.librarySeqs.note(rowKey("workflow", workflowId), seq);
+      this.list(workflowSummaryFromWire(value));
+    } catch (error) {
+      this.refused(workflowId, newName, error);
+      if (errorCode(error) === WORKFLOW_NOT_FOUND) {
+        void this.refreshFromLibrary(found.projectId, [workflowId]).catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Another window changed saved workflows of `projectId` (a `workflow`
+   * event): read the list again if the page holds it, and apply each row by
+   * the `seq` rule, after this page's own writes to it have answered. A
+   * workflow deleted elsewhere leaves the canvas showing it, unlinked.
+   */
+  async refreshFromLibrary(
+    projectId: string,
+    ids: readonly string[] | null,
+    { again = true } = {},
+  ): Promise<void> {
+    if (!(projectId in this.state.savedWorkflowsByProject)) return;
+    const seqs = this.state.librarySeqs;
+    await Promise.all((ids ?? [""]).map((id) => seqs.settled(rowKey("workflow", id))));
+    const { value, seq } = await getLibrary().listWorkflows(projectId);
+    const stored = new Map<string, SavedWorkflowSummary>(
+      value.map((w) => [w.id, workflowSummaryFromWire(w)]),
+    );
+    const shown = this.state.savedWorkflowsByProject[projectId] ?? [];
+    const wanted = ids === null ? null : new Set(ids);
+    let next = [...shown];
+    /** Rows with a write of this page on its way: read again once it answers. */
+    const skipped: string[] = [];
+    for (const id of new Set([...shown.map((w) => w.id), ...stored.keys()])) {
+      if (wanted && !wanted.has(id)) continue;
+      if (seqs.busy(rowKey("workflow", id))) {
+        skipped.push(id);
+        continue;
+      }
+      if (!seqs.take(rowKey("workflow", id), seq)) continue;
+      const workflow = stored.get(id);
+      if (workflow) {
+        next = next.some((w) => w.id === id)
+          ? next.map((w) => (w.id === id ? workflow : w))
+          : [...next, workflow];
+      } else {
+        next = next.filter((w) => w.id !== id);
+        if (this.workflowState.activeWorkflowId === id) this.workflowState.activeWorkflowId = null;
+      }
+    }
+    this.state.savedWorkflowsByProject = {
+      ...this.state.savedWorkflowsByProject,
+      [projectId]: next,
+    };
+    if (again && skipped.length > 0) {
+      await Promise.all(skipped.map((id) => seqs.settled(rowKey("workflow", id))));
+      await this.refreshFromLibrary(projectId, skipped, { again: false });
+    }
   }
 
   // === TIMELINE ===

@@ -1,9 +1,7 @@
 import type { UpdateInfo } from "$lib/api/tauri";
-import { getStorage } from "$lib/storage";
+import { StoredSetting, names, onStoredChange } from "./settings-sync";
 
-const SKIPPED_VERSION_KEY = "skippedUpdateVersion";
-
-class UpdateStore {
+export class UpdateStore {
   updateInfo = $state<UpdateInfo | null>(null);
   isDownloaded = $state(false);
   isInstalling = $state(false);
@@ -14,6 +12,15 @@ class UpdateStore {
   private upToDateTimer: ReturnType<typeof setTimeout> | null = null;
 
   private initialized = false;
+  private readonly stored = new StoredSetting("skippedUpdateVersion", (v) => {
+    this.skippedVersion = v;
+  });
+
+  constructor() {
+    onStoredChange("setting", (ids) =>
+      names(ids, this.stored.key) ? this.stored.reload() : undefined,
+    );
+  }
 
   get visible(): boolean {
     if (!this.updateInfo) return false;
@@ -25,7 +32,7 @@ class UpdateStore {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     try {
-      this.skippedVersion = await getStorage().appState.get(SKIPPED_VERSION_KEY);
+      await this.stored.load();
     } catch (error) {
       console.error("Failed to load skipped update version:", error);
     }
@@ -57,7 +64,7 @@ class UpdateStore {
     if (!this.updateInfo) return;
     this.skippedVersion = this.updateInfo.version;
     try {
-      await getStorage().appState.set(SKIPPED_VERSION_KEY, this.updateInfo.version);
+      await this.stored.set(this.updateInfo.version);
     } catch (error) {
       console.error("Failed to persist skipped version:", error);
     }

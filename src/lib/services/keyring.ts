@@ -34,8 +34,14 @@ export interface KeyringService {
   getLicenseKey(): Promise<string | null>;
   deleteLicenseKey(): Promise<void>;
 
+  /**
+   * Web only (the vault). On the desktop Core writes a provider's key in
+   * the `settings` call that saves the provider (Decision 8, Q19), and
+   * these reject.
+   */
   setAIApiKeyForProvider(id: string, key: string): Promise<void>;
   getAIApiKeyForProvider(id: string): Promise<string | null>;
+  /** Web only, as `setAIApiKeyForProvider`. */
   deleteAIApiKeyForProvider(id: string): Promise<void>;
 
   /** Plumbing check — can this service store/retrieve credentials at all? */
@@ -132,14 +138,15 @@ class TauriKeyringService implements KeyringService {
     return this.delete("license-key");
   }
 
-  setAIApiKeyForProvider(id: string, key: string): Promise<void> {
-    return this.set(`ai-api-key:${id}`, key);
+  /** Core writes and deletes AI keys inside the `settings` call (phase 5d-2). */
+  setAIApiKeyForProvider(): Promise<void> {
+    return Promise.reject(new Error("AI API keys are saved with their provider (settings)"));
   }
   getAIApiKeyForProvider(id: string): Promise<string | null> {
     return this.get(`ai-api-key:${id}`);
   }
-  deleteAIApiKeyForProvider(id: string): Promise<void> {
-    return this.delete(`ai-api-key:${id}`);
+  deleteAIApiKeyForProvider(): Promise<void> {
+    return Promise.reject(new Error("AI API keys are removed with their provider (settings)"));
   }
 
   isAvailable(): boolean {

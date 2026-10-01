@@ -25,12 +25,34 @@ vi.mock("$lib/stores/ai-settings.svelte", () => ({
 }));
 /** Runs while a dashboard is being saved: lets a test switch connection mid-await. */
 let duringSave: () => void = () => {};
-vi.mock("$lib/storage", () => {
-  const dashboards = {
-    save: vi.fn(async () => duringSave()),
-    remove: vi.fn(async () => {}),
+// Dashboards are saved through the library (5d-2): a patch answers the row.
+vi.mock("./library/index.js", async (importActual) => {
+  const actual = await importActual<typeof import("./library/index.js")>();
+  const seq = { epoch: "e", n: 1 };
+  /** The row Core answers: the patch's widgets over a stored "D" (the tests' dashboard). */
+  const storedRow = (id: string, patch: { widgets?: unknown; viewport?: unknown }) => ({
+    id,
+    projectId: "p",
+    name: "D",
+    widgets: JSON.stringify(patch.widgets ?? []),
+    viewport: JSON.stringify(patch.viewport ?? { x: 0, y: 0, zoom: 1 }),
+    dateFilter: null,
+    starred: false,
+    shared: false,
+    createdAt: "2030-01-01T00:00:00.000Z",
+    updatedAt: "2030-01-01T00:00:00.000Z",
+  });
+  const library = {
+    updateDashboard: vi.fn(async (id: string, patch: { widgets?: unknown }) => {
+      duringSave();
+      seq.n += 1;
+      return {
+        value: { dashboard: storedRow(id, patch), version: null, prunedVersionIds: [] },
+        seq: { ...seq },
+      };
+    }),
   };
-  return { getStorage: () => ({ dashboards }) };
+  return { ...actual, getLibrary: () => library };
 });
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -42,6 +64,7 @@ const { handleToolCall } =
 const { UIStateManager } = await import("./ui-state.svelte.js");
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
 const { QueryCrudManager } = await import("./query-crud.svelte.js");
+const { RowSeqs } = await import("./library/seqs");
 
 const ai = { activeAIProviderId: "prov", activeAIModel: "model" };
 const local = {
@@ -63,7 +86,7 @@ const other = {
  * @param hold The fake query never finishes on its own; only an abort ends it.
  * @param orphan The chat isn't listed under any connection.
  */
-function setup({ hold = false, orphan = false } = {}) {
+async function setup({ hold = false, orphan = false } = {}) {
   duringSave = () => {};
   const state = {
     activeProjectId: "p",
@@ -104,6 +127,11 @@ function setup({ hold = false, orphan = false } = {}) {
     aiMessagesByChat: { "chat-1": [] as AIMessage[] },
     activeAIChatId: "chat-1",
     isAIStreaming: false,
+    aiChatFull: {},
+    librarySeqs: new RowSeqs(),
+    dashboardsUnsaved: {},
+    dashboardsChangedElsewhere: {},
+    dashboardVersionsByProject: {},
   };
   const s = state as unknown as DatabaseState;
   const switchTo = (c: typeof other) => {
@@ -135,7 +163,7 @@ function setup({ hold = false, orphan = false } = {}) {
     () => {},
   );
   const chats = {
-    ensureActiveChat: () => "chat-1",
+    ensureActiveChat: async () => "chat-1",
     updateChatTitle: vi.fn(),
     updateChatTimestamp: vi.fn(),
   } as unknown as AIChatManager;
@@ -150,22 +178,22 @@ function setup({ hold = false, orphan = false } = {}) {
   );
 
   sent.length = 0;
-  ui.sendAIMessage("how many?");
+  await ui.sendAIMessage("how many?");
   const params = sent[0];
   const assistant = () => state.aiMessagesByChat["chat-1"].at(-1)!;
   return { state, ui, params, provider, switchTo, assistant, dashboards };
 }
 
 describe("the chat's connection binding", () => {
-  it("passes the chat's connection, not a type and an executor", () => {
-    const { params } = setup();
+  it("passes the chat's connection, not a type and an executor", async () => {
+    const { params } = await setup();
     expect(params.connection).toEqual({ id: "conn-1", type: "mysql", name: "Local" });
     expect("executeQuery" in params).toBe(false);
     expect("databaseType" in params).toBe(false);
   });
 
   it("runs a tool call on the chat's connection after the active one changed", async () => {
-    const { params, provider, switchTo } = setup();
+    const { params, provider, switchTo } = await setup();
     switchTo(other);
     // One SELECT on MySQL (`#` comment); two statements on Postgres.
     const sql = "SELECT 1 AS n # ; DELETE FROM t";
@@ -180,7 +208,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("refuses when the chat's connection was removed, without calling the provider", async () => {
-    const { params, provider, state } = setup();
+    const { params, provider, state } = await setup();
     state.connections = [other];
     const out = await handleToolCall(
       "run_query",
@@ -192,7 +220,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("refuses when the chat's connection is disconnected, without calling the provider", async () => {
-    const { params, provider, state } = setup();
+    const { params, provider, state } = await setup();
     state.connections = [{ ...local, providerConnectionId: undefined as unknown as string }, other];
     const out = await handleToolCall(
       "run_query",
@@ -206,7 +234,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("runs on the new provider id after a reconnect", async () => {
-    const { params, provider, state } = setup();
+    const { params, provider, state } = await setup();
     state.connections = [{ ...local, providerConnectionId: "pc-9" }, other];
     await handleToolCall(
       "run_query",
@@ -217,7 +245,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("runs an approval given after a switch on the chat's connection", async () => {
-    const { params, provider, switchTo, assistant } = setup();
+    const { params, provider, switchTo, assistant } = await setup();
     const out = handleToolCall("run_query", { query: "SELECT 1 AS n" }, params);
     const pending = assistant().pendingApproval!;
     expect(pending.connectionName).toBe("Local");
@@ -234,7 +262,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("Stop during an approval resolves the tool call and clears the card", async () => {
-    const { ui, params, provider, assistant } = setup();
+    const { ui, params, provider, assistant } = await setup();
     const out = handleToolCall("run_query", { query: "SELECT 1" }, params);
     expect(assistant().pendingApproval).toBeTruthy();
     ui.cancelAIStream();
@@ -244,7 +272,7 @@ describe("the chat's connection binding", () => {
   });
 
   it("Stop after a switch still clears the chat's approval card", async () => {
-    const { ui, params, switchTo, assistant } = setup();
+    const { ui, params, switchTo, assistant } = await setup();
     const out = handleToolCall("run_query", { query: "SELECT 1" }, params);
     switchTo(other);
     ui.cancelAIStream();
@@ -257,7 +285,7 @@ describe("dashboard tools and the chat's connection", () => {
   const add = { dashboard_id: "d-1", widget_type: "kpi", title: "n", query: "SELECT 1 AS n" };
 
   it("adds a widget whose first run is read-only while the chat's connection is active", async () => {
-    const { params, provider, dashboards } = setup();
+    const { params, provider, dashboards } = await setup();
     const out = JSON.parse(await handleToolCall("add_widget", add, params));
     expect(out.widget_id).toBeDefined();
     expect(provider.selectReadOnly).toHaveBeenCalledWith(
@@ -272,7 +300,7 @@ describe("dashboard tools and the chat's connection", () => {
   });
 
   it("refuses add_widget after a switch", async () => {
-    const { params, provider, switchTo, dashboards } = setup();
+    const { params, provider, switchTo, dashboards } = await setup();
     switchTo(other);
     const out = JSON.parse(await handleToolCall("add_widget", add, params));
     expect(out).toEqual({
@@ -285,7 +313,7 @@ describe("dashboard tools and the chat's connection", () => {
 
 describe("approvals, Stop and cancellation", () => {
   it("clears each approval when it's settled, so a second one in the same reply works", async () => {
-    const { params, provider, assistant } = setup();
+    const { params, provider, assistant } = await setup();
     const first = handleToolCall("run_query", { query: "SELECT 1 AS n" }, params);
     const one = assistant().pendingApproval!;
     one.approve();
@@ -302,7 +330,7 @@ describe("approvals, Stop and cancellation", () => {
   });
 
   it("Stop resolves every pending approval", async () => {
-    const { ui, params, provider, assistant } = setup();
+    const { ui, params, provider, assistant } = await setup();
     const a = handleToolCall("run_query", { query: "SELECT 1" }, params);
     const b = handleToolCall("run_query", { query: "SELECT 2" }, params);
     ui.cancelAIStream();
@@ -312,7 +340,7 @@ describe("approvals, Stop and cancellation", () => {
   });
 
   it("Stop cancels a query that's running", async () => {
-    const { ui, params, provider } = setup({ hold: true });
+    const { ui, params, provider } = await setup({ hold: true });
     const out = handleToolCall(
       "run_query",
       { query: "SELECT 1" },
@@ -327,7 +355,7 @@ describe("approvals, Stop and cancellation", () => {
   });
 
   it("Stop cancels a widget's first run", async () => {
-    const { ui, params, provider, dashboards } = setup({ hold: true });
+    const { ui, params, provider, dashboards } = await setup({ hold: true });
     const out = handleToolCall(
       "add_widget",
       { dashboard_id: "d-1", widget_type: "kpi", title: "n", query: "SELECT 1 AS n" },
@@ -343,7 +371,7 @@ describe("approvals, Stop and cancellation", () => {
   });
 
   it("skips a new widget's first run when the connection switched while it was saved", async () => {
-    const { params, provider, switchTo, dashboards } = setup();
+    const { params, provider, switchTo, dashboards } = await setup();
     duringSave = () => switchTo(other);
     const out = JSON.parse(
       await handleToolCall(
@@ -357,8 +385,8 @@ describe("approvals, Stop and cancellation", () => {
     expect(provider.selectReadOnly).not.toHaveBeenCalled();
   });
 
-  it("fails closed for a chat that belongs to no connection", () => {
-    const { state } = setup({ orphan: true });
+  it("fails closed for a chat that belongs to no connection", async () => {
+    const { state } = await setup({ orphan: true });
     expect(sent).toHaveLength(0);
     expect(state.aiMessagesByChat["chat-1"].at(-1)!.content).toBe(
       "Error: This chat's connection was removed",

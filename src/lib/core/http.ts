@@ -1,7 +1,7 @@
 /**
  * `CoreClient` on web:
- * - `call`: `POST /api/rpc`, with the page's write origin
- *   (`webPageOrigin`) as `X-Seaquel-Origin`, so the page can tell its own
+ * - `call`: `POST /api/rpc`, with the page's write origin (its window id,
+ *   `window-id.ts`) as `X-Seaquel-Origin`, so the page can tell its own
  *   writes' `storageChanged` events apart;
  * - `stream` and `events`: one WebSocket per page at
  *   `/api/rpc/stream?origin=<the page's origin>` (a browser can't set
@@ -46,7 +46,7 @@
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
 import type { CoreResponse } from "$lib/types/generated/CoreResponse";
 import { encodeCoreRequest, httpCoreTransport } from "$lib/storage/rust-client";
-import { webPageOrigin } from "./origin";
+import { windowId, windowIdReady } from "./window-id";
 import { log } from "$lib/utils/logger";
 import { errorToast } from "$lib/utils/toast";
 import { m } from "$lib/paraglide/messages.js";
@@ -121,15 +121,17 @@ interface Entry {
 
 const OPEN = 1;
 
-function defaultUrl(): string {
-  const query = `?origin=${encodeURIComponent(webPageOrigin())}`;
+/** The default socket URL, with the page's window id as its origin. */
+function defaultUrl(origin: string): string {
+  const query = `?origin=${encodeURIComponent(origin)}`;
   if (typeof window === "undefined") return `ws://localhost/api/rpc/stream${query}`;
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   return `${scheme}://${window.location.host}/api/rpc/stream${query}`;
 }
 
 export class HttpCoreClient implements CoreClient {
-  private readonly url: string;
+  /** The given URL; the default is made once the window id is settled. */
+  private readonly url: string | null;
   private readonly createSocket: (url: string) => WebSocketLike;
   private readonly maxStreams: number;
   private readonly initialDelayMs: number;
@@ -140,6 +142,8 @@ export class HttpCoreClient implements CoreClient {
   private readonly onAccessLost: (message: string) => void;
   /** Set by a 1008 close: no reconnect until a new query asks for one. */
   private accessLost = false;
+  /** Waiting for the window id before the first socket opens. */
+  private waitingForId = false;
 
   private socket: WebSocketLike | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -153,7 +157,7 @@ export class HttpCoreClient implements CoreClient {
   private opens = 0;
 
   constructor(options: HttpCoreClientOptions = {}) {
-    this.url = options.url ?? defaultUrl();
+    this.url = options.url ?? null;
     this.createSocket =
       options.createSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike);
     this.maxStreams = options.maxStreams ?? MAX_STREAMS;
@@ -269,9 +273,23 @@ export class HttpCoreClient implements CoreClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    // The default URL carries the window id, which may still be settling
+    // (the duplicate-tab check): open once it is.
+    const origin = windowId();
+    const url = this.url ?? (origin === null ? null : defaultUrl(origin));
+    if (url === null) {
+      if (this.waitingForId) return;
+      this.waitingForId = true;
+      void windowIdReady().then(() => {
+        this.waitingForId = false;
+        // Still needed? Every subscriber and stream may be gone by now.
+        if (this.socketNeeded()) this.ensureSocket(now);
+      });
+      return;
+    }
     let socket: WebSocketLike;
     try {
-      socket = this.createSocket(this.url);
+      socket = this.createSocket(url);
     } catch (error) {
       void log.error("Opening the Core stream socket failed:", error);
       this.scheduleReconnect();
@@ -354,10 +372,14 @@ export class HttpCoreClient implements CoreClient {
     this.eventsUnavailable(ACCESS_LOST);
   }
 
+  /** Whether anything needs the socket: an `events` subscriber or a stream. */
+  private socketNeeded(): boolean {
+    return this.handlers.size > 0 || this.streams.size > 0;
+  }
+
   private scheduleReconnect(): void {
     if (this.accessLost) return;
-    const needed = this.handlers.size > 0 || this.streams.size > 0;
-    if (!needed || this.reconnectTimer !== null) return;
+    if (!this.socketNeeded() || this.reconnectTimer !== null) return;
     const delay = Math.min(
       this.initialDelayMs * 2 ** Math.max(0, this.failures - 1),
       this.maxDelayMs,

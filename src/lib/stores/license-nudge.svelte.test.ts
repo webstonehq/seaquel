@@ -3,17 +3,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const storage = new Map<string, string | null>();
 let failLoad = false;
 
-vi.mock("$lib/storage", () => {
-  const appState = {
-    get: vi.fn(async (key: string) => {
+// The `settings` group (5d-2) over an in-memory `app_state`.
+vi.mock("$lib/hooks/database/library/index", () => {
+  let n = 0;
+  const seq = () => ({ epoch: "e", n: ++n });
+  const settings = {
+    getSetting: vi.fn(async (key: string) => {
       if (failLoad) throw new Error("db unavailable");
-      return storage.get(key) ?? null;
+      return { value: storage.get(key) ?? null, seq: seq() };
     }),
-    set: vi.fn(async (key: string, value: string | null) => {
+    setSetting: vi.fn(async (key: string, value: string | null) => {
       storage.set(key, value);
+      return { value, seq: seq() };
     }),
   };
-  return { getStorage: () => ({ appState }) };
+  return { getSettings: () => settings };
 });
 
 const license = { status: "personal" };

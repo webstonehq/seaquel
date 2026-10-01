@@ -31,12 +31,16 @@
 		deleteDialogOpen = true;
 	}
 
-	function deleteTheme() {
+	async function deleteTheme() {
 		if (themeToDelete) {
-			themeStore.deleteTheme(themeToDelete.id);
-			toast.success(m.theme_delete_success());
+			const id = themeToDelete.id;
 			themeToDelete = null;
 			deleteDialogOpen = false;
+			// A failure is shown by the store.
+			await themeStore.deleteTheme(id);
+			if (!themeStore.userThemes.some((t) => t.id === id)) {
+				toast.success(m.theme_delete_success());
+			}
 		}
 	}
 
@@ -44,11 +48,11 @@
 	const darkThemeLabel = $derived(themeStore.selectedDarkTheme.name);
 
 	function handleLightThemeChange(themeId: string) {
-		themeStore.setLightTheme(themeId);
+		void themeStore.setLightTheme(themeId);
 	}
 
 	function handleDarkThemeChange(themeId: string) {
-		themeStore.setDarkTheme(themeId);
+		void themeStore.setDarkTheme(themeId);
 	}
 
 	function openCreateTheme() {
@@ -59,8 +63,8 @@
 		openThemeEditor(theme);
 	}
 
-	function duplicateTheme(theme: Theme) {
-		const newTheme = themeStore.duplicateTheme(theme.id);
+	async function duplicateTheme(theme: Theme) {
+		const newTheme = await themeStore.duplicateTheme(theme.id);
 		if (newTheme) {
 			toast.success(m.theme_duplicate_success());
 		}
@@ -94,8 +98,8 @@
 
 			if (filePath) {
 				const content = await readTextFile(filePath as string);
-				themeStore.importTheme(content);
-				toast.success(m.theme_import_success());
+				// A theme Core refused is shown by the store.
+				if (await themeStore.importTheme(content)) toast.success(m.theme_import_success());
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

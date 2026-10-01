@@ -81,7 +81,7 @@ user's calls in flight and `/api/rpc`'s body, and an apply stops when the
 browser goes away or the workspace is evicted. The slice took the name 5c
 from the connection, project and saved-query CRUD, which is now 5d. Its
 measured cost is in "Phase 5c cost" below.
-Phase 5d-1: implemented, manual checks pending (see
+Phase 5d-1: implemented, manual checks passed (see
 2026-10-04-rust-core-phase-5d-plan.md). On desktop and web, saved
 connections, projects, custom labels, saved queries and their versions are
 written only through Core's `library` RPC group, one targeted call per
@@ -97,8 +97,24 @@ changed and applies it by the sequence. Opening a writable workspace moves
 secrets left in pre-5a connection strings to the keychain and strips them,
 once. The web bounds library calls (`LibraryLimits`) and each socket's
 event queue. The demo keeps the TypeScript behind a `LibraryService` seam.
-Dashboards, chats, tabs and settings (5d-2) still go through the storage
-group. Its measured cost is in "Phase 5d-1 cost" below.
+Its measured cost is in "Phase 5d-1 cost" below.
+Phase 5d-2: implemented, manual checks pending (see
+2026-10-04-rust-core-phase-5d-plan.md). Dashboards and their versions,
+saved workflows, AI chats and messages, the settings (app-state keys, AI
+settings with desktop API keys, themes, onboarding, tutorial progress,
+import state) and the open tabs are written through Core, one targeted call
+each (the `library` additions and the new `settings` and `ui` groups), and
+every write emits `StorageChanged`. Open tabs are stored per window (a
+desktop webview label, or a web tab's `win-<uuid>` that is also its
+origin), with a copy of the most recently used window as a new window's
+start and a legacy mirror for older releases. Migrations `0002` and `0003`
+add the window tables, dashboard name keys, list metadata and a write
+order. The web bounds the new calls (`StateLimits`) and each user's file.
+Connection overrides are retired. The storage group keeps only query
+history, shared repos, the license and the vault. The demo keeps the
+TypeScript behind the `SettingsService` and `UiService` seams. Its measured
+cost, and 5d's as a whole, are in "Phase 5d-2 cost" and "Phase 5d cost"
+below.
 
 ## Problem
 
@@ -496,6 +512,22 @@ As built in phase 5d-1 (details in that plan's Decisions 3, 12a and 16–18):
   step: a step can't reach the keychain, and the desktop must not strip a
   password before it's stored safely.
 
+As built in phase 5d-2 (details in that plan's Decisions 19–27):
+
+- **Every remaining write but the storage group's is a Core call.**
+  Dashboards, workflows and chats join the `library` group; settings,
+  themes, onboarding, tutorial progress and import state are the `settings`
+  group; a window's view state is the `ui` group. The storage group keeps
+  query history, shared repos, the license and the web vault.
+- **View state is per window**, in `windows` and `window_state` (migration
+  `0002`). The design's `ui_state` blob is one row per window and project.
+  A new window copies the most recently written window's row (`write_seq`,
+  migration `0003`), and every save also writes the old `project_state` and
+  `tabs` rows so older releases keep working.
+- **Lists read no bodies.** `0003` stores a workflow's name and times and a
+  dashboard version's widget count beside the body, so the lists scale with
+  row counts; one body is read on demand.
+
 ### Secrets
 
 `SecretStore` has two implementations:
@@ -880,8 +912,8 @@ that's fine.
 - (As built so far: 5a connections, 5b query execution and history, 5c
   edits, pending changes, the data tab and workflows, 5d-1 the library
   (connections, projects, labels, saved queries and versions) and
-  `StorageChanged`. 5d-2 is tabs and project state, workflows, settings,
-  dashboards, chats and overrides.)
+  `StorageChanged`, 5d-2 tabs per window, workflows, settings, dashboards
+  and chats, with connection overrides retired.)
 
 **Phase 6: `seaquel-ai`**
 - LLM calls move out of the webview into Rust.
@@ -2854,6 +2886,210 @@ Tauri; and the demo's seam.
   about 11–14 h rather than 7.5 h. Running only the affected crates' live
   tests between rounds, and the full suite once at the checkpoint, would
   cut most of the wait.
+
+## Phase 5d-2 cost
+
+Source: `2026-10-04-phase-5d-effort.md` and the phase 5d plan's execution
+notes, plus line counts measured against the 5d-1 commit (`8e178a8`); 5d-2
+is in the working tree on top of it. Times are agent wall time as logged,
+review and probe fixes included, but not the plan, the review passes
+themselves or the owner's decisions. Tasks 1, 2 and 3 overlapped. From
+Task 5 on the log also gives the work inside the wall time; the rest was
+cold test builds, clippy, svelte-check and the three frontend builds.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes and added scope | Logged |
+|---|---|---|---|---|
+| 1. TS fixes, chart nodes without rows | 0.4–0.55 h | ~0.25 h | ~0.05 h | ~0.3 h |
+| 2. State fixtures and the recorder | 0.45–0.65 h | ~0.6 h | ~0.3 h | ~0.9 h |
+| 3. Storage: `0002`, targeted queries, the legacy mirror | 0.6–0.8 h | ~0.85 h | ~0.45 h | ~1.3 h |
+| 4. Core: state, settings, window state, limits, events | 1.3–1.6 h | ~1.5 h | ~1.4 h (two rounds: the over-limit rule, the per-user file cap and the `WriteTx` rewrite) | ~2.9 h |
+| 5. RPC: `settings`, `ui`, 35 storage methods out | 0.5–0.7 h | ~2.5 h wall (~1 h work) | ~1 h wall (~0.3 h work) | ~3.5 h |
+| 6a. GUI: window identity, view state | 1.1–1.4 h | ~2 h wall (~1.4 h work) | ~0.85 h wall (~0.5 h work) | ~2.85 h |
+| 6b. GUI: dashboards, workflows, chats, settings stores | 1.3–1.6 h | ~1 h wall (~0.8 h work) | ~1.7 h (three rounds) | ~2.7 h |
+| 7. Probe | 0.7–0.9 h | ~0.35 h | ~3.4 h (the fixes and two reviews) | ~3.75 h |
+| 8. Docs, measure, checks, the live run | 0.5–0.65 h | ~2.25 h wall (~0.6 h work) | — | ~2.25 h |
+| Review fixes (the plan's row) | 4.8–6.2 h | | | |
+| Probe fixes (the plan's row) | 1.5–2 h | | | |
+| Live suite waits (the plan's row) | 2–2.5 h | | | |
+| Old data and owner decisions (the plan's row) | 0.3–0.7 h | | | |
+| **Total** | **~15.3–20.3 h** | **~11.3 h** | **~9.15 h** | **~20.5 h** |
+
+**The slice ran just past its range**, ~20.5 h against 15.3–20.3 h and
+about 3 h over "expect about 17.5 h". It came much closer than 5d-1
+because the estimate was sized from logged times and already budgeted
+review fixes at 70% of first passes.
+
+- **First passes ran over** (~11.3 h against 6.85–8.85 h), almost all of
+  it wall time spent waiting: Task 5 logged ~1 h of work inside 2.5 h (the
+  rest `types:gen`, clippy and slow-starting test binaries), Task 6a ~1.4 h
+  inside 2 h, and Task 8 ~0.6 h inside 2.25 h (the live run and the check
+  list). Counting work only, first passes were about 7.4 h.
+- **Review fixes were ~5.75 h, about 64% of first passes**, inside the
+  4.8–6.2 h budget. The largest were Task 4's (~1.4 h: the per-user cap
+  needed a `WriteTx` rewrite, and the rewrite's cancel bug a second round)
+  and Task 6b's (~1.7 h in three rounds: refused edits, `StoredSetting`
+  and the git reconcile).
+- **Probe fixes were ~3.4 h** against 1.5–2 h. The probe found two list
+  answers that grew with every stored body; fixing them properly took a
+  migration (`0003`), three new calls and two review rounds.
+- **Old data cost nothing extra.** The stored-data survey before Task 2
+  (5d-1's lesson) put every seed in the fixtures up front, and no task
+  found a new kind of old row.
+- **One full live run, at the checkpoint.** Reviews ran the affected
+  crates' tests. Task 8's full run took about 70 minutes, ~13 of them
+  compiling (5d-1's took ~2.3 h, before the Developer Tools change), and
+  the rest of the check list about 53 minutes, most of it clippy. Both are
+  in Task 8's row, not the plan's separate 2–2.5 h line.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production (with the two migrations) | ~7,130 | ~440 |
+| Rust, tests (test files and inline `#[cfg(test)]`) | ~11,140 | ~85 |
+| Fixtures (112 recorded state cases, 377 steps, in 9 files) | ~103,680 | 0 |
+| TypeScript/Svelte/JS, production | ~7,360 | ~2,290 |
+| TypeScript/JS, tests (the TS replay ~4,450 of them) | ~9,240 | ~355 |
+| Generated TS types | ~285 | ~25 |
+
+Measured as for 5d-1: `git diff -U0` against `8e178a8` plus the untracked
+files, leaving out `Cargo.lock`, `Cargo.toml` files, the docs, READMEs
+outside the fixtures and the message files; inline test modules counted
+from their `#[cfg(test)]` line. The recorder in `docs/plans/artifacts`
+(~4,310 lines) isn't counted.
+
+Where the production Rust went: `seaquel-storage` ~2,150 (the two
+migrations, `saved_canvases`, `windows` and `window_state`, targeted
+functions in nine more modules, the legacy mirror, the `WriteTx` rewrite,
+the list metadata and the lock retry), `seaquel-workspace` ~2,020 (the
+`state` module: drafts, patches, checks, the AI settings rewrite, the
+mirror's rows, `StateLimits`), Core ~1,930 (`state.rs`), `seaquel-rpc`
+~865 added and ~275 removed (the `settings` and `ui` groups and the
+`library` additions in, 35 storage methods out), `seaquel-server` ~115
+(`WEB_STATE_LIMITS`, statuses, the per-user file cap) and `seaquel-types`
+~50. On the TS side the demo's new seam is ~1,890 lines (`TsState` ~740,
+`TsSettings` ~660, `TsUi` ~270, `TsLibrary` +225), which phase 8 deletes.
+`PersistenceManager` (674 lines at 5d-1, 758 after Task 1) and
+`SharedConnectionManager` (189) are gone; `WindowStateManager` is 622 and
+`window-id.ts` 226. `DashboardManager` went from 635 to 982 lines,
+`WorkflowManager` from 811 to 1,042, `ProjectManager` from 1,205 to 1,386
+and `AIChatManager` from 132 to 359 (patches, refusals shown and taken
+back, remote changes).
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's notes;
+a judgment call where one fix covers several. The bracketed number is how
+many were older than phase 5d-2. The re-survey found 25 before any code
+(a save before the load writing empty tabs, changes lost when a web tab
+closes, whole-record saves losing another tab's changes, a deleted
+dashboard coming back, colliding version numbers, a repeated tab id
+failing the whole save, dropped extensions tabs, …), all older; they
+aren't in the table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| Storage, migrations and the write transaction | 1 | 10 [2] | 1 |
+| Core rules and limits | 1 | 2 | 4 |
+| View state and window identity (GUI) | 2 [1] | 9 [2] | 1 |
+| Dashboards, workflows and chats (GUI) | 2 [1] | 11 | 2 |
+| Settings stores | 2 [2] | 3 | — |
+| Fixtures and quirks | 2 [1] | — | — |
+| **Total** | **10 [5]** | **35 [4]** | **8** |
+
+The review column includes the two reviews of the probe fixes.
+
+The serious ones:
+
+- **The write transaction broke at the file cap and on cancel** (Task 4
+  reviews). SQLite rolls a transaction back on `SQLITE_FULL`; sqlx's
+  drop-time `ROLLBACK` then failed and never lowered its depth, so every
+  later `BEGIN IMMEDIATE` on that pooled connection failed. The rewrite
+  that sends `BEGIN`/`COMMIT`/`ROLLBACK` itself first sent `BEGIN
+  IMMEDIATE` before its guard existed, so a write cancelled while waiting
+  for another writer left a transaction open on the connection.
+- **Two list answers grew with every stored body** (the probe). Within the
+  web limits `dashboardVersionsList` answered 293.5 MiB and `workflowsList`
+  about 480 MiB, each adding about 1 GB to the server while it was built.
+  With stored metadata they are 385 KiB and 6.1 KiB on the same file, and
+  18.4 MiB and 187 KiB at the web caps.
+- **"Most recent" disagreed within one millisecond** (the probe). The
+  window queries broke ties by rowid in opposite directions and an upsert
+  keeps its rowid, so a new window could copy a different window than the
+  legacy mirror showed. `write_seq` orders them by commit.
+- **One row could fail a whole workflow list** (probe-fix review). SQLite
+  hands back an escaped lone surrogate as CESU-8 bytes, which the string
+  decode refused for the whole answer.
+- **A project was saveable before its restore** (Task 6a review). A save
+  fired while the sidebar or workflows were still being read would have
+  written an empty state as the window's row and as the legacy mirror.
+- **Refused edits and settings brought back stale values** (Task 6b
+  reviews). Two refused dashboard edits in flight restored each other's
+  change, and a setting refused after another window's write showed the
+  wrong value; both now show the stored row once this page's writes have
+  answered.
+- **The git reconcile unshared a case-only rename** (Task 6b, third round),
+  and before that recreated "<name> (n)" dashboards on every activation.
+
+### What was harder than expected
+
+- **Showing refusals honestly.** Core refuses more than the old saves did,
+  and each refusal had to leave the page showing what is stored, with
+  another window's changes and this page's writes in flight. That was most
+  of Task 6b's three review rounds.
+- **Scale, again.** As in 5d-1, only the probe's large files found the
+  list answers; the fixtures and tests use a few rows.
+- **SQLite and sqlx edge cases** in the write transaction (the file cap, a
+  cancelled `BEGIN`) and in JSON (CESU-8 from `->>`).
+- **Build and test wall time.** From Task 5 on, cold builds, clippy and
+  the frontend builds were about a third of the logged time.
+
+What went to plan: the fixtures (the Core replay passed 372 of 377 steps
+on its first run, and the TypeScript replay all 377 after three named
+exemptions), the legacy mirror, window identity, `rev`, and the owner's
+answers to Q13–Q19, none of which had to be revisited.
+
+## Phase 5d cost
+
+Both slices, from the two sections above.
+
+| Slice | Estimate | First passes | Fixes and added scope | Logged |
+|---|---|---|---|---|
+| 5d-1: the library, `StorageChanged` | ~6–9 h ("about 7 h") | ~6.3 h | ~8.5 h | ~14.8 h |
+| 5d-2: state, settings, dashboards, chats | ~15.3–20.3 h ("about 17.5 h") | ~11.3 h | ~9.15 h | ~20.5 h |
+| **5d** | **about 32 h** at the 5d-2 re-survey | **~17.6 h** | **~17.65 h** | **~35.3 h** |
+
+| Lines | Added | Removed |
+|---|---|---|
+| Rust, production | ~13,800 | ~800 |
+| Rust, tests | ~20,160 | ~285 |
+| Fixtures | ~139,650 | 0 |
+| TypeScript/Svelte/JS, production | ~12,410 | ~3,840 |
+| TypeScript/JS, tests | ~13,400 | ~665 |
+| Generated TS types | ~475 | ~45 |
+
+Both slices together logged ~35.3 h against "about 32 h" at the 5d-2
+re-survey (and 5d-1's own estimate of 6–9 h for the first slice).
+
+- **Fixes cost about as much as first passes**: ~17.65 h against ~17.6 h.
+  Review fixes ran at 64–70% of first passes in both slices, and probe
+  fixes at 1.5–2 times their budget, both times because the probe found
+  something that only shows at scale.
+- **Every metadata write is a targeted Core call.** The storage group
+  keeps only query history, shared repos, the license and the web vault.
+  Every write emits one `StorageChanged`, and every window and tab follows
+  the others live.
+- **The demo's TypeScript twin grew to about 3,200 lines** (`TsLibrary`,
+  `TsState`, `TsSettings`, `TsUi`), on top of 5b's `TsQueryRunner` and 5c's
+  `TsEditService`. Phase 8 deletes all of it once Core runs in the browser;
+  until then every Core rule in 5d has a second copy there, which the TS
+  replays keep honest.
+- **For the next phases:** budget review fixes at about two-thirds of first
+  passes; plan a probe with production-sized files for any list or
+  collection; count build and test time as its own line (the live-suite
+  wait is gone since the Developer Tools change).
 
 ## Risks
 

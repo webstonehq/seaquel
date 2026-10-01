@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import type { Dashboard, DashboardWidget } from '$lib/types';
 	import { useDatabase } from '$lib/hooks/database.svelte.js';
 	import { SvelteFlow, Background, Controls, MiniMap, type ColorMode, type Node, type Viewport } from '@xyflow/svelte';
@@ -68,23 +69,38 @@
 	const initialViewport = getInitialViewport();
 	let viewport: Viewport = $state(initialViewport);
 
-	let viewportDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-
 	const dashboardId = $derived(dashboard.id);
+
+	/** The pan waiting for its debounced save. */
+	let pendingViewport: { id: string; vp: Viewport } | null = null;
+
+	function saveViewport(pending: { id: string; vp: Viewport }) {
+		void db.dashboards.updateViewport(pending.id, {
+			x: pending.vp.x,
+			y: pending.vp.y,
+			zoom: pending.vp.zoom,
+		});
+	}
 
 	$effect(() => {
 		if (readonly) return;
 		// Track viewport changes for debounced persistence
-		const vp = viewport;
-		const id = dashboardId;
-		clearTimeout(viewportDebounceTimer);
-		viewportDebounceTimer = setTimeout(() => {
-			db.dashboards.updateViewport(id, {
-				x: vp.x,
-				y: vp.y,
-				zoom: vp.zoom,
-			});
+		const next = { id: dashboardId, vp: viewport };
+		// Another dashboard: the last one's pan is saved now.
+		if (pendingViewport && pendingViewport.id !== next.id) saveViewport(pendingViewport);
+		pendingViewport = next;
+		const timer = setTimeout(() => {
+			pendingViewport = null;
+			saveViewport(next);
 		}, 500);
+		// A newer pan replaces this timer; the canvas closing saves it (below).
+		return () => clearTimeout(timer);
+	});
+
+	onDestroy(() => {
+		// Closed within the debounce: the pan isn't dropped.
+		if (pendingViewport) saveViewport(pendingViewport);
+		pendingViewport = null;
 	});
 
 	function screenToCanvas(event: MouseEvent): { x: number; y: number } {

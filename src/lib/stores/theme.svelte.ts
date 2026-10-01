@@ -1,29 +1,63 @@
-import { getStorage } from "$lib/storage";
 import { mode } from "mode-watcher";
+import { getSettings } from "$lib/hooks/database/library/index";
+import type { ChangeSeq, Themes } from "$lib/hooks/database/library/types";
+import { errorToast } from "$lib/utils/toast";
+import { libraryErrorMessage } from "$lib/hooks/database/library/messages";
+import { log } from "$lib/utils/logger";
 import type { Theme, ThemePreferences, ThemeExport } from "$lib/types/theme";
 import { BUILT_IN_THEMES, DEFAULT_PREFERENCES } from "$lib/themes/presets";
 import { applyTheme, cacheThemeColors } from "$lib/themes/apply";
 import { validateThemeColors } from "$lib/themes/color-utils";
-import { skipUnloadedSave } from "$lib/storage/load-guard";
+import { WriteOrder, onStoredChange } from "./settings-sync";
+
+/** The key the `seq` rule records the themes under (one record: preferences and themes). */
+const THEMES = "themes";
+
+/** A new theme as the editor or an import makes it. */
+export type ThemeInput = Omit<Theme, "id" | "isBuiltIn" | "createdAt" | "updatedAt">;
+
+/** A stored user theme that reads as one (a name, a mode, colours). */
+function isTheme(value: unknown): value is Theme {
+  const t = value as Partial<Theme> | null;
+  return (
+    typeof t === "object" &&
+    t !== null &&
+    typeof t.id === "string" &&
+    typeof t.name === "string" &&
+    typeof t.isDark === "boolean" &&
+    typeof t.colors === "object" &&
+    t.colors !== null
+  );
+}
+
+/** A theme as sent to Core: without what Core sets. */
+function themeBody(theme: Theme | ThemeInput): Record<string, unknown> {
+  const { id: _id, createdAt: _c, updatedAt: _u, ...body } = theme as Partial<Theme>;
+  return { ...body, isBuiltIn: false };
+}
 
 /**
- * Theme store - manages theme preferences, user themes, and theme application
+ * Theme store - manages theme preferences, user themes, and theme application.
+ *
+ * Phase 5d-2 (Decision 20, Q18): each change is one `settings` call (the
+ * preference pair, or one user theme added, changed or removed), whose
+ * answer holds the preferences and every user theme, applied by the `seq`
+ * rule. Another window's change is read again and applied at once.
  */
-class ThemeStore {
+export class ThemeStore {
   // Reactive state
   preferences = $state<ThemePreferences>({ ...DEFAULT_PREFERENCES });
   userThemes = $state<Theme[]>([]);
   /** True once `initialize` has run, whether or not the load worked: the theme can be applied. */
   isLoaded = $state(false);
-  /**
-   * True only once the stored preferences and user themes were read. Saving
-   * replaces every user theme, so until then it would delete them.
-   */
-  private persistable = false;
+  /** Orders the writes' answers and reads (`seq`; no flicker back to an earlier answer). */
+  private readonly order = new WriteOrder(THEMES, () => this.reload());
+  /** Writes on their way, for `flush`. */
+  private readonly pending = new Set<Promise<unknown>>();
 
-  // Persistence timer for debouncing
-  private persistenceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly PERSISTENCE_DEBOUNCE_MS = 500;
+  constructor() {
+    onStoredChange("theme", () => (this.isLoaded ? this.reload() : undefined));
+  }
 
   // Derived: all available themes (built-in + user)
   allThemes = $derived([...BUILT_IN_THEMES, ...this.userThemes]);
@@ -53,25 +87,42 @@ class ThemeStore {
    */
   async initialize(): Promise<void> {
     try {
-      const prefs = await getStorage().themes.loadPreferences();
-      if (prefs) {
-        this.preferences = {
-          lightThemeId: prefs.lightThemeId,
-          darkThemeId: prefs.darkThemeId,
-        };
-      }
-
-      const userThemes = (await getStorage().themes.loadUserThemes()) as Theme[];
-      if (userThemes.length > 0) {
-        this.userThemes = userThemes;
-      }
-
-      this.persistable = true;
-      this.isLoaded = true;
+      const { value, seq } = await getSettings().getThemes();
+      this.order.read(value, seq, (t) => this.show(t));
     } catch (error) {
+      // Built-in themes still apply.
       console.error("Failed to load theme preferences:", error);
-      // Built-in themes still apply; saving stays off.
-      this.isLoaded = true;
+    }
+    this.isLoaded = true;
+  }
+
+  /** Another window changed a theme or the preferences: read them again and apply. */
+  async reload({ again = false } = {}): Promise<void> {
+    const { value, seq } = await getSettings().getThemes();
+    if (this.order.read(value, seq, (t) => this.show(t), { again })) this.applyActiveTheme();
+  }
+
+  private show(themes: Themes): void {
+    this.preferences = { ...themes.preferences };
+    this.userThemes = themes.userThemes.filter(isTheme);
+  }
+
+  /** Runs one `settings` call, shows its answer, and toasts a failure (then reads again). */
+  private async write<T>(
+    call: () => Promise<{ value: T; seq: ChangeSeq }>,
+    themesOf: (value: T) => Themes,
+  ): Promise<T | null> {
+    const run = this.order.write(call, (value) => this.show(themesOf(value)));
+    this.pending.add(run);
+    try {
+      return await run;
+    } catch (error) {
+      void log.error("Failed to save theme settings:", error);
+      errorToast(libraryErrorMessage(error));
+      await this.reload({ again: true }).catch(() => {});
+      return null;
+    } finally {
+      this.pending.delete(run);
     }
   }
 
@@ -91,7 +142,7 @@ class ThemeStore {
   /**
    * Set the theme for light mode
    */
-  setLightTheme(themeId: string): void {
+  async setLightTheme(themeId: string): Promise<void> {
     const theme = this.lightThemes.find((t) => t.id === themeId);
     if (!theme) return;
 
@@ -100,13 +151,13 @@ class ThemeStore {
       lightThemeId: themeId,
     };
 
-    this.schedulePersist();
+    await this.savePreferences();
   }
 
   /**
    * Set the theme for dark mode
    */
-  setDarkTheme(themeId: string): void {
+  async setDarkTheme(themeId: string): Promise<void> {
     const theme = this.darkThemes.find((t) => t.id === themeId);
     if (!theme) return;
 
@@ -115,83 +166,79 @@ class ThemeStore {
       darkThemeId: themeId,
     };
 
-    this.schedulePersist();
+    await this.savePreferences();
+  }
+
+  private async savePreferences(): Promise<void> {
+    const { lightThemeId, darkThemeId } = this.preferences;
+    await this.write(
+      () => getSettings().setThemePreferences(lightThemeId, darkThemeId),
+      (t) => t,
+    );
   }
 
   /**
-   * Add a new user theme
+   * Add a new user theme. Core gives it its id; `null` when it wasn't
+   * saved (the error is shown).
    */
-  addTheme(theme: Omit<Theme, "id" | "isBuiltIn" | "createdAt" | "updatedAt">): Theme {
-    const now = new Date().toISOString();
-    const newTheme: Theme = {
-      ...theme,
-      id: `theme-${crypto.randomUUID()}`,
-      isBuiltIn: false,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    this.userThemes = [...this.userThemes, newTheme];
-    this.schedulePersist();
-
-    return newTheme;
+  async addTheme(theme: ThemeInput): Promise<Theme | null> {
+    const created = await this.write(
+      () => getSettings().createUserTheme(themeBody(theme)),
+      (v) => v.themes,
+    );
+    if (!created) return null;
+    const added = created.themes.userThemes.filter(isTheme).find((t) => t.id === created.id);
+    // Shown by now, unless a later write's answer is still to come.
+    if (added && !this.userThemes.some((t) => t.id === added.id)) {
+      this.userThemes = [...this.userThemes, added];
+    }
+    return added ?? null;
   }
 
   /**
-   * Update an existing user theme
+   * Update an existing user theme. False when it wasn't saved (the error is
+   * shown and the stored themes read again).
    */
-  updateTheme(id: string, updates: Partial<Omit<Theme, "id" | "isBuiltIn">>): void {
+  async updateTheme(
+    id: string,
+    updates: Partial<Omit<Theme, "id" | "isBuiltIn">>,
+  ): Promise<boolean> {
     const index = this.userThemes.findIndex((t) => t.id === id);
-    if (index === -1) return;
+    if (index === -1) return false;
 
-    const existing = this.userThemes[index];
-    const updated: Theme = {
-      ...existing,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
-
+    const updated: Theme = { ...this.userThemes[index], ...updates };
+    // Shown at once; Core's answer then holds its times.
     this.userThemes = [
       ...this.userThemes.slice(0, index),
       updated,
       ...this.userThemes.slice(index + 1),
     ];
-
-    this.schedulePersist();
+    const saved = await this.write(
+      () => getSettings().updateUserTheme(id, themeBody(updated)),
+      (t) => t,
+    );
+    return saved !== null;
   }
 
   /**
-   * Delete a user theme
+   * Delete a user theme. A preference that named it goes back to the
+   * default in the same call.
    */
-  deleteTheme(id: string): void {
+  async deleteTheme(id: string): Promise<void> {
     const theme = this.userThemes.find((t) => t.id === id);
     if (!theme) return;
-
-    this.userThemes = this.userThemes.filter((t) => t.id !== id);
-
-    // If this theme was selected, reset to default
-    if (this.preferences.lightThemeId === id) {
-      this.preferences = {
-        ...this.preferences,
-        lightThemeId: "default-light",
-      };
-    }
-    if (this.preferences.darkThemeId === id) {
-      this.preferences = {
-        ...this.preferences,
-        darkThemeId: "default-dark",
-      };
-    }
-
-    this.schedulePersist();
+    await this.write(
+      () => getSettings().removeUserTheme(id),
+      (t) => t,
+    );
   }
 
   /**
    * Duplicate a theme (creates editable copy)
    */
-  duplicateTheme(id: string): Theme | null {
+  duplicateTheme(id: string): Promise<Theme | null> {
     const source = this.allThemes.find((t) => t.id === id);
-    if (!source) return null;
+    if (!source) return Promise.resolve(null);
 
     return this.addTheme({
       name: `${source.name} (Copy)`,
@@ -205,7 +252,7 @@ class ThemeStore {
   /**
    * Import a theme from JSON
    */
-  importTheme(json: string): Theme {
+  importTheme(json: string): Promise<Theme | null> {
     const parsed = JSON.parse(json) as ThemeExport;
 
     // Validate required fields
@@ -262,43 +309,9 @@ class ThemeStore {
     return this.preferences.lightThemeId === id || this.preferences.darkThemeId === id;
   }
 
-  // Persistence
-
-  private schedulePersist(): void {
-    if (this.persistenceTimer) {
-      clearTimeout(this.persistenceTimer);
-    }
-    this.persistenceTimer = setTimeout(() => {
-      void this.persist();
-      this.persistenceTimer = null;
-    }, this.PERSISTENCE_DEBOUNCE_MS);
-  }
-
-  private async persist(): Promise<void> {
-    if (!this.persistable) {
-      skipUnloadedSave("themes");
-      return;
-    }
-    try {
-      await getStorage().themes.savePreferences(
-        this.preferences.lightThemeId,
-        this.preferences.darkThemeId,
-      );
-      await getStorage().themes.saveUserThemes(this.userThemes);
-    } catch (error) {
-      console.error("Failed to persist theme settings:", error);
-    }
-  }
-
-  /**
-   * Flush pending persistence immediately
-   */
-  flush(): void {
-    if (this.persistenceTimer) {
-      clearTimeout(this.persistenceTimer);
-      this.persistenceTimer = null;
-      void this.persist();
-    }
+  /** Waits for the theme writes on their way (a window closing). */
+  async flush(): Promise<void> {
+    await Promise.allSettled(this.pending);
   }
 }
 

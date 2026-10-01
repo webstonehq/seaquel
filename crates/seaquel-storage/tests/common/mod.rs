@@ -91,6 +91,7 @@ pub const MIGRATION_COLUMNS: &[(&str, &str)] = &[
     ("connections", "name_key"),
     ("projects", "name_key"),
     ("saved_queries", "name_key"),
+    ("dashboards", "name_key"),
 ];
 
 /// A file's schema as sorted lines, one per fact, so two schemas compare

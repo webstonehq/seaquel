@@ -17,6 +17,10 @@ pub const STORAGE_NOT_FOUND: &str = "STORAGE_NOT_FOUND";
 /// The wire code for [`StorageError::ReadOnly`]: a write on storage opened
 /// with `StorageOptions::read_only`.
 pub const STORAGE_READ_ONLY: &str = "STORAGE_READ_ONLY";
+/// The wire code for a write past the file's size cap
+/// (`StorageOptions::max_bytes`, SQLite's `SQLITE_FULL`): the web user's
+/// storage is full. Nothing of the failed write is stored.
+pub const STORAGE_FULL: &str = "STORAGE_FULL";
 /// The wire code for every other storage failure.
 pub const STORAGE_ERROR: &str = "STORAGE_ERROR";
 
@@ -133,7 +137,7 @@ pub enum StorageError {
 impl StorageError {
     /// The wire code: [`LEGACY_STORAGE`], [`STORAGE_CORRUPT`],
     /// [`STORAGE_NEEDS_UPGRADE`], [`STORAGE_NOT_FOUND`], [`STORAGE_READ_ONLY`],
-    /// [`NO_DATA_DIR`] or [`STORAGE_ERROR`].
+    /// [`NO_DATA_DIR`], [`STORAGE_FULL`] or [`STORAGE_ERROR`].
     pub fn code(&self) -> &'static str {
         match self {
             StorageError::Legacy { .. } => LEGACY_STORAGE,
@@ -144,7 +148,20 @@ impl StorageError {
             StorageError::NotFound { .. } => STORAGE_NOT_FOUND,
             StorageError::ReadOnly { .. } => STORAGE_READ_ONLY,
             StorageError::NoDataDir => NO_DATA_DIR,
+            StorageError::Sqlx(e) if is_full(e) => STORAGE_FULL,
             _ => STORAGE_ERROR,
         }
+    }
+}
+
+/// SQLite's `SQLITE_FULL` (13, and its extended codes): the file reached
+/// its `max_page_count`, or the disk is full.
+fn is_full(e: &sqlx::Error) -> bool {
+    match e {
+        sqlx::Error::Database(db) => db
+            .code()
+            .and_then(|c| c.parse::<i64>().ok())
+            .is_some_and(|c| c & 0xff == 13),
+        _ => false,
     }
 }

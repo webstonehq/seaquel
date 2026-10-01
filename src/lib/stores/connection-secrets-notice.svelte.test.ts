@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stored = vi.hoisted(() => ({ value: null as string | null, sets: [] as unknown[] }));
-vi.mock("$lib/storage", () => ({
-  getStorage: () => ({
-    appState: {
-      get: async () => stored.value,
-      set: async (key: string, value: string | null) => {
-        stored.sets.push([key, value]);
-        stored.value = value;
-      },
+vi.mock("$lib/hooks/database/library/index", () => ({
+  getSettings: () => ({
+    getSetting: async () => ({ value: stored.value, seq: { epoch: "e", n: 1 } }),
+    setSetting: async (key: string, value: string | null) => {
+      stored.sets.push([key, value]);
+      stored.value = value;
+      return { value, seq: { epoch: "e", n: 2 } };
     },
   }),
 }));

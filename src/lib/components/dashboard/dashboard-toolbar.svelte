@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Dashboard, ResolvedDashboardVersion } from '$lib/types';
+	import type { Dashboard, DashboardVersion } from '$lib/types';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import ConnectionSelector from '$lib/components/connection-selector.svelte';
@@ -13,11 +13,12 @@
 	interface Props {
 		dashboard: Dashboard;
 		isFullscreen?: boolean;
-		versions?: ResolvedDashboardVersion[];
+		/** The history, without snapshots: the view fetches the ones picked. */
+		versions?: DashboardVersion[];
 		onAddWidget: () => void;
 		onRefreshAll: () => void;
 		onToggleFullscreen?: () => void;
-		onDiffVersions?: (selected: ResolvedDashboardVersion[]) => void;
+		onDiffVersions?: (selected: DashboardVersion[]) => void;
 	}
 
 	let {
@@ -40,7 +41,7 @@
 		checkedVersionIds = [];
 	}
 
-	function toggleVersion(version: ResolvedDashboardVersion) {
+	function toggleVersion(version: DashboardVersion) {
 		const idx = checkedVersionIds.indexOf(version.id);
 		if (idx >= 0) {
 			checkedVersionIds = checkedVersionIds.filter((id) => id !== version.id);
@@ -52,7 +53,7 @@
 
 		const selected = checkedVersionIds
 			.map((id) => versions.find((v) => v.id === id))
-			.filter((v): v is ResolvedDashboardVersion => v != null);
+			.filter((v): v is DashboardVersion => v != null);
 		onDiffVersions?.(selected);
 	}
 
@@ -111,7 +112,7 @@
 				<DropdownMenu.Content align="end" class="w-80 max-h-80 overflow-y-auto">
 					<DropdownMenu.Label class="text-xs text-muted-foreground">Version History</DropdownMenu.Label>
 					<DropdownMenu.Separator />
-					{#each [...versions].reverse() as version}
+					{#each [...versions].reverse() as version (version.id)}
 						<button
 							class="relative flex w-full cursor-default select-none items-start gap-2 rounded-sm px-2 py-1.5 text-left outline-none hover:bg-accent hover:text-accent-foreground"
 							onclick={() => toggleVersion(version)}
@@ -126,9 +127,11 @@
 									<span class="font-medium text-xs">Version {version.version}</span>
 									<span class="text-xs text-muted-foreground">{formatRelativeTime(version.createdAt)}</span>
 								</div>
-								<span class="text-xs text-muted-foreground truncate block">
-									{version.dashboard.widgets.length} widget{version.dashboard.widgets.length !== 1 ? 's' : ''}
-								</span>
+								{#if version.widgetCount !== null}
+									<span class="text-xs text-muted-foreground truncate block">
+										{version.widgetCount} widget{version.widgetCount !== 1 ? 's' : ''}
+									</span>
+								{/if}
 							</div>
 						</button>
 					{/each}

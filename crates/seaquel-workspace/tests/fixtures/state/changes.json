@@ -1,0 +1,3094 @@
+{
+  "*": {
+    "decision": "1",
+    "why": "Core assigns ids and times. A create call (dashboardCreate, workflowCreate, chatCreate, userThemeCreate, aiProviderCreate) and a dashboardUpdate with captureVersion name in `binds` the id the TS made; the replay binds that token to the id Core answers (the dashboard's, the version's, …), which must have the same prefix (dashboard-, dver-, workflow-, theme-, or none for chats and AI providers) and a v4 uuid. Every other <id:n> token is the GUI's (tab, pane, node and message ids): the replay gives each a v4 uuid of its own, the same one everywhere in the case. Times recorded as <now> are any time the Executor gave during the case, and a <now> in params is sent as a fixed time; seeded times (2024-…) must come back unchanged.",
+    "expected": {}
+  },
+  "view-state/extensions-tab": {
+    "decision": "22",
+    "why": "Extensions tabs stay in the window's row (today the save drops them). The mirror rows are today's, so only the restarted window's load differs: windowStateLoad answers the saved state with the extensions tab (its `expect`), and the window shows it.",
+    "expected": {
+      "steps": {
+        "3": {
+          "view": null
+        }
+      }
+    }
+  },
+  "view-state/repeated-tab-id": {
+    "decision": "22",
+    "why": "The legacy mirror skips a tab whose id repeats within the state instead of failing the save (the window's own row keeps the state as sent). Today the whole save fails on the tabs key and nothing is stored.",
+    "expected": {
+      "steps": {
+        "2": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": "tab-<id:2>",
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\",\"tab-<id:2>\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              },
+              {
+                "id": "tab-<id:2>",
+                "project_id": "p1",
+                "tab_type": "query",
+                "name": "A",
+                "query": "SELECT 1",
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": null,
+                "closable": null
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "view-state/second-window": {
+    "decision": "22",
+    "why": "View state is per window (Q12 B): the restarted main window gets its own row back (its windowStateLoad `expect`), where today it loads the last save, the second window's.",
+    "expected": {
+      "steps": {
+        "4": {
+          "view": null
+        }
+      }
+    }
+  },
+  "view-state/new-window-fallback": {
+    "decision": "22",
+    "why": "A new window's active project is the most recently used window's (the main window, on p2: its tab save is the latest write), where today it is lastActiveProjectId (p1, from the second window's switch). windowGet answers p2 (its `expect`); a GUI on Core then loads p2, the project windowGet returned; the replayed step-5 windowStateLoad (p1) is today's lastActiveProjectId path as recorded, so what the window shows isn't the recording. The recording's step 5 calls follow today's p1 path; the corrected entry (5d-2 Task 6b review) holds what a GUI on Core sends: windowActivate(win-3, p2), then p2's loads, whose windowStateLoad copies the main window's p2 row; lastActiveProjectId becomes p2.",
+    "expected": {
+      "steps": {
+        "5": {
+          "core": [
+            {
+              "group": "ui",
+              "method": "windowGet",
+              "params": {
+                "windowId": "win-3"
+              },
+              "expect": {
+                "activeProjectId": "p2",
+                "from": "recent"
+              }
+            },
+            {
+              "group": "ui",
+              "method": "windowActivate",
+              "params": {
+                "windowId": "win-3",
+                "projectId": "p2"
+              }
+            },
+            {
+              "group": "library",
+              "method": "dashboardsList",
+              "params": {
+                "projectId": "p2"
+              },
+              "expect": {
+                "dashboards": []
+              }
+            },
+            {
+              "group": "library",
+              "method": "dashboardVersionsList",
+              "params": {
+                "projectId": "p2"
+              },
+              "expect": {
+                "ids": []
+              }
+            },
+            {
+              "group": "ui",
+              "method": "windowStateLoad",
+              "params": {
+                "windowId": "win-3",
+                "projectId": "p2"
+              },
+              "expect": {
+                "state": {
+                  "projectId": "p2",
+                  "queryTabs": [
+                    {
+                      "id": "tab-<id:3>",
+                      "name": "Main's",
+                      "query": "SELECT 'main'"
+                    }
+                  ],
+                  "schemaTabs": [],
+                  "explainTabs": [],
+                  "erdTabs": [],
+                  "statisticsTabs": [],
+                  "workflowTabs": [],
+                  "tabOrder": [
+                    "getting-started",
+                    "migration-tips",
+                    "tab-<id:3>"
+                  ],
+                  "activeQueryTabId": "tab-<id:3>",
+                  "activeSchemaTabId": null,
+                  "activeExplainTabId": null,
+                  "activeErdTabId": null,
+                  "activeStatisticsTabId": null,
+                  "activeWorkflowTabId": null,
+                  "activeView": "starter",
+                  "activeConnectionId": null,
+                  "starterTabs": [
+                    {
+                      "id": "getting-started",
+                      "type": "getting-started",
+                      "name": "Getting Started",
+                      "closable": true
+                    },
+                    {
+                      "id": "migration-tips",
+                      "type": "migration-tips",
+                      "name": "Migration Tips",
+                      "closable": true
+                    }
+                  ],
+                  "activeStarterTabId": "getting-started",
+                  "connectionTabs": [],
+                  "activeConnectionTabId": null,
+                  "dashboardTabs": [],
+                  "activeDashboardTabId": null,
+                  "createTableTabs": [],
+                  "activeCreateTableTabId": null,
+                  "dataTabs": [],
+                  "activeDataTabId": null,
+                  "extensionsDuckdbTabs": [],
+                  "activeExtensionsDuckdbTabId": null
+                },
+                "rev": 0,
+                "copiedFrom": "window"
+              }
+            },
+            {
+              "group": "library",
+              "method": "workflowsList",
+              "params": {
+                "projectId": "p2"
+              },
+              "expect": {
+                "ids": []
+              }
+            },
+            {
+              "group": "library",
+              "method": "chatsList",
+              "params": {
+                "connectionId": "c1"
+              },
+              "expect": {
+                "ids": []
+              }
+            },
+            {
+              "group": "library",
+              "method": "chatsList",
+              "params": {
+                "connectionId": "c2"
+              },
+              "expect": {
+                "ids": []
+              }
+            }
+          ],
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              },
+              {
+                "project_id": "p2",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": "tab-<id:3>",
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\",\"tab-<id:3>\"]",
+                "connection_order": "[]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              },
+              {
+                "id": "getting-started",
+                "project_id": "p2",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p2",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              },
+              {
+                "id": "tab-<id:3>",
+                "project_id": "p2",
+                "tab_type": "query",
+                "name": "Main's",
+                "query": "SELECT 'main'",
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": null,
+                "closable": null
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p2"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "workflows/does-not-decode": {
+    "decision": "23",
+    "why": "Saved workflows leave the project state: no call deletes a workflow the page didn't load, so the one that doesn't decode stays (today the project save after the load deletes it). Listed too (5d-2 Task 7 probe fix): `workflowsList` answers no bodies, so the page can't tell that one won't decode until it's opened. `workflow-bad` (valid JSON, a bigint cell that won't decode) is in the sidebar, first in rowid order; opening it says it can't be read. A row that isn't JSON (`workflow-garbage`) stays out, as Core skips it.",
+    "expected": {
+      "steps": {
+        "0": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "saved_canvases": [
+              {
+                "id": "workflow-bad",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-bad\",\"name\":\"Bad\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"x\",\"columns\":[\"n\"],\"rows\":[[{\"$sq\":\"bigint\",\"v\":\"x\"}]]}}],\"edges\":[],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "workflow-good",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-good\",\"name\":\"Good\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-q\",\"type\":\"queryNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"query\",\"name\":\"Query\",\"query\":\"SELECT 1\",\"connectionId\":\"c1\",\"isExecuting\":false}},{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":370,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"n-q\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"totalRows\":2}},{\"id\":\"n-c\",\"type\":\"chartNode\",\"position\":{\"x\":740,\"y\":0},\"data\":{\"type\":\"chart\",\"sourceNodeId\":\"n-r\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"chartConfig\":{\"type\":\"bar\",\"xAxis\":\"n\",\"yAxis\":[\"n\"]}}}],\"edges\":[{\"id\":\"n-q-n-r\",\"source\":\"n-q\",\"target\":\"n-r\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"},{\"id\":\"n-r-n-c\",\"source\":\"n-r\",\"target\":\"n-c\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": {
+            "activeProjectId": "p1",
+            "activeView": "starter",
+            "projects": {
+              "p1": {
+                "starterTabs": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "tabOrder": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "paneLayout": {
+                  "panes": [
+                    {
+                      "id": "pane-<id:1>",
+                      "tabIds": [
+                        "getting-started",
+                        "migration-tips"
+                      ],
+                      "activeTabId": "getting-started"
+                    }
+                  ],
+                  "activePaneId": "pane-<id:1>"
+                },
+                "active": {
+                  "starter": "getting-started"
+                },
+                "activeView": "starter",
+                "connectionOrder": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            },
+            "savedWorkflows": {
+              "p1": [
+                {
+                  "id": "workflow-bad",
+                  "name": "Bad",
+                  "nodes": 1
+                },
+                {
+                  "id": "workflow-good",
+                  "name": "Good",
+                  "nodes": 3
+                }
+              ]
+            }
+          }
+        },
+        "1": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": "c1",
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "saved_canvases": [
+              {
+                "id": "workflow-bad",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-bad\",\"name\":\"Bad\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"x\",\"columns\":[\"n\"],\"rows\":[[{\"$sq\":\"bigint\",\"v\":\"x\"}]]}}],\"edges\":[],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "workflow-good",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-good\",\"name\":\"Good\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-q\",\"type\":\"queryNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"query\",\"name\":\"Query\",\"query\":\"SELECT 1\",\"connectionId\":\"c1\",\"isExecuting\":false}},{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":370,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"n-q\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"totalRows\":2}},{\"id\":\"n-c\",\"type\":\"chartNode\",\"position\":{\"x\":740,\"y\":0},\"data\":{\"type\":\"chart\",\"sourceNodeId\":\"n-r\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"chartConfig\":{\"type\":\"bar\",\"xAxis\":\"n\",\"yAxis\":[\"n\"]}}}],\"edges\":[{\"id\":\"n-q-n-r\",\"source\":\"n-q\",\"target\":\"n-r\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"},{\"id\":\"n-r-n-c\",\"source\":\"n-r\",\"target\":\"n-c\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": {
+            "activeProjectId": "p1",
+            "activeView": "starter",
+            "projects": {
+              "p1": {
+                "starterTabs": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "tabOrder": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "paneLayout": {
+                  "panes": [
+                    {
+                      "id": "pane-<id:1>",
+                      "tabIds": [
+                        "getting-started",
+                        "migration-tips"
+                      ],
+                      "activeTabId": "getting-started"
+                    }
+                  ],
+                  "activePaneId": "pane-<id:1>"
+                },
+                "active": {
+                  "starter": "getting-started"
+                },
+                "activeView": "starter",
+                "activeConnectionId": "c1",
+                "connectionOrder": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            },
+            "savedWorkflows": {
+              "p1": [
+                {
+                  "id": "workflow-bad",
+                  "name": "Bad",
+                  "nodes": 1
+                },
+                {
+                  "id": "workflow-good",
+                  "name": "Good",
+                  "nodes": 3
+                }
+              ]
+            }
+          }
+        },
+        "2": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": "c1",
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "saved_canvases": [
+              {
+                "id": "workflow-bad",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-bad\",\"name\":\"Bad\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"x\",\"columns\":[\"n\"],\"rows\":[[{\"$sq\":\"bigint\",\"v\":\"x\"}]]}}],\"edges\":[],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "workflow-good",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-good\",\"name\":\"Good renamed\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-q\",\"type\":\"queryNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"query\",\"name\":\"Query\",\"query\":\"SELECT 1\",\"connectionId\":\"c1\",\"isExecuting\":false}},{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":370,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"n-q\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"totalRows\":2}},{\"id\":\"n-c\",\"type\":\"chartNode\",\"position\":{\"x\":740,\"y\":0},\"data\":{\"type\":\"chart\",\"sourceNodeId\":\"n-r\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"chartConfig\":{\"type\":\"bar\",\"xAxis\":\"n\",\"yAxis\":[\"n\"]}}}],\"edges\":[{\"id\":\"n-q-n-r\",\"source\":\"n-q\",\"target\":\"n-r\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"},{\"id\":\"n-r-n-c\",\"source\":\"n-r\",\"target\":\"n-c\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"<now>\"}"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": {
+            "activeProjectId": "p1",
+            "activeView": "starter",
+            "projects": {
+              "p1": {
+                "starterTabs": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "tabOrder": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "paneLayout": {
+                  "panes": [
+                    {
+                      "id": "pane-<id:1>",
+                      "tabIds": [
+                        "getting-started",
+                        "migration-tips"
+                      ],
+                      "activeTabId": "getting-started"
+                    }
+                  ],
+                  "activePaneId": "pane-<id:1>"
+                },
+                "active": {
+                  "starter": "getting-started"
+                },
+                "activeView": "starter",
+                "activeConnectionId": "c1",
+                "connectionOrder": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            },
+            "savedWorkflows": {
+              "p1": [
+                {
+                  "id": "workflow-bad",
+                  "name": "Bad",
+                  "nodes": 1
+                },
+                {
+                  "id": "workflow-good",
+                  "name": "Good renamed",
+                  "nodes": 3
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "dashboards/prune-at-0": {
+    "decision": "21",
+    "why": "dashboard_version_limit 0 keeps every version, as query_version_limit does (Decision 20, 'Version limits and 0'); versions are numbered MAX(version) + 1 inside the transaction. Today 0 deletes every version and the next one is numbered 1 again.",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales 1",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "<now>"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "dashboard_version_limit",
+                "value": "0"
+              },
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ],
+            "dashboard_versions": [
+              {
+                "id": "dver-<id:2>",
+                "dashboard_id": "dash-1",
+                "version": 1,
+                "snapshot": "{\"name\":\"Sales\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              }
+            ]
+          },
+          "view": null
+        },
+        "2": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales 2",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "<now>"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "dashboard_version_limit",
+                "value": "0"
+              },
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ],
+            "dashboard_versions": [
+              {
+                "id": "dver-<id:2>",
+                "dashboard_id": "dash-1",
+                "version": 1,
+                "snapshot": "{\"name\":\"Sales\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              },
+              {
+                "id": "dver-<id:3>",
+                "dashboard_id": "dash-1",
+                "version": 2,
+                "snapshot": "{\"name\":\"Sales 1\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              }
+            ]
+          },
+          "view": null
+        },
+        "3": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales 3",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "<now>"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "dashboard_version_limit",
+                "value": "0"
+              },
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ],
+            "dashboard_versions": [
+              {
+                "id": "dver-<id:2>",
+                "dashboard_id": "dash-1",
+                "version": 1,
+                "snapshot": "{\"name\":\"Sales\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              },
+              {
+                "id": "dver-<id:3>",
+                "dashboard_id": "dash-1",
+                "version": 2,
+                "snapshot": "{\"name\":\"Sales 1\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              },
+              {
+                "id": "dver-<id:4>",
+                "dashboard_id": "dash-1",
+                "version": 3,
+                "snapshot": "{\"name\":\"Sales 2\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "dashboards/delete-during-pending-edit": {
+    "decision": "21",
+    "why": "An update of a missing dashboard is DASHBOARD_NOT_FOUND (call 1, the pan), so the removed dashboard stays removed. Today the pan's whole-row upsert re-inserts it.",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "DASHBOARD_NOT_FOUND",
+            "call": 1
+          },
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "dashboards/create-name-taken": {
+    "decision": "21",
+    "why": "Dashboard names clash within a project (Q3): trimmed, NFC-normalised and case-folded, \" sales \" is \"Sales\" (dash-1).",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "NAME_TAKEN",
+            "takenBy": "dash-1"
+          },
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "dashboards/rename-to-taken-name": {
+    "decision": "21",
+    "why": "A rename to another dashboard's name is NAME_TAKEN (dash-1), and nothing is written: no version, no rename.",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "NAME_TAKEN",
+            "takenBy": "dash-1"
+          },
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+              },
+              {
+                "id": "dash-2",
+                "project_id": "p1",
+                "name": "Costs",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "dashboards/create-empty-name": {
+    "decision": "1",
+    "why": "Names are trimmed and non-empty: INVALID_ARGUMENT, nothing stored.",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "dashboards/two-tabs-version-numbers": {
+    "decision": "21",
+    "why": "Core numbers a version MAX(version) + 1 inside the update's transaction, and snapshots the stored row: the second window's version is 2, a snapshot of the first window's rename. Today its insert collides with version 1 and fails.",
+    "expected": {
+      "steps": {
+        "3": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Turnover",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "<now>"
+              }
+            ],
+            "dashboard_versions": [
+              {
+                "id": "dver-<id:2>",
+                "dashboard_id": "dash-1",
+                "version": 1,
+                "snapshot": "{\"name\":\"Sales\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              },
+              {
+                "id": "dver-<id:3>",
+                "dashboard_id": "dash-1",
+                "version": 2,
+                "snapshot": "{\"name\":\"Revenue\",\"widgets\":[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"dateFilter\":null}",
+                "created_at": "<now>"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "dashboards/create-name-taken-nfd": {
+    "decision": "21",
+    "why": "Names compare NFC-normalised: \"Cafe\" + U+0301 is \"Café\" (dash-2): NAME_TAKEN, nothing written.",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "NAME_TAKEN",
+            "takenBy": "dash-2"
+          },
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "dashboards": [
+              {
+                "id": "dash-1",
+                "project_id": "p1",
+                "name": "Sales",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+              },
+              {
+                "id": "dash-2",
+                "project_id": "p1",
+                "name": "Café",
+                "viewport": "{\"x\":0,\"y\":0,\"zoom\":1}",
+                "widgets": "[{\"id\":\"widget-1\",\"title\":\"Revenue\",\"x\":0,\"y\":0,\"width\":400,\"height\":300,\"querySource\":\"custom\",\"query\":\"SELECT sum(total) AS total FROM orders\",\"widgetType\":\"kpi\"}]",
+                "date_filter": null,
+                "starred": 0,
+                "shared": 0,
+                "description": null,
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": null
+        }
+      }
+    }
+  },
+  "chats/two-tabs-same-chat": {
+    "decision": "24",
+    "why": "chatMessagesPut upserts the messages it lists and deletes none: the first window's turn stays. Today the second window's replace deletes it.",
+    "expected": {
+      "steps": {
+        "5": {
+          "view": null,
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": "c1",
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "ai_chats": [
+              {
+                "id": "chat-1",
+                "connection_id": "c1",
+                "title": "Orders",
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "<now>"
+              }
+            ],
+            "ai_messages": [
+              {
+                "id": "<id:2>",
+                "chat_id": "chat-1",
+                "role": "user",
+                "content": "Main's question",
+                "timestamp": "<now>",
+                "query": null,
+                "dashboard_id": null
+              },
+              {
+                "id": "<id:3>",
+                "chat_id": "chat-1",
+                "role": "assistant",
+                "content": "Main's answer",
+                "timestamp": "<now>",
+                "query": null,
+                "dashboard_id": null
+              },
+              {
+                "id": "<id:4>",
+                "chat_id": "chat-1",
+                "role": "user",
+                "content": "Second's question",
+                "timestamp": "<now>",
+                "query": null,
+                "dashboard_id": null
+              },
+              {
+                "id": "<id:5>",
+                "chat_id": "chat-1",
+                "role": "assistant",
+                "content": "Second's answer",
+                "timestamp": "<now>",
+                "query": null,
+                "dashboard_id": null
+              },
+              {
+                "id": "m1",
+                "chat_id": "chat-1",
+                "role": "user",
+                "content": "How many orders?",
+                "timestamp": "2024-01-01T00:00:01.000Z",
+                "query": null,
+                "dashboard_id": null
+              },
+              {
+                "id": "m2",
+                "chat_id": "chat-1",
+                "role": "assistant",
+                "content": "There are 42.",
+                "timestamp": "2024-01-01T00:00:02.000Z",
+                "query": null,
+                "dashboard_id": null
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "settings/editor-keybinding-mode": {
+    "decision": "20",
+    "why": "editorKeybindingMode is default, vim or emacs; \"hyper\" is INVALID_ARGUMENT. settingSet with null deletes the row (today it stores NULL; both read as unset). A refused set shows the stored value again (5d-2 Task 6b review): after step 2 the store shows \"vim\" where the recording kept \"hyper\", and still \"vim\" after step 3 (a write the store does not hear).",
+    "expected": {
+      "steps": {
+        "2": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "editorKeybindingMode",
+                "value": "vim"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "vim",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "3": {
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "vim",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "settings/pending-changes-enabled": {
+    "decision": "20",
+    "why": "pending_changes_enabled is \"true\" or \"false\". settingSet with null deletes the row (today it stores NULL; both read as unset).",
+    "expected": {
+      "steps": {
+        "2": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "pending_changes_enabled",
+                "value": "false"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": false,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "3": {
+          "rows": {}
+        }
+      }
+    }
+  },
+  "settings/skipped-update-version": {
+    "decision": "20",
+    "why": "No string may hold a NUL (Decision 1). settingSet with null deletes the row (today it stores NULL; both read as unset).",
+    "expected": {
+      "steps": {
+        "2": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "skippedUpdateVersion",
+                "value": "2030.1.2"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": "2030.1.2",
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "3": {
+          "rows": {}
+        }
+      }
+    }
+  },
+  "settings/query-version-limit": {
+    "decision": "20",
+    "why": "A version limit is a whole number from 0 to 100,000 as text: \"0\" and \"100000\" are accepted (keep all; the UI clamps to 10 since 5d-1), \"abc\" and \"100001\" are INVALID_ARGUMENT. settingSet with null deletes the row (today it stores NULL; both read as unset).",
+    "expected": {
+      "steps": {
+        "4": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "query_version_limit",
+                "value": "100000"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "5": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "query_version_limit",
+                "value": "100000"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "6": {
+          "rows": {}
+        }
+      }
+    }
+  },
+  "settings/dashboard-version-limit": {
+    "decision": "20",
+    "why": "A version limit is a whole number from 0 to 100,000: \"-1\" and \"1.5\" are INVALID_ARGUMENT. settingSet with null deletes the row (today it stores NULL; both read as unset).",
+    "expected": {
+      "steps": {
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "dashboard_version_limit",
+                "value": "20"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "2": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "dashboard_version_limit",
+                "value": "20"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "3": {
+          "rows": {}
+        }
+      }
+    }
+  },
+  "settings/license-nudge": {
+    "decision": "20",
+    "why": "license_nudge is a JSON object: \"[1]\" and \"nope\" are INVALID_ARGUMENT. settingSet with null deletes the row (today it stores NULL; both read as unset).",
+    "expected": {
+      "steps": {
+        "3": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "license_nudge",
+                "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":\"work\",\"snoozedUntil\":\"2030-01-31T00:00:07.200Z\"}"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 100,
+              "activeDays": 4,
+              "lastActiveDay": "2030-01-01",
+              "answer": "work",
+              "snoozedUntil": "2030-01-31T00:00:07.200Z"
+            }
+          }
+        },
+        "4": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "license_nudge",
+                "value": "{\"queryCount\":100,\"activeDays\":4,\"lastActiveDay\":\"2030-01-01\",\"answer\":\"work\",\"snoozedUntil\":\"2030-01-31T00:00:07.200Z\"}"
+              }
+            ]
+          },
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 100,
+              "activeDays": 4,
+              "lastActiveDay": "2030-01-01",
+              "answer": "work",
+              "snoozedUntil": "2030-01-31T00:00:07.200Z"
+            }
+          }
+        },
+        "5": {
+          "rows": {}
+        }
+      }
+    }
+  },
+  "settings/last-active-project-id": {
+    "decision": "20",
+    "why": "lastActiveProjectId is read-only in the settings group: windowActivate writes it (Decision 22).",
+    "expected": {
+      "steps": {
+        "0": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "settings/connection-string-secrets-notice": {
+    "decision": "20",
+    "why": "connectionStringSecretsNotice is Core's (Decision 12a): the GUI may only clear it with null, which deletes the row; any other value is INVALID_ARGUMENT.",
+    "expected": {
+      "steps": {
+        "0": {
+          "rows": {}
+        },
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "settings/refused-keys": {
+    "decision": "20",
+    "why": "App-state keys are a closed set of typed settings: an unknown key, activeRepoId (the shared repos' own), Core's connectionStringSecrets{Vacuum,Upgraded,Checkpoint} keys and aiSettings (written only through the AI settings calls) are refused by settingSet, and an unknown key or one of Core's by settingGet, with INVALID_ARGUMENT naming the key.",
+    "expected": {
+      "steps": {
+        "0": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "1": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "2": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "3": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "4": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "5": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "6": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        },
+        "7": {
+          "outcome": {
+            "ok": false,
+            "code": "INVALID_ARGUMENT"
+          },
+          "rows": {},
+          "view": {
+            "editorKeybindingMode": "default",
+            "pendingChangesEnabled": true,
+            "skippedUpdateVersion": null,
+            "licenseNudge": {
+              "queryCount": 0,
+              "activeDays": 0,
+              "lastActiveDay": null,
+              "answer": null,
+              "snoozedUntil": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "ai-settings/two-tabs-different-providers": {
+    "decision": "20",
+    "why": "AI settings are split into targeted calls rewritten from the stored record inside the transaction, so both windows' providers stay. Today the second window's whole-record save drops the first's.",
+    "expected": {
+      "steps": {
+        "3": {
+          "rows": {
+            "app_state": [
+              {
+                "key": "aiSettings",
+                "value": "{\"enabled\":true,\"providers\":[{\"id\":\"prov-1\",\"name\":\"Anthropic\",\"type\":\"anthropic\"},{\"id\":\"<id:1>\",\"name\":\"First\",\"type\":\"anthropic\"},{\"id\":\"<id:2>\",\"name\":\"Second\",\"type\":\"anthropic\"}],\"shareSchemaGlobally\":true,\"shareDataGlobally\":false}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "themes/add": {
+    "decision": "20",
+    "why": "A user theme call (userThemeCreate, userThemeUpdate, userThemeRemove of a theme not in use) writes only its user_themes row. Today every theme save also writes theme_preferences, which leaves a row holding the defaults on a file that had none; no row reads as the defaults.",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "user_themes": [
+              {
+                "id": "theme-<id:1>",
+                "data": "{\"name\":\"Mine\",\"isDark\":false,\"colors\":{\"background\":\"#ffffff\",\"foreground\":\"#111111\",\"primary\":\"#3355ff\"},\"id\":\"theme-<id:1>\",\"isBuiltIn\":false,\"createdAt\":\"<now>\",\"updatedAt\":\"<now>\"}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "themes/update": {
+    "decision": "20",
+    "why": "A user theme call (userThemeCreate, userThemeUpdate, userThemeRemove of a theme not in use) writes only its user_themes row. Today every theme save also writes theme_preferences, which leaves a row holding the defaults on a file that had none; no row reads as the defaults.",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "user_themes": [
+              {
+                "id": "theme-1",
+                "data": "{\"name\":\"Renamed\",\"isDark\":false,\"colors\":{\"background\":\"#ffffff\",\"foreground\":\"#111111\",\"primary\":\"#ff0000\"},\"id\":\"theme-1\",\"isBuiltIn\":false,\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"<now>\"}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "themes/delete-not-in-use": {
+    "decision": "20",
+    "why": "A user theme call (userThemeCreate, userThemeUpdate, userThemeRemove of a theme not in use) writes only its user_themes row. Today every theme save also writes theme_preferences, which leaves a row holding the defaults on a file that had none; no row reads as the defaults.",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "user_themes": [
+              {
+                "id": "theme-1",
+                "data": "{\"name\":\"Mine\",\"isDark\":false,\"colors\":{\"background\":\"#ffffff\",\"foreground\":\"#111111\",\"primary\":\"#3355ff\"},\"id\":\"theme-1\",\"isBuiltIn\":false,\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "old-data/ai-settings-array": {
+    "decision": "20",
+    "why": "A record that isn't a JSON object reads as the defaults, and the next write stores the defaults plus the change. Today an array's elements are spread into the settings and written back under numeric keys.",
+    "expected": {
+      "steps": {
+        "0": {
+          "view": {
+            "settings": {
+              "enabled": true,
+              "providers": [],
+              "shareSchemaGlobally": true,
+              "shareDataGlobally": false
+            }
+          }
+        },
+        "1": {
+          "view": {
+            "settings": {
+              "enabled": false,
+              "providers": [],
+              "shareSchemaGlobally": true,
+              "shareDataGlobally": false
+            }
+          },
+          "rows": {
+            "app_state": [
+              {
+                "key": "aiSettings",
+                "value": "{\"enabled\":false,\"providers\":[],\"shareSchemaGlobally\":true,\"shareDataGlobally\":false}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "old-data/user-theme-does-not-parse": {
+    "decision": "20",
+    "why": "Themes are saved one row at a time (userThemeCreate), so the row that doesn't parse stays. Today saveUserThemes replaces every row and drops it. As in every theme case, a theme call doesn't write theme_preferences either (see themePrefsChanges).",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "user_themes": [
+              {
+                "id": "theme-<id:1>",
+                "data": "{\"name\":\"New\",\"isDark\":false,\"colors\":{\"background\":\"#ffffff\",\"foreground\":\"#111111\",\"primary\":\"#3355ff\"},\"id\":\"theme-<id:1>\",\"isBuiltIn\":false,\"createdAt\":\"<now>\",\"updatedAt\":\"<now>\"}"
+              },
+              {
+                "id": "theme-1",
+                "data": "{\"name\":\"Mine\",\"isDark\":false,\"colors\":{\"background\":\"#ffffff\",\"foreground\":\"#111111\",\"primary\":\"#3355ff\"},\"id\":\"theme-1\",\"isBuiltIn\":false,\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "theme-bad",
+                "data": "{not json"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "old-data/saved-canvases-bad-rows": {
+    "decision": "23",
+    "why": "Saved workflows leave the project state: nothing deletes a workflow the page couldn't read. Today the first project save after the load deletes both. Listed too (5d-2 Task 7 probe fix): `workflowsList` answers no bodies, so the page can't tell that one won't decode until it's opened. `workflow-bad` (valid JSON, a bigint cell that won't decode) is in the sidebar, first in rowid order; opening it says it can't be read. A row that isn't JSON (`workflow-garbage`) stays out, as Core skips it.",
+    "expected": {
+      "steps": {
+        "0": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": null,
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              }
+            ],
+            "saved_canvases": [
+              {
+                "id": "workflow-bad",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-bad\",\"name\":\"Bad\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"x\",\"columns\":[\"n\"],\"rows\":[[{\"$sq\":\"bigint\",\"v\":\"x\"}]]}}],\"edges\":[],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "workflow-garbage",
+                "project_id": "p1",
+                "data": "{not json"
+              },
+              {
+                "id": "workflow-good",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-good\",\"name\":\"Good\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-q\",\"type\":\"queryNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"query\",\"name\":\"Query\",\"query\":\"SELECT 1\",\"connectionId\":\"c1\",\"isExecuting\":false}},{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":370,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"n-q\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"totalRows\":2}},{\"id\":\"n-c\",\"type\":\"chartNode\",\"position\":{\"x\":740,\"y\":0},\"data\":{\"type\":\"chart\",\"sourceNodeId\":\"n-r\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"chartConfig\":{\"type\":\"bar\",\"xAxis\":\"n\",\"yAxis\":[\"n\"]}}}],\"edges\":[{\"id\":\"n-q-n-r\",\"source\":\"n-q\",\"target\":\"n-r\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"},{\"id\":\"n-r-n-c\",\"source\":\"n-r\",\"target\":\"n-c\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": {
+            "activeProjectId": "p1",
+            "activeView": "starter",
+            "projects": {
+              "p1": {
+                "starterTabs": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "tabOrder": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "paneLayout": {
+                  "panes": [
+                    {
+                      "id": "pane-<id:1>",
+                      "tabIds": [
+                        "getting-started",
+                        "migration-tips"
+                      ],
+                      "activeTabId": "getting-started"
+                    }
+                  ],
+                  "activePaneId": "pane-<id:1>"
+                },
+                "active": {
+                  "starter": "getting-started"
+                },
+                "activeView": "starter",
+                "connectionOrder": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            },
+            "savedWorkflows": {
+              "p1": [
+                {
+                  "id": "workflow-bad",
+                  "name": "Bad",
+                  "nodes": 1
+                },
+                {
+                  "id": "workflow-good",
+                  "name": "Good",
+                  "nodes": 3
+                }
+              ]
+            }
+          }
+        },
+        "1": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "starter",
+                "active_connection_id": null,
+                "active_query_tab_id": "tab-<id:2>",
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": null,
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": "getting-started",
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"getting-started\",\"migration-tips\",\"tab-<id:2>\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "getting-started",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Getting Started",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "getting-started",
+                "closable": 1
+              },
+              {
+                "id": "migration-tips",
+                "project_id": "p1",
+                "tab_type": "starter",
+                "name": "Migration Tips",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": "migration-tips",
+                "closable": 1
+              },
+              {
+                "id": "tab-<id:2>",
+                "project_id": "p1",
+                "tab_type": "query",
+                "name": "A",
+                "query": "SELECT 1",
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": null,
+                "closable": null
+              }
+            ],
+            "saved_canvases": [
+              {
+                "id": "workflow-bad",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-bad\",\"name\":\"Bad\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"x\",\"columns\":[\"n\"],\"rows\":[[{\"$sq\":\"bigint\",\"v\":\"x\"}]]}}],\"edges\":[],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              },
+              {
+                "id": "workflow-garbage",
+                "project_id": "p1",
+                "data": "{not json"
+              },
+              {
+                "id": "workflow-good",
+                "project_id": "p1",
+                "data": "{\"id\":\"workflow-good\",\"name\":\"Good\",\"projectId\":\"p1\",\"nodes\":[{\"id\":\"n-q\",\"type\":\"queryNode\",\"position\":{\"x\":0,\"y\":0},\"data\":{\"type\":\"query\",\"name\":\"Query\",\"query\":\"SELECT 1\",\"connectionId\":\"c1\",\"isExecuting\":false}},{\"id\":\"n-r\",\"type\":\"resultNode\",\"position\":{\"x\":370,\"y\":0},\"data\":{\"type\":\"result\",\"sourceQueryNodeId\":\"n-q\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"totalRows\":2}},{\"id\":\"n-c\",\"type\":\"chartNode\",\"position\":{\"x\":740,\"y\":0},\"data\":{\"type\":\"chart\",\"sourceNodeId\":\"n-r\",\"columns\":[\"n\"],\"rows\":[[1],[2]],\"chartConfig\":{\"type\":\"bar\",\"xAxis\":\"n\",\"yAxis\":[\"n\"]}}}],\"edges\":[{\"id\":\"n-q-n-r\",\"source\":\"n-q\",\"target\":\"n-r\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"},{\"id\":\"n-r-n-c\",\"source\":\"n-r\",\"target\":\"n-c\",\"sourceHandle\":\"output\",\"targetHandle\":\"input\"}],\"viewport\":{\"x\":0,\"y\":0,\"zoom\":1},\"createdAt\":\"2024-01-01T00:00:00.000Z\",\"updatedAt\":\"2024-01-01T00:00:00.000Z\"}"
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          },
+          "view": {
+            "activeProjectId": "p1",
+            "activeView": "starter",
+            "projects": {
+              "p1": {
+                "queryTabs": [
+                  {
+                    "id": "tab-<id:2>",
+                    "name": "A",
+                    "query": "SELECT 1"
+                  }
+                ],
+                "starterTabs": [
+                  "getting-started",
+                  "migration-tips"
+                ],
+                "tabOrder": [
+                  "getting-started",
+                  "migration-tips",
+                  "tab-<id:2>"
+                ],
+                "paneLayout": {
+                  "panes": [
+                    {
+                      "id": "pane-<id:1>",
+                      "tabIds": [
+                        "getting-started",
+                        "migration-tips",
+                        "tab-<id:2>"
+                      ],
+                      "activeTabId": "tab-<id:2>"
+                    }
+                  ],
+                  "activePaneId": "pane-<id:1>"
+                },
+                "active": {
+                  "query": "tab-<id:2>",
+                  "starter": "getting-started"
+                },
+                "activeView": "starter",
+                "connectionOrder": [
+                  "c1",
+                  "c2"
+                ]
+              }
+            },
+            "savedWorkflows": {
+              "p1": [
+                {
+                  "id": "workflow-bad",
+                  "name": "Bad",
+                  "nodes": 1
+                },
+                {
+                  "id": "workflow-good",
+                  "name": "Good",
+                  "nodes": 3
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "old-data/onboarding-missing-fields": {
+    "decision": "20",
+    "why": "A stored onboarding record reads over the store's six defaults (as a missing record does), and onboardingPatch merges into that, so the write keeps every field. Today the missing fields read as undefined and the next write drops them.",
+    "expected": {
+      "steps": {
+        "0": {
+          "view": {
+            "isFirstRun": false,
+            "userBackground": "none",
+            "hasCompletedWizard": false,
+            "showWizardHints": true,
+            "dismissedHints": [
+              "sidebar"
+            ],
+            "learnEnabled": true
+          }
+        },
+        "1": {
+          "view": {
+            "isFirstRun": false,
+            "userBackground": "none",
+            "hasCompletedWizard": true,
+            "showWizardHints": true,
+            "dismissedHints": [
+              "sidebar"
+            ],
+            "learnEnabled": true
+          },
+          "rows": {
+            "onboarding_state": [
+              {
+                "id": 1,
+                "data": "{\"isFirstRun\":false,\"userBackground\":\"none\",\"hasCompletedWizard\":true,\"showWizardHints\":true,\"dismissedHints\":[\"sidebar\"],\"learnEnabled\":true}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "old-data/project-state-canvas-view": {
+    "decision": "22",
+    "why": "The legacy mirror writes an activeView of canvas (from before the workflow rename) as workflow, which the frozen baseline turns it into on every open anyway (5d-2 Task 4 review). The window's own row keeps the state as sent, canvas included; today's save wrote canvas back.",
+    "expected": {
+      "steps": {
+        "1": {
+          "rows": {
+            "connection_overrides": [
+              {
+                "shared_connection_id": "repo-1:prod",
+                "username": "me",
+                "host_override": "localhost",
+                "port_override": 15432,
+                "save_password": 1,
+                "save_ssh_password": 0,
+                "save_ssh_key_passphrase": 0
+              }
+            ],
+            "project_state": [
+              {
+                "project_id": "p1",
+                "active_view": "workflow",
+                "active_connection_id": null,
+                "active_query_tab_id": "tab-<id:1>",
+                "active_schema_tab_id": null,
+                "active_explain_tab_id": null,
+                "active_erd_tab_id": null,
+                "active_statistics_tab_id": null,
+                "active_workflow_tab_id": "tab-w1",
+                "active_visualize_tab_id": null,
+                "active_starter_tab_id": null,
+                "active_dashboard_tab_id": null,
+                "active_create_table_tab_id": null,
+                "active_data_tab_id": null,
+                "tab_order": "[\"tab-q1\",\"tab-w1\",\"tab-<id:1>\"]",
+                "connection_order": "[\"c1\",\"c2\"]",
+                "starred_shared_query_ids": "[]",
+                "starred_shared_dashboard_ids": "[]",
+                "pane_layout": null
+              }
+            ],
+            "tabs": [
+              {
+                "id": "tab-<id:1>",
+                "project_id": "p1",
+                "tab_type": "query",
+                "name": "A",
+                "query": "SELECT 1",
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": null,
+                "closable": null
+              },
+              {
+                "id": "tab-q1",
+                "project_id": "p1",
+                "tab_type": "query",
+                "name": "Orders",
+                "query": "SELECT 1",
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": null,
+                "starter_type": null,
+                "closable": null
+              },
+              {
+                "id": "tab-w1",
+                "project_id": "p1",
+                "tab_type": "canvas",
+                "name": "Canvas: Local",
+                "query": null,
+                "saved_query_id": null,
+                "shared_query_id": null,
+                "table_name": null,
+                "schema_name": null,
+                "source_query": null,
+                "connection_id": "c1",
+                "starter_type": null,
+                "closable": null
+              }
+            ],
+            "app_state": [
+              {
+                "key": "lastActiveProjectId",
+                "value": "p1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

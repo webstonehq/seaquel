@@ -5,8 +5,8 @@
  * - Every library change is one targeted call, written at once: no
  *   project save deletes another tab's saved query or undoes its label.
  * - Removing a custom label strips it from the connections that had it.
- * - Dashboards (stars, the version limit, failures) still go through the
- *   storage client until phase 5d-2.
+ * - Dashboards (stars, the version limit, failures) go through the library
+ *   too since phase 5d-2: Core numbers and prunes their versions.
  */
 import initSqlJs from "sql.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +34,8 @@ const { bootstrapSqljsDatabase, createSqljsStorageClient } =
   await import("$lib/storage/sqljs-client");
 const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
 const { projectsRepo } = await import("$lib/storage/repository");
-const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { WindowStateManager } = await import("./window-state.svelte.js");
+const { TsUi } = await import("./library/ts-ui");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { SavedQueryManager } = await import("./saved-queries.svelte.js");
@@ -43,7 +44,7 @@ const { ConnectionManager } = await import("./connection-manager.svelte.js");
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
 const { queryNameToFilename } = await import("$lib/services/query-file-parser");
 const { TsLibrary } = await import("./library/ts-library");
-const { setLibrary } = await import("./library/index");
+const { setLibrary, LibraryCallError } = await import("./library/index");
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 
@@ -62,10 +63,12 @@ afterEach(() => setLibrary(null));
 
 let client: StorageClient;
 let library: InstanceType<typeof TsLibrary>;
+let database: InstanceType<typeof WebSqliteDatabase>;
 
 beforeEach(async () => {
   toasts.length = 0;
   const db = new WebSqliteDatabase(new SQL.Database());
+  database = db;
   await bootstrapSqljsDatabase(db);
   client = createSqljsStorageClient(db);
   storage.client = client;
@@ -78,15 +81,16 @@ beforeEach(async () => {
 });
 
 /** One window or web tab: its own in-memory state over the shared database. */
-async function openTab(projectId = "p1") {
+async function openTab(projectId = "p1", windowId = `win-${crypto.randomUUID()}`) {
   const state = new DatabaseState();
-  const persistence = new PersistenceManager(state);
-  const restoration = new StateRestorationManager(state, persistence);
-  const projects = new ProjectManager(state, persistence, restoration);
+  const ui = new TsUi(database, { origin: () => windowId });
+  const windowState = new WindowStateManager(state, { ui: () => ui, windowId: () => windowId });
+  const restoration = new StateRestorationManager(state);
+  const projects = new ProjectManager(state, windowState, restoration);
   const provider = { connect: vi.fn(async () => "core-1"), disconnect: vi.fn(async () => {}) };
   const connections = new ConnectionManager(
     state,
-    persistence,
+    windowState,
     restoration,
     {} as never,
     { getForType: async () => provider } as never,
@@ -98,8 +102,16 @@ async function openTab(projectId = "p1") {
   await projects.initialize();
   await connections.initializePersistedConnections();
   await projects.setActive(projectId);
-  const savedQueries = new SavedQueryManager(state, () => {}, persistence);
-  return { state, persistence, restoration, projects, savedQueries, connections, provider };
+  const savedQueries = new SavedQueryManager(state, () => {});
+  return {
+    state,
+    windowState,
+    restoration,
+    projects,
+    savedQueries,
+    connections,
+    provider,
+  };
 }
 
 const storedQueryNames = async (projectId = "p1") =>
@@ -137,7 +149,7 @@ describe("two tabs on one database", () => {
     await a.savedQueries.saveQuery("from A", "SELECT 1");
     await b.savedQueries.saveQuery("from B", "SELECT 2");
     // Tab B saves its project for an unrelated reason (a tab switch, say).
-    await b.persistence.persistProjectState("p1");
+    await b.windowState.saveNow("p1");
 
     expect(await storedQueryNames()).toEqual(["from A", "from B"]);
   });
@@ -230,104 +242,162 @@ describe("custom labels", () => {
 });
 
 describe("dashboards", () => {
-  function dashboards(state: InstanceType<typeof DatabaseState>, persistence: unknown) {
+  function dashboards(state: InstanceType<typeof DatabaseState>) {
     return new DashboardManager(
       state,
       async () => [],
       () => {},
-      persistence as InstanceType<typeof PersistenceManager>,
     );
   }
 
+  /** A setting as stored (the UI clamps; a hand-set or older value can be anything). */
+  const storeSetting = (key: string, value: string) =>
+    database.execute("INSERT INTO app_state (key, value) VALUES (?, ?)", [key, value]);
+
   it("starring a dashboard survives a reload", async () => {
     const tab = await openTab();
-    const manager = dashboards(tab.state, tab.persistence);
+    const manager = dashboards(tab.state);
     const dashboard = (await manager.createDashboard("Sales"))!;
 
     await manager.toggleDashboardStarred(dashboard.id);
 
-    const stored = await client.dashboards.loadByProject("p1");
+    const stored = (await library.listDashboards("p1")).value;
     expect(stored.find((d) => d.id === dashboard.id)?.starred).toBe(true);
   });
 
   it("a failed save is shown as an error", async () => {
     const tab = await openTab();
-    const manager = dashboards(tab.state, tab.persistence);
+    const manager = dashboards(tab.state);
     const dashboard = (await manager.createDashboard("Sales"))!;
-    vi.spyOn(client.dashboards, "save").mockRejectedValueOnce(new Error("STORAGE_ERROR: full"));
+    vi.spyOn(library, "updateDashboard").mockRejectedValueOnce(
+      new LibraryCallError("STORAGE_ERROR", "full"),
+    );
 
     await manager.renameDashboard(dashboard.id, "Renamed");
 
-    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: full")]);
+    expect(toasts).toEqual([expect.stringContaining("full")]);
   });
 
   it("a failed delete keeps the dashboard and is shown as an error", async () => {
     const tab = await openTab();
-    const manager = dashboards(tab.state, tab.persistence);
+    const manager = dashboards(tab.state);
     const dashboard = (await manager.createDashboard("Sales"))!;
-    vi.spyOn(client.dashboards, "remove").mockRejectedValueOnce(new Error("STORAGE_ERROR: locked"));
+    vi.spyOn(library, "removeDashboard").mockRejectedValueOnce(
+      new LibraryCallError("STORAGE_ERROR", "locked"),
+    );
 
     await manager.deleteDashboard(dashboard.id);
 
-    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: locked")]);
+    expect(toasts).toEqual([expect.stringContaining("locked")]);
     expect(manager.getDashboard(dashboard.id)).toBeDefined();
-    expect(await client.dashboards.loadByProject("p1")).toHaveLength(1);
-  });
-
-  it("a version whose insert failed prunes nothing", async () => {
-    await client.appState.set("dashboard_version_limit", "10");
-    const tab = await openTab();
-    const manager = dashboards(tab.state, tab.persistence);
-    const dashboard = (await manager.createDashboard("Sales"))!;
-    const insert = vi
-      .spyOn(client.dashboardVersions, "insert")
-      .mockRejectedValue(new Error("STORAGE_ERROR: full"));
-    const prune = vi.spyOn(client.dashboardVersions, "pruneOldVersions");
-
-    await manager.renameDashboard(dashboard.id, "Renamed");
-
-    await vi.waitFor(() => expect(insert).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
-    expect(prune).not.toHaveBeenCalled();
+    expect((await library.listDashboards("p1")).value).toHaveLength(1);
   });
 
   it("a negative version limit counts as unset", async () => {
-    await client.appState.set("dashboard_version_limit", "-5");
+    await storeSetting("dashboard_version_limit", "-5");
     const tab = await openTab();
-    expect(await tab.persistence.versionLimit("dashboard_version_limit")).toBe(100);
-  });
-
-  it("the dashboard version limit setting is used", async () => {
-    await client.appState.set("dashboard_version_limit", "10");
-    const tab = await openTab();
-    const manager = dashboards(tab.state, tab.persistence);
+    const manager = dashboards(tab.state);
     const dashboard = (await manager.createDashboard("Sales"))!;
 
     for (let i = 0; i < 12; i++) await manager.renameDashboard(dashboard.id, `Sales ${i}`);
 
-    await vi.waitFor(async () => {
-      expect(await client.dashboardVersions.loadByDashboard(dashboard.id)).toHaveLength(10);
-      expect(manager.getVersionsForDashboard(dashboard.id)).toHaveLength(10);
-    });
+    expect((await library.listDashboardVersions("p1")).value).toHaveLength(12);
+  });
+
+  it("the dashboard version limit setting is used", async () => {
+    await storeSetting("dashboard_version_limit", "10");
+    const tab = await openTab();
+    const manager = dashboards(tab.state);
+    const dashboard = (await manager.createDashboard("Sales"))!;
+
+    for (let i = 0; i < 12; i++) await manager.renameDashboard(dashboard.id, `Sales ${i}`);
+
+    const stored = (await library.listDashboardVersions("p1")).value;
+    expect(stored.map((v) => v.version)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(manager.getVersionsForDashboard(dashboard.id).map((v) => v.id)).toEqual(
+      stored.map((v) => v.id),
+    );
   });
 });
 
-describe("connection overrides", () => {
-  it("a failed save is shown as an error", async () => {
+/**
+ * 5d-2 Task 7 probe fix: `dashboardVersionsList` answers no snapshots, so
+ * the history lists versions without them and reads one when it's picked.
+ */
+describe("dashboard version history", () => {
+  const widget = (id: string) => ({
+    id,
+    title: id,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    querySource: "custom" as const,
+    query: "SELECT 1",
+    widgetType: "kpi" as const,
+  });
+
+  async function withHistory() {
     const tab = await openTab();
-    vi.spyOn(client.connectionOverrides, "save").mockRejectedValueOnce(
-      new Error("STORAGE_ERROR: full"),
+    const manager = new DashboardManager(
+      tab.state,
+      async () => [],
+      () => {},
     );
+    const d = (await manager.createDashboard("Sales"))!;
+    await manager.addWidget(d.id, widget("w1"));
+    await manager.renameDashboard(d.id, "Revenue");
+    return { tab, manager, id: d.id };
+  }
 
-    await tab.persistence.persistConnectionOverride({
-      sharedConnectionId: "s1",
-      username: "me",
-      savePassword: false,
-      saveSshPassword: false,
-      saveSshKeyPassphrase: false,
-    });
+  it("lists versions without snapshots and loads one when it's opened", async () => {
+    const { manager, id } = await withHistory();
+    const versions = manager.getVersionsForDashboard(id);
+    expect(versions.map((v) => [v.version, v.widgetCount])).toEqual([
+      [1, 0],
+      [2, 1],
+    ]);
+    expect(versions[0]).not.toHaveProperty("snapshot");
+    const get = vi.spyOn(library, "getDashboardVersion");
 
-    expect(toasts).toEqual([expect.stringContaining("STORAGE_ERROR: full")]);
+    const loaded = await manager.loadVersion(id, versions[1].id);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(id, versions[1].id);
+    expect(loaded?.dashboard.name).toBe("Sales");
+    expect(loaded?.dashboard.widgets.map((w) => w.id)).toEqual(["w1"]);
+  });
+
+  it("restores a loaded version", async () => {
+    const { manager, id } = await withHistory();
+    const first = manager.getVersionsForDashboard(id)[0];
+    const loaded = (await manager.loadVersion(id, first.id))!;
+
+    await manager.restoreVersion(id, loaded);
+
+    expect(manager.getDashboard(id)?.name).toBe("Sales");
+    expect(manager.getDashboard(id)?.widgets).toEqual([]);
+    const stored = (await library.listDashboards("p1")).value.find((d) => d.id === id)!;
+    expect([stored.name, stored.widgets]).toEqual(["Sales", "[]"]);
+    // The state it had is versioned first, and the history shows it.
+    expect(manager.getVersionsForDashboard(id).map((v) => [v.version, v.widgetCount])).toEqual([
+      [1, 0],
+      [2, 1],
+      [3, 1],
+    ]);
+  });
+
+  it("a version pruned elsewhere says so and leaves the history", async () => {
+    const { manager, id } = await withHistory();
+    const first = manager.getVersionsForDashboard(id)[0];
+    await database.execute("DELETE FROM dashboard_versions WHERE id = ?", [first.id]);
+
+    expect(await manager.loadVersion(id, first.id)).toBeNull();
+
+    expect(toasts).toEqual([expect.stringContaining("dashboard version")]);
+    await vi.waitFor(() =>
+      expect(manager.getVersionsForDashboard(id).map((v) => v.version)).toEqual([2]),
+    );
   });
 });
 

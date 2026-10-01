@@ -12,6 +12,8 @@ const calls: string[] = [];
 let failLoads = true;
 /** While set, loads wait for it before answering. */
 let holdLoads: Promise<void> | null = null;
+/** The messages each `putChatMessages` carried. */
+const puts: { id: string }[][] = [];
 
 vi.mock("$lib/storage", () => {
   const repo = (name: string) =>
@@ -46,7 +48,9 @@ vi.mock("$lib/stores/license-nudge.svelte.js", () => ({
   licenseNudgeStore: { recordQuery: () => {} },
 }));
 
-const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { WindowStateManager } = await import("./window-state.svelte.js");
+const { AIChatManager } = await import("./ai-chat-manager.svelte.js");
+const { SharedRepoManager } = await import("./shared-repo-manager.svelte.js");
 const { setLibrary } = await import("./library/index");
 const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 
@@ -62,7 +66,11 @@ setLibrary(
       async (...args: unknown[]) => {
         calls.push(`library.${method}`);
         if (/^list|^ensure/.test(method)) {
+          if (holdLoads) await holdLoads;
           if (failLoads) throw new Error("STORAGE_ERROR: upstream unavailable");
+          if (method === "listChatMessages") {
+            return { value: { messages: [], storedBytes: 0 }, seq };
+          }
           return {
             value:
               method === "ensureDefaultProject"
@@ -93,6 +101,10 @@ setLibrary(
             seq: { ...seq, n: 2 },
           };
         }
+        if (method === "putChatMessages") {
+          puts.push(args[1] as { id: string }[]);
+          return { value: { messages: args[1], storedBytes: 0 }, seq: { ...seq, n: 3 } };
+        }
         throw new Error(`unexpected library.${method}`);
       },
   }),
@@ -101,26 +113,56 @@ const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { resetLoadGuardToast } = await import("$lib/storage/load-guard");
+import type { UiService } from "./library/types";
 
-/** Writes that replace or delete stored rows. */
+/**
+ * The window's `ui` calls (phase 5d-2), recorded as `ui.method`: the reads
+ * fail while `failLoads`, and wait for `holdLoads`.
+ */
+const ui: UiService = {
+  async windowGet() {
+    calls.push("ui.windowGet");
+    if (failLoads) throw new Error("STORAGE_ERROR: upstream unavailable");
+    return { value: { activeProjectId: null, from: null }, seq };
+  },
+  async windowActivate() {
+    calls.push("ui.windowActivate");
+    return { value: null, seq };
+  },
+  async windowStateLoad() {
+    calls.push("ui.windowStateLoad");
+    if (holdLoads) await holdLoads;
+    if (failLoads) throw new Error("STORAGE_ERROR: upstream unavailable");
+    return { value: { state: null, rev: 0, copiedFrom: "empty" }, seq };
+  },
+  async windowStateSave(_w, _p, rev) {
+    calls.push("ui.windowStateSave");
+    return { value: { stale: false, rev }, seq };
+  },
+  windowStateSaveKeepalive: () => false,
+};
+
+/** Writes that replace or delete stored rows (or would record a stand-in). */
 const REPLACING = [
   "appState.set",
-  "projectState.save",
+  "ui.windowStateSave",
+  "ui.windowActivate",
   "sharedRepos.saveAll",
   "queryHistory.replaceAll",
-  "aiChats.replaceAllMessages",
 ];
 const replacingWrites = () => calls.filter((c) => REPLACING.includes(c));
 
 function setup() {
   const state = new DatabaseState();
-  const persistence = new PersistenceManager(state);
-  const restoration = new StateRestorationManager(state, persistence);
-  return { state, persistence, restoration };
+  const windowState = new WindowStateManager(state, { ui: () => ui, windowId: () => "win-1" });
+  const restoration = new StateRestorationManager(state);
+  const chats = new AIChatManager(state, (chatId) => restoration.loadAIChatMessages(chatId));
+  return { state, windowState, chats, restoration };
 }
 
 beforeEach(() => {
   calls.length = 0;
+  puts.length = 0;
   toasts.length = 0;
   failLoads = true;
   holdLoads = null;
@@ -128,72 +170,84 @@ beforeEach(() => {
 });
 
 describe("a failed load blocks the save that would replace it", () => {
-  it("project state: a tab change doesn't wipe the project's tabs and canvases", async () => {
-    const { state, persistence } = setup();
-    expect(await persistence.loadProjectState("p1")).toBeNull();
+  it("view state: a tab change doesn't wipe the window's tabs", async () => {
+    const { state, windowState } = setup();
+    expect(await windowState.load("p1")).toBeNull();
     state.queryTabsByProject["p1"] = [];
 
-    await persistence.persistProjectState("p1");
+    await windowState.saveNow("p1");
 
-    expect(calls).not.toContain("projectState.save");
+    expect(calls).not.toContain("ui.windowStateSave");
     expect(replacingWrites()).toEqual([]);
     expect(toasts).toHaveLength(1);
   });
 
   it("saved queries: a failed load leaves the page's copy, and saving one writes only it", async () => {
-    const { state, persistence, restoration } = setup();
+    const { state, windowState, restoration } = setup();
     await restoration.loadProjectData("p1"); // saved queries fail
     failLoads = false;
-    await persistence.loadProjectState("p1"); // project state loads fine
+    await windowState.load("p1"); // the view state loads fine
+    windowState.markLoaded("p1"); // and is restored
     state.activeProjectId = "p1";
     calls.length = 0;
-    const saved = new SavedQueryManager(state, () => {}, persistence);
+    const saved = new SavedQueryManager(state, () => {});
 
     // The user saves a new query: one targeted create, nothing replaced.
     await saved.saveQuery("new", "select 1");
-    await persistence.persistProjectState("p1");
+    await windowState.saveNow("p1");
 
     expect(calls.filter((c) => c.startsWith("library."))).toEqual(["library.createSavedQuery"]);
-    expect(calls).toContain("projectState.save");
-    expect(replacingWrites()).toEqual(["projectState.save"]);
+    expect(replacingWrites()).toEqual(["ui.windowStateSave"]);
   });
 
   it("shared repos: a failed load isn't saved back as none", async () => {
-    const { persistence } = setup();
-    expect(await persistence.loadSharedRepos()).toEqual({ repos: [], activeRepoId: null });
+    const { state } = setup();
+    const repos = new SharedRepoManager(state);
+    expect(await repos.loadPersistedRepos()).toEqual({ repos: [], activeRepoId: null });
 
-    await persistence.persistSharedRepos();
+    await repos.persistRepos();
 
     expect(replacingWrites()).toEqual([]);
   });
 
-  it("AI chat messages: a new message doesn't replace the chat's history", async () => {
-    const { state, persistence } = setup();
-    await persistence.loadAIChatMessages("chat-1");
-    state.aiMessagesByChat = { "chat-1": [] };
+  it("AI chat messages: a new message is put on its own, not over the chat's history", async () => {
+    // Decision 24: messages are upserted by id, so a failed load needs no
+    // guard: the put carries only what the page has, and replaces nothing.
+    const { state, chats, restoration } = setup();
+    await restoration.loadAIChatMessages("chat-1");
+    const message = {
+      id: "m-new",
+      chatId: "chat-1",
+      role: "user" as const,
+      content: "hello",
+      timestamp: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    state.aiMessagesByChat = { "chat-1": [message] };
 
-    await persistence.persistAIChatMessages("chat-1");
+    await chats.persistMessages("chat-1");
 
+    expect(puts.map((p) => p.map((m) => m.id))).toEqual([["m-new"]]);
     expect(replacingWrites()).toEqual([]);
   });
 
   it("projects: no default project is stored and the active project isn't overwritten", async () => {
-    const { state, persistence, restoration } = setup();
-    const projects = new ProjectManager(state, persistence, restoration);
+    const { state, windowState, restoration } = setup();
+    const projects = new ProjectManager(state, windowState, restoration);
 
     await projects.initialize();
 
-    // The app still gets a project to work in, in memory only.
+    // The app still gets a project to work in, in memory only: it isn't
+    // recorded as the window's active project, and its tabs aren't saved.
     expect(state.projects).toHaveLength(1);
-    await persistence.persistAppState();
-    await persistence.persistProjectState(state.projects[0].id);
+    await windowState.activate(state.projects[0].id);
+    await windowState.saveNow(state.projects[0].id);
     expect(replacingWrites()).toEqual([]);
   });
 
   it("projects: an empty file gets the default project from Core", async () => {
     failLoads = false;
-    const { state, persistence, restoration } = setup();
-    const projects = new ProjectManager(state, persistence, restoration);
+    const { state, windowState, restoration } = setup();
+    const projects = new ProjectManager(state, windowState, restoration);
 
     await projects.initialize();
 
@@ -203,36 +257,38 @@ describe("a failed load blocks the save that would replace it", () => {
 });
 
 describe("a load that is still running blocks the save too", () => {
-  it("refuses AI-message saves until their load succeeds", async () => {
+  it("refuses view-state saves until the window's load answers", async () => {
     failLoads = false;
     let release!: () => void;
     holdLoads = new Promise((r) => (release = r));
-    const { state, persistence } = setup();
-    state.aiMessagesByChat = { "chat-1": [] };
+    const { windowState } = setup();
 
-    const messages = persistence.loadAIChatMessages("chat-1");
-    await persistence.persistAIChatMessages("chat-1");
+    const loading = windowState.load("p1");
+    await windowState.saveNow("p1");
     expect(replacingWrites()).toEqual([]);
-    // Still loading, not failed: nothing to tell the user.
     expect(toasts).toEqual([]);
 
     release();
     holdLoads = null;
-    await messages;
-    await persistence.persistAIChatMessages("chat-1");
-    expect(replacingWrites()).toEqual(["aiChats.replaceAllMessages"]);
+    await loading;
+    // Answered, but not restored yet: still refused.
+    await windowState.saveNow("p1");
+    expect(replacingWrites()).toEqual([]);
+    windowState.markLoaded("p1");
+    await windowState.saveNow("p1");
+    expect(replacingWrites()).toEqual(["ui.windowStateSave"]);
   });
 });
 
 describe("query history has no replacing save to guard", () => {
   it("flush writes no history", async () => {
     failLoads = false;
-    const { state, persistence } = setup();
+    const { state, windowState, restoration } = setup();
     state.queryHistoryByConnection = { c1: [] };
-    await persistence.loadConnectionData("c1");
+    await restoration.loadConnectionData("c1");
     calls.length = 0;
 
-    await persistence.flush();
+    await windowState.flush();
 
     expect(calls.filter((c) => c.startsWith("queryHistory."))).toEqual([]);
   });
@@ -240,15 +296,13 @@ describe("query history has no replacing save to guard", () => {
 
 describe("a chat whose messages failed to load", () => {
   it("stays unloaded, so switching to it loads it again", async () => {
-    const { state, persistence, restoration } = setup();
+    const { state, restoration } = setup();
 
     await restoration.loadAIChatMessages("chat-1");
     expect("chat-1" in state.aiMessagesByChat).toBe(false);
-    expect(persistence.loadFailed("aiMessages:chat-1")).toBe(true);
 
     failLoads = false;
     await restoration.loadAIChatMessages("chat-1");
     expect(state.aiMessagesByChat["chat-1"]).toEqual([]);
-    expect(persistence.loadFailed("aiMessages:chat-1")).toBe(false);
   });
 });

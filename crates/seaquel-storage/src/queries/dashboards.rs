@@ -1,9 +1,11 @@
 //! `dashboardsRepo`: `dashboards`.
 
 use seaquel_types::storage::PersistedDashboard;
+use sqlx::sqlite::SqliteRow;
 
-use super::codec::{bit, flag, opt_text, select_sql, text, upsert_sql, Result};
-use crate::Storage;
+use super::codec::{bit, flag, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
+use super::IdName;
+use crate::{Reader, Storage, WriteTx};
 
 const TABLE: &str = "dashboards";
 const COLUMNS: [&str; 11] = [
@@ -20,29 +22,156 @@ const COLUMNS: [&str; 11] = [
     "updated_at",
 ];
 
+fn map_row(row: &SqliteRow) -> Result<PersistedDashboard> {
+    Ok(PersistedDashboard {
+        id: text(row, "id")?,
+        project_id: text(row, "project_id")?,
+        name: text(row, "name")?,
+        viewport: text(row, "viewport")?,
+        widgets: text(row, "widgets")?,
+        date_filter: opt_text(row, "date_filter")?,
+        starred: flag(row, "starred")?,
+        shared: flag(row, "shared")?,
+        description: opt_text(row, "description")?,
+        created_at: text(row, "created_at")?,
+        updated_at: text(row, "updated_at")?,
+    })
+}
+
 /// A project's dashboards, in rowid order.
 pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<PersistedDashboard>> {
-    let rows = sqlx::query(&select_sql(TABLE, &COLUMNS, "project_id = ?"))
-        .bind(project_id)
-        .fetch_all(st.pool())
+    list(st, project_id).await
+}
+
+/// [`load_by_project`] on the pool or inside a write. A NULL `starred`
+/// (every file can hold one) reads as false; on a beta-era file a NULL
+/// `project_id` reads as `""`, so it's in no project's list. A row with a
+/// value that doesn't decode (text that isn't UTF-8, from a hand-edited
+/// file) is skipped rather than failing the list.
+pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<PersistedDashboard>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query(&select_sql(
+        TABLE,
+        &COLUMNS,
+        "project_id = ? ORDER BY rowid",
+    ))
+    .bind(project_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.iter().filter_map(|row| map_row(row).ok()).collect())
+}
+
+/// One dashboard, as [`list`] gives it, or `None` (also for a row with a
+/// value that doesn't decode, which no list shows either).
+pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedDashboard>> {
+    let mut conn = r.into().conn().await?;
+    let row = sqlx::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
+        .bind(id)
+        .fetch_optional(&mut *conn)
         .await?;
-    rows.iter()
-        .map(|row| {
-            Ok(PersistedDashboard {
-                id: text(row, "id")?,
-                project_id: text(row, "project_id")?,
-                name: text(row, "name")?,
-                viewport: text(row, "viewport")?,
-                widgets: text(row, "widgets")?,
-                date_filter: opt_text(row, "date_filter")?,
-                starred: flag(row, "starred")?,
-                shared: flag(row, "shared")?,
-                description: opt_text(row, "description")?,
-                created_at: text(row, "created_at")?,
-                updated_at: text(row, "updated_at")?,
-            })
-        })
-        .collect()
+    Ok(row.as_ref().and_then(|row| map_row(row).ok()))
+}
+
+/// Inserts a new dashboard with its name key. An id that exists fails (the
+/// primary key) rather than overwriting.
+pub async fn insert(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<()> {
+    let conn = tx.conn();
+    sqlx::query(&insert_sql(TABLE, &COLUMNS))
+        .bind(&d.id)
+        .bind(&d.project_id)
+        .bind(&d.name)
+        .bind(&d.viewport)
+        .bind(&d.widgets)
+        .bind(&d.date_filter)
+        .bind(bit(d.starred))
+        .bind(bit(d.shared))
+        .bind(&d.description)
+        .bind(&d.created_at)
+        .bind(&d.updated_at)
+        .execute(&mut *conn)
+        .await?;
+    super::set_name_key(conn, TABLE, &d.id, &d.name).await
+}
+
+/// Writes every field of an existing dashboard but `project_id` and
+/// `created_at` (a dashboard never moves, and keeps when it was made), and
+/// its name key. `false` when there's no dashboard with that id: an update
+/// never re-inserts a deleted one.
+pub async fn update(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<bool> {
+    let conn = tx.conn();
+    let done = sqlx::query(
+        "UPDATE dashboards SET name = ?, viewport = ?, widgets = ?, date_filter = ?, starred = ?, \
+         shared = ?, description = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&d.name)
+    .bind(&d.viewport)
+    .bind(&d.widgets)
+    .bind(&d.date_filter)
+    .bind(bit(d.starred))
+    .bind(bit(d.shared))
+    .bind(&d.description)
+    .bind(&d.updated_at)
+    .bind(&d.id)
+    .execute(&mut *conn)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Ok(false);
+    }
+    super::set_name_key(conn, TABLE, &d.id, &d.name).await?;
+    Ok(true)
+}
+
+/// Deletes one dashboard and its versions. The versions are deleted
+/// explicitly, not left to the foreign key's cascade, so they go on every
+/// file shape.
+/// `false` when there was no such dashboard.
+pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
+    let conn = tx.conn();
+    sqlx::query("DELETE FROM dashboard_versions WHERE dashboard_id = ?")
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    let done = sqlx::query("DELETE FROM dashboards WHERE id = ?")
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// The `name_key` lookup behind [`with_name_key`]: two searches of
+/// `idx_dashboards_name_key` (`?1` the project, `?2` the key).
+pub const NAME_KEY_LOOKUP: &str = "\
+    SELECT rowid, id, name, name_key FROM dashboards WHERE project_id = ?1 AND name_key = ?2 \
+    UNION ALL \
+    SELECT rowid, id, name, name_key FROM dashboards WHERE project_id = ?1 AND name_key IS NULL \
+    ORDER BY 1";
+
+/// The ids and names of a project's dashboards whose name has `key`
+/// (`seaquel_types::names::name_key`), in rowid order: Core's duplicate
+/// check (Decision 21). Rows with no stored key (an older release wrote or
+/// renamed them) are read too and compared by their name; a name that
+/// isn't UTF-8 matches nothing.
+pub async fn with_name_key(
+    r: impl Into<Reader<'_>>,
+    project_id: &str,
+    key: &str,
+) -> Result<Vec<IdName>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query_as(NAME_KEY_LOOKUP)
+        .bind(project_id)
+        .bind(key)
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(super::matching_key(rows, key))
+}
+
+/// How many dashboards the file holds, in every project.
+pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
+    let mut conn = r.into().conn().await?;
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dashboards")
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(n.max(0) as u64)
 }
 
 /// Upserts a dashboard.

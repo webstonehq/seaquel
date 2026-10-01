@@ -19,7 +19,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { PersistedDashboardVersion, PersistedQueryHistoryItem } from "$lib/types";
+import type { PersistedQueryHistoryItem } from "$lib/types";
 import { fromStorable, toStorable } from "$lib/values";
 import type { StorageClient } from "./client";
 import {
@@ -30,7 +30,23 @@ import {
   type StorageMethod,
 } from "./rust-client";
 import { bootstrapSqljsDatabase, createSqljsStorageClient } from "./sqljs-client";
-import { connectionsRepo, projectsRepo, queryVersionsRepo, savedQueriesRepo } from "./repository";
+import { CoreSettings } from "$lib/hooks/database/library/core-settings";
+import {
+  aiChatsRepo,
+  appStateRepo,
+  connectionOverridesRepo,
+  connectionsRepo,
+  dashboardVersionsRepo,
+  dashboardsRepo,
+  importStateRepo,
+  onboardingRepo,
+  projectStateRepo,
+  projectsRepo,
+  queryVersionsRepo,
+  savedQueriesRepo,
+  themeRepo,
+  tutorialRepo,
+} from "./repository";
 import { WebSqliteDatabase } from "./web-sqlite";
 
 // -------- Fixtures --------
@@ -97,6 +113,30 @@ const LIBRARY_RETIRED = new Set([
   "queryVersionsRepo.loadByProject",
   "queryVersionsRepo.insert",
   "queryVersionsRepo.pruneOldVersions",
+  // Phase 5d-2 Task 6a: the project state is the `ui` group's now (a
+  // window's view state, `UiService`), and left the storage client.
+  "projectStateRepo.load",
+  "projectStateRepo.save",
+  "projectStateRepo.remove",
+]);
+
+/**
+ * The repositories whose storage methods phase 5d-2 retired: the `library`,
+ * `settings` and `ui` groups replaced them (Task 6b moved the GUI), and
+ * connection overrides were retired (Q13). They are gone from both clients;
+ * the demo's replay runs them through the repositories, which stay for the
+ * frozen fixtures.
+ */
+const STATE_RETIRED_REPOS = new Set([
+  "appState",
+  "connectionOverrides",
+  "themes",
+  "onboarding",
+  "tutorial",
+  "importState",
+  "dashboards",
+  "dashboardVersions",
+  "aiChats",
 ]);
 
 /** What `replaceAll` did, as plain SQL, for the demo's replay. */
@@ -163,38 +203,10 @@ const REPOS: Record<string, string> = {
 
 /** Each wire method's param names, in the order the fixture passes the args. */
 const PARAMS: Partial<Record<StorageMethod, string[]>> = {
-  appStateGet: ["key"],
-  appStateSet: ["key", "value"],
-  connectionOverridesLoad: ["sharedConnectionId"],
-  connectionOverridesSave: ["connectionOverride"],
-  connectionOverridesRemove: ["sharedConnectionId"],
-  projectStateLoad: ["projectId"],
-  projectStateSave: ["state"],
-  projectStateRemove: ["projectId"],
   queryHistoryLoadByConnection: ["connectionId"],
   queryHistoryRemoveByConnection: ["connectionId"],
   sharedReposSaveAll: ["repos", "activeRepoId"],
-  themesSavePreferences: ["lightThemeId", "darkThemeId"],
-  themesSaveUserThemes: ["themes"],
   licenseSave: ["data"],
-  onboardingSave: ["data"],
-  tutorialSave: ["lessonId", "challengeId", "state"],
-  tutorialRemoveLesson: ["lessonId"],
-  importStateLoad: ["source"],
-  importStateSave: ["source", "hasOfferedImport", "lastCheckTimestamp"],
-  dashboardsLoadByProject: ["projectId"],
-  dashboardsSave: ["dashboard"],
-  dashboardsRemove: ["id"],
-  dashboardsRemoveByProject: ["projectId"],
-  dashboardVersionsLoadByDashboard: ["dashboardId"],
-  dashboardVersionsLoadByProject: ["projectId"],
-  dashboardVersionsInsert: ["version"],
-  aiChatsLoadByConnection: ["connectionId"],
-  aiChatsSaveChat: ["chat"],
-  aiChatsRemoveChat: ["chatId"],
-  aiChatsRemoveByConnection: ["connectionId"],
-  aiChatsLoadMessages: ["chatId"],
-  aiChatsReplaceAllMessages: ["chatId", "messages"],
   vaultStateSave: ["state"],
   userCredentialsLoad: ["scope", "key"],
   userCredentialsSave: ["credential"],
@@ -280,57 +292,19 @@ function reply(method: string, result: unknown): unknown {
 }
 
 /**
- * Replays one case. `expectCall` sets the step being run; the transport
- * checks each request against it and answers from the fixture. Prunes are
- * the one call that sends two requests: the fake answers the read from the
- * versions it has seen inserted, and checks the prune against the README's
- * recipe (deletes are the versions missing from the next recorded load;
- * the promoted version is the oldest survivor whose snapshot appeared).
+ * Replays one case. `begin` sets the step being run; the transport checks
+ * each request against it and answers from the fixture. (The dashboard
+ * versions' prune, which sent two requests, went with phase 5d-2.)
  */
 function replayTransport(c: Case) {
   let step: CallStep | null = null;
-  let stepIndex = -1;
   let answered = false;
-  const dashboardVersions = new Map<string, PersistedDashboardVersion[]>();
-
-  const nextLoad = (call: string, id: unknown): unknown[] => {
-    const later = c.steps
-      .slice(stepIndex + 1)
-      .find((s): s is CallStep => isCall(s) && s.call === call && s.args[0] === id);
-    if (!later) throw new Error(`${c.name}: no ${call} after the prune`);
-    return later.result as unknown[];
-  };
 
   const transport: CoreTransport = async (body) => {
     expect(body).toBeInstanceOf(Uint8Array);
     const sent = decodeBody(body);
     if (!step) throw new Error("request outside a step");
     const { wire } = splitCall(step.call);
-
-    if (step.call === "dashboardVersionsRepo.pruneOldVersions") {
-      const [dashboardId] = step.args as [string];
-      const tracked = dashboardVersions.get(dashboardId) ?? [];
-      if (sent.method === "dashboardVersionsLoadByDashboard") {
-        expect(sent.params).toEqual({ dashboardId });
-        return reply(
-          sent.method,
-          [...tracked].sort((a, b) => a.version - b.version),
-        );
-      }
-      expect(sent.method).toBe("dashboardVersionsPrune");
-      const survivors = nextLoad(
-        "dashboardVersionsRepo.loadByDashboard",
-        dashboardId,
-      ) as PersistedDashboardVersion[];
-      const kept = new Set(survivors.map((v) => v.id));
-      expect(sent.params).toEqual({
-        dashboardId,
-        deleteIds: tracked.filter((v) => !kept.has(v.id)).map((v) => v.id),
-      });
-      dashboardVersions.set(dashboardId, survivors);
-      answered = true;
-      return reply(sent.method, null);
-    }
 
     expect(answered, `${c.name}: a second request for ${step.call}`).toBe(false);
     answered = true;
@@ -346,18 +320,13 @@ function replayTransport(c: Case) {
     if (step.error) {
       throw new CoreCallError({ code: "STORAGE_ERROR", message: step.error.message });
     }
-    if (wire === "dashboardVersionsInsert") {
-      const v = step.args[0] as PersistedDashboardVersion;
-      dashboardVersions.set(v.dashboardId, [...(dashboardVersions.get(v.dashboardId) ?? []), v]);
-    }
     return reply(wire, toWire(step.result));
   };
 
   return {
     transport,
-    begin(s: CallStep, index: number) {
+    begin(s: CallStep) {
       step = s;
-      stepIndex = index;
       answered = false;
     },
   };
@@ -385,6 +354,16 @@ function libraryRepos(db: WebSqliteDatabase): Record<string, unknown> {
     connections: bind(connectionsRepo),
     savedQueries: bind(savedQueriesRepo),
     queryVersions: bind(queryVersionsRepo),
+    projectState: bind(projectStateRepo),
+    appState: bind(appStateRepo),
+    connectionOverrides: bind(connectionOverridesRepo),
+    themes: bind(themeRepo),
+    onboarding: bind(onboardingRepo),
+    tutorial: bind(tutorialRepo),
+    importState: bind(importStateRepo),
+    dashboards: bind(dashboardsRepo),
+    dashboardVersions: bind(dashboardVersionsRepo),
+    aiChats: bind(aiChatsRepo),
   };
 }
 
@@ -480,14 +459,18 @@ describe("RustStorageClient replays the fixtures", () => {
     it(c.name, async () => {
       const replay = replayTransport(c);
       const client = new RustStorageClient(replay.transport);
-      for (const [i, step] of c.steps.entries()) {
+      for (const step of c.steps) {
         if (!isCall(step)) continue; // raw SQL only set up rows for the recorder
         if (RETIRED.has(step.call)) continue;
         if (LIBRARY_RETIRED.has(step.call)) {
           expectRetired(client, step);
           continue;
         }
-        replay.begin(step, i);
+        if (STATE_RETIRED_REPOS.has(splitCall(step.call).repo)) {
+          expectRetired(client, step);
+          continue;
+        }
+        replay.begin(step);
         await runCall(client, step);
       }
     });
@@ -501,7 +484,11 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
       const library = libraryRepos(db);
       for (const step of c.steps) {
         if (isCall(step) && RETIRED.has(step.call)) await seedHistory(db, step);
-        else if (isCall(step) && LIBRARY_RETIRED.has(step.call)) await runCall(library, step);
+        else if (
+          isCall(step) &&
+          (LIBRARY_RETIRED.has(step.call) || STATE_RETIRED_REPOS.has(splitCall(step.call).repo))
+        )
+          await runCall(library, step);
         else if (isCall(step)) await runCall(client, step);
         else await db.execute(step.sql, step.params);
       }
@@ -538,7 +525,7 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
       });
     }
     await client.queryHistory.append(historyItem("h1"));
-    await client.aiChats.saveChat({
+    await aiChatsRepo.saveChat(db, {
       id: "chat-1",
       connectionId: "demo-connection",
       title: "Chat",
@@ -557,14 +544,14 @@ describe("SqljsStorageClient (the demo) matches the fixtures", () => {
     expect((await again.queryHistory.loadByConnection("demo-connection")).map((h) => h.id)).toEqual(
       ["h1"],
     );
-    expect((await again.aiChats.loadByConnection("demo-connection")).map((c) => c.id)).toEqual([
-      "chat-1",
-    ]);
+    expect(
+      (await aiChatsRepo.loadByConnection(reloaded, "demo-connection")).map((c) => c.id),
+    ).toEqual(["chat-1"]);
   });
 
   it("keeps foreign keys on after a write", async () => {
     const { db, client } = await freshSqljs();
-    await client.appState.set("k", "v"); // a write, so an export
+    await client.license.save({}); // a write, so an export
     await expect(
       connectionsRepo.save(db, {
         id: "c",
@@ -710,8 +697,8 @@ describe("RustStorageClient", () => {
       return null;
     });
     const client = new RustStorageClient(transport);
-    const a = client.appState.set("a", "1");
-    const b = client.appState.set("b", "2");
+    const a = client.userCredentials.remove("db", "a");
+    const b = client.userCredentials.remove("db", "b");
     await Promise.resolve();
     releaseFirst();
     await Promise.all([a, b]);
@@ -729,8 +716,8 @@ describe("RustStorageClient", () => {
       return reply(s.method, null);
     };
     const client = new RustStorageClient(transport);
-    const a = client.appState.set("a", "1");
-    const b = client.appState.set("b", "2");
+    const a = client.userCredentials.remove("db", "a");
+    const b = client.userCredentials.remove("db", "b");
     await expect(a).rejects.toMatchObject({ code: "STORAGE_ERROR" });
     await expect(b).resolves.toBeUndefined();
   });
@@ -739,14 +726,14 @@ describe("RustStorageClient", () => {
     let releaseWrite!: () => void;
     const writeHeld = new Promise<void>((r) => (releaseWrite = r));
     const { transport, sent } = recordingTransport(async (method) => {
-      if (method === "appStateSet") await writeHeld;
-      return method === "appStateGet" ? "v" : null;
+      if (method === "userCredentialsRemove") await writeHeld;
+      return method === "vaultStateLoad" ? null : null;
     });
     const client = new RustStorageClient(transport);
-    const write = client.appState.set("k", "v");
+    const write = client.userCredentials.remove("db", "k");
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    await expect(client.appState.get("k")).resolves.toBe("v");
-    expect(sent.map((s) => s.method)).toEqual(["appStateSet", "appStateGet"]);
+    await expect(client.vaultState.load()).resolves.toBeNull();
+    expect(sent.map((s) => s.method)).toEqual(["userCredentialsRemove", "vaultStateLoad"]);
     releaseWrite();
     await write;
   });
@@ -755,7 +742,7 @@ describe("RustStorageClient", () => {
     const client = new RustStorageClient(async () => {
       throw { code: "LEGACY_STORAGE", message: "upgrade through 2026.9 first" };
     });
-    const error = await client.tutorial.loadAll().catch((e: unknown) => e);
+    const error = await client.vaultState.load().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CoreCallError);
     expect(error).toMatchObject({
       code: "LEGACY_STORAGE",
@@ -764,30 +751,82 @@ describe("RustStorageClient", () => {
   });
 
   it("refuses a response for another method", async () => {
-    const client = new RustStorageClient(async () => reply("appStateSet", null));
-    await expect(client.appState.get("k")).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
+    const client = new RustStorageClient(async () => reply("vaultStateSave", null));
+    await expect(client.vaultState.load()).rejects.toMatchObject({ code: "PROTOCOL_ERROR" });
   });
 
-  it("drops a saved workflow that won't decode and keeps the rest", async () => {
-    const good = { id: "w1", name: "ok", nodes: [], edges: [] };
-    const bad = { id: "w2", nodes: [{ data: { $sq: "bigint", v: "not a number" } }] };
-    const { transport } = recordingTransport(() => ({
+  it("reads a setting through settings.settingGet (CoreSettings)", async () => {
+    const sent: string[] = [];
+    const client = new RustStorageClient(async (body) => {
+      sent.push(new TextDecoder().decode(body));
+      return {
+        method: "settings",
+        result: { method: "settingGet", result: { value: "7", seq: { epoch: "e", n: 1 } } },
+      };
+    });
+    const settings = new CoreSettings(() => client);
+    await expect(settings.getSetting("query_version_limit")).resolves.toMatchObject({
+      value: "7",
+    });
+    expect(sent).toEqual([
+      '{"method":"settings","params":{"method":"settingGet","params":{"key":"query_version_limit"}}}',
+    ]);
+  });
+
+  it("rejects a settingGet read with the blocking storage codes (the storage gate)", async () => {
+    for (const code of ["LEGACY_STORAGE", "STORAGE_CORRUPT"]) {
+      const client = new RustStorageClient(async () => {
+        throw { code, message: "blocked" };
+      });
+      const settings = new CoreSettings(() => client);
+      const error = await settings.getSetting("query_version_limit").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(CoreCallError);
+      expect(error).toMatchObject({ code });
+    }
+  });
+
+  it("the retired storage methods are gone from the client", () => {
+    const client = new RustStorageClient(async () => {
+      throw new Error("nothing may be sent");
+    });
+    for (const repo of STATE_RETIRED_REPOS) expect(repo in client, repo).toBe(false);
+  });
+
+  it("sends settings and ui calls as their groups, writes through the queue", async () => {
+    const sent: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const client = new RustStorageClient(async (body) => {
+      const raw = new TextDecoder().decode(body);
+      sent.push(raw);
+      const req = JSON.parse(raw) as { method: string; params: { method: string } };
+      if (req.params.method === "settingSet") await held;
+      return {
+        method: req.method,
+        result: { method: req.params.method, result: { value: null, seq: { epoch: "e", n: 2 } } },
+      };
+    });
+    const write = client.settings("settingSet", { key: "editorKeybindingMode", value: "vim" });
+    const queued = client.ui("windowStateSave", {
+      windowId: "w",
       projectId: "p",
-      queryTabs: [],
-      schemaTabs: [],
-      explainTabs: [],
-      erdTabs: [],
-      tabOrder: [],
-      activeQueryTabId: null,
-      activeSchemaTabId: null,
-      activeExplainTabId: null,
-      activeErdTabId: null,
-      activeView: "query",
-      activeConnectionId: null,
-      savedWorkflows: [good, bad, null],
-    }));
-    const state = await new RustStorageClient(transport).projectState.load("p");
-    expect(state?.savedWorkflows).toEqual([good]);
+      rev: 1,
+      state: {},
+    });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    // A read doesn't wait for the queue; the queued save does.
+    await client.ui("windowGet", { windowId: "w" });
+    expect(
+      sent.map((s) => (JSON.parse(s) as { params: { method: string } }).params.method),
+    ).toEqual(["settingSet", "windowGet"]);
+    release();
+    await Promise.all([write, queued]);
+    expect(sent[0]).toBe(
+      '{"method":"settings","params":{"method":"settingSet","params":{"key":"editorKeybindingMode","value":"vim"}}}',
+    );
+    expect(sent[2]).toBe(
+      '{"method":"ui","params":{"method":"windowStateSave","params":{"windowId":"w","projectId":"p","rev":1,"state":{}}}}',
+    );
   });
 });
 

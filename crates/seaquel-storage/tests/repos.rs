@@ -1285,7 +1285,8 @@ async fn data_step_runs_once() {
         [
             "strip_connection_string_passwords",
             "drop_legacy_built_connection_strings",
-            "backfill_name_keys"
+            "backfill_name_keys",
+            "backfill_dashboard_name_keys"
         ]
     );
     sqlx::query("UPDATE connections SET connection_string = 'Password=x'")
@@ -1380,10 +1381,14 @@ async fn a_failed_data_step_is_retried_on_the_next_open() {
         .fetch_all(st.pool())
         .await
         .unwrap_or_default();
-    // The failed step isn't recorded; the steps after it still ran.
+    // The failed step isn't recorded; the steps after it still ran. (The
+    // name-key step also updates `b`, so it fails too.)
     assert_eq!(
         recorded,
-        ["drop_legacy_built_connection_strings"],
+        [
+            "backfill_dashboard_name_keys",
+            "drop_legacy_built_connection_strings"
+        ],
         "{recorded:?}"
     );
     sqlx::query("DROP TRIGGER no_cleanup")

@@ -4,9 +4,30 @@ import type { ProviderRegistry, ReadOnlyRows } from "$lib/providers";
 import type { DatabaseState } from "./state.svelte.js";
 import type { PendingChangesManager } from "./pending-changes.svelte.js";
 
-vi.mock("$lib/storage", () => {
-  const dashboards = { save: vi.fn(async () => {}), remove: vi.fn(async () => {}) };
-  return { getStorage: () => ({ dashboards }) };
+// Dashboards are saved through the library (5d-2): every patch is accepted.
+vi.mock("./library/index.js", async (importActual) => {
+  const actual = await importActual<typeof import("./library/index.js")>();
+  let n = 0;
+  /** The row Core answers: the patch's widgets over a stored "D" (the tests' dashboard). */
+  const storedRow = (id: string, patch: { widgets?: unknown; viewport?: unknown }) => ({
+    id,
+    projectId: "p",
+    name: "D",
+    widgets: JSON.stringify(patch.widgets ?? []),
+    viewport: JSON.stringify(patch.viewport ?? { x: 0, y: 0, zoom: 1 }),
+    dateFilter: null,
+    starred: false,
+    shared: false,
+    createdAt: "2030-01-01T00:00:00.000Z",
+    updatedAt: "2030-01-01T00:00:00.000Z",
+  });
+  const library = {
+    updateDashboard: vi.fn(async (id: string, patch: { widgets?: unknown }) => ({
+      value: { dashboard: storedRow(id, patch), version: null, prunedVersionIds: [] },
+      seq: { epoch: "e", n: ++n },
+    })),
+  };
+  return { ...actual, getLibrary: () => library };
 });
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -15,6 +36,7 @@ vi.mock("$lib/engine", () => ({ getEngineClient: vi.fn(), usesRustEngine: () => 
 
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
 const { QueryCrudManager } = await import("./query-crud.svelte.js");
+const { RowSeqs } = await import("./library/seqs");
 
 function widget(overrides: Partial<DashboardWidget> = {}): DashboardWidget {
   return {
@@ -70,6 +92,7 @@ function setup(
     connections: [connection],
     schemas: {},
     dashboardsByProject: { p: [dashboard] },
+    librarySeqs: new RowSeqs(),
     queriesByProject: { p: [{ id: "sq-1", query: "SELECT count(*) AS n FROM saved" }] },
   } as unknown as DatabaseState;
   const provider = {

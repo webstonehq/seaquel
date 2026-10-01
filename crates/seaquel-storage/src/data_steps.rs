@@ -23,6 +23,7 @@ enum StepKind {
     StripConnectionStringPasswords,
     DropLegacyBuiltConnectionStrings,
     BackfillNameKeys,
+    BackfillDashboardNameKeys,
 }
 
 /// Every step, in the order they run. Append only; never rename or remove
@@ -39,6 +40,10 @@ const STEPS: &[Step] = &[
     Step {
         name: "backfill_name_keys",
         kind: StepKind::BackfillNameKeys,
+    },
+    Step {
+        name: "backfill_dashboard_name_keys",
+        kind: StepKind::BackfillDashboardNameKeys,
     },
 ];
 
@@ -118,6 +123,7 @@ async fn run_step(pool: &SqlitePool, step: &Step) -> Result<(), StorageError> {
             drop_legacy_built_connection_strings(&mut tx).await?
         }
         StepKind::BackfillNameKeys => backfill_name_keys(&mut tx).await?,
+        StepKind::BackfillDashboardNameKeys => backfill_dashboard_name_keys(&mut tx).await?,
     }
     sqlx::query(&format!(
         "INSERT INTO {DATA_STEPS_TABLE} (name, applied_at) VALUES (?, datetime('now'))"
@@ -237,8 +243,14 @@ async fn drop_legacy_built_connection_strings(
     Ok(())
 }
 
-/// The tables with a `name_key` column (migration `0001_name_keys.sql`).
+/// The tables with a `name_key` column from migration `0001_name_keys.sql`.
 pub(crate) const NAME_KEY_TABLES: [&str; 3] = ["connections", "projects", "saved_queries"];
+
+/// Every table with a `name_key` column: [`NAME_KEY_TABLES`] and
+/// `dashboards` (migration `0002_window_state.sql`). `refill_name_keys`
+/// covers them all.
+pub(crate) const ALL_NAME_KEY_TABLES: [&str; 4] =
+    ["connections", "projects", "saved_queries", "dashboards"];
 
 /// Phase 5d-1 probe fix: fills `name_key` (added by `0001_name_keys.sql`)
 /// for the rows written before it, with [`seaquel_types::names::name_key`],
@@ -248,7 +260,47 @@ pub(crate) const NAME_KEY_TABLES: [&str; 3] = ["connections", "projects", "saved
 /// (no name, or a name that isn't UTF-8) is still found by the duplicate
 /// check, which folds the names of NULL-key rows itself.
 pub(crate) async fn backfill_name_keys(conn: &mut SqliteConnection) -> Result<(), StorageError> {
-    for table in NAME_KEY_TABLES {
+    fill_name_keys(conn, &NAME_KEY_TABLES).await
+}
+
+/// Whether any row of [`ALL_NAME_KEY_TABLES`] has a NULL key and a name
+/// the fill would give one (UTF-8 text). Rows with a NULL key are only
+/// those an older release wrote or renamed, so they are few; a name that
+/// isn't UTF-8 never gets a key and so never counts, or every open would
+/// report work it can't do.
+pub(crate) async fn name_keys_pending(pool: &SqlitePool) -> Result<bool, StorageError> {
+    let mut conn = pool.acquire().await?;
+    for table in ALL_NAME_KEY_TABLES {
+        let names: Vec<(Vec<u8>,)> = sqlx::query_as(&format!(
+            "SELECT CAST(name AS BLOB) FROM {table} \
+             WHERE name_key IS NULL AND typeof(name) = 'text'"
+        ))
+        .fetch_all(&mut *conn)
+        .await?;
+        if names.iter().any(|(b,)| std::str::from_utf8(b).is_ok()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Phase 5d-2 (Decision 21): [`backfill_name_keys`] for `dashboards`, whose
+/// `name_key` came with `0002_window_state.sql`. A dashboard with a NULL
+/// `project_id` (beta-era files) gets its key too; it's in no project's
+/// lookup either way.
+pub(crate) async fn backfill_dashboard_name_keys(
+    conn: &mut SqliteConnection,
+) -> Result<(), StorageError> {
+    fill_name_keys(conn, &["dashboards"]).await
+}
+
+/// Sets `name_key` on every row of `tables` whose key is NULL and whose
+/// name is UTF-8 text, by rowid, in one pass per table.
+pub(crate) async fn fill_name_keys(
+    conn: &mut SqliteConnection,
+    tables: &[&str],
+) -> Result<(), StorageError> {
+    for table in tables {
         let rows = sqlx::query(&format!(
             "SELECT rowid, name FROM {table} WHERE name_key IS NULL AND typeof(name) = 'text'"
         ))

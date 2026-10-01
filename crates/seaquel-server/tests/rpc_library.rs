@@ -286,8 +286,9 @@ async fn a_write_reaches_every_socket_of_that_user_and_none_of_another() {
         .rpc_from(
             "alice",
             &["tab-2"],
-            &json!({"method": "storage", "params": {"method": "appStateSet",
-                    "params": {"key": "k", "value": "canary-value"}}}),
+            &json!({"method": "storage", "params": {"method": "userCredentialsSave",
+                    "params": {"credential": {"scope": "db", "key": "k", "nonce": "n",
+                        "ciphertext": "canary-value", "updatedAt": "t"}}}}),
         )
         .await;
     assert_eq!(status, StatusCode::OK);
@@ -378,8 +379,8 @@ async fn flood(env: &Env, n: usize) {
         let (status, body) = env
             .rpc(
                 "alice",
-                &json!({"method": "storage", "params": {"method": "appStateSet",
-                        "params": {"key": format!("k{i}"), "value": "v"}}}),
+                &json!({"method": "storage", "params": {"method": "userCredentialsRemoveAllForKey",
+                        "params": {"key": format!("k{i}")}}}),
             )
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
@@ -452,8 +453,8 @@ async fn flood_keys(env: &Env, n: usize, key_len: usize) {
         let (status, body) = env
             .rpc(
                 "alice",
-                &json!({"method": "storage", "params": {"method": "appStateSet",
-                        "params": {"key": key, "value": "v"}}}),
+                &json!({"method": "storage", "params": {"method": "userCredentialsRemoveAllForKey",
+                        "params": {"key": key}}}),
             )
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");

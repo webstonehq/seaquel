@@ -17,7 +17,8 @@
  */
 
 import { log } from "$lib/utils/logger";
-import { getStorage } from "$lib/storage";
+import { getSettings } from "$lib/hooks/database/library/index";
+import { windowIdReady } from "$lib/core/window-id";
 
 export type BlockingStorageError =
   /** `detail` is the server's message: the data dir and the legacy files. */
@@ -93,9 +94,13 @@ export class StorageGate {
   }
 
   async #probe(): Promise<boolean> {
+    // The page's window id is the origin of every Core call (Decision 22):
+    // settled before the first one, which is this probe.
+    await windowIdReady();
     for (let attempt = 0; ; attempt++) {
       try {
-        await getStorage().appState.get("lastActiveProjectId");
+        // A `settings` read (5d-2): it opens storage like any call.
+        await getSettings().getSetting("lastActiveProjectId");
         return true;
       } catch (error) {
         const blocking = classifyStorageError(error);

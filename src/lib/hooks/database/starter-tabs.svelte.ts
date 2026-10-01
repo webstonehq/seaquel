@@ -66,20 +66,56 @@ export class StarterTabManager extends BaseTabManager<StarterTab> {
     const existing = this.state.starterTabsByProject[projectId];
     if (existing && existing.length > 0) return;
 
-    // Temporarily set activeProjectId context if needed
-    const prevProjectId = this.state.activeProjectId;
-    this.state.activeProjectId = projectId;
+    if (projectId === this.state.activeProjectId) {
+      this.add("getting-started");
+      this.add("migration-tips");
 
-    this.add("getting-started");
-    this.add("migration-tips");
-
-    // Set the first tab as active
-    const tabs = this.state.starterTabsByProject[projectId] ?? [];
-    if (tabs.length > 0) {
-      this.setActive(tabs[0].id);
+      // Set the first tab as active
+      const tabs = this.state.starterTabsByProject[projectId] ?? [];
+      if (tabs.length > 0) {
+        this.setActive(tabs[0].id);
+      }
+      return;
     }
 
-    this.state.activeProjectId = prevProjectId;
+    // Another project (its load finished after a switch): write its own
+    // records, never borrowing the active project, whose tabs, layout and
+    // view would otherwise take the starter tabs' side effects.
+    const tabs: StarterTab[] = [
+      { id: "getting-started", type: "getting-started", name: "Getting Started", closable: true },
+      { id: "migration-tips", type: "migration-tips", name: "Migration Tips", closable: true },
+    ];
+    const ids = tabs.map((t) => t.id);
+    this.state.starterTabsByProject = { ...this.state.starterTabsByProject, [projectId]: tabs };
+    this.state.activeStarterTabIdByProject = {
+      ...this.state.activeStarterTabIdByProject,
+      [projectId]: ids[0],
+    };
+    const order = this.state.tabOrderByProject[projectId] ?? [];
+    this.state.tabOrderByProject = {
+      ...this.state.tabOrderByProject,
+      [projectId]: [...order, ...ids.filter((id) => !order.includes(id))],
+    };
+    const layout = this.state.paneLayoutByProject[projectId];
+    const pane = layout?.panes.find((p) => p.id === layout.activePaneId);
+    if (layout && pane) {
+      this.state.paneLayoutByProject = {
+        ...this.state.paneLayoutByProject,
+        [projectId]: {
+          ...layout,
+          panes: layout.panes.map((p) =>
+            p === pane
+              ? {
+                  ...p,
+                  tabIds: [...p.tabIds, ...ids.filter((id) => !p.tabIds.includes(id))],
+                  activeTabId: ids[0],
+                }
+              : p,
+          ),
+        },
+      };
+    }
+    this.schedulePersistence(projectId);
   }
 
   /**

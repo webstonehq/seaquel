@@ -5,17 +5,32 @@ import type {
   ResolvedDashboardVersion,
 } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
-import { getStorage } from "$lib/storage";
 import { log } from "$lib/utils/logger";
 import { errorToast } from "$lib/utils/toast";
-import { extractErrorMessage } from "$lib/errors";
+import { toast } from "svelte-sonner";
 import { m } from "$lib/paraglide/messages.js";
+import { stripWidgetRuntimeState } from "./dashboard-serialize.js";
+import { errorCode } from "$lib/core/client";
 import {
-  createDashboardVersionEntry,
-  resolveDashboardVersions,
-} from "$lib/utils/dashboard-versions";
-import { toPersistedDashboard } from "./dashboard-serialize.js";
+  getLibrary,
+  rowKey,
+  takenByOf,
+  DASHBOARD_NOT_FOUND,
+  DASHBOARD_VERSION_NOT_FOUND,
+  NAME_TAKEN,
+  NEW,
+  type DashboardDraft,
+  type DashboardPatch,
+  type DashboardUpdated,
+} from "./library/index.js";
+import { extractErrorMessage } from "$lib/errors";
+import {
+  dashboardFromWire,
+  dashboardVersionFromWire,
+  resolvedDashboardVersionFromWire,
+} from "./library/convert.js";
+import { libraryErrorMessage, limitMessage, limitOf } from "./library/messages.js";
+import { closeDashboardTabs } from "./connection-tabs-cleanup.js";
 
 export { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
@@ -23,9 +38,43 @@ function runKey(dashboardId: string, widgetId: string): string {
   return `${dashboardId}:${widgetId}`;
 }
 
+/** The widgets as stored: without their run state (rows, loading, error). */
+function storedWidgets(widgets: readonly DashboardWidget[]) {
+  return widgets.map(stripWidgetRuntimeState);
+}
+
+/** The fields the git reconcile copies, where `after` differs from `before`, as stored. */
+function reconcilePatch(before: Dashboard, after: Dashboard): DashboardPatch {
+  const patch: DashboardPatch = {};
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  if (!same(storedWidgets(before.widgets), storedWidgets(after.widgets))) {
+    patch.widgets = storedWidgets(after.widgets);
+  }
+  if (!same(before.viewport, after.viewport)) patch.viewport = after.viewport;
+  if ((before.description ?? null) !== (after.description ?? null)) {
+    patch.description = after.description ?? null;
+  }
+  if (!same(before.dateFilter ?? null, after.dateFilter ?? null)) {
+    patch.dateFilter = after.dateFilter ?? null;
+  }
+  if (before.shared !== after.shared) patch.shared = after.shared;
+  return patch;
+}
+
 /**
  * Manages dashboard CRUD operations, widget execution, and auto-refresh.
  * Dashboards are per-project.
+ *
+ * Phase 5d-2 (Decision 21): every change is one `library` call. Core makes
+ * the dashboard's id, checks its name (`NAME_TAKEN` within the project),
+ * and applies a patch of only the fields the edit changed; the page says
+ * which edits are versioned (`captureVersion`: a rename, a widget added,
+ * changed or removed, a date filter, a restore; not a move, resize, pan or
+ * zoom), and Core numbers and prunes the versions inside the call. The page
+ * shows its edit at once and splices the answer's version and prune into
+ * its list. A refused edit stays on screen and the dashboard is marked
+ * unsaved; another window's change to it then shows the "changed in
+ * another window" banner instead of replacing it.
  */
 export class DashboardManager {
   private autoRefreshTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -38,6 +87,12 @@ export class DashboardManager {
   private runs = new Map<string, AbortController>();
   private writeDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
   private deleteDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
+  /** Shared files skipped because a local dashboard has their name, told once each. */
+  private toldFileSkipped = new Set<string>();
+  /** Dashboards refused as too large (Decision 27), told once each. */
+  private toldTooLarge = new Set<string>();
+  /** The pane manager's `syncGlobalActiveState`, for closing a deleted dashboard's tabs. */
+  private syncActive?: (tabId: string) => void;
 
   /**
    * @param runReadOnly `executeReadOnly`: every widget query runs read-only
@@ -51,8 +106,11 @@ export class DashboardManager {
       signal?: AbortSignal,
     ) => Promise<Record<string, unknown>[]>,
     private scheduleProjectPersistence: (projectId: string | null) => void,
-    private persistence?: PersistenceManager,
   ) {}
+
+  setSyncActive(fn: (tabId: string) => void): void {
+    this.syncActive = fn;
+  }
 
   setFileProjection(fns: {
     writeDashboardFile: (dashboard: Dashboard) => Promise<void>;
@@ -64,31 +122,117 @@ export class DashboardManager {
 
   // === CRUD ===
 
-  async createDashboard(name: string): Promise<Dashboard | null> {
+  /**
+   * Save a new dashboard in the active project. Core gives it its id and
+   * checks its name; `renameIfTaken` ("New Dashboard", the AI's) takes the
+   * next free `"<name> (n)"` instead of `NAME_TAKEN`. `null` when it wasn't
+   * saved (the refusal is shown).
+   */
+  async createDashboard(
+    name: string,
+    { renameIfTaken = false }: { renameIfTaken?: boolean } = {},
+  ): Promise<Dashboard | null> {
     const projectId = this.state.activeProjectId;
     if (!projectId) return null;
 
-    const now = new Date();
-    const dashboard: Dashboard = {
-      id: `dashboard-${crypto.randomUUID()}`,
-      name,
-      projectId,
-      widgets: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      dateFilter: null,
-      createdAt: now,
-      updatedAt: now,
-      shared: false,
-    };
+    let dashboard: Dashboard;
+    try {
+      dashboard = await this.create(projectId, {
+        projectId,
+        name,
+        widgets: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        ...(renameIfTaken ? { renameIfTaken } : {}),
+      });
+    } catch (error) {
+      this.saveFailed(null, name, error);
+      return null;
+    }
+    return dashboard;
+  }
 
+  /** One `dashboardCreate`, shown in its project's list (once) as Core answered it. */
+  private async create(projectId: string, draft: DashboardDraft): Promise<Dashboard> {
+    const seqs = this.state.librarySeqs;
+    const { value, seq } = await seqs.write([rowKey("dashboard", NEW)], () =>
+      getLibrary().createDashboard(draft),
+    );
+    seqs.note(rowKey("dashboard", value.id), seq);
+    const dashboard = dashboardFromWire(value);
+    this.show(projectId, dashboard);
+    return dashboard;
+  }
+
+  /** Puts `dashboard` in its project's list, replacing a copy with its id. */
+  private show(projectId: string, dashboard: Dashboard): void {
     const dashboards = this.state.dashboardsByProject[projectId] ?? [];
     this.state.dashboardsByProject = {
       ...this.state.dashboardsByProject,
-      [projectId]: [...dashboards, dashboard],
+      [projectId]: dashboards.some((d) => d.id === dashboard.id)
+        ? dashboards.map((d) => (d.id === dashboard.id ? dashboard : d))
+        : [...dashboards, dashboard],
     };
+  }
 
-    await this.persistDashboard(dashboard);
-    return dashboard;
+  /**
+   * Store what the shared-dashboard reconcile changed (re-survey bug 9:
+   * only what changed, compared in stored form), each shown as Core
+   * answers it; the reconcile's own list is never shown, so no placeholder
+   * can be opened or edited. A new `.json` file is one `dashboardCreate`,
+   * shared, under the file's exact name (a shared dashboard's name is its
+   * file's). When a local dashboard already has that name Core refuses it
+   * (`NAME_TAKEN`): the file is skipped and said once per file this
+   * session, naming both, since renaming the local one lets it appear. A
+   * changed one is a patch of the fields the reconcile copies. A failed
+   * one is said and the rest go on; nothing Core stored is dropped.
+   */
+  async storeReconciled(
+    projectId: string,
+    before: readonly Dashboard[],
+    after: readonly Dashboard[],
+  ): Promise<void> {
+    const byId = new Map(before.map((d) => [d.id, d]));
+    const seqs = this.state.librarySeqs;
+    for (const dashboard of after) {
+      const old = byId.get(dashboard.id);
+      try {
+        if (!old) {
+          await this.create(projectId, {
+            projectId,
+            name: dashboard.name,
+            widgets: storedWidgets(dashboard.widgets),
+            viewport: dashboard.viewport,
+            ...(dashboard.dateFilter ? { dateFilter: dashboard.dateFilter } : {}),
+            ...(dashboard.description !== undefined ? { description: dashboard.description } : {}),
+            shared: true,
+          });
+          continue;
+        }
+        const patch = reconcilePatch(old, dashboard);
+        if (Object.keys(patch).length === 0) continue;
+        const { value, seq } = await seqs.write([rowKey("dashboard", dashboard.id)], () =>
+          getLibrary().updateDashboard(dashboard.id, patch),
+        );
+        seqs.note(rowKey("dashboard", dashboard.id), seq);
+        this.show(projectId, dashboardFromWire(value.dashboard, this.getDashboard(dashboard.id)));
+      } catch (error) {
+        const takenBy = !old && errorCode(error) === NAME_TAKEN ? takenByOf(error) : undefined;
+        if (takenBy) {
+          // Once per file this session: the reconcile runs on every activation.
+          if (this.toldFileSkipped.has(dashboard.id)) continue;
+          this.toldFileSkipped.add(dashboard.id);
+          toast.warning(
+            m.dashboard_shared_name_taken({
+              name: dashboard.name,
+              local: this.getDashboard(takenBy)?.name ?? dashboard.name,
+            }),
+          );
+          continue;
+        }
+        void log.error(`Failed to save dashboard ${dashboard.id}:`, error);
+        errorToast(m.dashboard_save_failed({ message: libraryErrorMessage(error) }));
+      }
+    }
   }
 
   async deleteDashboard(id: string): Promise<void> {
@@ -97,50 +241,74 @@ export class DashboardManager {
 
     // Remove the stored row first: if that fails the dashboard stays, as stored.
     try {
-      await getStorage().dashboards.remove(id);
+      const { seq } = await this.state.librarySeqs.write([rowKey("dashboard", id)], () =>
+        getLibrary().removeDashboard(id),
+      );
+      this.state.librarySeqs.note(rowKey("dashboard", id), seq);
     } catch (error) {
       void log.error("Failed to delete dashboard:", error);
-      errorToast(m.dashboard_delete_failed({ message: extractErrorMessage(error) }));
+      errorToast(m.dashboard_delete_failed({ message: libraryErrorMessage(error) }));
       return;
     }
 
     // Stop any auto-refresh timers
     const dashboard = this.getDashboard(id);
+    this.forget(id);
     if (dashboard) {
       this.closeDashboard(id);
-      // Clean up git file for shared dashboards
+      // Clean up git file for shared dashboards. The dashboard is gone
+      // either way; a file left behind is said.
       if (dashboard.shared) {
-        await this.deleteDashboardFile?.(dashboard);
+        try {
+          await this.deleteDashboardFile?.(dashboard);
+        } catch (error) {
+          void log.warn("Deleting a shared dashboard's file failed:", error);
+          errorToast(m.dashboard_delete_failed({ message: extractErrorMessage(error) }));
+        }
       }
     }
-
-    const dashboards = this.state.dashboardsByProject[projectId] ?? [];
-    this.state.dashboardsByProject = {
-      ...this.state.dashboardsByProject,
-      [projectId]: dashboards.filter((d) => d.id !== id),
-    };
   }
 
-  async renameDashboard(id: string, name: string): Promise<void> {
+  /**
+   * Rename a dashboard. A refusal (`NAME_TAKEN`, a limit) is shown and the
+   * old name comes back, on the dashboard and on the tabs showing it
+   * (which the header renamed first). False when it wasn't saved.
+   */
+  async renameDashboard(id: string, name: string): Promise<boolean> {
     const before = this.getDashboard(id);
-    if (before) this.captureVersion(before);
+    if (!before) return false;
     this.updateDashboard(id, (d) => ({ ...d, name, updatedAt: new Date() }));
-    const dashboard = this.getDashboard(id);
-    if (dashboard) await this.persistDashboard(dashboard);
+    // A refusal puts the stored name back, on the tabs too (`save`).
+    return this.save(id, { name, captureVersion: true }, before);
+  }
+
+  /** The dashboard tabs showing `id`, in every project, named `name`. */
+  private renameTabs(id: string, name: string): void {
+    const byProject = this.state.dashboardTabsByProject ?? {};
+    const stale = (t: { dashboardId: string; name: string }) =>
+      t.dashboardId === id && t.name !== name;
+    const touched = Object.keys(byProject).filter((p) => byProject[p].some(stale));
+    if (touched.length === 0) return;
+    this.state.dashboardTabsByProject = Object.fromEntries(
+      Object.entries(byProject).map(([projectId, tabs]) => [
+        projectId,
+        tabs.map((t) => (t.dashboardId === id ? { ...t, name } : t)),
+      ]),
+    );
+    // The tab names are view state: saved with it.
+    for (const projectId of touched) this.scheduleProjectPersistence(projectId);
   }
 
   // === WIDGET MANAGEMENT ===
 
   async addWidget(dashboardId: string, widget: DashboardWidget): Promise<void> {
     const before = this.getDashboard(dashboardId);
-    if (before) this.captureVersion(before);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: [...d.widgets, widget],
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    await this.saveWidgets(dashboardId, true, before);
   }
 
   async updateWidget(
@@ -149,28 +317,24 @@ export class DashboardManager {
     updates: Partial<DashboardWidget>,
   ): Promise<void> {
     const before = this.getDashboard(dashboardId);
-    if (before) this.captureVersion(before);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: d.widgets.map((w) => (w.id === widgetId ? { ...w, ...updates } : w)),
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    await this.saveWidgets(dashboardId, true, before);
   }
 
   async removeWidget(dashboardId: string, widgetId: string): Promise<void> {
-    const before = this.getDashboard(dashboardId);
-    if (before) this.captureVersion(before);
     this.stopAutoRefresh(dashboardId, widgetId);
     this.abortRuns(dashboardId, widgetId);
+    const before = this.getDashboard(dashboardId);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: d.widgets.filter((w) => w.id !== widgetId),
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    await this.saveWidgets(dashboardId, true, before);
   }
 
   async moveWidget(
@@ -178,13 +342,14 @@ export class DashboardManager {
     widgetId: string,
     position: { x: number; y: number },
   ): Promise<void> {
+    const before = this.getDashboard(dashboardId);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: d.widgets.map((w) => (w.id === widgetId ? { ...w, ...position } : w)),
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    // A move isn't versioned.
+    await this.saveWidgets(dashboardId, false, before);
   }
 
   async resizeWidget(
@@ -192,13 +357,13 @@ export class DashboardManager {
     widgetId: string,
     size: { width: number; height: number },
   ): Promise<void> {
+    const before = this.getDashboard(dashboardId);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       widgets: d.widgets.map((w) => (w.id === widgetId ? { ...w, ...size } : w)),
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    await this.saveWidgets(dashboardId, false, before);
   }
 
   // === VIEWPORT ===
@@ -207,13 +372,14 @@ export class DashboardManager {
     dashboardId: string,
     viewport: { x: number; y: number; zoom: number },
   ): Promise<void> {
+    const before = this.getDashboard(dashboardId);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       viewport,
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) await this.persistDashboard(dashboard);
+    // A pan or zoom isn't versioned.
+    if (before) await this.save(dashboardId, { viewport }, before);
   }
 
   // === WIDGET EXECUTION ===
@@ -384,47 +550,89 @@ export class DashboardManager {
     range: { start: string; end: string } | null,
   ): Promise<void> {
     const before = this.getDashboard(dashboardId);
-    if (before) this.captureVersion(before);
     this.updateDashboard(dashboardId, (d) => ({
       ...d,
       dateFilter: range,
       updatedAt: new Date(),
     }));
-    const dashboard = this.getDashboard(dashboardId);
-    if (dashboard) {
-      await this.persistDashboard(dashboard);
+    if (before) {
+      await this.save(dashboardId, { dateFilter: range, captureVersion: true }, before);
       await this.executeAllWidgets(dashboardId);
     }
   }
 
-  // === DATA LOADING ===
+  // === OTHER WINDOWS ===
 
-  async loadDashboards(projectId: string): Promise<void> {
-    this.stopAllAutoRefresh();
-    try {
-      const rows = await getStorage().dashboards.loadByProject(projectId);
-
-      const dashboards: Dashboard[] = rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        projectId: r.projectId,
-        widgets: JSON.parse(r.widgets),
-        viewport: JSON.parse(r.viewport),
-        dateFilter: r.dateFilter ? JSON.parse(r.dateFilter) : null,
-        starred: r.starred,
-        shared: r.shared ?? false,
-        description: r.description,
-        createdAt: new Date(r.createdAt),
-        updatedAt: new Date(r.updatedAt),
-      }));
-
-      this.state.dashboardsByProject = {
-        ...this.state.dashboardsByProject,
-        [projectId]: dashboards,
-      };
-    } catch (error) {
-      void log.error("Failed to load dashboards:", error);
+  /**
+   * Another window changed dashboards of `projectId` (a `dashboard` event):
+   * read its dashboards and versions again if the page holds them, and
+   * apply each row by the `seq` rule once this page's own writes to it have
+   * answered (its widgets keep their rows). A refused edit here was taken
+   * back, so the page never holds an unsaved change another window's could
+   * clash with. One deleted elsewhere stops its runs and closes its tabs in
+   * every project.
+   */
+  async refreshFromLibrary(
+    projectId: string,
+    ids: readonly string[] | null,
+    { again = true } = {},
+  ): Promise<void> {
+    if (!(projectId in this.state.dashboardsByProject)) return;
+    const seqs = this.state.librarySeqs;
+    await Promise.all((ids ?? [""]).map((id) => seqs.settled(rowKey("dashboard", id))));
+    const library = getLibrary();
+    const [dashboards, versions] = await Promise.all([
+      library.listDashboards(projectId),
+      library.listDashboardVersions(projectId),
+    ]);
+    const stored = new Map(dashboards.value.map((d) => [d.id, d]));
+    const shown = this.state.dashboardsByProject[projectId] ?? [];
+    const wanted = ids === null ? null : new Set(ids);
+    const removed: Dashboard[] = [];
+    let next = [...shown];
+    /** Rows with a write of this page on its way: read again once it answers. */
+    const skipped: string[] = [];
+    /** Dashboards another window renamed: their tabs here follow. */
+    const renamed: [string, string][] = [];
+    for (const id of new Set([...shown.map((d) => d.id), ...stored.keys()])) {
+      if (wanted && !wanted.has(id)) continue;
+      if (seqs.busy(rowKey("dashboard", id))) {
+        skipped.push(id);
+        continue;
+      }
+      if (!seqs.take(rowKey("dashboard", id), dashboards.seq)) continue;
+      const row = stored.get(id);
+      const current = next.find((d) => d.id === id);
+      if (!row) {
+        if (current) removed.push(current);
+        next = next.filter((d) => d.id !== id);
+      } else {
+        const dashboard = dashboardFromWire(row, current);
+        next = current ? next.map((d) => (d.id === id ? dashboard : d)) : [...next, dashboard];
+        if (current && current.name !== dashboard.name) renamed.push([id, dashboard.name]);
+      }
     }
+    this.state.dashboardsByProject = { ...this.state.dashboardsByProject, [projectId]: next };
+    if (seqs.take(rowKey("dashboardVersion", projectId), versions.seq)) {
+      this.state.dashboardVersionsByProject = {
+        ...this.state.dashboardVersionsByProject,
+        [projectId]: versions.value.map(dashboardVersionFromWire),
+      };
+    }
+    for (const [id, name] of renamed) this.renameTabs(id, name);
+    for (const dashboard of removed) this.removedElsewhere(dashboard);
+    if (again && skipped.length > 0) {
+      await Promise.all(skipped.map((id) => seqs.settled(rowKey("dashboard", id))));
+      await this.refreshFromLibrary(projectId, skipped, { again: false });
+    }
+  }
+
+  /** A dashboard deleted in another window: its runs stop and its tabs close. */
+  private removedElsewhere(dashboard: Dashboard): void {
+    this.closeDashboard(dashboard.id);
+    const touched = closeDashboardTabs(this.state, dashboard.id, this.syncActive);
+    for (const projectId of touched) this.scheduleProjectPersistence(projectId);
+    if (touched.length > 0) toast.info(m.dashboard_removed_elsewhere({ name: dashboard.name }));
   }
 
   // === STARRING ===
@@ -442,7 +650,8 @@ export class DashboardManager {
       ...this.state.dashboardsByProject,
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
-    await this.persistDashboard(updated);
+    // Alone, the star keeps `updated_at` (Core's rule).
+    await this.save(id, { starred: !!updated.starred }, dashboard);
   }
 
   /** @deprecated Use toggleDashboardStarred instead */
@@ -467,7 +676,7 @@ export class DashboardManager {
     };
 
     await this.writeDashboardFile?.(updated);
-    await this.persistDashboard(updated);
+    await this.save(id, { shared: true }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
 
@@ -487,7 +696,7 @@ export class DashboardManager {
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
 
-    await this.persistDashboard(updated);
+    await this.save(id, { shared: false }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
 
@@ -537,20 +746,51 @@ export class DashboardManager {
     return [];
   }
 
-  getResolvedVersionsForDashboard(dashboardId: string): ResolvedDashboardVersion[] {
-    const versions = this.getVersionsForDashboard(dashboardId);
-    return resolveDashboardVersions(versions);
+  /**
+   * One version with its snapshot, for the history's diff and restore
+   * (5d-2 Task 7: the list holds no snapshots). `null` when it can't be
+   * read, which is shown; a version pruned or a dashboard removed elsewhere
+   * also reads the project's versions again, so the history drops it.
+   */
+  async loadVersion(
+    dashboardId: string,
+    versionId: string,
+  ): Promise<ResolvedDashboardVersion | null> {
+    try {
+      const { value } = await getLibrary().getDashboardVersion(dashboardId, versionId);
+      const resolved = resolvedDashboardVersionFromWire(value);
+      if (!resolved) errorToast(m.dashboard_version_unreadable({ version: value.version }));
+      return resolved;
+    } catch (error) {
+      void log.error("Failed to read a dashboard version:", error);
+      errorToast(m.dashboard_version_open_failed({ message: libraryErrorMessage(error) }));
+      const code = errorCode(error);
+      if (code === DASHBOARD_VERSION_NOT_FOUND || code === DASHBOARD_NOT_FOUND) {
+        const projectId = this.projectOf(dashboardId);
+        if (projectId) void this.refreshFromLibrary(projectId, [dashboardId]).catch(() => {});
+      }
+      return null;
+    }
+  }
+
+  /** The project holding the dashboard (or its versions), if the page holds it. */
+  private projectOf(dashboardId: string): string | null {
+    for (const [projectId, dashboards] of Object.entries(this.state.dashboardsByProject)) {
+      if (dashboards.some((d) => d.id === dashboardId)) return projectId;
+    }
+    for (const [projectId, versions] of Object.entries(this.state.dashboardVersionsByProject)) {
+      if (versions.some((v) => v.dashboardId === dashboardId)) return projectId;
+    }
+    return null;
   }
 
   /**
-   * Restore a dashboard to a previous version's snapshot state.
+   * Restore a dashboard to a previous version's snapshot state. The state
+   * it had is versioned first, by Core.
    */
   async restoreVersion(dashboardId: string, version: ResolvedDashboardVersion): Promise<void> {
     const dashboard = this.getDashboard(dashboardId);
     if (!dashboard) return;
-
-    // Capture current state as a version before restoring
-    this.captureVersion(dashboard);
 
     const snapshot = version.dashboard;
     this.updateDashboard(dashboardId, (d) => ({
@@ -563,73 +803,191 @@ export class DashboardManager {
       updatedAt: new Date(),
     }));
 
-    const updated = this.getDashboard(dashboardId);
-    if (updated) await this.persistDashboard(updated);
-  }
-
-  private captureVersion(dashboard: Dashboard): void {
-    if (!this.persistence) return;
-    const projectId = dashboard.projectId;
-
-    const versions = this.getVersionsForDashboard(dashboard.id);
-    const nextVersion = versions.length > 0 ? Math.max(...versions.map((v) => v.version)) + 1 : 1;
-
-    const newVersion = createDashboardVersionEntry(dashboard.id, nextVersion, dashboard);
-
-    // Add to state
-    const projectVersions = this.state.dashboardVersionsByProject[projectId] ?? [];
-    this.state.dashboardVersionsByProject = {
-      ...this.state.dashboardVersionsByProject,
-      [projectId]: [...projectVersions, newVersion],
-    };
-
-    // Persist immediately, then prune to the limit setting (not after a
-    // failed insert: `persistDashboardVersion` throws, which skips the prune).
-    const persistence = this.persistence;
-    void persistence
-      .persistDashboardVersion({
-        id: newVersion.id,
-        dashboardId: newVersion.dashboardId,
-        version: newVersion.version,
-        snapshot: newVersion.snapshot,
-        createdAt: newVersion.createdAt.toISOString(),
-      })
-      .then(() => this.pruneVersions(persistence, dashboard.id, projectId))
-      .catch((err) => void log.error("Failed to save or prune a dashboard version:", err));
-  }
-
-  /**
-   * Keep the dashboard's newest `dashboard_version_limit` versions, stored
-   * and in memory. 0 still deletes them all, as the stored prune does
-   * (phase 5d-2 makes it keep everything, as for queries).
-   */
-  private async pruneVersions(
-    persistence: PersistenceManager,
-    dashboardId: string,
-    projectId: string,
-  ): Promise<void> {
-    const limit = await persistence.versionLimit("dashboard_version_limit");
-    const allVersions = this.state.dashboardVersionsByProject[projectId] ?? [];
-    const dashVersions = allVersions.filter((v) => v.dashboardId === dashboardId);
-    if (dashVersions.length > limit) {
-      const sorted = [...dashVersions].sort((a, b) => b.version - a.version);
-      const keepIds = new Set(sorted.slice(0, limit).map((v) => v.id));
-      this.state.dashboardVersionsByProject = {
-        ...this.state.dashboardVersionsByProject,
-        [projectId]: allVersions.filter((v) => v.dashboardId !== dashboardId || keepIds.has(v.id)),
-      };
-    }
-    await persistence.pruneDashboardVersions(dashboardId, limit);
+    await this.save(
+      dashboardId,
+      {
+        name: snapshot.name,
+        description: snapshot.description ?? null,
+        widgets: storedWidgets(snapshot.widgets as DashboardWidget[]),
+        viewport: snapshot.viewport,
+        dateFilter: snapshot.dateFilter ?? null,
+        captureVersion: true,
+      },
+      dashboard,
+    );
   }
 
   // === PERSISTENCE ===
 
-  private async persistDashboard(dashboard: Dashboard): Promise<void> {
+  /** Saves the dashboard's widgets as shown; `version` for an edit that is versioned. */
+  private async saveWidgets(
+    dashboardId: string,
+    version: boolean,
+    before: Dashboard | undefined,
+  ): Promise<void> {
+    const dashboard = this.getDashboard(dashboardId);
+    if (!dashboard || !before) return;
+    await this.save(
+      dashboardId,
+      {
+        widgets: storedWidgets(dashboard.widgets),
+        ...(version ? { captureVersion: true } : {}),
+      },
+      before,
+    );
+  }
+
+  /**
+   * One `dashboardUpdate` with `patch` (the edit is already shown). The
+   * answer's version, and the versions Core pruned, go into the page's list;
+   * the dashboard as shown stays (its widgets hold their rows). False when
+   * it wasn't saved: the refusal is shown and the fields the patch named go
+   * back to `before` (the dashboard before the edit), as the library's
+   * refusals do, so what the page shows is what is stored.
+   */
+  private async save(id: string, patch: DashboardPatch, before: Dashboard): Promise<boolean> {
+    const dashboard = this.getDashboard(id);
+    if (!dashboard) return false;
+    const seqs = this.state.librarySeqs;
+    let updated: DashboardUpdated;
     try {
-      await getStorage().dashboards.save(toPersistedDashboard(dashboard));
+      const { value, seq } = await seqs.write([rowKey("dashboard", id)], () =>
+        getLibrary().updateDashboard(id, patch),
+      );
+      seqs.note(rowKey("dashboard", id), seq);
+      updated = value;
     } catch (error) {
-      void log.error("Failed to persist dashboard:", error);
-      errorToast(m.dashboard_save_failed({ message: extractErrorMessage(error) }));
+      this.saveFailed(id, before.name, error);
+      await this.restoreStored(id, patch, before);
+      return false;
+    }
+    this.toldTooLarge.delete(id);
+    this.spliceVersions(dashboard.projectId, updated);
+    // The stored row, which holds other windows' changes to other fields,
+    // shows unless a later edit here is still on its way (its answer will).
+    if (!seqs.busy(rowKey("dashboard", id))) {
+      this.updateDashboard(id, (d) => dashboardFromWire(updated.dashboard, d));
+      this.renameTabs(id, updated.dashboard.name);
+    }
+    return true;
+  }
+
+  /**
+   * After a refused edit: once this page's writes to the dashboard have
+   * answered, the fields the refused patch named show the stored row again
+   * (another refused edit in flight may have shown its own change since
+   * `before` was taken; none of them is stored). The tabs follow a name.
+   * If the row can't be read, they go back to `before`.
+   */
+  private async restoreStored(id: string, patch: DashboardPatch, before: Dashboard): Promise<void> {
+    const seqs = this.state.librarySeqs;
+    const key = rowKey("dashboard", id);
+    let stored: Dashboard | null = null;
+    try {
+      await seqs.settled(key);
+      const { value, seq } = await getLibrary().listDashboards(before.projectId);
+      // An edit made since, still on its way or answered after this read
+      // was taken, shows what's newer: this read isn't applied over it.
+      const last = seqs.last(key);
+      if (seqs.busy(key) || (seq.epoch === seqs.epoch && last !== undefined && seq.n < last)) {
+        return;
+      }
+      const row = value.find((d) => d.id === id);
+      stored = row ? dashboardFromWire(row) : null;
+    } catch (error) {
+      void log.warn("Reading a dashboard again after a refused edit failed:", error);
+    }
+    this.revert(id, patch, stored ?? before);
+    if (patch.name !== undefined) this.renameTabs(id, (stored ?? before).name);
+  }
+
+  /** Puts back the fields `patch` named, as they are in `before`. */
+  private revert(id: string, patch: DashboardPatch, before: Dashboard): void {
+    this.updateDashboard(id, (d) => {
+      const next = { ...d };
+      if (patch.name !== undefined) next.name = before.name;
+      if (patch.description !== undefined) next.description = before.description;
+      if (patch.widgets !== undefined) {
+        // Widgets keep the run state they have now (a widget added by the
+        // refused edit goes, with its runs).
+        const live = new Map(d.widgets.map((w) => [w.id, w]));
+        next.widgets = before.widgets.map((w) => {
+          const now = live.get(w.id);
+          return now
+            ? {
+                ...w,
+                result: now.result,
+                isLoading: now.isLoading,
+                error: now.error,
+                lastRefreshed: now.lastRefreshed,
+              }
+            : w;
+        });
+        for (const w of d.widgets) {
+          if (!before.widgets.some((b) => b.id === w.id)) {
+            this.stopAutoRefresh(id, w.id);
+            this.abortRuns(id, w.id);
+          }
+        }
+      }
+      if (patch.viewport !== undefined) next.viewport = before.viewport;
+      if (patch.dateFilter !== undefined) next.dateFilter = before.dateFilter;
+      if (patch.starred !== undefined) next.starred = before.starred;
+      if (patch.shared !== undefined) next.shared = before.shared;
+      next.updatedAt = before.updatedAt;
+      return next;
+    });
+  }
+
+  /** The answer's new version in, the pruned ones out. */
+  private spliceVersions(projectId: string, updated: DashboardUpdated): void {
+    const { version, prunedVersionIds } = updated;
+    if (!version && prunedVersionIds.length === 0) return;
+    const pruned = new Set(prunedVersionIds);
+    const versions = (this.state.dashboardVersionsByProject[projectId] ?? []).filter(
+      (v) => !pruned.has(v.id) && v.id !== version?.id,
+    );
+    if (version) versions.push(dashboardVersionFromWire(version));
+    this.state.dashboardVersionsByProject = {
+      ...this.state.dashboardVersionsByProject,
+      [projectId]: versions,
+    };
+  }
+
+  /**
+   * A refused save, shown. Past the web's `max_dashboard_bytes` it says so
+   * once per dashboard, naming it and the limit.
+   */
+  private saveFailed(id: string | null, name: string, error: unknown): void {
+    void log.error("Failed to save a dashboard:", error);
+    const limit = limitOf(error);
+    const other = limit ? limitMessage(limit) : null;
+    if (other) {
+      errorToast(m.dashboard_save_failed({ message: other }));
+      return;
+    }
+    if (limit) {
+      const key = id ?? `new:${name}`;
+      if (this.toldTooLarge.has(key)) return;
+      this.toldTooLarge.add(key);
+      errorToast(m.dashboard_too_large({ name, limit }));
+      return;
+    }
+    errorToast(
+      m.dashboard_save_failed({
+        message: libraryErrorMessage(error, (taken) => this.getDashboard(taken)?.name),
+      }),
+    );
+  }
+
+  /** Drops a dashboard from the page's lists. */
+  private forget(id: string): void {
+    for (const [projectId, dashboards] of Object.entries(this.state.dashboardsByProject)) {
+      if (!dashboards.some((d) => d.id === id)) continue;
+      this.state.dashboardsByProject = {
+        ...this.state.dashboardsByProject,
+        [projectId]: dashboards.filter((d) => d.id !== id),
+      };
     }
   }
 }

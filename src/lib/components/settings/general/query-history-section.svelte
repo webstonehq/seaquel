@@ -1,23 +1,26 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { m } from "$lib/paraglide/messages.js";
-	import { getStorage } from "$lib/storage";
+	import { libraryErrorMessage } from "$lib/hooks/database/library/messages";
+	import { errorToast } from "$lib/utils/toast";
 	import { MIN_VERSION_LIMIT, clampVersionLimit } from "$lib/utils/version-limit";
+	import { VersionLimitsStore, type VersionLimitKey } from "$lib/stores/version-limits.svelte";
 
-	let queryVersionLimit = $state<number>(100);
-	let dashboardVersionLimit = $state<number>(100);
+	// Follows other windows' changes; a save before the read answers isn't undone by it.
+	const limits = new VersionLimitsStore();
 
-	onMount(async () => {
-		const savedLimit = await getStorage().appState.get("query_version_limit");
-		if (savedLimit) {
-			const parsed = parseInt(savedLimit, 10);
-			if (!isNaN(parsed)) queryVersionLimit = parsed;
+	/** Stores a limit (clamped, as the setting shows it); a refusal is shown. */
+	async function saveLimit(key: VersionLimitKey, value: number): Promise<void> {
+		try {
+			await limits.save(key, value);
+		} catch (error) {
+			errorToast(libraryErrorMessage(error));
 		}
-		const savedDashboardLimit = await getStorage().appState.get("dashboard_version_limit");
-		if (savedDashboardLimit) {
-			const parsed = parseInt(savedDashboardLimit, 10);
-			if (!isNaN(parsed)) dashboardVersionLimit = parsed;
-		}
+	}
+
+	onMount(() => {
+		limits.load().catch((error: unknown) => errorToast(libraryErrorMessage(error)));
+		return () => limits.dispose();
 	});
 </script>
 
@@ -36,11 +39,8 @@
 				type="number"
 				min={MIN_VERSION_LIMIT}
 				max="1000"
-				bind:value={queryVersionLimit}
-				onchange={async () => {
-					queryVersionLimit = clampVersionLimit(queryVersionLimit);
-					await getStorage().appState.set("query_version_limit", String(queryVersionLimit));
-				}}
+				bind:value={limits.query}
+				onchange={() => saveLimit("query_version_limit", clampVersionLimit(limits.query))}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
 			/>
 		</div>
@@ -53,11 +53,8 @@
 				type="number"
 				min={MIN_VERSION_LIMIT}
 				max="1000"
-				bind:value={dashboardVersionLimit}
-				onchange={async () => {
-					dashboardVersionLimit = clampVersionLimit(dashboardVersionLimit);
-					await getStorage().appState.set("dashboard_version_limit", String(dashboardVersionLimit));
-				}}
+				bind:value={limits.dashboard}
+				onchange={() => saveLimit("dashboard_version_limit", clampVersionLimit(limits.dashboard))}
 				class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
 			/>
 		</div>

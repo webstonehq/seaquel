@@ -14,6 +14,11 @@ import type {
   RustStorageClient,
 } from "$lib/storage/rust-client";
 import type {
+  ChatDraft,
+  ChatMessageDraft,
+  ChatPatch,
+  DashboardDraft,
+  DashboardPatch,
   ConnectionDraft,
   ConnectionPatch,
   LabelDraft,
@@ -99,5 +104,71 @@ export class CoreLibrary implements LibraryService {
   }
   removeSavedQuery(id: string) {
     return this.call("savedQueryRemove", { id });
+  }
+
+  getProjectSidebar(projectId: string) {
+    return this.call("projectSidebarGet", { projectId });
+  }
+  setProjectSidebar(projectId: string, connectionOrder: string[]) {
+    return this.call("projectSidebarSet", { projectId, connectionOrder });
+  }
+  listWorkflows(projectId: string) {
+    return this.call("workflowsList", { projectId });
+  }
+  getWorkflow(workflowId: string) {
+    return this.call("workflowGet", { workflowId });
+  }
+  createWorkflow(projectId: string, workflow: unknown) {
+    return this.call("workflowCreate", { workflow: { projectId, workflow } });
+  }
+  updateWorkflow(id: string, workflow: unknown) {
+    return this.call("workflowUpdate", { id, workflow });
+  }
+  removeWorkflow(id: string) {
+    return this.call("workflowRemove", { id });
+  }
+  renameWorkflow(workflowId: string, name: string) {
+    return this.call("workflowRename", { workflowId, name });
+  }
+
+  listDashboards(projectId: string) {
+    return this.call("dashboardsList", { projectId });
+  }
+  listDashboardVersions(projectId: string) {
+    return this.call("dashboardVersionsList", { projectId });
+  }
+  getDashboardVersion(dashboardId: string, versionId: string) {
+    return this.call("dashboardVersionGet", { dashboardId, versionId });
+  }
+  createDashboard(dashboard: DashboardDraft) {
+    return this.call("dashboardCreate", { dashboard });
+  }
+  updateDashboard(id: string, patch: DashboardPatch) {
+    return this.call("dashboardUpdate", { id, patch });
+  }
+  removeDashboard(id: string) {
+    return this.call("dashboardRemove", { id });
+  }
+
+  listChats(connectionId: string) {
+    return this.call("chatsList", { connectionId });
+  }
+  listChatMessages(chatId: string) {
+    return this.call("chatMessagesList", { chatId });
+  }
+  createChat(chat: ChatDraft) {
+    return this.call("chatCreate", { chat });
+  }
+  updateChat(id: string, patch: ChatPatch) {
+    return this.call("chatUpdate", { id, patch });
+  }
+  removeChat(id: string) {
+    return this.call("chatRemove", { id });
+  }
+  putChatMessages(chatId: string, messages: ChatMessageDraft[]) {
+    return this.call("chatMessagesPut", { chatId, messages });
+  }
+  removeChatMessages(chatId: string, ids: string[]) {
+    return this.call("chatMessagesRemove", { chatId, ids });
   }
 }

@@ -1,9 +1,10 @@
 import type { ConnectionIdentity } from "$lib/services/connection-import";
-import { getStorage } from "$lib/storage";
+import { getSettings } from "$lib/hooks/database/library/index";
+import { onStoredChange, toastIfStorageFull } from "./settings-sync";
 import type { ImportableConnection } from "$lib/types/dbeaver";
 import { discoverDbeaverConnections } from "$lib/services/dbeaver-import";
 
-class DbeaverImportStore {
+export class DbeaverImportStore {
   // Dialog state
   isOpen = $state(false);
   isLoading = $state(false);
@@ -15,6 +16,18 @@ class DbeaverImportStore {
   hasOfferedImport = $state(false);
   private initialized = false;
 
+  constructor() {
+    // Another window offered the import: don't offer it here again.
+    onStoredChange("importState", (ids) =>
+      this.initialized && (ids === null || ids.includes("dbeaver")) ? this.read() : undefined,
+    );
+  }
+
+  private async read(): Promise<void> {
+    const { value } = await getSettings().getImportState("dbeaver");
+    if (value) this.hasOfferedImport = value.hasOfferedImport;
+  }
+
   /**
    * Initialize the store - loads persisted state
    */
@@ -24,11 +37,7 @@ class DbeaverImportStore {
 
     // Load persisted state
     try {
-      const persisted = await getStorage().importState.load("dbeaver");
-
-      if (persisted) {
-        this.hasOfferedImport = persisted.hasOfferedImport;
-      }
+      await this.read();
     } catch (error) {
       console.error("Failed to load DBeaver import state:", error);
     }
@@ -121,12 +130,13 @@ class DbeaverImportStore {
    */
   private async persist(): Promise<void> {
     try {
-      await getStorage().importState.save(
+      await getSettings().saveImportState(
         "dbeaver",
         this.hasOfferedImport,
         new Date().toISOString(),
       );
     } catch (error) {
+      toastIfStorageFull(error);
       console.error("Failed to persist DBeaver import state:", error);
     }
   }

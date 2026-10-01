@@ -1,8 +1,16 @@
-import { getStorage } from "$lib/storage";
+import { getSettings } from "$lib/hooks/database/library/index";
+import type { TutorialProgress } from "$lib/hooks/database/library/types";
 import { LESSONS } from "$lib/tutorial/lessons";
+import { log } from "$lib/utils/logger";
 import type { SerializableQueryBuilderState } from "$lib/hooks/query-builder.svelte";
+import { WriteOrder, onStoredChange, toastIfStorageFull } from "./settings-sync";
 
-class TutorialProgressStore {
+/**
+ * Tutorial progress: one row per challenge, written by `settings` calls
+ * (phase 5d-2) that answer every row, applied by the `seq` rule; another
+ * window's progress is read again at once.
+ */
+export class TutorialProgressStore {
   /** Map of lessonId -> Set of completed challenge IDs */
   completedChallenges = $state<Record<string, Set<string>>>({});
 
@@ -11,39 +19,66 @@ class TutorialProgressStore {
 
   /** Whether the store has been initialized (loaded from persistence) */
   isInitialized = $state(false);
+  /** Orders the writes' answers and other windows' reads (`seq`, no flicker back). */
+  private readonly order = new WriteOrder("tutorial", () => this.reload());
+
+  constructor() {
+    onStoredChange("tutorial", () => (this.isInitialized ? this.reload() : undefined));
+  }
 
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
     try {
-      const rows = await getStorage().tutorial.loadAll();
-
-      const challenges: Record<string, Set<string>> = {};
-      const states: Record<string, Record<string, SerializableQueryBuilderState>> = {};
-
-      for (const row of rows) {
-        // Build completed challenges sets
-        if (!challenges[row.lessonId]) {
-          challenges[row.lessonId] = new Set();
-        }
-        challenges[row.lessonId].add(row.challengeId);
-
-        // Build challenge states
-        if (row.state) {
-          if (!states[row.lessonId]) {
-            states[row.lessonId] = {};
-          }
-          states[row.lessonId][row.challengeId] = JSON.parse(row.state);
-        }
-      }
-
-      this.completedChallenges = challenges;
-      this.challengeStates = states;
+      const { value, seq } = await getSettings().listTutorial();
+      this.order.read(value, seq, (rows) => this.show(rows));
       this.isInitialized = true;
     } catch (error) {
       console.error("Failed to load tutorial progress:", error);
       this.isInitialized = true;
     }
+  }
+
+  /** Another window's progress: read every row again. */
+  async reload(): Promise<void> {
+    const { value, seq } = await getSettings().listTutorial();
+    this.order.read(value, seq, (rows) => this.show(rows));
+  }
+
+  /** Shows the stored rows. */
+  private show(rows: TutorialProgress[]): void {
+    const challenges: Record<string, Set<string>> = {};
+    const states: Record<string, Record<string, SerializableQueryBuilderState>> = {};
+
+    for (const row of rows) {
+      // Build completed challenges sets
+      if (!challenges[row.lessonId]) {
+        challenges[row.lessonId] = new Set();
+      }
+      challenges[row.lessonId].add(row.challengeId);
+
+      // Build challenge states. A state that doesn't parse is skipped,
+      // not allowed to empty everyone else's progress.
+      if (row.state) {
+        let parsed: SerializableQueryBuilderState;
+        try {
+          parsed = JSON.parse(row.state);
+        } catch (error) {
+          void log.warn(
+            `Skipping the saved state of tutorial challenge ${row.lessonId}/${row.challengeId}:`,
+            error,
+          );
+          continue;
+        }
+        if (!states[row.lessonId]) {
+          states[row.lessonId] = {};
+        }
+        states[row.lessonId][row.challengeId] = parsed;
+      }
+    }
+
+    this.completedChallenges = challenges;
+    this.challengeStates = states;
   }
 
   /**
@@ -151,7 +186,7 @@ class TutorialProgressStore {
     }
     if (changed) {
       try {
-        await getStorage().tutorial.removeLesson(lessonId);
+        await this.order.write(() => getSettings().removeTutorialLesson(lessonId));
       } catch (error) {
         console.error("Failed to reset tutorial lesson:", error);
       }
@@ -165,7 +200,7 @@ class TutorialProgressStore {
     this.completedChallenges = {};
     this.challengeStates = {};
     try {
-      await getStorage().tutorial.removeAll();
+      await this.order.write(() => getSettings().resetTutorial());
     } catch (error) {
       console.error("Failed to reset all tutorial progress:", error);
     }
@@ -177,8 +212,11 @@ class TutorialProgressStore {
     state: string | null,
   ): Promise<void> {
     try {
-      await getStorage().tutorial.save(lessonId, challengeId, state);
+      // What it changed is shown already; another window's progress read
+      // while it was on its way is read again once it's done.
+      await this.order.write(() => getSettings().saveTutorial(lessonId, challengeId, state));
     } catch (error) {
+      toastIfStorageFull(error);
       console.error("Failed to persist tutorial progress:", error);
     }
   }

@@ -28,11 +28,19 @@ pub fn status_for(code: &str) -> StatusCode {
         // Not this user's, or not open: the same answer either way. The
         // library's rows (phase 5d-1) too: another user's id is simply not
         // in this user's file. (`SAVED_CONNECTION_NOT_FOUND`'s wire code is
-        // `CONNECTION_NOT_FOUND`.)
+        // `CONNECTION_NOT_FOUND`.) Phase 5d-2 adds dashboards, saved
+        // workflows, chats, user themes and AI providers, and a dashboard's
+        // version (`dashboardVersionGet`, 5d-2 Task 7).
         "CONNECTION_NOT_FOUND"
         | "PROJECT_NOT_FOUND"
         | "SAVED_QUERY_NOT_FOUND"
-        | "LABEL_NOT_FOUND" => StatusCode::NOT_FOUND,
+        | "LABEL_NOT_FOUND"
+        | "DASHBOARD_NOT_FOUND"
+        | "DASHBOARD_VERSION_NOT_FOUND"
+        | "WORKFLOW_NOT_FOUND"
+        | "CHAT_NOT_FOUND"
+        | "THEME_NOT_FOUND"
+        | "AI_PROVIDER_NOT_FOUND" => StatusCode::NOT_FOUND,
         // The database refused the login (not the app's session: that's
         // Node's 401).
         "AUTH_ERROR" => StatusCode::BAD_REQUEST,
@@ -64,6 +72,9 @@ pub fn status_for(code: &str) -> StatusCode {
         seaquel_core::TOO_MANY_CONNECTIONS | crate::routes::rpc::TOO_MANY_REQUESTS => {
             StatusCode::TOO_MANY_REQUESTS
         }
+        // The user's metadata file reached its size cap
+        // (`SEAQUEL_USER_DB_MAX_BYTES`, phase 5d-2): nothing was written.
+        "STORAGE_FULL" => StatusCode::INSUFFICIENT_STORAGE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -111,9 +122,16 @@ mod tests {
             "PROJECT_NOT_FOUND",
             "SAVED_QUERY_NOT_FOUND",
             "LABEL_NOT_FOUND",
+            "DASHBOARD_NOT_FOUND",
+            "DASHBOARD_VERSION_NOT_FOUND",
+            "WORKFLOW_NOT_FOUND",
+            "CHAT_NOT_FOUND",
+            "THEME_NOT_FOUND",
+            "AI_PROVIDER_NOT_FOUND",
         ] {
             assert_eq!(status_for(code), StatusCode::NOT_FOUND, "{code}");
         }
+        assert_eq!(status_for("STORAGE_FULL"), StatusCode::INSUFFICIENT_STORAGE);
         for code in ["STORAGE_ERROR", "STORAGE_CORRUPT", "SOMETHING_ELSE"] {
             assert_eq!(status_for(code), StatusCode::INTERNAL_SERVER_ERROR);
         }

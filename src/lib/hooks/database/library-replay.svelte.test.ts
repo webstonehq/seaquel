@@ -79,7 +79,7 @@ vi.mock("$lib/utils/logger", () => ({
 }));
 
 const { createSqljsStorageClient } = await import("$lib/storage/sqljs-client");
-const { PersistenceManager } = await import("./persistence-manager.svelte.js");
+const { WindowStateManager } = await import("./window-state.svelte.js");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { SavedQueryManager } = await import("./saved-queries.svelte.js");
@@ -235,15 +235,12 @@ function seedSharedRepo(state: InstanceType<typeof DatabaseState>) {
 /** One window: the managers over the case's database, wired as `UseDatabase` wires them. */
 async function openPage(load: boolean) {
   const state = new DatabaseState();
-  const persistence = new PersistenceManager(state);
-  const restoration = new StateRestorationManager(state, persistence);
-  const projects = new ProjectManager(state, persistence, restoration);
-  const labels = new LabelManager(state, persistence);
-  const savedQueries = new SavedQueryManager(
-    state,
-    (id) => persistence.scheduleProject(id),
-    persistence,
-  );
+  // The view state isn't part of the library's fixtures: off here.
+  const windowState = new WindowStateManager(state, { enabled: false });
+  const restoration = new StateRestorationManager(state);
+  const projects = new ProjectManager(state, windowState, restoration);
+  const labels = new LabelManager(state);
+  const savedQueries = new SavedQueryManager(state, (id) => windowState.scheduleProject(id));
   const fileOf = (q: { id: string; name: string; folder?: string }) => ({
     id: q.id,
     path: `${q.folder ?? ""}/${queryNameToFilename(q.name)}`,
@@ -260,7 +257,7 @@ async function openPage(load: boolean) {
   };
   const connections = new ConnectionManager(
     state,
-    persistence,
+    windowState,
     restoration,
     {} as never,
     { getForType: async () => provider } as never,
@@ -276,7 +273,7 @@ async function openPage(load: boolean) {
     await projects.initialize();
     await connections.initializePersistedConnections();
   }
-  return { state, persistence, projects, labels, savedQueries, connections };
+  return { state, projects, labels, savedQueries, connections };
 }
 
 type Page = Awaited<ReturnType<typeof openPage>>;

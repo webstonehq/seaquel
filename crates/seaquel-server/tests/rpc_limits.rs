@@ -4,7 +4,9 @@
 //! `TOO_MANY_CONNECTIONS`.
 
 use axum::http::StatusCode;
-use seaquel_server::{web_core, WEB_CONNECTION_LIMITS, WEB_EDIT_LIMITS, WEB_LIBRARY_LIMITS};
+use seaquel_server::{
+    web_core, WEB_CONNECTION_LIMITS, WEB_EDIT_LIMITS, WEB_LIBRARY_LIMITS, WEB_STATE_LIMITS,
+};
 use serde_json::json;
 
 mod common;
@@ -46,6 +48,35 @@ async fn the_server_core_has_the_web_library_limits() {
     assert_eq!(limits.max_version_bytes, Some(16 * 1024 * 1024));
     // The test server's Core has them too.
     assert_eq!(Env::new(1).state.core.library_limits(), WEB_LIBRARY_LIMITS);
+}
+
+/// Phase 5d-2, Decision 27.
+#[tokio::test]
+async fn the_server_core_has_the_web_state_limits() {
+    let limits = web_core().state_limits();
+    assert_eq!(limits, WEB_STATE_LIMITS);
+    assert_eq!(limits.max_view_state_bytes, Some(8 * 1024 * 1024));
+    assert_eq!(limits.max_tab_text_bytes, Some(2 * 1024 * 1024));
+    assert_eq!(limits.max_tabs, Some(500));
+    assert_eq!(
+        (limits.max_windows, limits.max_window_states_per_project),
+        (50, 20)
+    );
+    assert!(!limits.spare_main_window);
+    assert_eq!(limits.max_workflow_bytes, Some(16 * 1024 * 1024));
+    assert_eq!(limits.max_workflows, Some(1_000));
+    assert_eq!(limits.max_dashboard_bytes, Some(4 * 1024 * 1024));
+    assert_eq!(limits.max_dashboards, Some(1_000));
+    assert_eq!(limits.max_dashboard_version_bytes, Some(16 * 1024 * 1024));
+    assert_eq!(limits.max_message_bytes, Some(1024 * 1024));
+    assert_eq!(limits.max_messages_per_chat, Some(5_000));
+    assert_eq!(limits.max_chat_bytes, Some(64 * 1024 * 1024));
+    assert_eq!(limits.max_chats, Some(10_000));
+    assert_eq!(limits.max_setting_bytes, Some(256 * 1024));
+    assert_eq!(limits.max_user_themes, Some(200));
+    assert_eq!(limits.max_ai_providers, Some(50));
+    // The test server's Core has them too.
+    assert_eq!(Env::new(1).state.core.state_limits(), WEB_STATE_LIMITS);
 }
 
 #[tokio::test]

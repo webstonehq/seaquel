@@ -4,10 +4,12 @@ import type { DesktopLicenseRequest } from "./DesktopLicenseRequest";
 import type { GitRequest } from "./GitRequest";
 import type { LibraryRequest } from "./LibraryRequest";
 import type { SecretRequest } from "./SecretRequest";
+import type { SettingsRequest } from "./SettingsRequest";
 import type { SshRequest } from "./SshRequest";
 import type { StorageRequest } from "./StorageRequest";
+import type { UiRequest } from "./UiRequest";
 
 /**
  * A workspace call: `{"method": <group>, "params": <the group's request>}`.
  */
-export type CoreRequest = { "method": "storage", "params": StorageRequest } | { "method": "library", "params": LibraryRequest } | { "method": "secret", "params": SecretRequest } | { "method": "license", "params": DesktopLicenseRequest } | { "method": "git", "params": GitRequest } | { "method": "ssh", "params": SshRequest } | { "method": "db", "params": DbRequest };
+export type CoreRequest = { "method": "storage", "params": StorageRequest } | { "method": "library", "params": LibraryRequest } | { "method": "settings", "params": SettingsRequest } | { "method": "ui", "params": UiRequest } | { "method": "secret", "params": SecretRequest } | { "method": "license", "params": DesktopLicenseRequest } | { "method": "git", "params": GitRequest } | { "method": "ssh", "params": SshRequest } | { "method": "db", "params": DbRequest };

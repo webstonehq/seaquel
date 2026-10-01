@@ -3,7 +3,7 @@ import type { SchemaTable, ActiveViewType } from "$lib/types";
 import type { EngineClient } from "$lib/engine";
 import { log } from "$lib/utils/logger";
 import { DatabaseState } from "./database/state.svelte.js";
-import { PersistenceManager } from "./database/persistence-manager.svelte.js";
+import { WindowStateManager } from "./database/window-state.svelte.js";
 import { StateRestorationManager } from "./database/state-restoration.svelte.js";
 import { TabOrderingManager } from "./database/tab-ordering.svelte.js";
 import { ConnectionManager } from "./database/connection-manager.svelte.js";
@@ -45,9 +45,16 @@ import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
 import { isDemo } from "$lib/utils/environment";
 import { getCoreClient } from "$lib/core";
 import { pageOrigin } from "$lib/core/origin";
+import { windowId } from "$lib/core/window-id";
 import { ChangeFeed } from "./database/library/change-feed.js";
 import { LibrarySync } from "./database/library/sync.js";
 import { connectionSecretsNotice } from "$lib/stores/connection-secrets-notice.svelte";
+import { applyStoredChange } from "$lib/stores/settings-sync";
+
+/** Whether this page is a standalone window (`/windows/…`, the theme editor). */
+function isStandaloneWindow(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/windows/");
+}
 
 /**
  * Main database context class that orchestrates all managers.
@@ -63,7 +70,8 @@ class UseDatabase {
   readonly state: DatabaseState;
 
   // Managers
-  readonly persistence: PersistenceManager;
+  /** This window's view state (tabs, layout, active ids) per project. */
+  readonly windowState: WindowStateManager;
   readonly projects: ProjectManager;
   readonly labels: LabelManager;
   readonly connections: ConnectionManager;
@@ -111,30 +119,33 @@ class UseDatabase {
     this.state = new DatabaseState();
 
     const scheduleProjectPersistence = (projectId: string | null) => {
-      this.persistence.scheduleProject(projectId);
+      this.windowState.scheduleProject(projectId);
     };
 
     const setActiveView = (view: ActiveViewType) => {
       this.ui.setActiveView(view);
     };
 
-    // Core infrastructure
-    this.persistence = new PersistenceManager(this.state);
+    // Core infrastructure. A standalone window (the desktop's theme editor)
+    // shows no project tabs and keeps no view state of its own.
+    this.windowState = new WindowStateManager(this.state, { enabled: !isStandaloneWindow() });
     this.panes = new PaneManager(this.state, scheduleProjectPersistence);
     this.tabs = new TabOrderingManager(this.state, scheduleProjectPersistence, this.panes);
-    this._stateRestoration = new StateRestorationManager(this.state, this.persistence);
+    this._stateRestoration = new StateRestorationManager(this.state);
 
-    // Project and label management
-    this.projects = new ProjectManager(this.state, this.persistence, this._stateRestoration);
-    this.labels = new LabelManager(this.state, this.persistence);
+    // Project and label management. The git reconcile stores dashboards
+    // through the dashboard manager (made below).
+    this.projects = new ProjectManager(this.state, this.windowState, this._stateRestoration, {
+      storeReconciled: (projectId, before, after) =>
+        this.dashboards.storeReconciled(projectId, before, after),
+    });
+    this.labels = new LabelManager(this.state);
 
     // AI chats
     this.aiChats = new AIChatManager(
       this.state,
-      (connectionId) => this.persistence.scheduleAIChats(connectionId),
       (chatId) => this._stateRestoration.loadAIChatMessages(chatId),
-      (chatId) => this.persistence.persistAIChatMessages(chatId),
-      (chatId) => this.persistence.removeAIChat(chatId),
+      (chatId) => this.ui.abortStreamFor(chatId),
     );
 
     // Dashboard tabs & manager (before UI, since UIStateManager needs them)
@@ -149,9 +160,9 @@ class UseDatabase {
       async (connectionId, sql, signal) =>
         (await this.queries.executeReadOnly(connectionId, sql, signal)).rows,
       scheduleProjectPersistence,
-      this.persistence,
     );
     this.dashboardTabs.setOnClose((dashboardId) => this.dashboards.closeDashboard(dashboardId));
+    this.dashboards.setSyncActive((tabId) => this.panes.syncGlobalActiveState(tabId));
 
     // UI
     this.ui = new UIStateManager(
@@ -160,7 +171,7 @@ class UseDatabase {
       (connectionId, sql, signal, connectionName, maxRows) =>
         this.queries.executeReadOnly(connectionId, sql, signal, connectionName, maxRows),
       this.aiChats,
-      (chatId) => this.persistence.persistAIChatMessages(chatId),
+      (chatId) => this.aiChats.persistMessages(chatId),
       this.dashboards,
       this.dashboardTabs,
     );
@@ -246,7 +257,6 @@ class UseDatabase {
     this.workflow = new WorkflowManager(
       this.state,
       this.workflowState,
-      scheduleProjectPersistence,
       // Read-only, on the node's own connection (phase 5c, Decision 10).
       (connectionId, sql, signal, maxRows) =>
         this.queries.executeReadOnly(connectionId, sql, signal, undefined, maxRows),
@@ -258,11 +268,7 @@ class UseDatabase {
       (connectionId) => this.labels.getConnectionLabelsById(connectionId),
       (connectionId) => this.state.connections.find((c) => c.id === connectionId)?.name || "",
     );
-    this.savedQueries = new SavedQueryManager(
-      this.state,
-      scheduleProjectPersistence,
-      this.persistence,
-    );
+    this.savedQueries = new SavedQueryManager(this.state, scheduleProjectPersistence);
     this.savedQueries.setRemoveTab((id) => this.queryTabs.remove(id));
     this.pendingChanges = new PendingChangesManager(this.state, providers, this.history);
     this.queries = new QueryExecutionManager(
@@ -301,9 +307,7 @@ class UseDatabase {
     });
 
     // Shared query library
-    this.sharedRepos = new SharedRepoManager(this.state, () =>
-      this.persistence.scheduleSharedRepos(),
-    );
+    this.sharedRepos = new SharedRepoManager(this.state);
     this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
     this.sharedDashboards = new SharedDashboardManager(this.state, this.sharedRepos);
     this.queryTabs.setSavedQueryRename((id, name) => this.savedQueries.renameQuery(id, name));
@@ -321,7 +325,7 @@ class UseDatabase {
     // Connections (depends on other managers)
     this.connections = new ConnectionManager(
       this.state,
-      this.persistence,
+      this.windowState,
       this._stateRestoration,
       this.tabs,
       providers,
@@ -363,6 +367,16 @@ class UseDatabase {
         projects: this.projects,
         savedQueries: this.savedQueries,
         history: this._stateRestoration,
+        projectsViewState: this.projects,
+        windowId,
+        dashboards: this.dashboards,
+        workflows: this.workflow,
+        chats: {
+          refreshChats: (connectionId) =>
+            this.aiChats.refreshChats(connectionId, (id) => this._stateRestoration.loadAIChats(id)),
+          refreshMessages: (chatId) => this.aiChats.refreshMessages(chatId),
+        },
+        settings: applyStoredChange,
       });
     }
 
@@ -467,7 +481,7 @@ class UseDatabase {
    */
   private async initializeSharedRepos(): Promise<void> {
     try {
-      const { repos, activeRepoId } = await this.persistence.loadSharedRepos();
+      const { repos, activeRepoId } = await this.sharedRepos.loadPersistedRepos();
 
       // Convert persisted repos to runtime form
       const { deserializeRepo } = await import("$lib/types/shared-queries");
@@ -511,6 +525,35 @@ class UseDatabase {
   }
 
   /**
+   * Save every pending write now: the window's view state (the projects
+   * with a pending save, the active one first), the shared repos, and the
+   * messages of a chat whose turn is still streaming (its turn's end, which
+   * saves it, never comes on a closing page). The desktop awaits it before
+   * its window closes.
+   */
+  async flush(): Promise<void> {
+    await this.windowState.flush();
+    await this.sharedRepos.flushPersistence();
+    await this.flushStreamingChat();
+  }
+
+  private async flushStreamingChat(): Promise<void> {
+    const streaming = this.state.aiStreamingChatId;
+    if (streaming) await this.aiChats.persistMessages(streaming);
+  }
+
+  /**
+   * The page is going away (web, `pagehide`): the active project's pending
+   * view-state save leaves as one `keepalive` request when it fits, and the
+   * rest is flushed as far as it gets.
+   */
+  saveOnPageHide(): void {
+    this.windowState.saveOnPageHide();
+    void this.sharedRepos.flushPersistence();
+    void this.flushStreamingChat();
+  }
+
+  /**
    * Clean up resources when the database context is destroyed.
    *
    * Pending debounced writes are flushed rather than cancelled — dropping them
@@ -522,7 +565,7 @@ class UseDatabase {
     this.librarySync?.stop();
     this.sharedRepos.stopBackgroundRefresh();
     this.dashboards.stopAllAutoRefresh();
-    void this.persistence.flush();
+    void this.flush();
   }
 }
 

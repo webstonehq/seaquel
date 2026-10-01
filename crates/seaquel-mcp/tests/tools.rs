@@ -1082,6 +1082,83 @@ async fn the_global_default_decides_for_connections_that_follow_it() {
     h.stop().await;
 }
 
+/// Phase 5d-2 (Decision 20): Core rewrites the `aiSettings` record from the
+/// stored copy (`aiSettingsPatch`, the provider calls), keeping fields it
+/// doesn't know. What it writes is what this reader takes: the flags the
+/// patch set, over a record that held legacy provider fields and a newer
+/// release's field, and after provider calls.
+#[tokio::test]
+async fn the_global_default_written_by_core_is_what_mcp_reads() {
+    use seaquel_core::domain::state::AiSettingsPatch;
+    use seaquel_core::WriteOrigin;
+    use seaquel_mcp::exposed::global_sharing_from;
+
+    let seeded = seed(Some(
+        r#"{"enabled":true,"providers":[{"id":"p","name":"Old","provider":"openai-compatible","model":"m"}],"futureField":{"x":1}}"#,
+    ))
+    .await;
+    let core = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .build();
+    let ws = core
+        .open_workspace(WorkspaceSpec::new(seeded.dir.path()))
+        .await
+        .unwrap();
+    let o = WriteOrigin::none();
+    let patch = |schema: bool, data: bool| -> AiSettingsPatch {
+        serde_json::from_value(json!({"shareSchemaGlobally": schema, "shareDataGlobally": data}))
+            .unwrap()
+    };
+    for (schema, data) in [(false, true), (true, true), (true, false), (false, false)] {
+        let written = ws
+            .patch_ai_settings(&core, &o, patch(schema, data))
+            .await
+            .unwrap();
+        let stored = app_state::get(ws.storage(), "aiSettings").await.unwrap();
+        assert_eq!(stored.as_deref(), Some(written.value.get()));
+        let s = global_sharing_from(stored.as_deref());
+        assert_eq!((s.schema, s.data), (schema, data), "{stored:?}");
+    }
+    // A provider call keeps the flags, and the newer field.
+    ws.create_ai_provider(
+        &core,
+        &o,
+        serde_json::from_value(json!({"name": "New", "type": "anthropic"})).unwrap(),
+        None,
+    )
+    .await
+    .unwrap();
+    ws.patch_ai_settings(&core, &o, patch(false, true))
+        .await
+        .unwrap();
+    let stored = app_state::get(ws.storage(), "aiSettings")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(stored.contains(r#""futureField":{"x":1}"#), "{stored}");
+    ws.close().await;
+
+    // The server reads it so.
+    let h = start_with(seeded, standard(), ServerOptions::default()).await;
+    let out = h.ok("list_connections", json!({})).await;
+    let default = out["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "c-default")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (default["shareSchema"].clone(), default["shareData"].clone()),
+        (json!(false), json!(true))
+    );
+    let text = h
+        .err("list_tables", json!({ "connection": "follows default" }))
+        .await;
+    assert_code(&text, "SCHEMA_SHARING_OFF");
+    h.stop().await;
+}
+
 #[tokio::test]
 async fn explain_query_returns_the_plan_text() {
     let h = harness().await;

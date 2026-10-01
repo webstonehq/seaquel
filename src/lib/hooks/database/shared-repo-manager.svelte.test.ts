@@ -23,7 +23,7 @@ function setup() {
     sharedRepos: [{ id: REPO_ID, path: "/repos/team", syncStatus: "synced" } as SharedQueryRepo],
     syncStateByRepo: {},
   } as unknown as DatabaseState;
-  const manager = new SharedRepoManager(state, () => {});
+  const manager = new SharedRepoManager(state);
   return {
     manager,
     repo: () => state.sharedRepos[0],

@@ -2,7 +2,6 @@ import type { Query, QueryTab, QueryParameter, QueryVersion } from "$lib/types";
 import type { ResolvedQueryVersion } from "$lib/types";
 import { resolveVersions } from "$lib/utils/query-versions";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
 import { queryNameToFilename } from "$lib/services/query-file-parser";
 import { extractErrorMessage } from "$lib/errors";
 import { errorToast } from "$lib/utils/toast";
@@ -46,7 +45,6 @@ export class SavedQueryManager {
   constructor(
     private state: DatabaseState,
     private scheduleProjectPersistence: (projectId: string | null) => void,
-    _persistence?: PersistenceManager,
   ) {}
 
   setRemoveTab(fn: (id: string) => void) {

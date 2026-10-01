@@ -19,7 +19,6 @@ vi.mock("$lib/utils/environment", () => ({
 vi.mock("$lib/storage", () => ({
   getStorage: () => ({
     appState: { get: async () => null, set: async () => {} },
-    projectState: { load: async () => null, save: async () => {} },
     dashboards: { loadByProject: async () => [] },
     dashboardVersions: { loadByProject: async () => [] },
     queryHistory: { loadByConnection: async () => [] },
@@ -43,7 +42,7 @@ vi.mock("$lib/utils/logger", () => ({
 }));
 
 const { DatabaseState } = await import("../state.svelte.js");
-const { PersistenceManager } = await import("../persistence-manager.svelte.js");
+const { WindowStateManager } = await import("../window-state.svelte.js");
 const { StateRestorationManager } = await import("../state-restoration.svelte.js");
 const { ProjectManager } = await import("../project-manager.svelte.js");
 const { ConnectionManager } = await import("../connection-manager.svelte.js");
@@ -85,13 +84,14 @@ let library: InstanceType<typeof RecordingLibrary>;
 async function openPage() {
   const channel = fakeClient();
   const state = new DatabaseState();
-  const persistence = new PersistenceManager(state);
-  const restoration = new StateRestorationManager(state, persistence);
-  const projects = new ProjectManager(state, persistence, restoration);
+  // The view state is per window and not synced (Decision 22): off here.
+  const windowState = new WindowStateManager(state, { enabled: false });
+  const restoration = new StateRestorationManager(state);
+  const projects = new ProjectManager(state, windowState, restoration);
   const provider = { connect: vi.fn(async () => "core-1"), disconnect: vi.fn(async () => {}) };
   const connections = new ConnectionManager(
     state,
-    persistence,
+    windowState,
     restoration,
     {} as never,
     { getForType: async () => provider } as never,
@@ -99,7 +99,7 @@ async function openPage() {
     () => {},
   );
   projects.setConnectionManager(connections);
-  const savedQueries = new SavedQueryManager(state, () => {}, persistence);
+  const savedQueries = new SavedQueryManager(state, () => {});
   const feed = new ChangeFeed({
     client: () => channel.client,
     origin: () => "this-tab",
@@ -110,6 +110,8 @@ async function openPage() {
     projects,
     savedQueries,
     history: restoration,
+    projectsViewState: projects,
+    windowId: () => "this-tab",
   });
   sync.start();
   await projects.initialize();
@@ -309,6 +311,77 @@ describe("other windows' changes", () => {
     expect(page.state.activeProjectId).toBe("p1");
     expect(page.state.connections).toEqual([]);
     expect(toasts).toEqual(['The project "Other" was deleted in another window.']);
+  });
+
+  it("the connection order is saved at once and appears in another tab", async () => {
+    library.seedConnection("c1");
+    library.seedConnection("c2");
+    const a = await openPage();
+    const b = await openPage();
+    expect(b.state.projectConnections.map((c) => c.id)).toEqual(["c1", "c2"]);
+    library.calls.length = 0;
+
+    // Dragged in tab A: stored at once, not with a debounced tab save.
+    a.connections.reorder("p1", ["c2", "c1"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(library.callsOf("setProjectSidebar")).toEqual([["p1", ["c2", "c1"]]]);
+
+    // Core's `project` event reaches tab B, which reads the order again.
+    changedElsewhere(b, "project", null, ["p1"]);
+    await settle();
+    expect(b.state.connectionOrderByProject.p1).toEqual(["c2", "c1"]);
+    expect(b.state.projectConnections.map((c) => c.id)).toEqual(["c2", "c1"]);
+    // Tab A's own event is skipped (its origin), and its order stays.
+    expect(a.state.connectionOrderByProject.p1).toEqual(["c2", "c1"]);
+  });
+
+  it("an older order read doesn't undo this tab's newer order", async () => {
+    library.seedConnection("c1");
+    library.seedConnection("c2");
+    const page = await openPage();
+    const stale = await library.getProjectSidebar("p1");
+    page.connections.reorder("p1", ["c2", "c1"]);
+    await vi.advanceTimersByTimeAsync(0);
+    const { applyConnectionOrder } = await import("./view");
+    applyConnectionOrder(page.state, "p1", stale.value, stale.seq);
+    expect(page.state.connectionOrderByProject.p1).toEqual(["c2", "c1"]);
+  });
+
+  it("a view-state event of another window changes nothing here", async () => {
+    const page = await openPage();
+    page.state.queryTabsByProject.p1 = [{ id: "mine", name: "q", query: "", isExecuting: false }];
+    library.calls.length = 0;
+    page.emit({
+      type: "storageChanged",
+      kind: "projectState",
+      scope: "p1",
+      ids: ["other-tab"],
+      origin: "other-tab",
+      seq: { ...library.seq(), n: library.n + 1 },
+    });
+    await settle();
+    expect(page.state.queryTabsByProject.p1.map((t) => t.id)).toEqual(["mine"]);
+    expect(library.calls).toEqual([]);
+  });
+
+  it("a view-state event naming this window's id from another page reloads it", async () => {
+    const page = await openPage();
+    page.state.queryTabsByProject.p1 = [{ id: "mine", name: "q", query: "", isExecuting: false }];
+    library.calls.length = 0;
+    // A page of this window that wrote before its duplicate check settled.
+    page.emit({
+      type: "storageChanged",
+      kind: "projectState",
+      scope: "p1",
+      ids: ["this-tab"],
+      origin: "an-earlier-page",
+      seq: { ...library.seq(), n: library.n + 1 },
+    });
+    await settle();
+    // It is read again; the view state is off in these pages, so the read
+    // gets nothing and, as a reload, leaves the tabs shown.
+    expect(library.callsOf("listWorkflows")).toEqual([["p1"]]);
+    expect(page.state.queryTabsByProject.p1.map((t) => t.id)).toEqual(["mine"]);
   });
 
   it("a saved query deleted elsewhere unlinks its tab and keeps the text", async () => {

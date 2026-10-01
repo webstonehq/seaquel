@@ -94,14 +94,16 @@ export interface DashboardSnapshot {
 }
 
 /**
- * A single version entry for a dashboard. Always stores a full JSON snapshot.
+ * A dashboard version as the history lists it, without its snapshot
+ * (`dashboardVersionsList`, phase 5d-2 Task 7): the snapshot is fetched
+ * when a version is compared or restored (`DashboardManager.loadVersion`).
  */
 export interface DashboardVersion {
   id: string;
   dashboardId: string;
   version: number;
-  /** JSON-serialized DashboardSnapshot */
-  snapshot: string;
+  /** How many widgets the snapshot holds; `null` when it can't be told. */
+  widgetCount: number | null;
   createdAt: Date;
 }
 

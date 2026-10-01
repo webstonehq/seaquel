@@ -111,7 +111,7 @@
 						size="icon"
 						class="size-8 shrink-0"
 						onclick={async () => {
-							const dashboard = await db.dashboards.createDashboard("New Dashboard");
+							const dashboard = await db.dashboards.createDashboard("New Dashboard", { renameIfTaken: true });
 							if (dashboard) {
 								db.dashboardTabs.add(dashboard.id, dashboard.name);
 							}

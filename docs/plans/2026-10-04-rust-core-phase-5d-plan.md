@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or superpowers:executing-plans) to implement this plan task by task.
 
-**Status:** 5d-1 implemented, manual checks pending (the owner); 5d-2 not started. The owner answered Q1–Q12 on 2026-10-04 ("Answered questions"). Where the code departs from the text below, the repo is authoritative; see 5d-1's "Execution notes", "Release notes", "Checkpoint" and "Manual checks", and "Follow-ups" at the end.
+**Status:** 5d-1 implemented, manual checks passed (the owner); 5d-2 planned in full (re-surveyed at `8e178a8`, see "5d-2: re-survey") and **ready to execute**; not started. The owner answered Q1–Q12 and, for 5d-2, Q13–Q19 on 2026-10-04 ("Answered questions"). Where the code departs from the text below, the repo is authoritative; see 5d-1's "Execution notes", "Release notes", "Checkpoint" and "Manual checks", and "Follow-ups" at the end.
 
 **Goal:** On desktop and web, every write to the metadata file goes through a targeted Core call, and every such write tells the user's other windows and tabs what changed. Core checks the input, assigns ids and times, writes in one transaction, and on desktop writes the keychain in the same call. Nothing the GUI stores is replaced whole from a stale in-memory copy any more, and a second window or tab picks up a change without a reload. The TypeScript keeps the forms, the lists it shows, the editors and the git file projection. It no longer builds rows, ids or versions.
 
@@ -18,7 +18,7 @@
 - **`seaquel-storage`** gets a write transaction (`Storage::write`, `BEGIN IMMEDIATE`) and targeted queries on it. The replace-all functions stay only for their frozen fixtures. A data step drops the pre-5a connection strings.
 - **Core.** It adds one `Workspace` method per write. Each reads, checks and writes inside one storage transaction, then emits `WorkspaceEvent::StorageChanged` with the kind, the ids, the writer's origin and a sequence number. Nothing in the event is a value. Secrets go to the workspace's `SecretStore` (desktop). On removal, the vault's ciphertext rows go too (web).
 - **`seaquel-rpc`.** New `library` (5d-1), `settings` and `ui` (5d-2) groups, all unary, served by `dispatch_workspace` on both transports. `CoreEvent::StorageChanged` goes over `core_events` (desktop) and `/rpc/stream` (web). The storage group keeps its loads, plus the writes that stay out of scope (vault, license, shared repos). Those writes emit events too.
-- **TypeScript.** A `LibraryService` seam like 5b's `QueryRunner` and 5c's `EditService`: `CoreLibrary` on desktop and web, `TsLibrary` over sql.js for the demo until phase 8. 5d-2 extends the same seam. A `ChangeFeed` applies other windows' changes to the view models (Decision 18). `PersistenceManager` shrinks in 5d-1 and goes in 5d-2.
+- **TypeScript.** A `LibraryService` seam like 5b's `QueryRunner` and 5c's `EditService`: `CoreLibrary` on desktop and web, `TsLibrary` over sql.js for the demo until phase 8. 5d-2 extends the same seam. A `ChangeFeed` applies other windows' changes to the view models (Decision 18). `PersistenceManager` shrinks in 5d-1 and goes in 5d-2 (its shared-repo save moves into `shared-repo-manager.svelte.ts`, Task 6a).
 
 **Tech Stack:** Rust (`seaquel-types`, `seaquel-storage`, `seaquel-secrets`, `seaquel-workspace`, `seaquel-core`, `seaquel-rpc`, `seaquel-server`, `src-tauri`), TypeScript/Svelte 5, the Node proxy, vitest, sql.js for the recorder and the demo.
 
@@ -62,6 +62,8 @@ All line numbers are as of `1cf3ddb`. The owner's unrelated changes are taken as
 12. **MCP and the CLI only read.** They resolve `--connection` and `--project` once at startup (`crates/seaquel-mcp/src/exposed.rs:53-84`). They re-read rows, the `aiSettings` record and saved queries on every call (`server.rs:246`, `exposed.rs:187-218`, `tools/saved.rs:165`, `:189`).
 
 ### State, settings, dashboards and chats (5d-2)
+
+Items 13–18 are the first survey, as of `1cf3ddb`. 5d-2 was re-surveyed at `8e178a8`, after 5d-1; "5d-2: re-survey" in the 5d-2 section replaces these items where they differ (35 project-save calls in 12 files, not 43 in 15; overrides are dead code; chat and message ids have no prefix).
 
 13. **Tabs, layout and saved workflows are one replace-all save per project.** `persistProjectState` (`persistence-manager.svelte.ts:399-459`) sends the project state, every tab (query tabs with their text) and every saved workflow. `project_state::save` then does `INSERT OR REPLACE` on the state row and deletes and re-inserts `tabs` and `saved_canvases` (`crates/seaquel-storage/src/queries/project_state.rs:213-400`). The save is debounced per project (`:137-149`). There are 43 calls that schedule it, across 15 files: every tab manager, the pane manager, tab ordering, `ui-state`, the workflow manager, the dashboard manager and more. A failed load turns it off (`LoadKey` `projectState:*`, `:402-404`). The web tab-close flush isn't awaited (`hooks/database.svelte.ts:483-489`).
 14. **Saved workflows are stored inside that save** (`saved_canvases`, `project_state.rs:385-400`). The workflow manager edits `savedWorkflowsByProject` and schedules the project save (`workflow-manager.svelte.ts:624-651`, `:668-680`, `:736-747`, `:757-765`). A saved workflow keeps its nodes' result rows, up to 10,000 per query node since 5c.
@@ -202,6 +204,48 @@ I recommended A.
 
 **Answer (owner, asked, 2026-10-04): B, per window.** Each desktop window and each web browser tab keeps its own open tabs and layout. The design is in Decision 22. The documents a tab points at (saved queries, dashboards, workflows, chats) are still shared and synced by events.
 
+### Q13–Q19. 5d-2, after the re-survey
+
+Asked after the 5d-2 re-survey at `8e178a8`. The owner answered Q13, Q14, Q16 and Q17 directly, each as recommended, and took the recommendation on Q15, Q18 and Q19 without being asked.
+
+#### Q13. Connection overrides
+
+The re-survey found them dead: `SharedConnectionManager` is never constructed, so no override is loaded or saved, and its keychain writes would use the shared template's id, not the connection's. Options were: retire them (A); move them to Core as planned, still unused (B); wire the feature up (C).
+
+**Answer (owner, asked): A, retire them.** `shared-connection-manager.svelte.ts` is deleted, the `connectionOverrides*` storage methods and `PersistenceManager`'s override functions go, and the `connection_overrides` table and its storage functions stay, so stored rows survive and older releases still open the file. CLAUDE.md's line about override credentials is corrected in Task 8 (Decision 25).
+
+#### Q14. The active connection
+
+It changes on every click, connect and disconnect. Options were: per window, in the view state (A); shared and applied live (B); shared, stored only (C).
+
+**Answer (owner, asked): A, per window.** The connection order stays shared per project (Decision 22).
+
+#### Q15. `windowForget`
+
+`pagehide` fires on a reload too, so forgetting on it makes a reloaded tab copy another tab's state. Options were: drop it (A); forget after a delay (B); keep it (C).
+
+**Answer (taken as recommended): A, dropped.** The 30-day and count prunes bound the rows.
+
+#### Q16. Workflows' stored rows
+
+A query node keeps up to 10,000 rows, and each chart node a second copy. Options were: keep the query nodes' rows, stop storing chart copies, refuse past 16 MiB on web (A); 1,000 rows per node on web (B); no rows (C).
+
+**Answer (owner, asked): A.** Desktop is unlimited. Workflows saved before 5d-2 that hold chart copies load as they are; the next save drops the copies (Decision 23).
+
+#### Q17. Chat history on web
+
+Options were: a byte budget per chat (A); per user (B); counts only (C).
+
+**Answer (owner, asked): A, 64 MiB per chat on web.** Past it, saving the next turn is refused with a message saying to start a new chat. Desktop is unlimited (Decisions 24 and 27).
+
+#### Q18. Themes across windows
+
+**Answer (taken as recommended): live.** A theme picked or edited in one window or tab applies in the others at once, like other settings. The theme editor's preview stays local to the main window.
+
+#### Q19. AI API keys
+
+**Answer (taken as recommended): as Decision 8.** On desktop Core writes the keychain inside the settings call; on web the vault stays in the browser and Core only deletes a removed provider's vault rows (Decision 20).
+
 ---
 
 ## Decisions (2026-10-04)
@@ -213,6 +257,7 @@ Settled with the answers above.
 #### 1. Ids, times and validation in Core (Q2, Q3)
 
 - Ids keep today's shapes: `conn-`, `project-`, `label-`, `saved-`, `ver-`, `dashboard-`, `dver-`, `workflow-`, `chat-` and `msg-`, each followed by a uuid. The executor reads the existing prefixes from the code and keeps them. Times come from the `Executor` (`iso_timestamp`).
+  - 5d-2 re-survey: chats and messages have **no** prefix today (plain `crypto.randomUUID()`, `ai-chat-manager.svelte.ts:18`, `ui-state.svelte.ts:80`, `:302`), and neither do AI providers (`components/settings/ai/ai-provider-section.svelte:89`); user themes are `theme-<uuid>` (`stores/theme.svelte.ts:128`). Core keeps those shapes. Message ids are the one id the GUI still makes (Decision 24).
 - Validation happens before anything is written:
   - names are trimmed and non-empty, and no string may hold a NUL (`INVALID_ARGUMENT`);
   - `NAME_TAKEN` (Q3) names the other row's id (the first in rowid order when several already share the name). Since the 5d-1 probe fixes the key is stored (`name_key` columns on connections, projects and saved queries, migration `0001_name_keys.sql`, backfilled by the `backfill_name_keys` data step), so the check is an index search, not a fold of every name in the project; labels, which live in the project's JSON, still compare in memory. Names compare by `name_key`: trimmed, NFC-normalised, then fully Unicode case-folded, so `Straße` equals `STRASSE` and NFC and NFD forms are equal. Task 4 picks a small crate for normalisation and folding (it must build for wasm32). A saved query's NULL folder and `""` are the same folder. A rename to the row's own name in another case isn't a clash, and rows that already share a name can still be patched (2026-10-04, Task 2 review);
@@ -375,7 +420,7 @@ pub struct StorageChange {
 ```
 
 - **Kinds** in 5d-1: `connection`, `project`, `label`, `savedQuery` (its versions included), `history`, and `storage` (a write through the storage group, with `ids` holding the method's key where there is one).
-- **Kinds** in 5d-2: `projectState`, `workflow`, `setting` (ids are the keys), `aiSettings`, `theme`, `dashboard` (versions included), `chat`, `chatMessages` (scope is the chat), `connectionOverride`, `onboarding`, `tutorial` and `importState`.
+- **Kinds** in 5d-2: `projectState`, `workflow`, `setting` (ids are the keys), `aiSettings`, `theme`, `dashboard` (versions included), `chat` (scope is the connection), `chatMessages` (scope is the chat), `onboarding`, `tutorial` and `importState`. No `connectionOverride` kind: overrides are retired (Q13). `storage` stays for the vault, license and shared-repo writes. Re-survey: `StoredKind` has only the 5d-1 kinds today (`crates/seaquel-workspace/src/library.rs:212-224`), and every 5d-2 write currently emits `storage` (`storage_change`, `crates/seaquel-rpc/src/workspace.rs:661-734`), which the GUI ignores (`library/sync.ts:19`).
 - **Every write emits exactly one event, after its commit.** That covers library calls, storage-group writes that stay (vault, license, shared repos, and the rest until 5d-2 moves them), and history appends from `db.run` and `db.applyChanges`. A failed or refused call emits nothing.
 - **Size.** At most 100 ids per event, none over 1 KiB and at most 16 KiB of ids together (`MAX_EVENT_IDS`, `MAX_EVENT_ID_BYTES`, `MAX_EVENT_IDS_BYTES`); past any of those, `ids: None`. A scope over 1 KiB widens the event to `scope: None, ids: None`, a reload of the kind everywhere. (5d-1 probe fix: the storage group's keys are the caller's, and an 8 MiB `appStateSet` key became an 8 MiB id copied into every socket's queue; 40 writes with 4 paused sockets took the server from 150 to 674 MiB.) The web server also bounds each socket's queue by bytes (`LISTENER_EVENT_BYTE_BOUND`, 8 MiB, next to the 1,024-event bound); past either, the socket closes with 1013 `EVENTS_LAGGED`.
 - **No values in the event.** Ids, kinds and the origin only. A name or a key is never an id.
@@ -416,54 +461,69 @@ pub struct StorageChange {
 
 #### 19. Scope
 
-Tabs and project state, saved workflows, app-state keys, AI settings, themes, onboarding, tutorial progress, import state, dashboards and their versions, AI chats and messages, and connection overrides.
+Tabs and project state, saved workflows, app-state keys, AI settings (with their API keys), themes, onboarding, tutorial progress, import state, dashboards and their versions, and AI chats and messages.
+
+- **Connection overrides are retired** (Q13). The re-survey found `SharedConnectionManager` is never constructed (`rg "new SharedConnectionManager" src` finds nothing, nor does history), so `state.connectionOverrides` (`state.svelte.ts:175`) stays `{}` and nothing loads, saves or reads an override or its keychain entries. Moving dead code into Core would add calls nobody makes. Decision 25 says what happens instead.
+- **What stays in the storage group:** the vault (`vaultState*`, `userCredentials*`), `licenseLoad`/`licenseSave`, `sharedReposLoadAll`/`sharedReposSaveAll` (which also writes the `activeRepoId` app-state key, `crates/seaquel-storage/src/queries/shared_repos.rs:48`), and `queryHistoryLoadByConnection`. They keep emitting `storage` (or `history`) events. Nothing else is left there.
 
 #### 20. The `settings` group
 
-- **App-state keys become a closed set of typed settings**, and an unknown key is refused. The set:
-  - `editorKeybindingMode`;
-  - `pendingChangesEnabled`;
-  - `skippedUpdateVersion`;
-  - `queryVersionLimit`;
-  - `dashboardVersionLimit`;
-  - `lastActiveProjectId`;
-  - `licenseNudge`, whose JSON shape is kept as-is.
+- **App-state keys become a closed set of typed settings**, and an unknown key is refused. The set, by stored key (the key names don't change; `SettingKey` serialises as the stored text):
+  - `editorKeybindingMode`: `default`, `vim` or `emacs`;
+  - `pending_changes_enabled`: `"true"` or `"false"`;
+  - `skippedUpdateVersion`: a version string (`max_name_bytes`);
+  - `query_version_limit`, `dashboard_version_limit`: a whole number from 0 to 100,000 as text;
+  - `license_nudge`: a JSON object, kept as-is (`RawValue`), whole value;
+  - `lastActiveProjectId`: read-only here. `windowActivate` (Decision 22) writes it in the same transaction as the window's own row, so older releases and a new window still find it;
+  - `connectionStringSecretsNotice`: read, and cleared with `null`; any other value is refused. It is Core's (Decision 12a), and the notice (`stores/connection-secrets-notice.svelte.ts:65`) is its only GUI writer.
 
-  The stored key names don't change. `settingSet { key, value }` validates each value's type.
-  - **Version limits and 0.** Since 5d-1's Task 1 follow-up the settings UI clamps `queryVersionLimit` and `dashboardVersionLimit` to at least 10 on save, so it can no longer choose "keep all" (0). Core still treats a stored 0 as "keep all" (files written before the clamp, or another writer), for both limits (Decision 21).
-- **AI settings are split into targeted calls** so two windows don't clobber the provider list: `aiProviderUpsert`, `aiProviderRemove` and `aiSettingsPatch` for the top-level fields. They are still stored as the one `aiSettings` record, rewritten inside the transaction from the stored copy, so the MCP server's reader (`exposed.rs:187-218`) doesn't change. The legacy-field cleanup in `ai-settings.svelte.ts:34-45` moves into Core's read.
-- **Themes:** `themePreferencesSet`, `userThemeUpsert`, `userThemeRemove`, over the same stored list, rewritten in the transaction.
-- **Onboarding, tutorial progress and import state:** one call each, over today's rows.
+  Core's other keys (`connectionStringSecrets{Upgraded,Vacuum,Checkpoint}`) and `activeRepoId` are refused by `settingSet`. `settingSet { key, value }` validates each value; `null` deletes the row (today a `null` leaves a row holding NULL, `app_state.rs:28-37`; loads read both as unset). `appStateGet`/`appStateSet` leave the storage group; the storage gate's probe (`storage/storage-gate.svelte.ts:98`) reads `lastActiveProjectId` through `settingGet`.
+  - **Version limits and 0.** Since 5d-1's Task 1 follow-up the settings UI clamps `query_version_limit` and `dashboard_version_limit` to at least 10 on save, so it can no longer choose "keep all" (0). Core still treats a stored 0 as "keep all" (files written before the clamp, or another writer), for both limits (Decision 21), and parses both with `parse_version_limit` (`crates/seaquel-workspace/src/library.rs:1543`). `settingSet` accepts 0 so a hand-set value round-trips; only the UI clamps.
+- **AI settings are split into targeted calls** so two windows don't clobber the provider list: `aiProviderCreate`, `aiProviderUpdate`, `aiProviderRemove`, and `aiSettingsPatch` for `enabled`, `shareSchemaGlobally` and `shareDataGlobally`. They are still stored as the one `aiSettings` record, rewritten inside the transaction from the stored copy, so the MCP server's reader (`crates/seaquel-mcp/src/exposed.rs:208-259`) doesn't change.
+  - **The rewrite keeps what it doesn't know.** Core reads the record as a JSON object of `RawValue`s, changes only the fields the call names, and writes the rest back byte for byte, so a newer release's fields survive.
+  - **The legacy cleanup moves into Core's read** (`stores/ai-settings.svelte.ts:36-46`: drop each provider's `model` and `provider`, `type = type ?? provider ?? "anthropic"`), as does today's fallback: a record that isn't JSON, isn't an object, or whose `providers` isn't absent, `null` or a null-free array reads as the defaults (`enabled` true, schema sharing on, data sharing off), exactly the cases `global_sharing_from` treats as defaults. The next write then stores defaults plus the change, as today's save does (re-survey: the store sets `loaded` before parsing, `:32`, so this is what happens now).
+  - Provider ids stay plain uuids and Core makes them. A provider is `{name, type: "anthropic" | "openai-compatible", baseUrl?}`; unknown fields are refused.
+  - **API keys follow Decision 8** (Q19; re-survey: today the store writes `ai-api-key:<id>` from TypeScript after the record, `:73-75`, `:82-89`, `:96`). On desktop, `aiProviderCreate`/`Update` take `apiKey: Clearable<String>` and write the keychain in the call, before the record (a failed record write takes the entry back); `aiProviderRemove` deletes the entry after the commit, best effort. On web `apiKey` is `NOT_SUPPORTED`, the vault keeps the key in the browser (`services/vault/vault-keyring.ts:115-122`, scope `ai-api-key-provider`), and `aiProviderRemove` deletes that provider's `user_credentials` rows in its transaction, as `connectionRemove` does.
+- **Themes:** `themePreferencesSet { lightThemeId, darkThemeId }` (the single `theme_preferences` row), `userThemeCreate`, `userThemeUpdate` and `userThemeRemove`, each one `user_themes` row (re-survey: they are rows already, `themes.rs:37-62`; only the save replaces them all). Core makes `theme-<uuid>` ids. Removing the light or dark theme in use resets that preference to its default in the same transaction.
+- **Onboarding:** `onboardingPatch` merges the named top-level fields into the stored JSON object (the store has seven fields set by separate setters, `stores/onboarding.svelte.ts:6-13`, `:51-81`). A stored record that isn't an object reads as the defaults, as today.
+- **Tutorial progress:** `tutorialSave { lessonId, challengeId, state }` (one row), `tutorialRemoveLesson`, `tutorialReset`. `state` stays text, and Core doesn't parse it.
+- **Import state:** `importStateSave { source, hasOfferedImport, lastCheckTimestamp }`, with `source` one of `tableplus`, `dbeaver`.
+- **Themes apply live** in every window (Q18): a `theme` event reloads the preferences and user themes and re-applies the active one.
+- The events: `setting` (ids: the key), `aiSettings`, `theme`, `onboarding`, `tutorial`, `importState` (Decision 16). Every write answers with the whole record or row it wrote, so the GUI can record its `seq` (a theme write answers with the preferences and every user theme).
 
 #### 21. Dashboards
 
-- `dashboardCreate`, `dashboardUpdate` (a patch; widgets, viewport and date filter are whole values) and `dashboardRemove`.
-- `dashboardUpdate` records a version of the previous state in the same transaction, numbered inside it, when the widgets, viewport, date filter or name change.
-- It then prunes by `dashboard_version_limit`, fixing the ignored setting, with 0 keeping everything as for queries. Both are listed changes.
-- `starred` and `shared` are patch fields, which fixes the lost star.
+- `dashboardCreate`, `dashboardUpdate` (a patch; widgets, viewport and date filter are whole values) and `dashboardRemove`. Core makes `dashboard-<uuid>` ids.
+- **Names clash within a project** (Q3, `NAME_TAKEN`), through a stored `name_key` (the 5d-1 follow-up): `0002` adds the column, its index `(project_id, name_key)` and the older-release trigger, a new data step `backfill_dashboard_name_keys` fills it, and `refill_name_keys` covers dashboards too. Dashboards that already share a name stay.
+- **Versions.** `dashboardUpdate` records a version of the previous state (name, description, widgets, viewport, date filter; today's snapshot shape, `utils/dashboard-versions.ts:13-21`) in the same transaction, numbered `MAX(version) + 1` inside it, **only when the patch says `captureVersion: true`**.
+  - Re-survey: the TypeScript versions before a rename, a widget added, updated or removed, a date filter and a restore (`dashboard-manager.svelte.ts:570-599`), and not on a move, resize, pan or zoom, which also change `widgets` or `viewport`. Versioning every change of those fields, as this decision first said, would make a version per drag. The GUI keeps choosing, and Core does the numbering and pruning.
+  - It then prunes by `dashboard_version_limit`, fixing the ignored setting (already fixed in TypeScript by 5d-1 Task 1), with 0 keeping everything as for queries. The 0 rule is a listed change: today 0 deletes every dashboard version (`utils/version-prune.ts:49-59`).
+  - The call returns the dashboard, the new version and the pruned ids (`DashboardUpdated`).
+- `starred` and `shared` are patch fields. `starred` alone doesn't touch `updated_at` (as saved queries, Decision 11).
+- An update or remove of a missing dashboard is `DASHBOARD_NOT_FOUND`. That also fixes a re-survey bug: a whole-row upsert queued during a delete's await re-inserts the deleted row (`dashboard-manager.svelte.ts:94-122`).
+- Widgets are stored without their run state, as today (`dashboard-serialize.ts:8-13` strips `result`, `isLoading`, `error`, `lastRefreshed`). Core doesn't parse them.
+- `dashboardRemove` on a beta-era file (no foreign key on `dashboards.project_id`) needs nothing more: versions cascade from the dashboard.
 - The git projection stays in TypeScript.
 
 #### 22. View state per window (Q12 B)
 
-**What it covers.** One window's open tabs (with their text), pane layout and active ids per project, plus the window's active project. Saved workflows are not view state (Decision 23), and neither are the connection order and active connection. Those two stay in `project_state`, shared by the project's windows as today: they are how the project's sidebar looks, not what a window has open. They get their own call, `projectSidebarSet { projectId, connectionOrder?, activeConnectionId? }` in `library` (a patch, kind `project`), and the legacy mirror below keeps whatever that row holds.
+**What it covers.** One window's open tabs (with their text), pane layout and active ids per project, plus the window's active project. Saved workflows are not view state (Decision 23), and neither is the connection order. The order stays in `project_state`, shared by the project's windows as today: it is how the project's sidebar looks, not what a window has open. It gets its own call, `projectSidebarSet { projectId, connectionOrder }` in `library` (kind `project`), and the legacy mirror below keeps whatever order that row holds. **The active connection is per window** (Q14): it is in the view state, since it changes on every click, connect and disconnect (`setActiveForProject`, `connection-manager.svelte.ts:918-924`, six callers). The legacy mirror writes the saving window's active connection to `project_state.active_connection_id`, so an older release sees the last window's.
 
 **Window identity.** A window id is `^[A-Za-z0-9_-]{1,64}$`, the same form as the origin (Decision 18), and it is the origin.
-- **Desktop.** The webview label. The main window's label (`main`) is the same after every restart, so it gets its tabs back.
+- **Desktop.** The webview label (`src/lib/core/origin.ts:51-55`). The main window's label (`main`) is the same after every restart, so it gets its tabs back.
   - Today the only other windows are the theme editor and the log viewer, which hold no project tabs and never save view state.
   - If the app later opens more app windows, their opener gives each a label (`main-2`, …), and a label reused after a restart gets that window's last state back. Nothing more is needed for 5d.
 - **Web.** A per-tab id, `win-<uuid>`, kept in `sessionStorage`, so a reload keeps its tabs and a new browser tab starts fresh.
+  - **This replaces the per-load origin** (re-survey): today's web origin is random per page load (`webPageOrigin`, `origin.ts:41-44`), sent on every `/api/rpc` call (`storage/rust-client.ts:99`) and on the socket URL (`core/http.ts:125`). The window id becomes that origin, so it must be settled before the page's first Core call: `window-id.ts` resolves it (with the duplicate check below) before the storage gate, and `webPageOrigin()` returns it.
   - Browsers copy `sessionStorage` when a tab is duplicated (and on "reopen closed tab"), so two live tabs can start with one id. At load, a tab announces its id on a `BroadcastChannel`. If another live tab answers holding it, the newer tab makes a new id and starts as a new window (below).
-  - The check takes up to 100 ms before the first view-state load.
+  - The check takes up to 100 ms, once, before the storage gate.
+  - After a reload the page has the same origin as before it. An event from the old page's last writes is then skipped as its own; harmless, since the new page lists everything after it loads.
 
-**What a new window starts with.** Options:
-- **a copy of the project's most recently used window**, its tabs, text and layout; or
-- **empty**, with the starter tabs a project with no state gets today.
+**What a new window starts with: a copy of the project's most recently used window**, its tabs, text and layout. A new tab or a first launch after the upgrade then shows what the user last had, which is what they see today. The copy is independent from then on.
+- "Most recently used" means the `window_state` row of that project saved last (`write_seq`, Task 7 probe fixes; first planned as the latest `updated_at`).
+- A window's active project, when the window is new, is the most recently used window's active project, else `lastActiveProjectId`; the page reads it with `windowGet` (Calls, below).
 
-**Recommendation and decision: the copy.** A new tab or a first launch after the upgrade then shows what the user last had, which is what they see today. Empty would make every new browser tab look like a reset. The copy is independent from then on.
-- "Most recently used" means the window row with the latest `updated_at` for that project.
-- A window's active project, when the window is new, is the most recently used window's active project, else `lastActiveProjectId`.
-
-**Storage: a numbered migration, `0002_window_state.sql`** (expand-only; the second file in `migrations/`, after 5d-1's `0001_name_keys.sql`).
+**Storage: a numbered migration, `0002_window_state.sql`** (expand-only; the second file in `migrations/`, after 5d-1's `0001_name_keys.sql`). It also carries the dashboards' `name_key` (Decision 21), `idx_saved_canvases_project` (the re-survey found `saved_canvases` had no index on `project_id`), and `idx_ai_messages_chat_time`, so a chat's messages read in `timestamp, rowid` order without a sort (Task 3 review).
 
 ```sql
 CREATE TABLE IF NOT EXISTS windows (
@@ -471,90 +531,126 @@ CREATE TABLE IF NOT EXISTS windows (
   active_project_id TEXT,              -- no foreign key: a removed project just falls back
   updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_windows_updated ON windows(updated_at);
 CREATE TABLE IF NOT EXISTS window_state (
   window_id TEXT NOT NULL REFERENCES windows(window_id) ON DELETE CASCADE,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   state TEXT NOT NULL,                 -- JSON: tabs with their text, layout, active ids
+  rev INTEGER NOT NULL DEFAULT 0,      -- the page's save counter (below)
   updated_at TEXT NOT NULL,
   PRIMARY KEY (window_id, project_id)
 );
 CREATE INDEX IF NOT EXISTS idx_window_state_project ON window_state(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_saved_canvases_project ON saved_canvases(project_id);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_chat_time ON ai_messages(chat_id, timestamp);
+ALTER TABLE dashboards ADD COLUMN name_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_dashboards_name_key ON dashboards(project_id, name_key);
+-- plus dashboards_name_key_stale, as 0001's triggers
 ```
 
 - The user is the file: a web user's `meta.db` holds only their windows, so no user column is needed.
-- `state` is one JSON blob, the design doc's `ui_state` blob, which spares one table per tab type. Its shape is today's `PersistedProjectState` minus the saved workflows, the connection order and the active connection. It is written and read byte for byte (`RawValue`).
-- The migration runs on the beta-era baseline too (the migrations README's rule).
+- `state` is one JSON blob, the design doc's `ui_state` blob, which spares one table per tab type. Its shape is today's `PersistedProjectState` minus the saved workflows, the connection order and the starred-shared legacy lists; it keeps `activeConnectionId` and `activeView`. It is written and read byte for byte (`RawValue`). Core parses it only to write the legacy mirror and to check the limits.
+- The migration runs on the beta-era baseline too (the migrations README's rule), and makes `seaquel-cli mcp` refuse a file until the app has opened it, as 0001 did.
 
 **Existing users lose nothing.**
 - The first load of a project in a window with no row falls back in order:
   1. the most recently used window's row;
   2. today's `project_state` and `tabs` rows;
-  3. empty.
+  3. empty (the GUI then adds the starter tabs, as today).
 
   So the first window after the upgrade gets exactly today's tabs, with no data step.
-- **Older releases keep working.** Every view-state save also writes the legacy `project_state` row and `tabs` rows for that project, in the same transaction, as today's `project_state::save` does (without `saved_canvases`). An older release opening the file sees the most recently saved window's tabs, as it would today. The cost is today's write.
+- **Older releases keep working.** Every view-state save also writes the legacy `project_state` row and `tabs` rows for that project, in the same transaction, as today's `project_state::save` does, without `saved_canvases`, keeping the stored connection order and writing the saving window's active connection. An older release opening the file sees the most recently saved window's tabs, as it would today.
+  - The mirror skips a tab whose id repeats within the state instead of failing the save (re-survey: `tabs`' key is `(id, project_id)`, and one repeat fails today's whole save, `project_state.rs:256-383`). The window's own row keeps the state as sent.
+  - DuckDB extensions tabs stay in the window's row (today they are dropped, `project_state.rs:202-203`, a listed change) and stay out of the mirror, which has no column for them.
+- **A save before the load is refused in the GUI.** A window saves a project's view state only after its `windowStateLoad` for that project answered. Otherwise a save fired between switching the active project and its load (re-survey: `project-manager.svelte.ts:546` sets the project before `:551-553` loads it) would write an empty state as this window's row and as the mirror, and the first window after the upgrade would lose today's tabs.
+
+**Ordering: `rev`.** Each save carries `rev`, the page's counter for that window and project, starting from the `rev` its load answered. Core writes a save only when its `rev` is higher than the stored one, and answers `stale: true` otherwise. That lets the `pagehide` save (below), which can't wait for the write queue, overtake a queued save without an older state landing after it.
 
 **Cleanup, bounded.** Inside each view-state save's transaction, after the write:
-- delete window rows not used for 30 days;
+- delete windows not used for 30 days (`idx_windows_updated`);
 - keep at most `max_windows` per user (web 50, desktop 20), the most recent;
 - keep at most `max_window_states_per_project` (web 20, desktop 20), deleting the oldest `window_state` rows past them;
 - never delete the saving window, or on desktop `main`.
 
-Each step is one indexed `DELETE`, so the work per save is bounded. The legacy rows are never pruned. The windows limits join `StateLimits` (Decision 27).
+Each step is one indexed `DELETE` with a `LIMIT`-bounded subquery, so the work per save is bounded. The legacy rows are never pruned. The windows limits join `StateLimits` (Decision 27).
 
 **Calls** (the `ui` group):
-- `windowStateLoad { windowId, projectId }` returns the state, whether it was copied (and from where: `window`, `legacy` or `empty`), and the `seq`. A copied state is written as this window's row at once, so it doesn't change under the window before its first save.
-- `windowStateSave { windowId, projectId, state }` replaces this window's row and the legacy mirror.
-- `windowActivate { windowId, projectId }` sets the window's active project and `updated_at`.
-- `windowForget { windowId }` is sent on `pagehide` for a web tab that is closing rather than reloading. It is best effort, because a browser can't tell those apart: a reload loses nothing, since the row is copied back as "most recent". The 30-day prune catches what it misses.
+- `windowStateLoad { windowId, projectId }` returns the state, its `rev`, whether it was copied (and from where: `window`, `legacy` or `empty`), and the `seq`. A copied state is written as this window's row at once, so it doesn't change under the window before its first save.
+- `windowStateSave { windowId, projectId, rev, state }` replaces this window's row and the legacy mirror, and answers `{stale}`.
+- `windowActivate { windowId, projectId }` sets the window's active project and `updated_at`, and writes `lastActiveProjectId`.
+- `windowGet { windowId }` (added with 5d-2 Task 2's review) answers the window's active project, which the page asks for once, before its first `windowStateLoad`: the window's own `active_project_id`; for a window with none (a new one), the active project of the most recently used window that has one (since the Task 7 probe fixes, the last `windows` write committed, `write_seq`; first `windows.updated_at`); else `lastActiveProjectId`; else `null`. It writes nothing, and the GUI checks the id against the projects it listed, as today. It answers `{ activeProjectId, from }`, `from` being `window`, `recent` or `lastActive` (`null` with no id).
+- **"Most recently used" is the last write committed** (Task 7 probe fixes: `write_seq`, one past the table's or the project's highest, so windows saving in one millisecond order by commit and a new window copies what the legacy mirror shows; first planned as `updated_at` only, which now drives only the 30-day prune), bumped by writes: `windowStateSave`, `windowActivate` and a `windowStateLoad` that copies a row (the copy is a write). A load of the window's own row writes nothing and bumps nothing.
+- `windowStateSave` and a copying `windowStateLoad` create the window's `windows` row when it has none, with `active_project_id` NULL; only `windowActivate` sets `active_project_id`.
+- **No `windowForget`** (Q15): `pagehide` fires on a reload too, so forgetting on it would make a reloaded tab copy another tab's state as "most recent". The 30-day and count prunes bound the rows instead.
 - The window id must equal the call's origin (Decision 18). A call naming another window's id is refused (`INVALID_ARGUMENT`), so one tab can't overwrite another's view.
 
 **Events.**
 - A view-state write emits `projectState` with `scope` the project and `ids` the window id, like every write (Decision 16).
 - `ChangeFeed` applies a `projectState` event only when its id is this window's own id and its origin isn't. That happens only when the duplicate-id check hasn't finished yet. Every other window ignores it, so there is no cross-window reload.
-- A change to the connection order still goes to every window of the project, as a `project` change.
+- A change to the connection order still goes to every window of the project, as a `project` change. `projectsList` rows don't hold the order, so the refetch for a `project` event also reads the project's sidebar row (`projectSidebarGet`, or the order folded into `projectsList`; Task 4 picks one and says which).
 
 **The rest of today's behaviour stays.**
 - The 500 ms debounce per window and project.
-- The `projectState:*` load guard, now keyed by project within the window.
-- On web, a pending save is sent from `pagehide` with `fetch(…, {keepalive: true})`, so closing the tab doesn't drop it. Browsers cap a keepalive body at 64 KiB; past that, the state is saved on each change of a tab's text instead of only on close.
+- The load guard, now keyed by project within the window (`windowState:<projectId>`).
+- On web, a pending save is sent from `pagehide` with `fetch(…, {keepalive: true})`, outside the write queue (`rev` orders it). Browsers cap the keepalive bodies in flight at 64 KiB together; past that the page falls back to a normal `fetch` and hopes, and a text-heavy tab is covered by the 500 ms saves while typing. Desktop keeps its awaited flush on close (`routes/(app)/+layout.svelte:164-187`).
+- Only projects with a pending save are flushed. Today `flush()` saves every project the page ever loaded, one after another (`persistence-manager.svelte.ts:176-199`), including removed ones and with the global `activeView` (re-survey bugs; Task 1).
 
 #### 23. Saved workflows
 
-- Saved workflows leave the project state: `workflowCreate`, `workflowUpdate` (the whole workflow JSON), `workflowRemove` over `saved_canvases`, one row each.
+- Saved workflows leave the project state: `workflowCreate`, `workflowUpdate` and `workflowRemove` over `saved_canvases`, one row each, and `workflowsList { projectId }`.
+- The stored `data` stays today's `SavedWorkflow` JSON (`types/workflow.ts:97-106`), whose `id`, `projectId`, `createdAt` and `updatedAt` Core now sets: it reads the draft's top level as a JSON object of `RawValue`s, sets those four and writes the rest byte for byte. A draft is `{projectId, workflow}`, the workflow without those fields; an update replaces everything but them.
+- Core makes `workflow-<uuid>` ids. Names aren't checked for clashes (Q3 doesn't list workflows).
 - `project_state::save` stops touching `saved_canvases`. The frozen fixture's function keeps its old behaviour.
-- Result rows stay in the saved JSON, capped on web (Decision 27).
+- **Result rows** (Q16). A result node's rows stay in the saved JSON (up to 10,000, `WORKFLOW_MAX_ROWS`, `workflow-manager.svelte.ts:29`). A chart node's copy of them (`:535-558`) is no longer stored:
+  - **On save** the GUI stores a chart node with `rows: []` when its `sourceNodeId` names a node in the same workflow that holds rows; `columns` and `chartConfig` stay. A chart whose source isn't in the workflow, or holds no rows, keeps its rows (nothing to rebuild them from).
+  - **On load** a chart node with no rows takes `columns` and `rows` from its source node, as `updateDownstreamChartNodes` does after a run, without recalculating `chartConfig`.
+  - **Workflows saved before 5d-2** keep their chart copies and load unchanged: a chart node that has rows uses them. The copies are dropped by the next `saveWorkflow` of that workflow (the user saving it), not by other writes: until Task 6b, the project-state save sends the saved workflows as they are in memory, so a rename or another workflow's save keeps them.
+  - A chart whose source is itself a chart keeps its rows, since the source chart's own copy may be dropped in the same save. No data step: nothing is lost by keeping them, and Core doesn't parse the JSON.
+  - This is GUI work (Task 1), so the fixtures record it and Core stays opaque to the workflow JSON.
+  - **Web cap:** `max_workflow_bytes`, 16 MiB of the stored JSON after the copies are dropped. Past it the save is refused (`INVALID_ARGUMENT` naming the limit), nothing is stored, and the GUI says the workflow's results are too large to save on this server and to clear or narrow them first. Desktop has no cap.
+- `saveWorkflow` becomes async (it returns the workflow today, `:595-682`), and its callers wait for Core's id.
 
 #### 24. AI chats
 
-- `chatCreate`, `chatUpdate` (title, timestamps) and `chatRemove`.
-- `chatMessagesPut { chatId, messages }` upserts the listed messages by id instead of replacing the chat. It is sent at the end of a turn and on approvals, as today, with only the messages that changed.
+- `chatCreate`, `chatUpdate` (title, `touched` for `updatedAt`) and `chatRemove`, and `chatsList { connectionId }`, `chatMessagesList { chatId }`. Chat ids stay plain uuids, made by Core.
+- `chatMessagesPut { chatId, messages }` upserts the listed messages by id instead of replacing the chat, with only the messages that changed.
+  - **Message ids are the GUI's.** A turn shows the user's message and the assistant's placeholder before anything is stored (`ui-state.svelte.ts:80`, `:302`), so the GUI makes their ids (plain uuids, as today). Core checks each id's form (`^[A-Za-z0-9_-]{1,64}$`) and refuses an id that belongs to another chat.
+  - `ChatMessageDraft` is its own type with `deny_unknown_fields` (`PersistedAIMessage` has none): `{id, role, content, timestamp, query?, dashboardId?}`.
+  - **When it's sent** (re-survey; this decision first said "at the end of a turn and on approvals"): at the end of a turn (`onDone`, `:385`), on an error (`:394`), on Stop (`:64`), and when a turn is aborted with an approval pending (`:326`). Approvals themselves save nothing. 5d-2 adds one: the page's close flush puts the streaming chat's messages, which today's `flush()` doesn't (`persistence-manager.svelte.ts:196-198` saves chat rows only).
 - `chatMessagesRemove { chatId, ids }` is for anything the UI deletes.
+- Messages read `ORDER BY timestamp, rowid` (re-survey: `ai_chats.rs:72` orders by timestamp alone, so a user message and its placeholder made in one millisecond can come back swapped). An upsert keeps an existing message's rowid, and `put` inserts new ones in list order.
+- **Web budget** (Q17): `max_chat_bytes`, 64 MiB of a chat's stored message content. `chatMessagesPut` sums the chat's stored content bytes (`SUM(length(CAST(content AS BLOB)))` over `idx_ai_messages_chat`, at most 5,000 rows), minus the messages it replaces, plus the new ones, inside its transaction. Past the budget the whole put is refused (`INVALID_ARGUMENT` naming `max_chat_bytes`) and nothing is stored. The GUI then shows "This chat is full. Start a new chat to continue.", keeps the refused turn on screen (not stored), and disables sending in that chat with a "New chat" button. `chatMessagesList` answers the chat's stored bytes too, so a full chat opens disabled. Desktop has no budget.
 - The `aiMessages:*` load guard goes.
-- An open chat that is streaming ignores events for itself until the turn ends, then refetches.
+- An open chat that is streaming ignores events for itself until the turn ends, then refetches. Deleting a chat that is streaming, here or in another window, aborts the stream first (re-survey: `deleteChat` never aborts, `ai-chat-manager.svelte.ts:56-84`, and a pending approval's promise then never settles).
 
 #### 25. Connection overrides
 
-`overrideSave` and `overrideRemove` go through `library`. Their errors are shown instead of logged.
+**Retired** (Q13). The re-survey found the feature is dead code: `SharedConnectionManager` is never constructed, and its `saveCredentials` would key the keychain by the shared template's id (`shared-connection-manager.svelte.ts:162-168`), while connections are keyed by their own (local) ids. So:
+- `shared-connection-manager.svelte.ts` is deleted, with `state.connectionOverrides` and the `ConnectionOverride` type if nothing else uses them;
+- the `connectionOverrides*` storage methods (TS client and `StorageRequest`) and `PersistenceManager`'s override functions go;
+- the `connection_overrides` table and its storage functions stay (expand-only; the frozen fixtures and older releases), and no `library` call is added;
+- CLAUDE.md's line that override credentials still go through the `secret` group is corrected (Task 8);
+- the 5d-1 follow-up "override credentials" closes. If per-machine overrides come back as a feature, they get `overrideSave`/`overrideRemove` in `library` with `SecretChanges` then.
 
 #### 26. The demo
 
-`TsLibrary` grows the 5d-2 methods over the same sql.js repositories. Its events are local: it emits nothing, since the demo is one page.
+`TsLibrary` grows the 5d-2 methods over the same sql.js repositories, plus a TypeScript `TsState` or the same class, whichever keeps `ts-library.ts` readable (it is 1,280 lines). Its events are local: it emits nothing, since the demo is one page. The demo's window id is a constant (`demo`), since the demo has no second window that shares its file.
 
 #### 27. Web limits, 5d-2
 
-`StateLimits`, set per interface, with none on desktop:
+`StateLimits`, set with `CoreBuilder::state_limits`, with none on desktop, the CLI or MCP, except the window counts (desktop 20 windows, 20 states per project). `WEB_STATE_LIMITS`:
 
 | Limit | Value |
 |---|---|
 | a window's view state per save (tabs with their text, layout) | 8 MiB; one tab's text 2 MiB; 500 tabs |
 | windows (Decision 22) | 50 per user, 20 window states per project, unused for 30 days pruned |
-| a saved workflow's JSON | 16 MiB; 1,000 per user |
-| a dashboard's widgets, viewport and filter together | 4 MiB; 1,000 per user |
-| an AI message's content | 1 MiB; 5,000 messages per chat; 10,000 chats per user |
+| a saved workflow's JSON (after chart copies are dropped, Q16) | 16 MiB (`max_workflow_bytes`); 1,000 per user |
+| a dashboard's widgets, viewport and filter together | 4 MiB; 1,000 per user; versions share `max_version_bytes`' rule (16 MiB per dashboard) |
+| an AI message's content | 1 MiB; 5,000 messages per chat; 64 MiB of content per chat (`max_chat_bytes`, Q17); 10,000 chats per user |
 | a setting's value, the AI settings record, one user theme | 256 KiB; 200 user themes; 50 AI providers |
+| names (dashboards, workflows, chat titles, providers, themes) | `max_name_bytes` from `LibraryLimits` (1 KiB) |
 
-The probe measures them.
+A call past a limit is refused with `INVALID_ARGUMENT` naming it, before anything is read (counts after, inside the transaction, as 5d-1 does). The probe measures each at its bound.
 
 #### 28. Logs
 
@@ -759,54 +855,77 @@ New error codes and web statuses:
 
 ### 5d-2: `library` additions, `settings` and `ui`
 
+Revised after the re-survey (Decisions 20–25). Every params struct has `deny_unknown_fields` and a hand-written `Debug`; a `RawValue` body is opaque and not checked for fields.
+
 ```rust
 // crates/seaquel-workspace/src/state.rs
 pub struct DashboardDraft { pub project_id: String, pub name: String, pub description: Option<String>,
     pub widgets: Box<RawValue>, pub viewport: Box<RawValue>, pub date_filter: Option<Box<RawValue>> }
 pub struct DashboardPatch { pub name: Option<String>, pub description: Clearable<String>,
     pub widgets: Option<Box<RawValue>>, pub viewport: Option<Box<RawValue>>,
-    pub date_filter: Clearable<Box<RawValue>>, pub starred: Option<bool>, pub shared: Option<bool> }
+    pub date_filter: Clearable<Box<RawValue>>, pub starred: Option<bool>, pub shared: Option<bool>,
+    #[serde(default)] pub capture_version: bool }              // Decision 21: the GUI says when
 pub struct DashboardUpdated { pub dashboard: PersistedDashboard,
     pub version: Option<PersistedDashboardVersion>, pub pruned_version_ids: Vec<String> }
 
-pub struct WorkflowDraft { pub project_id: String, pub data: Box<RawValue> }   // the SavedWorkflow JSON
+pub struct WorkflowDraft { pub project_id: String, pub workflow: Box<RawValue> }  // SavedWorkflow minus id, projectId, times
 pub struct ChatDraft { pub connection_id: String, pub title: String }
-pub struct ChatPatch { pub title: Option<String>, pub touched: bool }         // touched: updatedAt = now
-pub struct SettingKey(/* closed enum, serialised as today's key text */);
-pub struct AiSettingsPatch { /* the record's top-level fields except providers, each optional */ }
-pub struct StateLimits { /* Decision 27 */ }
+pub struct ChatPatch { pub title: Option<String>, #[serde(default)] pub touched: bool }  // touched: updatedAt = now
+pub struct ChatMessageDraft { pub id: String, pub role: String /* user | assistant */, pub content: String,
+    pub timestamp: String, pub query: Option<String>, pub dashboard_id: Option<String> }
+pub enum SettingKey { /* Decision 20's closed set, serialised as the stored key text */ }
+pub struct AiProviderDraft { pub name: String, #[serde(rename = "type")] pub ty: String, pub base_url: Option<String> }
+pub struct AiProviderPatch { pub name: Option<String>, #[serde(rename = "type")] pub ty: Option<String>,
+    pub base_url: Clearable<String> }
+pub struct AiSettingsPatch { pub enabled: Option<bool>, pub share_schema_globally: Option<bool>,
+    pub share_data_globally: Option<bool> }
+pub struct StateLimits { /* Decision 27; each Option, default none */ }
+
+pub fn read_ai_settings(raw: Option<&str>) -> AiSettings;   // the legacy cleanup and today's fallback
+pub fn legacy_mirror(state: &RawValue) -> Result<MirrorRows, StateError>;   // tabs to write, repeats skipped
 
 // library group, 5d-2 methods
-DashboardsList { project_id }, DashboardVersionsList { project_id },
+DashboardsList { project_id },
+DashboardVersionsList { project_id } -> Seqd<Vec<PersistedDashboardVersionMeta>>,   // Task 7: no snapshots
+DashboardVersionGet { dashboard_id, version_id } -> Seqd<PersistedDashboardVersion>, // Task 7: one whole
+
 DashboardCreate { dashboard: DashboardDraft }, DashboardUpdate { id, patch: DashboardPatch }, DashboardRemove { id },
-WorkflowsList { project_id }, WorkflowCreate { workflow: WorkflowDraft },
-WorkflowUpdate { id, data: Box<RawValue> }, WorkflowRemove { id },
-ChatsList { connection_id }, ChatMessagesList { chat_id },
+WorkflowsList { project_id } -> Seqd<Vec<PersistedWorkflowMeta>>,   // Task 7: no bodies
+WorkflowGet { workflow_id } -> Seqd<RawValue>,                     // Task 7: one whole
+WorkflowRename { workflow_id, name } -> Seqd<PersistedWorkflowMeta>, // Task 7 review: only the name
+WorkflowCreate { workflow: WorkflowDraft },
+WorkflowUpdate { id, workflow: Box<RawValue> }, WorkflowRemove { id },
+ChatsList { connection_id }, ChatMessagesList { chat_id },   // answers the messages and the chat's stored bytes
 ChatCreate { chat: ChatDraft }, ChatUpdate { id, patch: ChatPatch }, ChatRemove { id },
-ChatMessagesPut { chat_id, messages: Vec<PersistedAIMessage> }, ChatMessagesRemove { chat_id, ids: Vec<String> },
-OverridesList, OverrideSave { r#override: PersistedConnectionOverride }, OverrideRemove { shared_connection_id },
+ChatMessagesPut { chat_id, messages: Vec<ChatMessageDraft> }, ChatMessagesRemove { chat_id, ids: Vec<String> },
+ProjectSidebarSet { project_id, connection_order: Vec<String> },   // the active connection is per window (Q14)
+// no override calls: retired (Q13)
 
 // settings group
 SettingGet { key: SettingKey }, SettingSet { key: SettingKey, value: Option<String> },
-AiSettingsGet, AiProviderUpsert { provider: Box<RawValue> }, AiProviderRemove { id }, AiSettingsPatch { patch },
+AiSettingsGet, AiSettingsPatch { patch: AiSettingsPatch },
+AiProviderCreate { provider: AiProviderDraft, #[serde(default)] api_key: Clearable<String> },   // api_key: desktop only
+AiProviderUpdate { id, patch: AiProviderPatch, #[serde(default)] api_key: Clearable<String> },
+AiProviderRemove { id },
 ThemesGet, ThemePreferencesSet { light_theme_id, dark_theme_id },
-UserThemeUpsert { theme: Box<RawValue> }, UserThemeRemove { id },
-OnboardingGet, OnboardingSet { state: Box<RawValue> },
+UserThemeCreate { theme: Box<RawValue> }, UserThemeUpdate { id, theme: Box<RawValue> }, UserThemeRemove { id },
+OnboardingGet, OnboardingPatch { patch: Box<RawValue> /* a JSON object; its top-level fields replace */ },
 TutorialList, TutorialSave { lesson_id, challenge_id, state: Option<String> },
 TutorialRemoveLesson { lesson_id }, TutorialReset,
 ImportStateGet { source }, ImportStateSave { source, has_offered_import, last_check_timestamp },
 
-// library group
-ProjectSidebarSet { project_id, connection_order: Option<Vec<String>>, active_connection_id: Clearable<String> },
-
 // ui group (Q12 B, Decision 22). window_id must equal the call's origin.
-WindowStateLoad { window_id, project_id } -> Seqd<WindowStateLoaded { state: Option<Box<RawValue>>, copied_from: Option<CopiedFrom /* window | legacy | empty */> }>,
-WindowStateSave { window_id, project_id, state: Box<RawValue> },   // also writes the legacy project_state/tabs mirror
-WindowActivate { window_id, project_id }, WindowForget { window_id },
+WindowStateLoad { window_id, project_id }
+    -> Seqd<WindowStateLoaded { state: Option<Box<RawValue>>, rev: u64, copied_from: Option<CopiedFrom /* window | legacy | empty */> }>,
+WindowStateSave { window_id, project_id, rev: u64, state: Box<RawValue> } -> Seqd<{ stale: bool }>,
+WindowActivate { window_id, project_id },
+WindowGet { window_id } -> { active_project_id: Option<String>, from: Option<"window" | "recent" | "lastActive"> },
 ```
 
-- JSON bodies (widgets, workflows, themes, onboarding) stay `RawValue`, byte for byte, as the storage group keeps them.
-- `StorageRequest` loses the matching variants. The remaining storage writes are `vaultState*`, `userCredentials*`, `licenseSave` and `sharedReposSaveAll`, and all of them emit `StorageChanged`.
+- JSON bodies (widgets, workflows, themes, onboarding, the license nudge) stay `RawValue`, byte for byte, as the storage group keeps them. Where Core sets fields (a workflow's id and times, the AI settings record, an onboarding patch) it rewrites only the top level.
+- `StorageRequest` loses `appState*`, `projectState*`, `dashboards*`, `dashboardVersions*`, `aiChats*`, `themes*`, `onboarding*`, `tutorial*`, `importState*` and `connectionOverrides*` (32 variants, `crates/seaquel-rpc/src/workspace.rs:253-373`). What remains is `queryHistory*`, `sharedRepos*`, `license*`, `vaultState*` and `userCredentials*`, and every write among them emits `StorageChanged`.
+- Task 7 probe fixes: `DashboardUpdated.version` is a `PersistedDashboardVersionMeta`; `PersistedDashboardVersionMeta {id, dashboardId, version, createdAt, widgetCount: Option<u32>, bytes}` and `PersistedWorkflowMeta {id, projectId, name, createdAt?, updatedAt?, bytes}` live in `seaquel-types`; `DASHBOARD_VERSION_NOT_FOUND` (404) is new; `SeqdJsonList` is gone; `windowStateSave`'s `rev` is at most 2^53 - 1.
+- New error codes: `DASHBOARD_NOT_FOUND`, `WORKFLOW_NOT_FOUND`, `CHAT_NOT_FOUND`, `THEME_NOT_FOUND`, `AI_PROVIDER_NOT_FOUND` (404 on web). `NAME_TAKEN` gains dashboards.
 
 ---
 
@@ -835,14 +954,7 @@ Record today's TypeScript first, after each slice's Task 1, so Core is pinned ag
     - the 11th version, prune at 3 and at 0;
   - imports: two databases on one host and port, one already present, one failing; a shared-project import with a taken name;
   - legacy strings for each engine.
-- **5d-2 cases, at least 50:**
-  - view state: every tab type, layouts, active ids, the legacy canvas fields; the Rust replay also checks the legacy mirror rows match what today's save writes, and the first load in a new window returns today's rows (the no-loss rule);
-  - workflows: create, update, delete, one with result rows;
-  - dashboards: create, each patch field, star, delete, versions and prune at 0 and 3 under both settings;
-  - chats: create, retitle, delete, a turn's messages, an approval;
-  - settings: each key with good and bad values; the AI settings with legacy provider fields; two provider edits;
-  - themes, onboarding, tutorial and import state round trips;
-  - overrides.
+- **5d-2 cases, at least 60:** the full list, with the old-data seeds, is in 5d-2's Task 2. In short: view state (every tab type, layouts, active ids, the legacy canvas fields, the legacy mirror, the first load in a new window); workflows; dashboards with versions and prunes; chats and messages; every setting key; AI settings with legacy and malformed records; themes, onboarding, tutorial and import state.
 - **`changes.json` lists each intended difference with its Decision.** The Rust replay asserts exactly these differ; a new one found in the Core task is a finding to report. Expected entries:
   - Core ids and times (compared by shape);
   - an unknown label refused; `NAME_TAKEN`;
@@ -853,7 +965,11 @@ Record today's TypeScript first, after each slice's Task 1, so Core is pinned ag
   - a keychain failure leaving the row;
   - (5d-2) the dashboard star saved; the dashboard limit read, with 0 keeping all;
   - (5d-2) messages upserted rather than replaced (a message the TypeScript dropped from its list stays until `chatMessagesRemove`);
-  - (5d-2) workflows outside the project state.
+  - (5d-2) workflows outside the project state;
+  - (5d-2) a dashboard version only when the patch asks; dashboard `NAME_TAKEN`; a missing dashboard `DASHBOARD_NOT_FOUND` instead of re-inserted;
+  - (5d-2) `settingSet` with `null` deleting the row; unknown keys refused;
+  - (5d-2) the legacy mirror skipping repeated tab ids; extensions tabs kept in the window's row;
+  - (5d-2) messages ordered by timestamp, then insertion.
 - **Replays.** Rust runs each case's operations as Core calls on a temp file and a `MemoryStore`. The TypeScript runs `TsLibrary` on the same cases, and the view models' state.
 - **Events have no TypeScript to record.** They are pinned by Core tests: one event per write, after commit, `seq` increasing in commit order, none on refusal.
 
@@ -914,7 +1030,16 @@ Reviews check each of these by name:
 - the web limits missing from `web_core()` and the server's test Core;
 - a library call that bypasses the write queue;
 - the demo left on the old managers;
-- (5d-2) a view-state save accepted for a window id other than the caller's origin, a prune that can delete the saving window or `main`, the legacy mirror not written, or a first load that doesn't fall back to today's rows.
+- (5d-2) a view-state save accepted for a window id other than the caller's origin, a prune that can delete the saving window or `main`, the legacy mirror not written, or a first load that doesn't fall back to today's rows;
+- (5d-2) a view-state save sent before that window's load of the project answered, a flush that saves projects with no pending change, or a save whose `rev` isn't checked;
+- (5d-2) the web origin still made per page load instead of being the window id, or resolved after the first Core call;
+- (5d-2) a 5d-2 write left on `st.pool()` instead of a `WriteTx` (the storage group's single statements bypass the write mutex and take their `seq` after the commit, `crates/seaquel-rpc/src/workspace.rs:631-645`);
+- (5d-2) a write answer's `seq` recorded for a list it doesn't hold whole (`chatMessagesPut`'s messages for the chat's list, a dashboard's new version for the project's versions): read again, as 5d-1's label writes do;
+- (5d-2) the `aiSettings` record rewritten from the GUI's copy, a field Core doesn't know dropped, or the MCP reader not pinned against Core's writes;
+- (5d-2) an AI API key written from TypeScript on desktop, or sent to Core from web;
+- (5d-2) a count or name check that scans (every count is on an indexed column or a whole small table, measured at the limits);
+- (5d-2) a deleted-elsewhere dashboard, workflow, chat or theme left open: its tabs close (in every project, as `connection-tabs-cleanup.ts` does), a streaming chat aborts first, and an active theme falls back to the default;
+- (5d-2) a new kind with no handler on `onResubscribed`, or a store that keeps saving whole records it hasn't reloaded.
 
 ---
 
@@ -1171,7 +1296,7 @@ Probe fixes are budgeted separately.
   - the web limits and the new header.
 - **Effort log:** the totals. **The full check list.**
 
-**Status (Task 8):** done. CLAUDE.md, the design doc's status line, storage notes and "Phase 5d-1 cost", the execution notes, release notes, checkpoint and manual checks below, the consolidated follow-ups and the effort log's totals are written. The full check list ran except the live workspace tests, which the owner asked to skip; see "Checkpoint (5d-1)". The manual checks are the owner's.
+**Status (Task 8):** done. CLAUDE.md, the design doc's status line, storage notes and "Phase 5d-1 cost", the execution notes, release notes, checkpoint and manual checks below, the consolidated follow-ups and the effort log's totals are written. The full check list ran except the live workspace tests, which the owner asked to skip; see "Checkpoint (5d-1)". The owner ran the manual checks below; all pass.
 
 ### Manual checks (5d-1)
 
@@ -1320,7 +1445,7 @@ The full check list, run on 2026-09-29 one step at a time on the shared `scratch
 
 CI doesn't run oxfmt. `oxfmt --check` passes on CLAUDE.md, `load-guard.ts` and the effort log, and flags the design doc and this plan for their tables and list spacing, the plans' own style (as in 5b and 5c); left as they are.
 
-**Manual checks:** pending (the owner).
+**Manual checks:** all pass (the owner).
 
 **Not run:** the release workflow and a signed build.
 
@@ -1328,119 +1453,608 @@ CI doesn't run oxfmt. `oxfmt --check` passes on CLAUDE.md, `load-guard.ts` and t
 
 ## 5d-2: state, settings, dashboards and chats
 
-Starts after 5d-1's checkpoint. The file lists below are the survey's. The executor re-checks the line numbers against the tree after 5d-1.
+Starts after 5d-1's checkpoint (done). Line numbers below are as of `8e178a8` and were re-read for this section; items 13–18 of "What the code shows" are the older survey.
+
+### 5d-2: re-survey (`8e178a8`)
+
+**Tabs and project state.**
+- The save is `PersistenceManager.persistProjectState` (`persistence-manager.svelte.ts:360-414`), debounced 500 ms per project by `scheduleProject` (`:146-158`) and sent as `projectStateSave` (`storage/rust-client.ts:415-427`, workflows encoded by `toStorable`, `:354-361`). Rust replaces the state row, every `tabs` row and every `saved_canvases` row of the project in one transaction (`crates/seaquel-storage/src/queries/project_state.rs:216-404`). The load is `load` (`:69-206`), called only through `persistence-manager.svelte.ts:429-436` under the `projectState:*` guard (`LoadKey`, `:36`).
+- **35 calls schedule it, in 12 files** (the first survey's 43 in 15 counted the wrapper, the flushes and the shared-repo timer). All in `src/lib/hooks/database/`:
+  - `base-tab-manager.svelte.ts:83`, `:103`, `:125` (`appendTab`, `remove`, `setActive`, inherited by every tab manager);
+  - `query-tabs.svelte.ts:92`, `:127` (every text change), `:232`, `:261`, `:279`, `:289`;
+  - `dashboard-tabs.svelte.ts:68`, `:89`; `create-table-tabs.svelte.ts:170`; `tab-ordering.svelte.ts:131`;
+  - `pane-manager.svelte.ts:98`, `:244`, `:265`, `:387`; `ui-state.svelte.ts:402`;
+  - `workflow-manager.svelte.ts:651`, `:680`, `:747`, `:765` (saved workflows);
+  - `saved-queries.svelte.ts:137`, `:166`, `:400`; `dashboard-manager.svelte.ts:471`, `:491`;
+  - `connection-manager.svelte.ts:409`, `:634`, `:923` (`setActiveForProject`), `:1189`, `:1208` (`reorder`);
+  - `project-manager.svelte.ts:475`, `:909`, and `:537`, the one immediate save (the old project, on a switch).
+
+  The wrapper is `scheduleProjectPersistence` (`hooks/database.svelte.ts:113-115`), handed to 20 constructors. Flushes: `routes/(app)/+layout.svelte:143` (`beforeunload`, not awaited), `:173` (desktop close, awaited), `hooks/database.svelte.ts:525` (`destroy()`, which nothing calls).
+- Project switch: `ProjectManager.setActive` (`project-manager.svelte.ts:530-563`) saves the old project, loads the new one's data, sets `activeProjectId` (`:546`), writes `lastActiveProjectId` (`:548`), then loads its state (`:551-553`, `loadProjectState` `:937-1183`). Starter tabs: `starter-tabs.svelte.ts:65-83`.
+- `PersistedProjectState`: `crates/seaquel-types/src/storage.rs:392-489`, TS `src/lib/types/project.ts:96-166`. Schema: `project_state` (`schema.rs:110`), `tabs` (`:134`, key `(id, project_id)`), `saved_canvases` (`:221`, no index on `project_id`).
+- Web close: only `beforeunload` (`+layout.svelte:280`), no `pagehide`, `keepalive` or `sendBeacon`. `flush()` saves every loaded project in turn behind the write queue, so at most the first request leaves before the page goes.
+- The origin: `src/lib/core/origin.ts` (`webPageOrigin` random per load, `pageOrigin` the label on desktop), used at `storage/rust-client.ts:99`, `core/http.ts:125`, `hooks/database.svelte.ts:358`. No window id, `sessionStorage` or `BroadcastChannel` anywhere.
+
+**Saved workflows.** `workflow-manager.svelte.ts:595-682` (save, sync, `workflow-<uuid>` at `:658`), `:732-748` (delete), `:753-766` (rename), all through the project save. State: `savedWorkflowsByProject` (`state.svelte.ts:110`), restored at `project-manager.svelte.ts:1048-1049` (with `savedCanvases`). Rows: up to `WORKFLOW_MAX_ROWS` (10,000, `:29`) per result node, copied again into each chart node (`:535-558`). A workflow that fails `fromStorable` is dropped on load (`rust-client.ts:337-343`) and so deleted by the next save.
+
+**Dashboards.** `dashboard-manager.svelte.ts`: create `:67-92` (`dashboard-<uuid>`), every mutation `await persistDashboard` (`:627-634`, whole-row upsert, `errorToast` on failure), delete `:94-122`, star `:433-446`, share and unshare `:455-492`, versions `captureVersion` `:570-599` (numbered from memory, `:574-575`; `dver-<uuid>`, `utils/dashboard-versions.ts:32`) and `pruneVersions` `:606-623` (`dashboard_version_limit` through `persistence-manager.svelte.ts:458-467`). Load: `state-restoration.svelte.ts:235-247` (`loadDashboards` at `dashboard-manager.svelte.ts:402` has no caller). Storage: `queries/dashboards.rs` (upsert `:49`, remove `:68`), `dashboard_versions.rs` (insert `:57`, prune `:71`). Widgets are stored without run state (`dashboard-serialize.ts:8-13`); no rows are stored. Git: `shared-dashboard-manager.svelte.ts`, reconciled at `project-manager.svelte.ts:717-737`.
+
+**AI chats.** `ai-chat-manager.svelte.ts` (create `:13-40`, delete `:56-84`, title `:103-117`), chat rows upserted on a 500 ms timer per connection (`persistence-manager.svelte.ts:502-530`), messages replaced whole (`:532-572`, `replace_all_messages`, `ai_chats.rs:93-118`). A turn saves at its end (`ui-state.svelte.ts:385`), on an error (`:394`), on Stop (`:64`) and on an abort with an approval pending (`:326`); never per chunk. A stored message is text plus `query` and `dashboardId`; tool calls and results are never stored (`services/ai/index.ts:236`). Ids are plain uuids.
+
+**Settings.**
+- `app_state` keys the GUI writes: `aiSettings` (`stores/ai-settings.svelte.ts:66`), `editorKeybindingMode` (`stores/editor-settings.svelte.ts:28`), `pending_changes_enabled` (`stores/pending-changes-settings.svelte.ts:22`), `skippedUpdateVersion` (`stores/update.svelte.ts:60`), `license_nudge` (`stores/license-nudge.svelte.ts:133`, on every query run, `query-execution.svelte.ts:781`), `query_version_limit` and `dashboard_version_limit` (`components/settings/general/query-history-section.svelte:42`, `:59`), `lastActiveProjectId` (`persistence-manager.svelte.ts:343`), `connectionStringSecretsNotice` (cleared, `stores/connection-secrets-notice.svelte.ts:65`). Core's own: `connectionStringSecrets{Upgraded,Notice,Vacuum,Checkpoint}` (`crates/seaquel-core/src/upgrade.rs:55-72`), `query_version_limit` (read, `crates/seaquel-core/src/library.rs:993`), and `activeRepoId` (`queries/shared_repos.rs:48`).
+- AI settings: type `src/lib/types/ai.ts:3-22`; whole record on every change, no debounce (`:69-109`); keys `ai-api-key:<id>` written from TypeScript after the record. The MCP server reads the record tolerantly (`crates/seaquel-mcp/src/exposed.rs:208-259`, tests `:272-343` and `tests/tools.rs:1046-1070`).
+- Themes: `stores/theme.svelte.ts` (500 ms debounce `:267-275`, `persist` `:277-291` writes the preferences and then replaces every user theme, `themes.rs:50-62`). The editor window only emits events to the main window (`windows/theme-editor/+page.svelte:62`, `:73`, `:96-101`; listeners `+layout.svelte:205-236`).
+- Onboarding (`stores/onboarding.svelte.ts`, whole record, desktop only), tutorial (`stores/tutorial-progress.svelte.ts`, per row), import state (`stores/tableplus-import.svelte.ts:121-131`, `dbeaver-import.svelte.ts`), license (`stores/license.svelte.ts:304-323`, stays in the storage group).
+- The GUI ignores every `storage` event (`library/sync.ts:19`), so every store that saves a whole record or list can overwrite another tab's change: AI settings, user themes, onboarding, license, the license nudge.
+
+**Connection overrides: dead code.** `SharedConnectionManager` (`shared-connection-manager.svelte.ts`) is never constructed; `state.connectionOverrides` stays `{}`; `persistConnectionOverride` and friends (`persistence-manager.svelte.ts:628-673`) are called only by a test (`library-persistence.svelte.test.ts:322`). CLAUDE.md's note that override credentials "still go through the `secret` group" describes code that doesn't run.
+
+**Rust today.** None of the ten 5d-2 query modules has a `WriteTx` function except `app_state::set_in` (`app_state.rs:19`); their single statements run on `st.pool()` and bypass the write mutex (`codec::begin` is used only by the multi-statement saves). `StoredKind` has the 5d-1 kinds only. The machinery 5d-2 reuses: `Storage::write`/`WriteTx` (`crates/seaquel-storage/src/write.rs:31-116`, `Reader` `:167-194`), `WRITE_WAIT` (`open.rs:87`), the change counter (`crates/seaquel-core/src/changes.rs:125-209`), `announce` and `record_storage_write` (`workspace.rs:439-474`), the event bounds (`crates/seaquel-workspace/src/library.rs:76-85`, `changes.rs:103-122`), `LibraryLimits` (`library.rs:139-156`) and `WEB_LIBRARY_LIMITS` (`crates/seaquel-server/src/lib.rs:111-120`), the per-user hub (`crates/seaquel-server/src/workspaces.rs:168-285`), and `deny_unknown_fields` on the envelope and every group but `db` (`crates/seaquel-rpc/src/workspace.rs:136-154`, `library.rs:43-116`).
+
+#### Bugs the re-survey found
+
+Data loss first. Task 1 fixes the ones marked **T1**; the rest go with the task that rewrites the code.
+
+1. **A save of a project whose state isn't loaded yet writes empty tabs** over the stored ones: `setActive` sets the project (`project-manager.svelte.ts:546`) before its state loads (`:551-553`), and the guard only covers failed or pending loads (`persistence-manager.svelte.ts:57-61`). The same window exists at startup (`:163` → `:167`). **T1**, and a rule in Decision 22.
+2. **Closing a web tab loses tab, workflow and chat changes**: `beforeunload` doesn't wait, `flush()` saves projects one at a time behind the queue, no `keepalive`. **T1** (keepalive for the active project's pending save).
+3. **The global `activeView` is saved into other projects** (`persistence-manager.svelte.ts:388`): a timer that fires after a switch, or `flush()`, stores the current project's view as another's. **T1**.
+4. **`flush()` saves every project the page ever loaded** (`:188-190`), including a removed one (its `queryTabsByProject` entry stays, `query-execution.svelte.ts:235-240`), which fails on the foreign key and can use up the one request that leaves on unload. `setActive`'s immediate save leaves the old timer running (bug 3 again). **T1**: flush only pending projects, and clear a project's timer when saving it now.
+5. **Saved workflows and user themes are replaced whole** from a stale copy by another tab's save, as saved queries were before 5d-1. 5d-2's Tasks 4 and 6.
+6. **AI settings, onboarding, license and the license nudge are saved whole** from a stale copy (another tab's changes are lost). Tasks 4 and 6, except the license (stays in the storage group; listed as a follow-up).
+7. **A deleted dashboard can come back**: an upsert queued while `deleteDashboard` awaits its remove re-inserts the row (`dashboard-manager.svelte.ts:94-122`). Task 4 (`DASHBOARD_NOT_FOUND`).
+8. **Dashboard version numbers collide** after a failed versions load or from another tab (`:574-575`); the failed insert stays in memory. Task 4.
+9. **The shared-dashboard reconcile re-saves every dashboard on every activation**: `reconcileWithGitFiles` always returns a new array (`shared-dashboard-manager.svelte.ts:196`), so `reconciled !== dashboards` is always true (`project-manager.svelte.ts:729`), and `persistProjectDashboards` stops at the first failure (`persistence-manager.svelte.ts:416-427`). Once each save is a Core call with an event, that is one event per dashboard per activation in every window. **T1**: save only what changed.
+10. **A chat stream that fails outside the provider's handling leaves the UI streaming**: `sendAIMessageService` runs with `void` and no catch (`ui-state.svelte.ts:334`), and `fetch` sits outside any try (`services/ai/providers.ts:94-103`). Nothing is saved and `isAIStreaming` stays true. **T1**: route the rejection to `onError`, which saves.
+11. **Deleting a chat mid-stream doesn't stop it** (`ai-chat-manager.svelte.ts:56-84`); a pending approval never settles, and a message save already running can re-insert messages for the deleted chat (a logged foreign-key failure). **T1**: abort first.
+12. **A turn in progress is lost on quit**: `flush()` saves chat rows, not messages (`persistence-manager.svelte.ts:196-198`). **T1**.
+13. **A failed load of the active chat's messages at startup refuses every save for it all session** (`state-restoration.svelte.ts:212-230` loads it outside the retrying path). Task 6 (the guard goes).
+14. **Messages with one timestamp can load swapped** (`ai_chats.rs:72`). Task 3 (`ORDER BY timestamp, rowid`).
+15. **Onboarding on web shows a false "couldn't be loaded" toast**: the store is initialised only on desktop (`routes/(app)/+layout.svelte:97-107`), and `completeWizard` (`components/connection-tab-view.svelte:176`, `:258`, `:268`) and `setLearnEnabled` (`components/settings/features/features-section.svelte:28`) reach `skipUnloadedSave` on web. **T1**: skip onboarding writes on web, as the load is skipped.
+16. **The license nudge's `respond` and `snooze` save without the loaded check** (`stores/license-nudge.svelte.ts:109-122`), so after a failed load they write zeroed counts. **T1**.
+17. **One malformed tutorial row empties the whole progress** (`stores/tutorial-progress.svelte.ts:36`, `:43-46`), after which `resetLesson` does nothing. **T1**: skip the bad row.
+18. **The dashboards list isn't cleared by an empty load** (`state-restoration.svelte.ts:239-246` restores only non-empty results), and the first activation loads a project's data twice (`project-manager.svelte.ts:543`, `:944`). Task 6, where the feed's reloads need an empty list to apply.
+19. **DuckDB extensions tabs are dropped** by the Rust save and load (`project_state.rs:202-203`) while their ids stay in `tabOrder` and the layout. Decision 22 keeps them in the window's row.
+20. **One repeated tab id or workflow id fails the whole project save** (`tabs`' key, `saved_canvases.id` is global, `project_state.rs:391`). Decisions 22 and 23.
+21. **Starter tabs swap `state.activeProjectId`** while adding a project's defaults (`starter-tabs.svelte.ts:70-82`). **T1**: pass the project id.
+22. **A stale `activeWorkflowId` after a project switch makes a save create a copy** instead of updating (`workflow-manager.svelte.ts:622-654`; `WorkflowState` is global). Task 6.
+23. **Settings stores without a guard** (editor settings, pending changes) let a setter called before the load be overwritten by it, and the version-limit section has no error handling (`query-history-section.svelte:10-60`). Task 6.
+24. **Two tabs setting up the web vault at once** replace each other's salt and verifier (`services/vault/vault-state.svelte.ts:160-181`, `vault_state.rs:30-43`). The vault stays in TypeScript: a follow-up.
+25. **Shared dashboards: edits never reach the git file**, only share, unshare and delete do, and the reconcile then takes the stale file with no newer-than check (`shared-dashboard-manager.svelte.ts:211-222`); a rename leaves the old file. Q7 keeps git in TypeScript: a follow-up, like the saved-query rename 5d-1 fixed.
+26. **Dead code:** connection overrides (above), `DashboardManager.loadDashboards`, `license.revertToPersonal` (`stores/license.svelte.ts:195-207`), `UseDatabase.destroy()`.
+
+#### Stored data to expect (for Task 2)
+
+5d-1's added scope came from rows older releases left. What the re-survey found the 5d-2 loads already tolerate, and Core's reads must tolerate the same way (a write checks its input; a read never refuses a stored row, it skips or defaults it as today):
+- `aiSettings` with `model`/`provider` on providers, not JSON, not an object, or `providers` holding `null` (the store and MCP read defaults).
+- `user_themes` rows that don't parse (skipped, `themes.rs:37-46`); `onboarding_state` that doesn't parse (defaults, `codec.rs:205-226`); `tutorial_progress.state` that doesn't parse (today it empties everything: bug 17).
+- `project_state` with `activeView: "canvas"`, `canvasTabs`, `savedCanvases`, `activeCanvasTabId` (`project-manager.svelte.ts:50-54`, `:1035-1061`), NULL `tab_order`, empty `pane_layout`; `saved_canvases` rows that don't parse or don't decode (skipped).
+- `dashboards.starred` NULL (every file), `dashboards.project_id` NULL and without a foreign key (beta-era files), dashboards sharing a name.
+- `ai_messages` with equal timestamps; `app_state` rows holding NULL.
+
+Task 2 seeds each of these and records what today's code does with it.
 
 ### Order and estimates
 
-These are sized from 5c's per-task times, with 5d-1's own times replacing them where 5d-1 has logged them before 5d-2 starts.
+Sized from 5d-1's logged times (effort log, design doc "Phase 5d-1 cost"), each first pass scaled by how much more or less the task holds than its 5d-1 twin.
 
-| # | Task | First pass | Nearest 5c task | Needs | Alongside |
+| # | Task | First pass | 5d-1's twin (logged first pass) | Needs | Alongside |
 |---|---|---|---|---|---|
-| 1 | TS fixes found re-surveying after 5d-1 | 0.15–0.25 h | 1 | 5d-1 | 3 |
-| 2 | State fixtures and the recorder | 0.35–0.55 h | 2 (~0.4 h) | 1 | 3 |
-| 3 | Storage: the window migration and queries with pruning, dashboards, versions, workflows, messages, settings records | 0.4–0.65 h | 3, no live suites | — | 1, 2 |
-| 4 | Core: `state` (dashboards, workflows, chats, overrides, settings, AI settings, themes, window view state and its fallback), limits, events | 0.8–1.2 h | 4 (~1.1 h) | 2, 3 | — |
-| 5 | RPC `settings` and `ui` groups, `library` additions, `types:gen` | 0.3–0.5 h | 5, the plumbing done | 4 | — |
-| 6 | GUI: window identity, the 43 project-save calls, seven stores, dashboards, chats, workflows, `ChangeFeed` kinds, `TsLibrary` | 1.15–1.7 h | 6 (~0.8 h), more files | 5 | — |
-| 7 | Probe | 0.25–0.45 h | 7 | 6 | — |
-| 8 | Docs, measurement, checkpoint | 0.5–0.65 h | 8 | all | — |
-| | Review fixes (~20%) | 0.8–1.2 h | | | |
-| | Probe fixes (~40%) | 1.55–2.4 h | | | |
-| | **Total** | **~6.25–9.5 h** | | | |
+| 1 | TS fixes from the re-survey, and chart nodes stored without rows (Q16) | 0.4–0.55 h | 1 (0.27 h, 8 items; here 13) | — | 2, 3 |
+| 2 | State fixtures, the recorder, the old-data seeds | 0.45–0.65 h | 2 (0.35 h; more entities, the seeds) | 1 | 3 |
+| 3 | Storage: `0002`, targeted queries on `WriteTx`, the legacy mirror, the dashboard name-key step | 0.6–0.8 h | 3 (0.47 h; ten modules, a migration) | — | 1, 2 |
+| 4 | Core: the `state` module, settings, AI settings, themes, dashboards, workflows, chats, window state, limits, events | 1.3–1.6 h | 4 (1.2 h; more methods, no secrets upgrade) | 2, 3 | — |
+| 5 | RPC: `settings` and `ui` groups, `library` additions, 32 storage variants out, `types:gen` | 0.5–0.7 h | 5 (0.95 h, of which event delivery; now plumbing only) | 4 | — |
+| 6a | GUI: window identity, view state, the 35 project-save calls, `PersistenceManager` out | 1.1–1.4 h | 6 (1.9 h for four managers and the feed) | 5 | 6b's stores part |
+| 6b | GUI: dashboards, workflows, chats, the settings stores, `ChangeFeed` kinds, `TsLibrary` | 1.3–1.6 h | 6 | 5 | 6a (stores only) |
+| 7 | Probe | 0.7–0.9 h | 7 (0.65 h; more checks) | 6a, 6b | — |
+| 8 | Docs, measurement, checkpoint | 0.5–0.65 h | 8 (0.5 h) | all | — |
+| | **First passes** | **6.85–8.85 h** | 5d-1: 6.3 h | | |
+| | Review fixes (~70% of first passes, as 5d-1 ran) | 4.8–6.2 h | 5d-1: 3.8 h | | |
+| | Probe fixes (work) | 1.5–2 h | 5d-1: 1.5 h | | |
+| | Live suite waits (one affected-crates run per Core/storage review round, one full run at the checkpoint) | 2–2.5 h | 5d-1: ~2.3 h | | |
+| | Old data and owner decisions still to come (5d-1's Decision 12a took 0.85 h; Q13–Q19 are answered) | 0.3–0.7 h | | | |
+| | **Total** | **~15.3–20.3 h** | 5d-1: 14.8 h | | |
 
-The first passes add up to 3.9–5.95 h, about 0.4–0.65 h more than before Q12's answer: the migration, window identity (the `BroadcastChannel` check), the fallback load and the pruning. Expect about 7.5 h. **Both slices together: about 12.3–18.7 h; expect about 14.5 h.** The riskiest tasks:
-- **Task 6:** the tab managers' saves stay debounced but lose the saved workflows. Every store changes its load and save. The chat's streaming turn meets the feed.
-- **Task 4:** keeping the `aiSettings` record byte-compatible for the MCP reader while splitting its writes.
+Expect about 17.5 h. That is above the design doc's 11–14 h, which kept first passes "as the plan has them" (3.9–5.95 h). The re-survey sizes them from 5d-1's actual first passes instead, and Task 6 is split in two because 5d-1's Task 6 alone ran 1.9 h against 0.9–1.3 h. **Both slices together: about 32 h.**
 
-### Tasks, in outline
+The riskiest tasks:
+- **Task 6a:** window identity has to be settled before the first Core call, the load-before-save rule touches every tab manager, and the fallback load must give the first window after the upgrade exactly today's tabs.
+- **Task 4:** the `aiSettings` record rewritten from the stored copy byte-compatibly for the MCP reader; the legacy mirror; `rev`; the bounded prunes.
+- **Task 6b:** a streaming chat meets the feed; eight stores change their load and save; dashboards with an unsaved local change meet remote updates.
 
-Same shape as 5d-1's. What each adds:
+Cuts if time runs short: the `rev` ordering (keep only the load-before-save rule), and the onboarding patch (whole value, last writer wins; it is desktop-only today).
 
-1. **TS fixes** found re-surveying after 5d-1, and the web tab-close save through `keepalive` (Decision 22), so the last 500 ms of tab changes survive.
-2. **Fixtures:** the `state/` set ("Parity fixtures").
-3. **Storage:**
-   - `dashboards::{insert, update, delete, names_in_project, count}`;
-   - `dashboard_versions::{append, list_meta, delete_ids}`;
-   - `saved_canvases::{insert, update, delete, count}`;
-   - `migrations/0002_window_state.sql`; `windows::{get, touch, delete}`, `window_state::{get, most_recent, put, prune}`, and `project_state::save_legacy_mirror` (the state row and tabs, keeping the stored connection order and active connection, never `saved_canvases`);
-   - `ai_chats::{insert, update, delete, put_messages, delete_messages}`;
-   - the settings records read and written inside a `WriteTx`.
+### Task 1: Fixes in TypeScript first
 
-   Tests as 5d-1's Task 3, with `project_state::save`'s frozen behaviour kept for its fixture.
-4. **Core:**
-   - the `state` module and methods;
-   - the `aiSettings` record rewritten from its stored copy inside the transaction, pinned by `exposed.rs`'s reader test;
-   - the dashboard version rule;
-   - message upserts;
-   - `StateLimits`;
-   - one event per write.
+Bugs the re-survey found that TypeScript alone fixes, so the fixtures record the fixed behaviour. Data loss first.
 
-   Tests:
-   - `two_windows_editing_different_providers_both_land`;
-   - `a_streaming_chats_messages_are_upserted_not_replaced`;
-   - `a_dashboard_star_is_saved`, `dashboard_limit_zero_keeps_all`;
-   - `project_state_save_leaves_workflows_alone`;
-   - `unknown_setting_keys_are_refused`;
-   - `a_new_window_copies_the_most_recent_then_legacy_then_empty`, `a_window_save_writes_the_legacy_mirror_and_keeps_the_sidebar`, `pruning_is_bounded_and_spares_the_saving_window_and_main`, `a_window_id_other_than_the_origin_is_refused`, `a_view_state_event_names_only_its_window`;
-   - logs and events as in 5d-1.
-5. **RPC:**
-   - the two groups and the `library` additions;
-   - the storage variants retired;
-   - the server's `another_users_ids_are_not_found` for every new call;
-   - `types:gen`.
-6. **GUI:**
-   - `PersistenceManager` goes. View-state saves go through `ui.windowStateSave` (still debounced), the connection order through `library.projectSidebarSet`.
-   - A `window-id.ts` module: the webview label on desktop; on web the `sessionStorage` id with the `BroadcastChannel` duplicate check, and `windowForget` plus the keepalive save on `pagehide`.
-   - Workflow, dashboard and chat managers call `LibraryService`.
-   - `ai-settings`, `theme`, `onboarding`, `tutorial-progress`, `editor-settings`, `pending-changes-settings`, `update`, `license-nudge` and the import stores call `settings`.
-   - `ChangeFeed` covers the new kinds:
-     - an open dashboard reloads unless it has an unsaved local change, which shows the banner;
-     - an open chat waits for its turn to end;
-     - settings apply at once;
-     - view state never from another window (Decision 22).
-   - `TsLibrary` grows the methods.
-   - Tests mirror 5d-1's, plus: `a workflow saved in one tab appears in the other`, `a theme added in one tab appears in the other`, `a tab's layout isn't moved by another tab`, `a new tab starts with the most recent window's tabs`, `a reload keeps the tab's own tabs`, `a duplicated tab gets a new window id`, `the first window after the upgrade gets today's tabs`, `a call naming another window's id is refused`.
-7. **Probe:** 5d-1's checks for the new calls, plus:
-   - two tabs editing one dashboard (the last writer wins on widgets, and both converge);
-   - two tabs adding AI providers (both kept);
-   - a chat streaming in one tab while the other deletes it;
-   - a 16 MiB workflow;
-   - 5,000 messages;
-   - tab-close within 500 ms of a change (nothing lost);
-   - 60 browser tabs opened and closed: the user holds at most 50 window rows, each save's prune stays bounded, and the legacy mirror always matches the latest save;
-   - a view-state save naming another tab's window id is refused;
-   - an older release (2026.9.x) opening the file afterwards shows the latest window's tabs.
-8. **Docs and checkpoint:** as 5d-1's, and the design doc's "Phase 5d cost" for both slices.
+**Files:**
+- `persistence-manager.svelte.ts`:
+  - a project's state is saved only after this page loaded it: a per-project `loaded` set, filled when `loadProjectState` answers (with a row or `null`) and cleared on removal; `persistProjectState` returns early (logged, not toasted) for a project not in it (bug 1);
+  - `flush()` saves only projects with a pending timer, active project first (bug 4);
+  - `activeView` is kept per project in memory (`activeViewByProject`, set on switch and by `ui-state.svelte.ts:402`) and saved from there (bug 3);
+  - `persistProjectState` clears the project's own timer (bug 4);
+  - `flush()` also saves the streaming chat's messages (bug 12).
+- `routes/(app)/+layout.svelte`: on web, `pagehide` sends the active project's pending save with `keepalive: true` when its body is under 60 KiB, outside the write queue (bug 2). `RustStorageClient` gets a `sendKeepalive(method, params)` next to `call`.
+- `project-manager.svelte.ts`: the reconcile saves only dashboards whose content changed (compare the persisted form), and a failed one doesn't stop the rest (bug 9). `shared-dashboard-manager.svelte.ts` returns the same array when nothing changed.
+- `ui-state.svelte.ts`: `sendAIMessageService`'s rejection goes to `onError` (bug 10). `ai-chat-manager.svelte.ts`: `deleteChat` aborts a stream on that chat first (bug 11).
+- `stores/onboarding.svelte.ts`: writes are skipped on web, where nothing is loaded (bug 15). `stores/license-nudge.svelte.ts`: `respond` and `snooze` check `initialized` (bug 16). `stores/tutorial-progress.svelte.ts`: a row that doesn't parse is skipped and logged (bug 17). `starter-tabs.svelte.ts`: `initializeDefaults(projectId)` no longer swaps the active project (bug 21).
+- `workflow-manager.svelte.ts` (Q16, Decision 23): the save stores a chart node with `rows: []` when its source node in the same workflow holds rows; the load fills an empty chart from its source. A workflow with stored chart copies loads unchanged.
+- **Follow-up from Task 2's review:** `project-manager.svelte.ts` adds a project's starter tabs only when its saved state holds no tab of any saved type (`hasSavedTabs`: query, schema, explain, ERD, statistics, workflow and the old `canvasTabs`, dashboard, create-table, data and DuckDB extensions tabs), plus the unsaved settings tabs. Before, the check read the page's lists, which hadn't counted workflow, statistics and extensions tabs and read the dashboard, create-table and data tabs before they were restored, so a project with only those tabs got the starter tabs again on every load. Tests: `which saved projects get starter tabs` (`starter-tabs.svelte.test.ts`); the fixtures' `view-state/only-a-workflow-tab`, `only-a-dashboard-tab` and `starter-tabs-closed`.
+
+**Tests first** (they fail before the fix):
+- `a project's state isn't saved before its load answers` (a switch with a slow load; the stored tabs survive);
+- `flush saves only projects with a pending change`, `a removed project isn't saved by flush`;
+- `each project keeps its own activeView`;
+- `pagehide sends the pending save with keepalive` (web), `a large pending save isn't sent with keepalive`;
+- `the reconcile saves only changed dashboards`;
+- `a stream that throws ends the turn and saves it`, `deleting a streaming chat aborts it`, `flush saves the streaming chat's messages`;
+- `onboarding on web writes nothing and shows no toast`, `the license nudge's answer isn't saved after a failed load`, `one bad tutorial row keeps the others`;
+- `starter tabs for a project leave the active project alone`;
+- `a saved chart node stores no rows when its source holds them`, `a chart node reopens with its source's rows`, `a workflow saved with chart copies still loads, and its next save drops them`, `a chart whose source isn't in the workflow keeps its rows`.
+
+**Run:** `mise exec -- npx vitest run src/lib/hooks/database src/lib/stores src/lib/components`; `mise exec -- npm run check` 0/0; the autofixer on changed `.svelte` files.
+
+**Review:** no project-state save can run for a project this page hasn't loaded; the keepalive path sends at most one request and never a body over the cap; the reconcile compares persisted forms, not objects.
+
+**Things this task could quietly skip:** the chart node that holds rows its source doesn't (keep them); the startup path (`project-manager.svelte.ts:163-167`) as well as the switch; clearing the `loaded` entry on project removal; the demo (no `pagehide` path needed there, but the `loaded` rule applies).
+
+### Task 2: State fixtures
+
+**Files:** `crates/seaquel-workspace/tests/fixtures/state/` (`README.md`, `changes.json`, and case files `view-state.json`, `workflows.json`, `dashboards.json`, `chats.json`, `settings.json`, `ai-settings.json`, `themes.json`, `misc.json` for onboarding, tutorial and import state, `old-data.json`), and the recorder artifact `docs/plans/artifacts/2026-10-04-record-state-fixtures.test.ts.txt`, run as `src/lib/hooks/database/record-state.test.ts` with `FREEZE_STATE=1`. Same format as `library/` (its README's case and step fields, `<id:n>` keeping the prefix, `<now>`, a fake clock and uuid counter); each step's Core request is the 5d-2 wire form (Decisions 20–24).
+
+**Cases, at least 60:**
+- view state: each tab type saved and loaded; pane layouts (one pane, several); every active id; `activeView` per project; the legacy canvas fields; an extensions tab; a repeated tab id; a save before the load (refused since Task 1); the Rust replay checks the legacy mirror rows equal today's save's `project_state` and `tabs` rows (without `saved_canvases`), and that the first load in a new window returns today's rows;
+- workflows: create, rename, update with result rows (bigint and bytes cells, through `toStorable`), a chart on a result node (stored without rows), a pre-5d-2 workflow holding chart copies (loads, and loses them only on its next `saveWorkflow`; a project-state save before that sends the copies as held in memory), delete, one that doesn't decode, two in one project;
+- dashboards: create, each patch field, star alone, share and unshare, delete, a version per versioned edit and none for a move or pan, prune at 3 and at 0 under both limits, a delete during a pending edit, two with one name;
+- chats: create, retitle, delete, a turn (user message, then the assistant's at the end), an error turn, Stop, an abort with an approval pending, two messages with one timestamp; (the 64 MiB budget is web-only and pinned by Core tests, not fixtures);
+- settings: each key with a good and a bad value, `null`, an unknown key, `query_version_limit` 0;
+- AI settings: add, update and remove a provider with and without an API key (recorded keychain), the privacy flags, `enabled`, a record with legacy fields, one that isn't JSON, one with `providers: [null]`, two tabs editing different providers (recorded as today's loss);
+- themes: add, update, delete (in use and not), preferences, a row that doesn't parse;
+- onboarding, tutorial (with a bad row), import state round trips;
+- old data: every seed in "Stored data to expect".
+
+**Run:** record twice, byte-identical; `git diff --stat` shows only the fixtures and the artifact; `mise exec -- npx vitest run src/lib/hooks/database` passes once the copy is deleted.
+
+**Review:** every entity and every re-survey bug with a stored effect has a case; `changes.json` names each intended difference with its Decision (the list in "Parity fixtures"); the README names the recorder's commit, the normalising rules and what isn't recordable (events, `seq`, origins, `rev`).
+
+**Things this task could quietly skip:** the old-data seeds; the keychain calls of AI keys; a beta-era file for dashboards; the mirror comparison needing today's exact `tabs` rows, not just the state JSON.
+
+### Task 3: Storage
+
+**Files:**
+- `crates/seaquel-storage/migrations/0002_window_state.sql` (Decision 22's SQL, plus the dashboards' stale-key trigger) and the migrations README.
+- `src/data_steps.rs`: `backfill_dashboard_name_keys`, appended; `lib.rs`: `refill_name_keys` covers dashboards.
+- `src/queries/`, every write taking `&mut WriteTx`, every read `impl Into<Reader>`:
+  - `dashboards::{get, list, insert, update, delete, with_name_key, count}`; `dashboard_versions::{append, list_meta, list_by_project, delete_ids}` (numbering `MAX(version) + 1` inside the transaction);
+  - `saved_canvases.rs` (new): `{get, list, insert, update, delete, count}`;
+  - `ai_chats::{get, insert, update, delete, count, put_messages, delete_messages, message_count, message_chat_ids, content_bytes}`, and `load_messages` ordered by `timestamp, rowid`;
+  - `app_state::{get, set_in, delete_in}`; `themes::{preferences, set_preferences, list, get, insert, update, delete, count}`; `onboarding::{get, set}`; `tutorial::{list, save, remove_lesson, remove_all}`; `import_state::{get, save}` (all in a `WriteTx`);
+  - `windows.rs` (new): `{get, touch, set_active_project, prune}`; `window_state.rs` (new): `{get, most_recent, put_if_newer, prune_for_project}`;
+  - `project_state::{sidebar, set_connection_order, write_legacy_mirror}`: the mirror writes the state row and the `tabs` rows from `MirrorRows`, keeps the stored connection order, writes the state's `activeConnectionId` (Q14), never touches `saved_canvases`, and skips a repeated tab id.
+- `project_state::save`, `ai_chats::replace_all_messages`, `themes::save_user_themes` and the other replaced writes stay for the frozen repo fixtures only.
+- Tests: `tests/state.rs` (new), `tests/baseline.rs` (0002 on every frozen release, beta-era included), `tests/open.rs` (the read-only open refuses a file with 0002 pending).
+
+**Tests first:**
+- `migration_0002_applies_on_every_release_schema`, `a_read_only_open_refuses_a_file_with_0002_pending`;
+- `the_dashboard_name_key_step_fills_old_rows`, `an_older_release_renaming_a_dashboard_nulls_its_key`, `refill_covers_dashboards`;
+- `dashboard_versions_number_after_the_highest_inside_the_transaction`, `dashboard_delete_takes_its_versions_on_a_beta_file`;
+- `put_messages_upserts_and_keeps_order_on_equal_timestamps`, `a_message_id_of_another_chat_is_reported`;
+- `the_legacy_mirror_equals_todays_save_without_canvases`, `the_mirror_keeps_the_stored_connection_order`, `the_mirror_skips_a_repeated_tab_id`;
+- `put_if_newer_ignores_an_older_rev`;
+- `content_bytes_uses_the_chat_index` (`EXPLAIN QUERY PLAN`, and timed on a chat of 5,000 1 MiB-bounded messages);
+- `most_recent_uses_the_index` (`EXPLAIN QUERY PLAN`), `each_prune_is_one_bounded_delete_and_spares_the_given_window`;
+- `setting_delete_removes_the_row`;
+- `every_5d2_write_takes_a_write_tx` (a test that holds a `WriteTx` and checks each write waits).
+
+**Run:** `cargo test -p seaquel-storage`; CI clippy; `EXPLAIN QUERY PLAN` output pasted in the review for every count, name lookup and prune.
+
+**Review:** no 5d-2 write on `st.pool()`; the migration expand-only and working on the beta baseline; every scan indexed; the frozen fixtures untouched; `baseline.rs`'s `MIGRATION_COLUMNS` gains `dashboards.name_key`.
+
+**Things this task could quietly skip:** the stale-key trigger for dashboards; the beta-era baseline for `0002` (dashboards there have no foreign key and `project_id` is last); the data step's linear-time test; `delete_in` versus writing NULL.
+
+### Task 4: Core, state, settings and window view state
+
+**Files:**
+- `crates/seaquel-workspace/src/state.rs` (new, pure): the drafts, patches and params types of "The wire and the API", their checks, `read_ai_settings`, the AI settings rewrite, the onboarding merge, `legacy_mirror`, the dashboard version prune (sharing 5d-1's `version_prune`), `StateLimits`, `StoredKind`'s new kinds (in `library.rs`, where the enum lives), the setting key set and their value checks; `tests/state_plan.rs`.
+- `crates/seaquel-core/src/state.rs` (new): one `Workspace` method per call, each on 5d-1's pattern (`library.rs:586-616`: check, then `write()`, `take_seq()` under the lock, reads through `&mut tx`, commit, `announce`); `CoreBuilder::state_limits`.
+- `crates/seaquel-core/src/lib.rs`: `refill_name_keys` after the open, as today (`:622`).
+- `crates/seaquel-server/src/lib.rs`: `WEB_STATE_LIMITS` in `web_core()`.
+- `crates/seaquel-mcp/tests/tools.rs`: the MCP reader against records Core wrote.
+- Tests: `crates/seaquel-core/tests/{state,settings,window_state}.rs`.
+
+**Tests first:**
+- Pure:
+  - `replays_every_fixture_check` with `changes.json` exactly;
+  - `unknown_setting_keys_are_refused`, `each_setting_value_is_checked`, `core_owned_keys_are_refused`;
+  - `ai_settings_read_matches_todays_load` (the legacy and malformed seeds), `the_rewrite_keeps_fields_it_doesnt_know_byte_for_byte`;
+  - `the_mirror_of_a_state_equals_todays_rows`, `a_repeated_tab_id_is_skipped`;
+  - `limits_are_the_interfaces`, `checks_never_panic` (proptest over the drafts), `debug_shows_no_text_names_or_values`.
+- Core:
+  - `replays_every_fixture`;
+  - `two_windows_editing_different_providers_both_land`, `an_api_key_is_written_before_the_record_and_taken_back_on_failure` (desktop, `MemoryStore`), `an_api_key_on_web_is_not_supported`, `removing_a_provider_deletes_its_key_or_vault_rows`;
+  - `a_dashboard_star_is_saved_without_touching_updated_at`, `a_version_only_when_asked`, `dashboard_limit_zero_keeps_all`, `an_update_of_a_removed_dashboard_is_not_found`, `dashboard_names_clash_within_a_project`;
+  - `a_workflow_gets_core_id_and_times_and_keeps_the_rest_byte_for_byte`, `project_state_writes_leave_workflows_alone`;
+  - `messages_are_upserted_not_replaced`, `a_message_id_of_another_chat_is_refused`, `removing_a_chat_takes_its_messages`;
+  - `a_put_past_the_chat_budget_is_refused_and_stores_nothing`, `replacing_a_message_counts_its_new_size_not_both`, `desktop_has_no_chat_budget`, `chat_messages_list_answers_the_stored_bytes`;
+  - `a_workflow_past_16_mib_is_refused_on_web`, `desktop_has_no_workflow_cap`;
+  - `removing_the_theme_in_use_resets_the_preference`;
+  - `a_new_window_copies_the_most_recent_then_legacy_then_empty`, `the_copy_is_written_as_the_windows_row`, `a_window_save_writes_the_legacy_mirror_and_keeps_the_sidebar`, `an_older_rev_is_stale`, `pruning_is_bounded_and_spares_the_saving_window_and_main`, `a_window_id_other_than_the_origin_is_refused`, `window_activate_writes_last_active_project_id`;
+  - `limits_refuse_before_anything_is_read`, `counts_are_checked_inside_the_transaction`.
+- Events: `every_state_write_emits_one_event_after_commit`, `a_refused_write_emits_nothing`, `a_view_state_event_names_only_its_window`, `message_events_are_scoped_to_the_chat_and_bounded` (6,000 messages put: `ids: None`), `seq_follows_commit_order_across_library_and_state_writes`.
+- MCP: `the_global_default_written_by_core_is_what_mcp_reads` (in `crates/seaquel-mcp/tests/tools.rs`, next to `:1046-1070`).
+- Logs: `no_text_names_json_or_keys_in_logs` (`capture_logs`, canaries in tab text, widget JSON, message content, theme JSON, setting values and API keys).
+
+**Run:** `cargo test -p seaquel-workspace -p seaquel-storage`; `cargo test -p seaquel-core --features seaquel-runtime/tokio`; `cargo test -p seaquel-mcp -p seaquel-cli`; CI clippy, both wasm32 lines, `npm run crates:check`.
+
+**Review:** validation before the first write; no pool call and no keychain call inside a `WriteTx` (the API key is written before `write()` and taken back after a failed commit); `seq` taken under the lock; each answer holds whole what its `seq` covers; the MCP tests unchanged and the new one passing; the legacy fallbacks match today's loads on every seed; no Core lock across an await.
+
+**Notes from Task 3's review (storage as built):**
+- `window_state::put_if_newer` answers `Put { written, rev }`: on a stale save `rev` is the stored one. `windowStateSave` answers `{stale, rev}` with it, and **a stale save writes nothing else**: no legacy mirror, no prune.
+- `project_state::write_legacy_mirror` takes a `PersistedProjectState` (storage can't name a `seaquel-workspace` type), ignoring its connection order, starred lists, workflows and extensions tabs; `legacy_mirror` produces that type. It returns the count of repeated tab ids it skipped.
+- Themes: `themes::insert`/`update` store the JSON under the row id they are given. Core must keep the theme JSON's top-level `id` equal to that row id (set it when it makes `theme-<uuid>`, and on update), since today's load and the frozen `save_user_themes` read the id from the JSON.
+- The prunes take the cutoff time and the spared window ids from Core (`windows::prune(tx, unused_before, max_windows, spare)`, `window_state::prune_for_project(tx, project, max, spare)`): the saving window always, and `main` on desktop.
+
+**Things this task could quietly skip:** keeping unknown `aiSettings` fields; the providers-with-`null` fallback; `rev`; `lastActiveProjectId` in `windowActivate`; the vault rows of a removed provider on web; the dashboard versions' byte budget on web; the chat budget counting a replaced message once; `StateLimits` in the server's test Core as well as `web_core()`.
+
+### Task 5: RPC and transports
+
+**Files:**
+- `crates/seaquel-rpc/src/{settings,ui}.rs` (new), `library.rs` (the 5d-2 methods), `workspace.rs` (`Request::Settings`, `Request::Ui`, the 32 retired storage variants, `storage_change` shrinking to the vault, license, shared repos and history), `db.rs` (`CoreEvent` unchanged but for the kinds).
+- `crates/seaquel-server/src/error.rs`: the new 404s. `routes/rpc.rs`: nothing new beyond the groups; `/rpc` serves them.
+- `src-tauri/src/lib.rs`: the storage-backed arm serves the two groups with the webview label.
+- `src/lib/storage/{client,rust-client,sqljs-client}.ts`: the retired methods reject `NOT_SUPPORTED` until Task 6 (as 5d-1's Task 5 did), `STORAGE_METHOD_KIND` shrinks.
+- `npm run types:gen`.
+
+**Tests first:**
+- rpc: wire snapshots of every new method; `Clearable` and `RawValue` round-trips; `unknown_request_fields_are_refused` extended to `settings`, `ui` and every new `library` method (the test at `crates/seaquel-rpc/tests/library.rs:270-311`); `a_retired_storage_method_is_unknown` for all 32; `debug_redacts_every_new_params_type`.
+- server: `another_users_ids_are_not_found` for every new call (B's file unchanged, `sqlite3`); `a_window_id_that_isnt_the_origin_is_refused_over_http`; `a_state_write_reaches_every_socket_of_that_user_and_none_of_another`; `the_web_state_limits_apply`; `an_api_key_over_web_is_not_supported`; `state_calls_log_group_method_and_code_only`.
+- src-tauri: `core_call_serves_settings_and_ui_with_the_webview_origin`.
+
+**Run:** `cargo test -p seaquel-rpc -p seaquel-server --features seaquel-runtime/tokio`; `mise exec -- npm run cli:build && cargo test -p seaquel --lib`; `types:gen` twice, no diff the second time; `npm run check` 0/0.
+
+**Review:** the envelope and every new params type refuse unknown fields; no new route and no new forwarded header in Node; `dispatch_workspace` still refuses SSH, git and licensing; nothing but vault, license, shared-repo and history writes left in the storage group.
+
+**Things this task could quietly skip:** the server's `another_users_ids_are_not_found` for the `ui` calls (a window id of user B named by A); the retired variants' TS stubs, which leave desktop and web unable to load tabs between Tasks 5 and 6 (don't release in between).
+
+**Notes from Task 5 (as built):**
+- **Wire.** `Request::Settings` and `Request::Ui` (`crates/seaquel-rpc/src/{settings,ui}.rs`) and 18 `library` additions (Decisions 21, 23, 24, plus `projectSidebarGet` next to `projectSidebarSet`, Task 4's pick for the `project` refetch). Every params object refuses unknown fields; `settingGet`/`settingSet`'s `key` is a `String` on the wire (`SettingKey` only in the generated TypeScript), so an unknown key is Core's `INVALID_ARGUMENT` naming it; `settingSet`'s `value` must be present (`null` deletes). `apiKey` is `Clearable` (absent keep, `null` delete). JSON bodies are `RawValue` both ways; answers holding one are typed `SeqdJson`/`SeqdJsonList` (`{value: unknown, seq}`) in TypeScript. `chatMessagesRemove` answers the count removed. The three groups' request and response `Debug` shows the method (and a response's `seq`) only.
+- **Retired: 35 storage methods, not 32** (the plan's count missed three): `aiChats*` (6), `appState*` (2), `connectionOverrides*` (4), `dashboardVersions*` (4), `dashboards*` (4), `importState*` (2), `onboarding*` (2), `projectState*` (3), `themes*` (4), `tutorial*` (4). The storage group keeps `queryHistory*`, `sharedRepos*`, `license*`, `vaultState*` and `userCredentials*` (15), and `storage_change` covers only those.
+- **Statuses:** `DASHBOARD_NOT_FOUND`, `WORKFLOW_NOT_FOUND`, `CHAT_NOT_FOUND`, `THEME_NOT_FOUND`, `AI_PROVIDER_NOT_FOUND` 404; `STORAGE_FULL` 507 was already mapped. The new calls count toward the per-user in-flight bytes and the body limits like every call, and not toward the four-at-once edit cap.
+- **The web origin is still per page load** (`webPageOrigin()`), so on web a `ui` call works only when it names that id, and a tab's view state doesn't survive a reload. **Task 6a must make it the window id** before the first Core call (Decision 22); nothing else in the transport changes. `RustStorageClient.saveWindowStateKeepalive` (the `pagehide` send) already carries `X-Seaquel-Origin`, like every call.
+- **The TypeScript seam for 6a/6b:** `RustStorageClient.settings(method, params)` and `.ui(method, params)` next to `.library(...)`, writes on the same queue (`windowStateLoad` counts as a write, since a first load copies a row), `SETTINGS_METHOD_KIND`/`UI_METHOD_KIND`, and `sendKeepaliveRequest(request, what)` for any group.
+- **What is broken on desktop and web until 6a/6b** (don't release in between): `RustStorageClient`'s retired methods reject with `NOT_SUPPORTED` without sending anything, except `appState.get`, which reads through `settingGet` so the storage gate's probe still sees `LEGACY_STORAGE`/`STORAGE_CORRUPT`/`NO_DATA_DIR`, and settings in the closed set still load (`aiSettings` isn't in it, so the AI settings store's load fails). So: open tabs, layout and saved workflows neither load (failed-load guard, so nothing is saved over them) nor save, and the `pagehide` keepalive sends nothing; every setting write fails (key bindings, pending changes, version limits, `lastActiveProjectId`, the license nudge, the skipped update, the connection-secrets notice's clear); AI settings, themes (the defaults apply), onboarding, tutorial progress, TablePlus/DBeaver import state, dashboards and their versions, and AI chats and messages neither load nor save. The library, history, shared repos, license, vault, secrets and `db` calls work as before. The demo is untouched (sql.js).
+
+### Task 6a: The GUI's view state and window identity
+
+**Files:**
+- `src/lib/core/window-id.ts` (new): desktop, the webview label; web, `win-<uuid>` in `sessionStorage` with the `BroadcastChannel` duplicate check (100 ms), resolved once before the storage gate. `src/lib/core/origin.ts`: `webPageOrigin()` returns the window id. `routes/(app)/+layout.svelte` (and the root layout, where the gate runs) awaits it.
+- `src/lib/hooks/database/window-state.svelte.ts` (new): the debounced per-window, per-project save through `ui.windowStateSave`, `rev`, the load-before-save rule, the `pagehide` keepalive send (replacing Task 1's), and the load through `ui.windowStateLoad` with the fallback it reports.
+- `persistence-manager.svelte.ts`: **goes.** Its serializers move to `window-state.svelte.ts`; the shared-repo save moves into `shared-repo-manager.svelte.ts` (it stays in the storage group); dashboards, chats and overrides go with 6b and Decision 25.
+- The 35 call sites: the wrapper at `hooks/database.svelte.ts:113-115` now schedules the window-state save, so the 29 tab and layout calls need no change beyond the constructor; the four workflow calls go to 6b; `connection-manager.svelte.ts:634`, `:1208` and `project-manager.svelte.ts:475`, `:909` (the connection order) call `library.projectSidebarSet` at once; `:923` and `:1189` (the active connection) schedule the window-state save like any tab change (Q14).
+- `project-manager.svelte.ts`: `setActive` and `initialize` call `ui.windowActivate`; `loadProjectState` reads `windowStateLoad` and still restores the legacy canvas fields; `lastActiveProjectId` is no longer written from here.
+- `library/sync.ts`: `projectState` events handled by Decision 22's rule; `project` events refetch the sidebar row too.
+- `storage/load-guard.ts`: `LoadKey` loses `projectState:*` and gains `windowState:*`.
+- The demo: `TsLibrary` (or `TsState`) serves the `ui` calls over sql.js with window id `demo`.
+
+**Tests first (vitest):**
+- `a tab's layout isn't moved by another tab`; `a new tab starts with the most recent window's tabs`; `a reload keeps the tab's own tabs`; `a duplicated tab gets a new window id before its first call`; `the first window after the upgrade gets today's tabs`; `a call naming another window's id is refused`;
+- `no view-state save before its load answers` (the switch and startup cases); `an older queued save doesn't overwrite the pagehide save` (`rev`);
+- `the connection order is saved at once and appears in another tab`; `each window keeps its own active connection` (Q14);
+- `the web origin is the window id on every call and on the socket`;
+- the storage-gate, failed-load and starter-tab tests pass, rewritten where they named `projectState`.
+
+**Run:** `npm run check` 0/0; `CI=1 mise exec -- npx vitest run`; `npx oxlint --type-aware --type-check --deny-warnings`; the autofixer; `build`, `build:web`, `build:demo`; live on desktop and web: the manual checks' view-state items.
+
+**Note from Task 3's review:** a `stale` answer to `windowStateSave` carries the stored `rev`. The page moves its counter past it (the next save sends `rev + 1`) or reloads the window's state; otherwise every later save from that page stays stale.
+
+**Review:** the window id settled before the first Core call on web; the load-before-save rule on every path that can schedule; `rev` continuing from the load, and past a stale answer's `rev`; no replace-all save left (`rg "projectState\.save|persistProjectState" src -g '!*.test.ts'` empty).
+
+**Note (from Task 1's review):** Task 1's keepalive skips a save whose body is over 60 KiB (logged as a `warn` with the size) and leaves it to the ordinary flush. Today the project state carries the saved workflows, so a project with workflow results is nearly always over the cap. Once workflows leave the project state (Decision 23), the window's view state is much smaller and the keepalive covers most projects; the size check and the `warn` stay.
+
+**Things this task could quietly skip:** the socket URL's origin (`core/http.ts:125`); the startup path; `activeView` per project in the stored state; the extensions tabs in the state; the desktop close flush (awaited, now through `window-state`).
+
+**Follow-up from Task 2's review:** `hasSavedTabs` (`project-manager.svelte.ts`) counts a saved tab whether or not the restore keeps it. It should count only tabs that survive the restore filters (a schema, ERD, statistics, workflow, create-table, data or extensions tab whose `connectionId` is missing or names a connection that's gone; a dashboard tab with no `dashboardId`), so a project whose saved tabs are all dropped still gets its starter tabs. Add a case for it with the window-state work.
+
+**Notes from Task 4's review (Core as built):**
+- **Over-limit states stay saveable.** A view state stored before the web limits (or copied from one on the first load) can be past `max_view_state_bytes`, `max_tabs` or `max_tab_text_bytes`. Core still accepts a save that is no larger than the window's stored row, item by item (the whole state against the stored state, a tab's text against the same tab id's stored text), and refuses only growth past a limit (`INVALID_ARGUMENT` naming the limit, and `tab <id>` for a tab's text). The GUI surfaces such a refusal **once** per project and limit, naming the limit and the tab, and keeps saving (the user trims the tab to get under it); it doesn't toast on every 500 ms save.
+- **`windowStateLoad` `empty` over an unreadable own row** answers that row's `rev` (not 0): count up from the answered `rev` in every case.
+- The legacy mirror writes an `activeView` of `canvas` as `workflow`; the window's row keeps the state as sent.
+
+**Notes from Task 6a (as built):**
+- **Window id** (`src/lib/core/window-id.ts`): desktop the webview label, web `win-<uuid>` in `sessionStorage` (key `seaquel.windowId`) with the claim/answer check on the `seaquel-window-ids` `BroadcastChannel` (100 ms, skipped for a freshly made id), demo `demo`. `windowIdReady()` resolves it once; `windowId()` is the settled id or `null`. `webPageOrigin()` returns it (`null` before it settles) and `newOrigin`/`ORIGIN_PATTERN` moved there (re-exported from `origin.ts`). It is settled before the first Core call three ways: `StorageGate`'s probe and the `(app)` layout's `onMount` await it (the root layout makes no storage call, so nothing was added there), `httpCoreTransport` awaits it before every `fetch`, and `HttpCoreClient` builds its default socket URL only when it is known (it waits otherwise). `sendKeepaliveRequest` sends nothing before it settles.
+- **`WindowStateManager`** (`window-state.svelte.ts`) replaces `PersistenceManager` for the view state: debounce, load guard (`windowState:<projectId>`), the load-before-save rule, `rev` (from the load's answer; past a stale answer's `rev`, then the page's state is scheduled again), flush of pending projects only (active first), the `pagehide` keepalive, and the serializers. A save refused for a limit (`max_*` in Core's message) is shown once per project and limit (new key `view_state_save_refused`); others are logged. `activeProject()` is `windowGet`, `activate()` is `windowActivate` (skipped while the projects are an in-memory stand-in). A standalone window (`/windows/…`, the theme editor) runs it disabled: no `ui` call at all, so it never gets a row.
+- **The seam:** `UiService` in `library/types.ts`, `CoreUi` (the queued `ui()` calls and `saveWindowStateKeepalive`) and `TsUi` (the demo), picked by `getUi()`/`setUi()` in `library/index.ts`. `LibraryService` gained `getProjectSidebar`, `setProjectSidebar` and **`listWorkflows`** (a read only: the view state no longer carries saved workflows, so `loadProjectState` reads them from `workflowsList` and decodes with `fromStorable`). `RecordingLibrary` and `TsLibrary` implement the three.
+- **The demo** (`TsUi`): new `windows` and `window_state` tables in the sql.js schema (`IF NOT EXISTS`, so existing demo files get them), Core's rules for the origin check, copy-on-first-load (most recent window, then `project_state`/`tabs` through `projectStateRepo.load` minus the four non-view fields, then empty), `rev` and `windowGet`/`windowActivate` (with `lastActiveProjectId`). No legacy mirror, no prunes, no limits (one window, no older release reads it). The GUI tests use `TsUi` over sql.js with several window ids on one database.
+- **`ProjectManager`:** `initialize` asks `windowGet` (then checks the id against the listed projects) and calls `windowActivate`; `setActive` saves the old project's view state, then `windowActivate`s and loads. `lastActiveProjectId` is no longer written from TypeScript. `loadProjectState` reads the view state, the sidebar (`projectSidebarGet`, `seq` rule under `projectSidebar:<id>`) and the workflows in parallel; the legacy canvas fields are still restored. `refreshFromLibrary` (a `project` event, and `reloadAll`) also refetches the connection order of loaded projects. `reloadViewState` reads a project's view state again (the active one; another is read when opened). `LibrarySync` calls it for Decision 22's own-id `projectState` rule, which **never fires in practice**: Core refuses a `ui` write whose window id isn't the caller's origin, so such an event always carries this page's origin, and the feed skips own-origin events first. The handler is kept (with a comment) in case either check changes.
+- **Connection order** is stored at once (`storeConnectionOrder` in `library/view.ts`, new key `connection_order_save_failed` on failure) from the four listed sites: `ConnectionManager.reorder` and the TablePlus/DBeaver import, `ProjectManager`'s git-path clear and imported shared connection. Appending a new connection to the in-memory order isn't stored, as today: the sidebar puts unknown ids last. The active connection is in the view state (Q14).
+- **Task 2 follow-up done:** `hasSavedTabs(saved, known)` counts only tabs the restore keeps, and the restore itself now also drops a connection-bound tab naming a connection that's gone, but only once the connections are known (`ConnectionManager.loaded`; at startup the project loads before them).
+- **Deviation: `persistence-manager.svelte.ts` is deleted, but what 6b owns moved to `dashboard-chat-persistence.svelte.ts` (`DashboardChatPersistence`), marked at its top as 6b's to finish and delete:** the dashboard saves, version limit, version insert/prune and loads; the AI chats' debounced saves, message saves, loads (with the `aiMessages:*` guard), removal and the streaming chat's flush; and the retired override functions. They still use the retired storage stubs (`NOT_SUPPORTED` on desktop and web). `UseDatabase.persistence` is that class now; `UseDatabase.flush()`/`saveOnPageHide()` run the window state, the shared repos' save (moved into `SharedRepoManager`: `loadPersistedRepos`, `persistRepos`, `flushPersistence`) and it, and the layout calls those. History loads read `getStorage().queryHistory` in `StateRestorationManager`.
+- **For 6b:** the four workflow calls still schedule a window-state save, which no longer carries saved workflows, so **workflow edits aren't stored anywhere until 6b** (on every build, the demo included); loading already works. `ProjectManager` takes the dashboard store as its optional fourth argument for the reconcile. `StorageClient.projectState` is gone (the storage client test treats the `projectStateRepo.*` fixture steps like 5d-1's retired library calls); the other retired repositories stay for 6b.
+- **Tests:** `window-id.test.ts`, `window-state.svelte.test.ts` (the spec's list except the order test, which is in `library/sync.test.ts` with the feed), a storage-gate case, the `hasSavedTabs` cases; `project-state-save.svelte.test.ts` is replaced by `window-state.svelte.test.ts`; `failed-load`, `library-persistence`, `library-replay`, `dashboard-reconcile`, `sync` and the connection manager suites moved off `PersistenceManager`. Most of the new tests were written alongside the code rather than strictly first; the storage-gate and `hasSavedTabs` cases were seen failing before the change.
+
+**Task 6a review fixes (as built):**
+- **I1:** `windowStateLoad` answering no longer makes a project saveable. It stays pending until `ProjectManager.loadProjectState` has put the state in memory and calls `WindowStateManager.markLoaded(projectId, restored)` (a restore that throws leaves it unsaveable). So a save fired while the sidebar or workflows read is still out sends nothing, on startup and on a switch. The restore is now `restoreViewState`.
+- **M1:** each claim on the window-id channel carries a random nonce; a page still checking answers a claim for the same id, and the lower nonce makes a new id, so two pages checking one id at once don't both keep it.
+- **M2:** once the window id settles, the stream socket opens only if a subscriber or stream still needs it (`socketNeeded()`).
+- **M3:** the own-id `projectState` note above is corrected; code comments say the same.
+- **M4:** `flush` also waits for each project's save already on its way, and saves again the projects a stale answer re-scheduled, at most two more rounds.
+- **M5:** a stale answer for a project this page hasn't changed since its restore (no save was scheduled after `markLoaded`) reads the window's view state again instead of saving over it, so an old page's late `pagehide` save survives the reload that followed it. A project changed here is saved again past the stored `rev`, as before. **M5 covers only a stale save with no change since the restore:** a save caused by a change (the user's edit, or auto-reconnect's `setActiveForProject`) still counts past the stored `rev` and overwrites the old page's newer `pagehide` save. That is accepted.
+- **N1 (re-review):** a reload of a project already shown here (`load(…, {reload: true})` from `reloadViewState`) whose read fails leaves the tabs on screen and the project saveable at its rev; a first load or a switch keeps the old behaviour (empty state, saves refused).
+- **N2 (re-review):** the save `setActive` makes on its way out is `saveNow(…, {leaving: true})`; a stale answer to it, or to any save of a project that is no longer active, doesn't reload: the project just counts as not loaded (`dropLoad`), and the next switch reads it. A reload also checks the active project again after its reads, before it cancels runs and restores.
+- **M6:** before a restore drops tabs naming connections the page doesn't list, it reads those connections once (`ConnectionManager.refreshFromLibrary(missing)`), and drops only the ones still missing.
+
+### Task 6b: Dashboards, workflows, chats, settings, and the feed
+
+**Files:**
+- `library/{types,core-library,ts-library}.ts`: the 5d-2 `library` methods; new `settings` and `ui` clients (`CoreSettings`, or methods on the same seam; the executor picks one and keeps the demo's twin beside it).
+- `dashboard-manager.svelte.ts`: create, patch (with `captureVersion` where it versions today), star, share, remove, restore through Core; versions spliced from the answer and the list re-read (not the answer's `seq`); `stopAllAutoRefresh` on a remote delete. `state-restoration.svelte.ts`: dashboards and versions through `dashboardsList`/`dashboardVersionsList`, an empty result applied (bug 18), loaded once per activation.
+- `workflow-manager.svelte.ts`: `saveWorkflow` async through `workflowCreate`/`workflowUpdate`, delete and rename through Core, `activeWorkflowId` checked against the project (bug 22).
+- `ai-chat-manager.svelte.ts`, `ui-state.svelte.ts`: `chatCreate` at once, `chatUpdate` for titles and times, `chatMessagesPut` at the points Decision 24 lists, `chatRemove` after aborting.
+- The stores: `ai-settings`, `theme`, `onboarding`, `tutorial-progress`, `editor-settings`, `pending-changes-settings`, `update`, `license-nudge`, `tableplus-import`, `dbeaver-import`, `connection-secrets-notice`, and `components/settings/general/query-history-section.svelte` (with `errorToast`), each through `settings`, each applying another tab's change at once (bug 23: a setter before the load waits for it).
+- `services/keyring.ts`: the AI key calls go on desktop (Core writes them); web keeps the vault.
+- `library/sync.ts` (`LibrarySync`): the new kinds, and `reloadAll` covering them on `onResubscribed` and a new epoch:
+  - `dashboard`: refetch the project's dashboards if loaded and update them in place; a deleted one closes its tabs in every project. (Changed in the 6b review: no banner. A refused edit reverts to the stored state and another window's change applies once this page's writes to the dashboard have answered, so a dashboard never holds an unsaved local change.)
+  - `workflow`: refetch; a deleted one unlinks its tabs (they keep their canvas);
+  - `chat` and `chatMessages`: refetch the connection's chats or the chat's messages, except the chat streaming here, which refetches when its turn ends; a deleted chat that is open switches to another, aborting a stream first;
+  - `setting`, `aiSettings`, `theme`, `onboarding`, `tutorial`, `importState`: reload the record and apply it; a deleted active theme falls back to the default.
+- Messages for `max_chat_bytes` ("This chat is full. Start a new chat to continue.") and `max_workflow_bytes` in `library/messages.ts`; the chat panel's full state with a "New chat" button.
+- New i18n keys, through `i18n-translator`.
+- Overrides retired (Q13, Decision 25): delete `shared-connection-manager.svelte.ts`, the override functions in `persistence-manager.svelte.ts` (gone with it in 6a), `connectionOverrides` in `storage/{client,rust-client,sqljs-client}.ts` and `state.connectionOverrides`; `library-persistence.svelte.test.ts:322`'s case goes.
+
+**Tests first (vitest):**
+- `a workflow saved in one tab appears in the other`, `a theme added in one tab appears in the other`, `two tabs adding providers keep both`, `a dashboard renamed in one tab is renamed in the other`, `a dashboard deleted elsewhere closes its tabs`, `a chat deleted elsewhere while streaming stops and switches`, `a streaming chat ignores its own events until the turn ends`;
+- `a dashboard move records no version, a widget edit does`, `a message put carries only the changed messages`;
+- `a full chat says so, keeps the turn on screen and disables sending`, `a full chat opens disabled`, `a workflow too large to save says so and keeps it open`;
+- `a theme changed in one tab applies in the other` (Q18);
+- `settings from another tab apply at once`, `a setting set before its load waits for it`;
+- `every new kind reloads on resubscribe and a new epoch`;
+- `the demo replays the state fixture cases`;
+- the AI, run, dashboard and workflow suites pass.
+
+**Run:** as 6a, plus the manual checks' items for dashboards, chats, workflows and settings.
+
+**Review:** the skip list; `rg "replaceAllMessages|saveUserThemes|appState\.set|dashboards\.save|crypto\.randomUUID" src/lib/hooks/database src/lib/stores -g '!*.test.ts' -g '!library/ts-library.ts' -g '!library/ts-settings.ts' -g '!library/ts-state.ts' -g '!library/ts-ui.ts'` shows only GUI-made ids (messages, widgets, tabs, panes, nodes, streams) and the reconcile placeholders Core replaces; no store saves a whole record.
+
+**Things this task could quietly skip:** `connection-secrets-notice` and the storage gate's probe moving to `settings`; the theme editor window's save path (it goes through the main window's store); the license nudge's per-query write (now `settingSet`, still whole); an open chat's messages on `onResubscribed` while it streams.
+
+**Notes from Task 4's review (Core as built):**
+- **Chart copies are stripped GUI-side, on `saveWorkflow` only** (corrected in the 6b review; this note first said every `workflowUpdate`). Core stays opaque to the workflow JSON; `saveWorkflow` drops a chart node's rows when its source in the workflow holds them, and a rename sends the stored workflow as held, so a workflow saved before 5d-2 keeps its copies until its next `saveWorkflow` (Decision 23, `workflows/pre-5d-2-chart-copies`). Trade-off: on web, a workflow over 16 MiB only because of old copies can't be renamed to a longer name (the rename grows it past `max_workflow_bytes`); saving it once drops the copies.
+- **Over-limit workflows and dashboards stay saveable.** `workflowUpdate` past `max_workflow_bytes` and `dashboardUpdate` past `max_dashboard_bytes` are accepted when the stored result is no larger than what's stored now; only growth is refused (`INVALID_ARGUMENT` naming the limit). A create gets no allowance. The GUI shows such a refusal once per workflow or dashboard, naming the limit and the workflow or dashboard, and says to clear or narrow its results.
+- **`STORAGE_FULL`** (507 on web): the user's `meta.db` reached `SEAQUEL_USER_DB_MAX_BYTES` (2 GiB by default). Nothing of the call was written; show it as an error toast saying storage is full.
+
+**Notes from Task 6b (as built, updated after its reviews):**
+- **The seam.** `LibraryService` gained the dashboard, workflow and chat calls; a new `SettingsService` (`library/types.ts`) with `CoreSettings` (`core-settings.ts`, the queued `settings()` calls) and the demo's `TsSettings` (`ts-settings.ts`), picked by `getSettings()`/`setSettings()`. The demo's dashboards, workflows and chats are `TsState` (`ts-state.ts`), which `TsLibrary` holds and runs through its queue (Decision 26: kept apart for readability). `RecordingLibrary` implements the new calls in memory.
+- **`dashboard-chat-persistence.svelte.ts` and `shared-connection-manager.svelte.ts` are deleted.** `StorageClient` keeps `queryHistory`, `sharedRepos`, `license`, `vaultState` and `userCredentials` only; every retired stub (and `retiredStorageMethod`) is gone from `rust-client.ts` and `sqljs-client.ts`, and `state.connectionOverrides` with them (the demo's repositories stay for the frozen repo fixtures, which `client.test.ts` runs through them). The storage gate's probe is `settingGet("lastActiveProjectId")`.
+- **Dashboards** (`dashboard-manager.svelte.ts`): create through Core (a refusal is shown and answers `null`); "New Dashboard" (the four callers, the dashboard view's tab, which is then renamed to the name Core stored, and the AI's create) sends `renameIfTaken` and takes the next free "<name> (n)". Each edit is a patch of what it changed, `captureVersion` on rename, widget add/update/remove, date filter and restore (not on move, resize, pan, zoom, star or share); the answer's version is spliced in, pruned ids dropped, and the stored row shows unless a later edit here is on its way.
+  - **No banner** (removed in review). A refused edit reverts to the stored state: once this page's writes to the dashboard have answered, the fields the refused patch named (and the tabs' name on a rename) show the row read again, so two refused edits in flight don't bring each other back. Another window's change applies once this page's writes to that dashboard have answered; a row skipped because a write started meanwhile is read again once that write answers. So a dashboard never holds an unsaved local change for another window's change to clash with.
+  - One deleted elsewhere stops its runs and closes its tabs in every project (`closeDashboardTabs`, generalised from `closeConnectionTabs`). A failed shared-file delete is said; the dashboard is still removed. Loads apply an empty list (bug 18) and `setActive` reads a project's data once per activation. `max_dashboard_bytes` is said once per dashboard; names and count limits get their own wording (`limitMessage`).
+  - **The git reconcile** (`shared-dashboard-manager.svelte.ts`, `storeReconciled`): a shared row is paired with a file in two passes: by the file's `name` field (case-insensitively), then, for files and shared rows still unpaired, by the path the row would be written to (`dashboardNameToFilename(name)` equal to the file's basename, the function `writeDashboardFile`/`deleteDashboardFile` use), so a case-only rename on either side keeps the pair and dashboards whose names slug to one path keep their own files. A new file is one `dashboardCreate` with `shared: true` under the file's exact name, without `renameIfTaken`. When Core answers `NAME_TAKEN` (a local dashboard has the name) the file is skipped and said once per file per session, naming both and saying that renaming the local dashboard lets the shared one appear. Nothing Core made is dropped, nothing is paired by a fallback name, and the reconcile's own list (with `file:<path>` placeholders) is never shown: each dashboard shows as Core answers it. **For the owner to confirm** (the coordinator's decision).
+- **Workflows**: `saveWorkflow(name?)` is async (`workflowCreate`/`workflowUpdate`, `toStorable` body without `id`, `projectId`, times); `activeWorkflowId` is looked up in every project the page holds, so after a switch the save updates the workflow the canvas shows where it lives, under its own name when none is given (bug 22). Rename and delete are their own calls; the four calls no longer schedule a view-state save. A rename sends the stored workflow as held (chart copies go only on `saveWorkflow`, Task 4's corrected note). `max_workflow_bytes` is said once per workflow and the canvas stays. A refetch reads again a row it skipped for this page's write.
+- **Chats** (`ai-chat-manager.svelte.ts`): `createChat`, `ensureActiveChat` and `UIStateManager.sendAIMessage` are async (Core's chat id before the first message; two quick sends share one create; `sendAIMessage` answers false when nothing was sent, and the input keeps its text); titles and turn ends are `chatUpdate {title?, touched}` (a refusal is said); `persistMessages` puts only messages whose stored form differs from what was last loaded or sent (`state.aiMessagesSent`), so a failed put's messages go with the next one. A chat read again waits for this page's puts and keeps the shown messages that aren't stored as they are, merged by time. `ChatMessages.full` **comes from Core** (`chat_is_full`: stored bytes plus `max_message_bytes` past `max_chat_bytes`, or the count at `max_messages_per_chat`; never on the desktop): a chat opens full from it, and a read never clears a flag a refusal set. A `max_chat_bytes` or `max_messages_per_chat` refusal marks it full (said once, the turn kept on screen; the panel's banner with "New chat" disables input). A message whose content passes `max_message_bytes`, or whose query passes `max_query_bytes`, is said once per message and left out of later puts; a refusal whose bytes can't be read is said as an error. Stop saves the streaming chat; sending in another chat saves the streaming chat's partial turn first. The `aiMessages:*` guard is gone. The close flush puts the streaming chat's messages.
+- **Settings stores** all go through `settings`; the store classes are exported. `settings-sync.ts` holds `onStoredChange`/`applyStoredChange` (stores register per kind; `LibrarySync` calls it), `WriteOrder` (only the latest write's answer shows, no flicker back; a read answering while a write is on its way is read again after it; a read after a refused write shows the stored value again) and `StoredSetting`, built on it. Themes, onboarding (which re-reads after a failed write) and tutorial progress use `WriteOrder`; the version limits are `VersionLimitsStore` (`stores/version-limits.svelte.ts`). AI settings: `addProvider(input)` answers Core's id; on web a vault write that fails after Core stored the provider throws `ProviderKeyNotSavedError` and the form edits that provider (no duplicate on retry); `updateProvider` sends only changed fields, `apiKey` `""` → `null`; on the desktop the key rides the Core call and `TauriKeyringService`'s AI set/delete reject; Core deletes a removed provider's vault rows. The store keeps unknown record fields. Themes: every write immediate, `flush()` waits for writes in flight, the theme editor's save toasts only once stored; a theme event re-applies the active theme (Q18). `STORAGE_FULL` is a toast from the settings stores' failed writes (`toastIfStorageFull`) and from every library refusal worded by `libraryErrorMessage`.
+- **`LibrarySync`** follows `dashboard`, `workflow`, `chat`, `chatMessages` and the six settings kinds, and `reloadAll` covers them. A `chatMessages` event for the chat streaming here is held until its turn is stored, then read.
+- **6a gap closed here:** a view-state save first stores the project's connection order when the page's differs from the one last read or stored (`storeConnectionOrderIfChanged`).
+- **The TypeScript replay** (`state-replay.svelte.test.ts`) is the recorder's harness and cases rewired to 6b, comparing every step of the 112 cases (377 steps) after `changes.json`: `outcome.ok`, the dumped tables (JSON columns parsed, `<id:n>` bound), `files` and `view`. Not compared: `project_state` and `tabs` (`TsUi` writes no legacy mirror, 6a) and secrets; API keys are dropped before `TsSettings`. Two named exemptions, outcome only: `dashboards/delete-during-pending-edit#1`, `settings/editor-keybinding-mode#2` (refusals the managers show instead of throwing). `view-state/new-window-fallback` step 5 is corrected in `changes.json` (its `core` is what a GUI on Core sends; the Rust replay takes a `core` key from an entry).
+- Also (second re-review): the restore after a refused dashboard edit isn't applied when a write to it is on its way or its read is older than the last recorded `seq`; another window's rename renames this window's tabs for the dashboard; a refused setting shows the stored value again (`settings/editor-keybinding-mode` step 3's view is `null` in `changes.json`); a tutorial write that shows nothing records no `seq`; closing a dashboard within the viewport debounce saves the pan instead of dropping it.
+- **Known issues, left for Task 7's probe and a follow-up** (pre-existing or accepted):
+  - sharing a local dashboard named like an existing git file overwrites that file;
+  - renaming a shared dashboard doesn't rename its file, so the next reconcile recreates the old name as a new shared dashboard and unshares the renamed row (a case-only rename keeps the pair);
+  - a save answer landing mid-drag can snap a widget back (the stored row shows unless a later edit is on its way; a drag in progress isn't one).
+  - two dashboards whose names slug to one path (`nameToFilename` drops non-ASCII letters and punctuation: "Отчёт" and "Продажи" are both `untitled.json`, "Sales" and "Sales!" collide) write the same file, and the last write wins. The reconcile pairs files by their `name` field first (case-insensitively) and falls back to the slug only for files and shared rows still unpaired, so the pairing itself holds.
+- **For Task 7:** probe `chatMessagesList.full` at each bound, two refused dashboard edits in flight, and the reconcile's skip notice (a git file named like a local dashboard). The shared-query reconcile's `saved-<uuid>` (`shared-query-manager.svelte.ts:180`) is a placeholder Core replaces (5d-1), left as it is.
+- **For Task 8:** CLAUDE.md's "Connections in the GUI" and storage sections (the `SettingsService` seam, the retired storage properties, the override line), and the `LoadKey` list (no `aiMessages:*`).
+
+### Task 7: Probe
+
+A separate agent, as 5d-1's (two users, `SEAQUEL_WORKSPACE_CAP=2`, only the browser-facing endpoints plus two `/rpc/stream` sockets per user), for the new calls:
+
+- **Cross-user.** Every new call naming user B's ids (dashboards, workflows, chats, messages, themes, providers, window ids) from A's session is not found or refused, and B's file is unchanged.
+- **Input.** NUL, 1 MiB names, lone surrogates, unknown fields at every level, `Clearable` as `{}`, a setting of the wrong type, a `rev` of `-1` and `1e300`, a window id of 65 characters, a message id of another chat, widgets that aren't JSON.
+- **Two tabs at once.** 100 rounds of: dashboard edits (last writer wins on widgets, both converge, version numbers unique), provider adds (all kept), theme adds (all kept), a chat streaming in one tab while the other deletes it, workflow saves.
+- **Windows.** 60 browser tabs opened and closed: at most 50 window rows, each save's prune timed, the legacy mirror always equal to the latest save; a view-state save naming another tab's window id refused; a tab closed within 500 ms of typing keeps the text (keepalive); a reload keeps its tabs while another tab was used later.
+- **Budgets.** A chat filled to 64 MiB refuses the next put and stores nothing; a workflow of 16 MiB after the chart copies saves and one byte more is refused; a pre-5d-2 workflow with chart copies loads.
+- **Limits at scale.** 1,000 dashboards with 100 versions each, 1,000 workflows (one of 16 MiB), 10,000 chats, one chat of 5,000 messages, 200 themes, 50 providers: time the list loads, a create at full size (the name check), a save's prune, and record the file size.
+- **Events.** One per write, none per refusal; a 5,000-message put is one event with `ids: None`; the 8 MiB socket bound holds with 16 MiB workflow saves.
+- **Older release.** 2026.9.x opens the file afterwards and shows the latest window's tabs and every workflow and dashboard.
+- **MCP.** `seaquel-cli mcp` refuses the file until the app opened it (`0002`), then follows the global AI sharing set through `aiSettingsPatch`.
+- **Leaks.** No tab text, widget JSON, message content, theme JSON, setting value, API key or origin in either server log.
+
+**Probe fixes (as built).** The probe (effort log, "5d-2 Task 7 probe") found two list answers that grew without bound within every web limit, and five smaller holes.
+- **Lists without bodies (owner's choice).** `dashboardVersionsList` answers each version's id, dashboard, number, time, `widgetCount` and snapshot `bytes` (`PersistedDashboardVersionMeta`), and `workflowsList` each workflow's id, project, `name` (`""` when the stored JSON has no text name), times and `bytes` (`PersistedWorkflowMeta`). Two new reads answer one body: `dashboardVersionGet {dashboardId, versionId}` (the version with its snapshot; `DASHBOARD_NOT_FOUND` for a missing dashboard, the new `DASHBOARD_VERSION_NOT_FOUND`, 404, for a version that dashboard doesn't have, another project's dashboard's included) and `workflowGet {workflowId}` (the stored JSON byte for byte; `WORKFLOW_NOT_FOUND` for a missing one or one that doesn't read). Neither takes a project id, so "another project's id" applies to the version only; another user's id is not found, as every call. `dashboardUpdate`'s new version is metadata too: its snapshot is the dashboard before the edit, which the page just showed, and the history reads a snapshot only when it compares or restores one. `workflowCreate`/`workflowUpdate` still answer the whole workflow.
+  - **No body is parsed to list them.** Migration `0003_window_order_and_list_meta.sql` adds `saved_canvases.meta` (the workflow's `{name, createdAt, updatedAt}` as JSON, written with its data in a second statement; a `saved_canvases_meta_stale` trigger clears it if anything else changes `data`) and `dashboard_versions.widget_count`, and fills both for the rows already there. A NULL means "not known" (a row an older release wrote): the list computes it from that row's body with the same SQL (`META_OF_DATA`, `WIDGET_COUNT_OF_SNAPSHOT`), so only those rows are read. Sizes come from `octet_length` (the record header).
+  - **GUI.** `savedWorkflowsByProject` holds `SavedWorkflowSummary` rows. `WorkflowManager.loadWorkflow` is async and reads the body (`getWorkflow`); only the latest open lands (a counter, bumped by `clearWorkflow` too); a failure is said (`workflow_open_failed`) and a `WORKFLOW_NOT_FOUND` also refetches the list. `renameWorkflow` first read the stored body and wrote it back with the new name; the review moved it into Core (`workflowRename`, below). `saveWorkflow` and `findSaved` (bug 22) need only the id and name, which the summary has; `LibrarySync`'s `workflow` refetch applies summaries, and a workflow deleted elsewhere still unlinks the canvas. No view-state tab names a saved workflow (workflow tabs hold only `{id, name, connectionId}`; the canvas is global), so nothing restores a body. A workflow whose body doesn't decode is now listed and says so when opened (it was dropped from the list before). The history keeps `DashboardVersion` without `snapshot` (with `widgetCount`); `DashboardManager.loadVersion` reads one (`dashboard_version_open_failed`, `dashboard_version_unreadable`), and a version pruned or a dashboard removed elsewhere refetches the project's list. The dashboard view fetches the one or two versions picked and drops a pick that a later one overtook. The demo (`TsLibrary`, `TsState`) and `RecordingLibrary` answer the same shapes.
+  - **Fixtures.** The Rust replay's `workflowsList`/`dashboardVersionsList` checks compare ids and pass unchanged; its snapshot drops the new columns after checking each is its row's. The TypeScript replay reads each listed workflow's body through `workflowGet` to count its nodes, and restores through `loadVersion`. `changes.json` gets a `view` for `workflows/does-not-decode` steps 0–2 and `old-data/saved-canvases-bad-rows` steps 0–1 (`workflow-bad` now listed), with a Corrections entry in the fixtures README.
+- **"Most recent" is the last write committed.** `windows` broke equal-millisecond ties by the later rowid and `window_state` by the earlier one, and an upsert keeps its rowid, so `windowGet`, a new window's copy and the legacy mirror could disagree. `0003` adds `write_seq` to both tables (one past the highest in `windows`, or in the project's `window_state` rows, taken inside the write; a stale save takes none) with indexes `idx_windows_write_seq` and `idx_window_state_project_seq`, and numbers the rows already there in the order the old queries read them. "Most recent" and the count prunes go by `write_seq DESC, rowid DESC`; the 30-day prune still goes by `updated_at`. This changes Decision 22's "`updated_at` only": a write committed later is more recent whatever the clock says, which is what the mirror shows.
+- **Lone surrogates in view state.** `WindowStateManager` sends `wellFormedJson(buildState(…))` (new in `core/client.ts`, beside `wellFormed`: every string and key made well-formed) on the queued save and the `pagehide` keepalive; the page keeps showing what it has.
+- **`rev` at most 2^53 - 1** (`MAX_REV`, `check_rev`, before anything is read): past it `INVALID_ARGUMENT`.
+- **Smaller checks.** A workflow body's `name` must be text (missing or `null`: "needs a name"; another type: "is text"), in Core and the demo. A theme or workflow name holding a lone surrogate says so instead of "needs a name". `onboardingPatch`'s `userBackground` must be `none`, `datagrip` or `dbeaver` (`ONBOARDING_BACKGROUNDS`, the GUI's `UserBackground`). `projectSidebarSet` still accepts connection ids that don't exist, on purpose: another window may have just created the connection, and the sidebar sorts only the connections it has by the order (`projectConnections`), so an id naming none is ignored.
+- **Review fixes (as built).**
+  - *One row could fail a whole `workflowsList`* (Important): SQLite's `->>` returns an escaped lone surrogate as CESU-8 bytes and `json_object` copies a stored non-UTF-8 byte through, so decoding `meta` as a string failed the list with `STORAGE_ERROR`. It is now selected `AS BLOB` and read lossily (U+FFFD); the version list reads its ids and times the same way.
+  - *Rename is Core's*: `workflowRename {workflowId, name}` (new; `workflowUpdate` carries a whole body, so a name-only patch didn't fit its shape) changes only the stored JSON's `name` and `updatedAt`, on the row read inside the `WriteTx`, everything else byte for byte (`rename_workflow_json`), and answers `PersistedWorkflowMeta`. It checks the name like other library names (not empty, no NUL, `max_name_bytes` on web) and the workflow size (growth only), is `WORKFLOW_NOT_FOUND` for a missing or unreadable workflow (another user's included), emits one `workflow` event, and its params refuse unknown fields; the request's `Debug` shows the method only. The demo (`TsState.renameWorkflow`) does the same. The GUI rename no longer reads or writes the body, so a save another window makes between two renames stays.
+  - *Open racing a delete*: `deleteWorkflow` invalidates an open of the same workflow still reading its body (`openingId`), so a deleted workflow never becomes the open one.
+  - *NULL list metadata is refilled*: an older release's replace-all workflow save writes rows without `meta`. `0003` (edited before release; it had only ever run on scratch copies) now marks unreadable bodies (`meta` `'null'`, `widget_count` `-1`) instead of leaving NULL, and adds partial indexes on the NULLs; `refill_list_meta` (after `refill_name_keys`, in Core's writable open and a capped web open; not a recorded step) checks them with two index lookups and fills them.
+  - *Long migrations*: `0003`'s fill holds the migrator's lock about 3 s per GB (~6.5 s on a 2 GiB web file), past the 5 s busy timeout. `Storage::open` now retries `BEGIN IMMEDIATE` on `SQLITE_BUSY` up to 12 busy timeouts (`MIGRATION_WAIT_ATTEMPTS`), so a second opener waits it out (migrations README). Re-review: only when the baseline or a migration has work to do; an up-to-date file still fails after one busy timeout, so a lock another process holds doesn't stall startup for a minute (and three with the gate's retries). After a downgrade, `refill_list_meta` holds the write lock while it parses the rewritten bodies (about 1.5 s for 480 MiB), at open, behind the gate.
+  - *Duplicate keys*: a rename of a hand-edited row with two `name` keys already leaves one, set to the new name: the stored object is read with duplicates collapsed to the last value (as `JSON.parse` keeps it). Pinned by a test; no code change.
+  - The dead `savedCanvases` field of `LegacyPersistedProjectState` went; Decision 22's "most recently used" lines point at `write_seq`.
+- **Sizes, measured on a live web build** (the probe's own files, copied): on user B's file (2,001 versions holding 293 MiB of snapshots, 31 workflows holding 479 MiB) `dashboardVersionsList` went from 293.5 MiB (~930 ms, ~300 MiB more server RSS per call) to 385 KiB (48 ms) and `workflowsList` from ~480 MiB to 6.1 KiB (75 ms), with no RSS growth across calls; `workflowGet` of the 16 MiB workflow took 30 ms. At the web caps (user C: 1,000 workflows, 1,000 dashboards, 99,503 versions) `workflowsList` is 187 KiB (~10 ms) and `dashboardVersionsList` 18.4 MiB (~200 ms). The lists now scale with the row count, not the bodies; what still bounds `dashboardVersionsList` is the number of versions (`dashboard_version_limit` up to 100,000 per dashboard). A per-dashboard list would bound it further; not done here.
+
+### Task 8: Docs, measurement, checkpoint
+
+- **CLAUDE.md:** the `settings` and `ui` groups, window identity (the origin is the window id on web), view state per window with its fallback and legacy mirror, `rev`, `StateLimits`, the new kinds, what stays in the storage group, `PersistenceManager` gone, the `LoadKey`s left, the chat and workflow budgets, chart nodes stored without rows, and the overrides correction (the line saying a shared connection's override credentials still go through the `secret` group is removed: overrides are retired).
+- **Design doc:** the status line; "Phase 5d-2 cost" and "Phase 5d cost" for both slices.
+- **This plan:** execution notes, release notes (tabs per window, with the active connection per window; the first window keeps today's tabs; web: a chat past 64 MiB asks for a new chat, a workflow past 16 MiB isn't saved; changes to dashboards, workflows, chats and settings appear live; dashboard names clash; the dashboard 0 rule; the CLI refusing the file again until the app opened it; the web limits), checkpoint, manual checks.
+- **Migrations README:** `0002` and `backfill_dashboard_name_keys`.
+- **Effort log:** 5d-2 rows and totals. **The full check list**, with one full live run.
+
+**Status (Task 8):** done. CLAUDE.md, the migrations README, the fixtures README (one correction: the settings steps' views), the design doc's status line, "As built in phase 5d-2", "Phase 5d-2 cost" and "Phase 5d cost", the execution notes, release notes, checkpoint and manual checks below, the follow-ups and the effort log's totals are written. The 5d-2 probe-fix notes, which had been written under 5d-1's Task 7, moved under Task 7 above. The full check list ran with one live run; four MSSQL TLS tests failed on this machine's certificate store (see "Checkpoint (5d-2)"). The manual checks are the owner's.
 
 ### Manual checks (5d-2)
 
-- [ ] **Desktop.**
-  - Tabs, layout and the active tab survive a restart.
-  - A workflow saved with results reopens with them.
-  - A dashboard edit, star and version history work.
-  - An AI chat's messages survive a restart.
-  - Settings (key bindings, pending changes, version limits, AI providers, themes) survive a restart.
-- [ ] **Web, two tabs.**
-  - An AI provider added in tab 1 and another in tab 2 are both kept.
-  - A dashboard renamed in tab 1 is renamed in tab 2.
-  - Tab 2's open tabs don't change when tab 1 opens tabs, and survive tab 2's reload.
-  - A new browser tab starts with the tabs of the one used last. A duplicated tab gets its own tabs from then on.
-  - After the upgrade, the first window shows the tabs you had before it.
-  - Closing tab 1 right after typing in a query tab keeps the text.
-- [ ] **MCP.** The global AI sharing default set in the app is what `seaquel-cli mcp` follows.
-- [ ] **Demo.** Tabs, a workflow, a dashboard and a chat survive a reload.
+For the owner, after Task 8. Covers Tasks 1–6b and the probe fixes.
+
+**Setup.**
+- Databases and credentials as in "Manual checks (5d-1)".
+- Desktop data dir: `D="$HOME/Library/Application Support/app.seaquel.desktop.dev"`. **Before the first launch of this build**, back it up: `cp -R "$D" /tmp/sq-5d1`. Read the file with `sqlite3 "$D/seaquel.db" "…"` (fine while the app runs).
+- The sidecar: `npm run cli:build`.
+- Web: `npm run build:web:full`, then `SEAQUEL_WORKSPACE_CAP=2 npm run start:web`, at `http://localhost:8787`; user A's file is `users/<A id>/meta.db` (`sqlite3 auth.db "select id, email from user"`).
+
+**CLI and MCP** (first: they need a file this build hasn't opened yet)
+
+- [ ] `SEAQUEL_DATA_DIR=/tmp/sq-5d1 src-tauri/binaries/seaquel-cli-aarch64-apple-darwin mcp </dev/null` fails with "… Open the Seaquel app once …" (`STORAGE_NEEDS_UPGRADE`).
+- [ ] `SEAQUEL_DATA_DIR=/tmp/sq-5d1 npm run tauri dev`, wait for the app to load, quit. `sqlite3 /tmp/sq-5d1/seaquel.db "select version from _sqlx_migrations"` prints 1, 2 and 3, and the same CLI command now exits without an error.
+- [ ] With the normal data dir, turn "Share data with AI" off globally in Settings → AI, then ask Claude (through the `claude mcp add` line from Settings → MCP) for a row count with `run_query` on an exposed Postgres connection: it fails with `DATA_SHARING_OFF`. Turn it on: rows come back, without restarting the server.
+
+**Desktop** (`npm run tauri dev`, on `$D`)
+
+- [ ] **The first launch keeps your tabs.** The tabs you had in 5d-1 are open. `sqlite3 "$D/seaquel.db" "select window_id, active_project_id from windows"` shows one row, `main`, with the active project; `select project_id, rev from window_state` has a row for each project you've opened since.
+- [ ] **Tabs survive a restart.** Open a few query tabs with text, split the pane, pick another tab, switch to a second project and back, quit and relaunch: the tabs, text, layout and active tab are back in both projects, and each project shows the view (editor, workflow, dashboard) it was on.
+- [ ] **The theme editor window.** Settings → Appearance → create a theme: the editor opens in its own window. Change a colour and save: the main window applies it (when it's the active theme) and it survives a restart. `select window_id from windows` still shows only `main`; the editor and the log viewer never store view state.
+- [ ] **Workflows.** Build a workflow with a query node and a chart on it, run it and save it: `select json_extract(value, '$.rows') from saved_canvases, json_each(json_extract(data, '$.nodes')) where saved_canvases.id = '<id>' and json_extract(value, '$.type') = 'chart'` prints `[]`, and after a restart the workflow opens with its chart drawn. A workflow saved before this build (in `/tmp/sq-5d1`, or one whose chart row isn't `[]`) opens with its chart. Rename it from the list: `select json_extract(data, '$.name'), json_extract(meta, '$.name') from saved_canvases where id = '<id>'` shows the new name twice.
+- [ ] **Dashboards.** Click "New Dashboard" twice: the second is "New Dashboard (2)". Renaming it to `new dashboard` is refused with a message naming the other one. A star survives a restart. Moving or resizing a widget adds no row to `select version from dashboard_versions where dashboard_id = '<id>'`; a rename, adding a widget and changing the date filter each add one.
+- [ ] **Version history, fetched on demand.** Open a dashboard's version history: the list shows each version's time and widget count at once. Pick two versions to compare, then restore the older one: the dashboard shows it, and one more version appears (the state before the restore). With the history open, delete one version by hand (`sqlite3 "$D/seaquel.db" "delete from dashboard_versions where id = '<id>'"`), then pick it: an error says the version couldn't be opened, and the list reloads without it.
+- [ ] **AI chats.** Ask something, then ask again and press Stop half-way: after a restart both turns are there, the stopped one cut where it stopped (`select role, length(content) from ai_messages where chat_id = '<id>' order by timestamp, rowid`).
+- [ ] **AI providers and their keys.** Add a provider with an API key. Its id is in `select value from app_state where key = 'aiSettings'`, and `security find-generic-password -s app.seaquel.desktop -a ai-api-key:<id> -w` prints the key. Change the key in the form: the command prints the new one. Remove the provider: the command says the item could not be found.
+- [ ] **Settings survive a restart:** key bindings, pending changes, both version limits (a value under 10 is saved as 10), the light and dark theme.
+- [ ] **A shared dashboard named like a local one.** In a shared (git) project, create a local dashboard "Sales". In the repo, copy one of `.seaquel/projects/<project>/dashboards/*.json` to `sales-shared.json` and set its `"name"` to `"Sales"`, then switch to another project and back: a warning says the shared dashboard "Sales" isn't shown because a local one has that name, and it doesn't appear again until the next launch. Rename the local one to "Sales local" and switch projects again: the shared "Sales" appears.
+
+**Web, two tabs of user A**
+
+- [ ] **Window ids.** In each tab's devtools, `sessionStorage.getItem("seaquel.windowId")` is a `win-<uuid>`, different per tab, and the same after a reload. `sqlite3 users/<A id>/meta.db "select window_id from windows"` lists both.
+- [ ] **Tabs per tab.** Tab 2's open tabs don't change when tab 1 opens or closes tabs, and survive tab 2's reload. A new browser tab starts with the tabs of the one used last. Duplicate tab 1 (the browser's "Duplicate"): the copy's `seaquel.windowId` differs from tab 1's, and tabs opened in the copy don't appear in tab 1 after tab 1 reloads.
+- [ ] **Closing right after typing.** Type into a query tab in tab 1 and close the browser tab within half a second. Open a new tab: the text is there.
+- [ ] **Active connection and order.** Each tab keeps its own active connection across reloads; reordering connections in tab 1 shows in tab 2.
+- [ ] **Settings and themes live.** An AI provider added in tab 1 and another in tab 2 are both kept in both (`select count(*) from user_credentials` goes up for each key). A theme added in tab 1 appears in tab 2, and one picked in tab 1 applies in tab 2.
+- [ ] **Dashboards live.** A dashboard renamed in tab 1 is renamed in tab 2, its tab title too; one deleted in tab 1 closes in tab 2.
+- [ ] **A chat deleted while streaming.** Start a long answer in tab 1 and delete that chat in tab 2: tab 1 stops and switches to another chat.
+- [ ] **A workflow rename during another tab's save.** Open the same saved workflow in both tabs. In tab 1 add a node and save; within a second, rename it in tab 2. After reloading both, the workflow has tab 2's name and tab 1's node (`select json_extract(data, '$.name'), json_array_length(json_extract(data, '$.nodes')) from saved_canvases where id = '<id>'`).
+- [ ] **Version history on web:** compare and restore, as on desktop.
+- [ ] **A full chat.** Stop the server and fill a chat to 64 MiB:
+  ```sh
+  sqlite3 users/<A id>/meta.db "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 64)
+    INSERT INTO ai_messages (id, chat_id, role, content, timestamp)
+    SELECT 'fill-' || i, '<chat id>', 'assistant', printf('%.*c', 1048576, 'x'), '2030-01-01T00:00:00.000Z' FROM n"
+  ```
+  Start it and open the chat: "This chat is full. Start a new chat to continue." shows with a New chat button, and the input is disabled after a reload too. New chat works.
+- [ ] **B sees none of A's** dashboards, workflows, chats, themes or providers, and B's tabs don't change while A writes.
+
+**Older release**
+
+- [ ] Quit the dev app. Back up the release data dir (`R="$HOME/Library/Application Support/app.seaquel.desktop"`, `cp -R "$R" /tmp/sq-release`), copy `$D/seaquel.db` over `$R/seaquel.db` (remove `$R/seaquel.db-wal` and `-shm` first), and open the installed 2026.9.x app: it shows the tabs of the window saved last, and every workflow and dashboard. Quit it and put `/tmp/sq-release` back.
+
+**Demo** (`npm run build:demo`, then `npm run preview:demo`)
+
+- [ ] Tabs, a workflow with a chart, a dashboard (with a version) and a chat survive a reload.
+
+### Owner answers (5d-2)
+
+The six questions the re-survey raised, and the three taken as recommended, are answered: Q13–Q19 in "Answered questions". Nothing is open.
+
+### Execution notes (5d-2)
+
+Executed like 5d-1: task by task with subagents, Tasks 1–3 overlapping, Task 6 split into 6a and 6b, a review after each task (Tasks 4 and 6b had several rounds), a probe on a four-user web instance, one round of probe fixes with two reviews, and this checkpoint. Where the result departs from the text above, the repo is authoritative. Per-task times and surprises are in `2026-10-04-phase-5d-effort.md`; the measured cost is in the design doc ("Phase 5d-2 cost").
+
+**What went differently from the plan**
+
+- **Overrides retired, not moved** (Q13). The re-survey found `SharedConnectionManager` was never constructed, so the override calls the plan had for Core went; the table stays, unused.
+- **35 storage methods retired, not 32** (Task 5). The storage group keeps 15: query history, shared repos, the license, the vault's state and credentials.
+- **Task 6 in two parts.** 6a moved the view state and deleted `PersistenceManager`, leaving dashboards and chats in a stopgap `DashboardChatPersistence` on the retired storage stubs, which 6b replaced and deleted. Between 5 and 6b neither desktop nor web could load or save tabs, dashboards, chats or settings; nothing was released in between.
+- **The write transaction** (Task 4 reviews). The per-user file cap (`SEAQUEL_USER_DB_MAX_BYTES`, `STORAGE_FULL` 507) needed `WriteTx` to send `BEGIN`/`COMMIT`/`ROLLBACK` itself, since SQLite rolls back on `SQLITE_FULL` and sqlx's transaction then left the pooled connection unusable. The rewrite first sent `BEGIN IMMEDIATE` before its guard existed, so a write cancelled while it waited left a transaction open on the connection; the re-review caught it.
+- **Over-limit rows stay saveable.** A view state, workflow or dashboard stored before the web limits (or copied from one) can be saved as long as it doesn't grow; the GUI says a limit refusal once, naming the limit.
+- **Refused edits show the stored row again** (6b reviews). The planned "changed in another window" banner for dashboards went: a refused edit reverts once this page's writes have answered, so a dashboard never holds an unsaved change for a remote one to clash with. Settings stores do the same (`WriteOrder`).
+- **Chat fullness comes from Core** (`ChatMessages.full`, `chat_is_full`), so a chat opens full whatever the page last saw.
+- **Dashboard drafts gained `renameIfTaken` and `shared`** (6b review), for "New Dashboard" and the git reconcile, whose pairing took three rounds: by the file's `name` field, then by the path the row would be written to; a file whose name a local dashboard holds is skipped and said once per session. **For the owner to confirm.**
+- **Probe fixes** (Task 7, notes under it): the version and workflow lists answer metadata only, with `dashboardVersionGet`, `workflowGet` and `workflowRename` for one body; migration `0003` adds the list metadata and `write_seq`, which replaced `updated_at` as "most recent"; `refill_list_meta` covers rows an older release writes; the migration lock waits up to a minute only while schema work is pending; `rev` is capped at 2^53 − 1 and view state is sent well-formed.
+- **The probe-fix notes were written under 5d-1's Task 7**; Task 8 moved them to 5d-2's.
+- **Live tests start fast now.** A macOS Developer Tools setting removed the 30–60 s start-up per test binary that made 5d-1's live run take over 2 hours (5d-1 follow-up "Live test start-up").
+
+**Decisions made during execution**
+
+- **Lists without bodies** (owner, Task 7 probe): metadata lists plus one-body reads, rather than paging whole bodies.
+- **The git reconcile's pairing and skip rule** (coordinator, 6b review): awaiting the owner's confirmation.
+- **A per-user size cap on web** (Task 4 review): 2 GiB by default, a backstop behind the per-call limits.
+
+### Release notes (5d-2)
+
+For the release after 5d-1's. Earlier notes still apply as written.
+
+Changes you may notice:
+
+- **Each window and browser tab keeps its own tabs.** Open tabs, their text, the layout and the active connection are saved per window (desktop) or per browser tab (web), per project. A reload keeps a tab's own; a new browser tab starts with the tabs of the one you used last, and a duplicated tab goes its own way from then on. The first launch after upgrading shows the tabs you had. The connection order in the sidebar is still shared.
+- **Dashboards, workflows, chats and settings update live** in your other windows and tabs, themes included: a theme picked in one tab applies in the others.
+- **Dashboard names are unique within a project**, compared without regard to case or spaces at the ends. "New Dashboard" takes the next free "New Dashboard (2)". Dashboards that already share a name stay as they are.
+- **A dashboard version limit of 0 keeps every version** (it used to delete them all). Two windows no longer overwrite each other's version numbers, and a dashboard deleted while a save was in flight stays deleted.
+- **Version history and workflows open faster.** Lists no longer carry every snapshot or workflow body; a version is read when you compare or restore it, and a workflow when you open it. A workflow that can't be read is now listed and says so when opened, instead of disappearing.
+- **Workflow charts are saved without a second copy of their data**; they redraw from their source node. Workflows saved before this release keep their copies until you save them again.
+- **AI chats and providers are saved per change.** Two windows no longer delete each other's messages or providers, a stopped answer is saved where it stopped, and deleting a chat that is answering stops it.
+- **A shared (git) dashboard named like one of your local dashboards isn't shown.** You get a message naming both; rename the local dashboard and the shared one appears.
+- **The command line tool (`seaquel-cli mcp`) again needs the app to open your data once** after upgrading. Until then it stops with "Open the Seaquel app once…".
+- **Older releases still open your data** and show the tabs of the window saved last.
+- **The first open after upgrading can take a few seconds on a large file**: it indexes saved workflows and dashboard versions once, about 3 s per GB of them.
+
+Self-hosted web:
+
+- **A chat past 64 MiB of messages is full**: the next message is refused and the chat asks you to start a new one. **A workflow past 16 MiB** (its results included) isn't saved; the message says to clear or narrow its results.
+- **New limits** (`400 INVALID_ARGUMENT`, naming the limit): 8 MiB per tab's saved view, 2 MiB per tab's text, 500 tabs; 1,000 workflows; 4 MiB per dashboard, 1,000 dashboards, 16 MiB of versions per dashboard; 1 MiB per chat message, 5,000 messages per chat, 10,000 chats; 256 KiB per setting, 200 themes, 50 AI providers. A tab, workflow or dashboard already past a limit can still be saved while it doesn't grow. At most 50 browser tabs per user keep saved tabs; tabs unused for 30 days are forgotten.
+- **Each user's `meta.db` is capped** at `SEAQUEL_USER_DB_MAX_BYTES` (2 GiB by default, 64 MiB to 1 TiB). A write past it fails with `507 STORAGE_FULL` and stores nothing.
+- **New error codes on `/api/rpc`:** `DASHBOARD_NOT_FOUND`, `DASHBOARD_VERSION_NOT_FOUND`, `WORKFLOW_NOT_FOUND`, `CHAT_NOT_FOUND`, `THEME_NOT_FOUND`, `AI_PROVIDER_NOT_FOUND` (404) and `STORAGE_FULL` (507); `NAME_TAKEN` covers dashboards. The `settings` and `ui` groups are new, and 35 storage-group methods are gone (only a custom client could notice).
+- **The `X-Seaquel-Origin` header and `?origin=` parameter** now carry the browser tab's id (`win-<uuid>`), which stays the same across that tab's reloads. It still names no user.
+- **The first open of each user's file after upgrading** runs the new migrations inside its lock: about 3 s per GB of saved workflows and dashboard versions, so about 6.5 s for a file at the 2 GiB cap. A second request for that user in that window waits instead of failing.
+
+Known issues:
+
+- Sharing a local dashboard named like an existing git file overwrites that file.
+- Renaming a shared dashboard doesn't rename its file, so the next reconcile brings the old name back as a new shared dashboard and unshares the renamed one (a change of case only keeps the pair). Edits to a shared dashboard never reach its file (older).
+- Two dashboards whose names map to one file name (non-Latin names all become `untitled.json`; "Sales" and "Sales!") write the same file; the last write wins.
+- A save answer landing while you drag a widget can snap it back.
+- On web, a workflow over 16 MiB only because of chart copies saved by an older release can't be renamed to a longer name; saving it once drops the copies.
+- If a browser tab's last save before a reload arrives after the reloaded page has already changed something, the reloaded page's state wins and that last save is lost (accepted in Task 6a, M5).
+
+### Checkpoint (5d-2)
+
+The full check list, run on 2026-09-30 one step at a time on the shared `scratchpad/p5a/target`, npm through `mise exec`:
+
+| Check | Result |
+|---|---|
+| `npm run crates:check` | pass: 24 crates |
+| `cargo fmt --all --check` | pass |
+| CI clippy (`--workspace --exclude seaquel --all-targets --features seaquel-runtime/tokio -- -D warnings`) | pass |
+| `cargo test --workspace --exclude seaquel --features seaquel-runtime/tokio`, live (the `ci.yml` env, `SEAQUEL_TEST_REQUIRE_ENGINES=1`, `SEAQUEL_TEST_SSH`, the compose databases seeded with `npm run e2e:db:seed -- postgresql mysql mariadb sqlserver duckdb`) | 1,791 passed, 3 ignored, **4 failed**: the MSSQL TLS tests below. About 70 minutes in all: the first attempt (16:45–17:00, ~13 minutes of it compiling) stopped at the first failing target, and the rerun with `--no-fail-fast` took 56 minutes |
+| `cargo test -p seaquel-core --features storage,workspace --test state` | pass: 38 |
+| wasm32 clippy, pure crates (`seaquel-types`, `-runtime`, `-engine`, `-sql`, `-wasm`) | pass |
+| wasm32 clippy, Core and `seaquel-rpc` with `seaquel-core/browser` | pass |
+| Web server dependencies (the `ci.yml` step) | pass: none of the banned crates among 253 |
+| `npm run types:gen` twice | pass: the 207 generated files are identical after the second run |
+| `npm run check` | pass: 0 errors, 0 warnings (4,707 files) |
+| `npx oxlint --type-aware --type-check --deny-warnings` | pass: 0 diagnostics in 644 files |
+| `CI=1 npx vitest run` | pass: 1,991 tests in 114 files |
+| `npm run build` | pass |
+| `npm run build:web` | pass, with `NODE_OPTIONS=--max-old-space-size=12288` |
+| `npm run build:demo` | pass |
+| `npm run cli:build`, `cargo check -p seaquel` | pass |
+| `cargo clippy -p seaquel --all-targets -- -D warnings` | pass |
+| `cargo test -p seaquel --lib` | pass: 44 |
+
+**The four failures** are `row_6_mssql_over_ssh_checks_the_certificate_as_the_server` (`seaquel-core`'s `connect`) and the three `tls_server_name` tests of `seaquel-engine-mssql` (`a_bracketed_ipv6_host_is_dialled`, `without_it_the_tls_name_is_host`, `the_tls_name_is_tls_server_name_while_the_socket_goes_to_host`). Each panics inside tiberius with `could not load platform certs: … code: -36` before it reaches the server: macOS's certificate store, the environment issue 5d-1's checkpoint describes. This time they failed outside the Bash sandbox too, so they weren't seen passing on this machine; CI's Linux engines job runs them.
+
+The TypeScript replay of the state fixtures (`state-replay.svelte.test.ts`) passes with the eighteen settings views filled in, and fails when one of them is changed (checked by hand on two).
+
+**Manual checks:** pending (the owner).
+
+**Not run:** the release workflow and a signed build.
 
 ---
 
 ## Follow-ups (not in 5d)
 
-Consolidated at 5d-1's checkpoint. Items marked **5d-2** belong to that slice; the rest are later.
+Consolidated at 5d-1's checkpoint and updated at 5d-2's. Items marked **5d-2** were that slice's and are closed; the rest are later.
 
 From 5d-1:
-- **5d-2: override credentials.** A shared connection's override secrets are still written to the desktop keychain from TypeScript (`shared-connection-manager.svelte.ts`); they move into `overrideSave` with the overrides (Decision 25).
-- **5d-2: dashboard names.** Dashboards get `NAME_TAKEN`; give them a `name_key` column in `0002` rather than folding names per write, which the probe showed is quadratic at scale.
-- **5d-2: survey the stored data.** 5d-1's added scope came from rows older releases left (secrets in strings, damaged version diffs, labels left on connections). Check project state, dashboards, chats and settings rows for the same before Task 2.
-- **5d-2: the second migration** makes `seaquel-cli mcp` refuse the file again until the app has opened it; the release notes must say so again.
+- **5d-2: override credentials.** Re-survey: the code that writes them is never run (`SharedConnectionManager` is never constructed). Retired (Q13, Decision 25); closed.
+- **5d-2: dashboard names.** Done: `name_key` in `0002`, `backfill_dashboard_name_keys`, `refill_name_keys` (Decision 21, Task 3).
+- **5d-2: survey the stored data.** Done from the code ("Stored data to expect" in the 5d-2 section); Task 2 seeds each case.
+- **5d-2: the second migration** makes `seaquel-cli mcp` refuse the file again until the app has opened it. Done: the 5d-2 release notes say so (`0002` and `0003`).
 - **A connection's labels are one whole value.** Two windows adding different labels to one connection at once end with the last writer's list (Decision 2); a `labelAdd`/`labelDrop` pair would merge them.
 - **The `db` group's params still ignore unknown fields.** Its callers pass objects built from GUI state; checking each would let it refuse them too.
 - **Damaged version history stays.** Diffs stored at limits 2–8 before the clamp can't be told from good ones (Decision 11). A version that doesn't apply could be shown as "unavailable" instead of wrong text.
@@ -1451,7 +2065,20 @@ From 5d-1:
 - **A failed web vault write after a save** leaves `savePassword` on with nothing stored; the next connect asks for the password. Writing the vault first would need Core's id before the row exists.
 - **The "Not receiving updates" badge on desktop** appears only when `core_events` can't be registered, which can't be triggered by hand; a test hook would let the manual checks cover it.
 - **A Unicode update to `unicase` or `unicode-normalization`** changes `name_key` and needs a data step that recomputes the columns (migrations README).
-- **Live test start-up.** Each live test binary takes 30–60 s to start on the owner's machine, so a full live run takes about 2 hours; finding why (code signing or antivirus scanning of fresh binaries are the usual suspects) would save most of every checkpoint's wait.
+- **Live test start-up.** Each live test binary took 30–60 s to start on the owner's machine, so a full live run took about 2 hours. Closed before 5d-2's checkpoint: a macOS Developer Tools setting (the terminal allowed to run software that doesn't meet the system's security policy) removed the wait; see "Checkpoint (5d-2)" for the run's time.
+
+From 5d-2's execution (later):
+- **Shared dashboards and their files.** Sharing a local dashboard named like an existing git file overwrites the file; renaming a shared dashboard leaves its old file, which the next reconcile brings back as a new shared dashboard; names that slug to one file write the same file. The reconcile's pairing and skip rule awaits the owner's confirmation (Task 6b).
+- **A widget can snap back** when a save answer lands mid-drag; a drag in progress should count as a pending edit.
+- **`dashboardVersionsList` is bounded by the version count**, not the bodies: 18.4 MiB at the web caps (99,503 versions). A per-dashboard list would bound it further.
+- **A late `pagehide` save loses to a changed reload** (Task 6a, M5): accepted.
+- **Twelve `changes.json` steps still have `view: null`** (eight in dashboard cases, three in view-state cases, one in `chats/two-tabs-same-chat`), so the replays don't compare what the page shows there. The eighteen settings steps were filled in at the checkpoint; these weren't reviewed then.
+
+From the 5d-2 re-survey (later, not in 5d-2):
+- **Shared dashboards' edits never reach the git file**, and the reconcile takes the stale file without a newer-than check; a rename leaves the old file (re-survey bug 25). Q7 keeps git in TypeScript.
+- **Two tabs setting up the web vault at once** replace each other's salt and verifier (bug 24).
+- **The license record and the license nudge stay whole values**, last writer wins; the nudge's counts can lose a query run when two tabs run at once.
+- **Dead code:** `DashboardManager.loadDashboards`, `license.revertToPersonal`, `UseDatabase.destroy()` (and the override manager, per Q1).
 
 Carried from the plan and earlier slices:
 - **`data_version` polling** once a second process writes (phase 7's `seaquel conn add`).

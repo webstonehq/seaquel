@@ -5,7 +5,7 @@ import { extractErrorMessage } from "$lib/errors";
 import type { DatabaseConnection, SchemaTable } from "$lib/types";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
-import type { PersistenceManager } from "./persistence-manager.svelte.js";
+import type { WindowStateManager } from "./window-state.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine";
@@ -55,6 +55,7 @@ import {
   bumpRevisions,
   libraryNameOf,
   patchConnection,
+  storeConnectionOrder,
   storedFieldsDiffer,
 } from "./library/view.js";
 
@@ -264,7 +265,7 @@ export class ConnectionManager {
 
   constructor(
     private state: DatabaseState,
-    private persistence: PersistenceManager,
+    private windowState: Pick<WindowStateManager, "scheduleProject">,
     private stateRestoration: StateRestorationManager,
     private tabOrdering: TabOrderingManager,
     private providers: ProviderRegistry,
@@ -406,7 +407,7 @@ export class ConnectionManager {
     const panes = this.tabOrdering?.paneManager;
     const syncActive = panes ? (tabId: string) => panes.syncGlobalActiveState(tabId) : undefined;
     for (const projectId of closeConnectionTabs(this.state, connection.id, syncActive)) {
-      this.persistence.scheduleProject(projectId);
+      this.windowState.scheduleProject(projectId);
     }
     if (this.state.activeConnectionIdByProject[connection.projectId] === connection.id) {
       const nextConnection = this.state.connections.find(
@@ -630,8 +631,8 @@ export class ConnectionManager {
         result.failures.push(draft.name);
       }
     }
-    // The order is saved with the project's state.
-    if (result.imported > 0) this.persistence.scheduleProject(projectId);
+    // The order is shared by the project's windows: stored at once.
+    if (result.imported > 0) await storeConnectionOrder(this.state, projectId);
     return result;
   }
 
@@ -920,7 +921,7 @@ export class ConnectionManager {
       ...this.state.activeConnectionIdByProject,
       [projectId]: connectionId,
     };
-    this.persistence.scheduleProject(projectId);
+    this.windowState.scheduleProject(projectId);
   }
 
   /**
@@ -1186,7 +1187,7 @@ export class ConnectionManager {
         [projectId]: remainingTabs[0]?.id ?? null,
       };
     }
-    this.persistence.scheduleProject(projectId);
+    this.windowState.scheduleProject(projectId);
 
     // If it was the project's active connection, switch to another connected one
     if (this.state.activeConnectionIdByProject[projectId] === id) {
@@ -1205,7 +1206,8 @@ export class ConnectionManager {
       ...this.state.connectionOrderByProject,
       [projectId]: [...orderedIds],
     };
-    this.persistence.scheduleProject(projectId);
+    // Shared by the project's windows (not view state): stored at once.
+    void storeConnectionOrder(this.state, projectId);
   }
 
   /**

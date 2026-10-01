@@ -59,6 +59,8 @@ mod library;
 #[cfg(feature = "workspace")]
 mod run;
 #[cfg(feature = "storage")]
+mod state;
+#[cfg(feature = "storage")]
 mod upgrade;
 mod workspace;
 /// `StorageChanged` and the change sequence (phase 5d, Decisions 16–17).
@@ -115,6 +117,9 @@ pub use seaquel_workspace::edits::EditLimits;
 pub use seaquel_workspace::library::LibraryLimits;
 /// What a run may carry, set per interface with [`CoreBuilder::run_limits`].
 pub use seaquel_workspace::run::RunLimits;
+/// What a state call may carry, set per interface with
+/// [`CoreBuilder::state_limits`].
+pub use seaquel_workspace::state::StateLimits;
 
 /// Git for shared projects (`seaquel-git`).
 #[cfg(feature = "git")]
@@ -236,6 +241,9 @@ pub struct Core {
     /// What a library call may carry ([`CoreBuilder::library_limits`]).
     #[cfg_attr(not(feature = "storage"), allow(dead_code))]
     library_limits: LibraryLimits,
+    /// What a state call may carry ([`CoreBuilder::state_limits`]).
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
+    state_limits: StateLimits,
     /// The clock and spawner ([`CoreBuilder::executor`]). `None`: the
     /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
@@ -322,6 +330,7 @@ pub struct CoreBuilder {
     run_limits: RunLimits,
     edit_limits: EditLimits,
     library_limits: LibraryLimits,
+    state_limits: StateLimits,
     executor: Option<Arc<dyn Executor>>,
 }
 
@@ -376,6 +385,17 @@ impl CoreBuilder {
         self
     }
 
+    /// What a state call (dashboards, workflows, chats, settings, themes,
+    /// window view state, …) may carry and what a workspace may hold.
+    /// Without it, [`StateLimits::DESKTOP`]: no limit but the window counts
+    /// (the desktop, the CLI, MCP). The web server sets every one (phase
+    /// 5d-2, Decision 27).
+    #[must_use]
+    pub fn state_limits(mut self, limits: StateLimits) -> Self {
+        self.state_limits = limits;
+        self
+    }
+
     /// The runtime Core takes time from (statement timings and history
     /// timestamps in `Workspace::run`). There is no default: without one,
     /// `Workspace::run` and `Workspace::page` answer `NOT_SUPPORTED`, as a
@@ -395,6 +415,7 @@ impl CoreBuilder {
             run_limits: self.run_limits,
             edit_limits: self.edit_limits,
             library_limits: self.library_limits,
+            state_limits: self.state_limits,
             engines: self.engines,
             connections: RwLock::default(),
             streams: Mutex::default(),
@@ -622,6 +643,13 @@ impl Core {
         if let Err(e) = storage::refill_name_keys(workspace.storage()).await {
             log::warn!(activity = "workspace.open", code = e.code(); "Refilling name keys failed");
         }
+        // 5d-2 Task 7 review: workflows and versions an older release wrote
+        // without their list metadata get it (the lists compute it for such
+        // a row meanwhile).
+        #[cfg(feature = "storage")]
+        if let Err(e) = storage::refill_list_meta(workspace.storage()).await {
+            log::warn!(activity = "workspace.open", code = e.code(); "Refilling list metadata failed");
+        }
         Ok(Arc::new(workspace))
     }
 
@@ -681,6 +709,11 @@ impl Core {
     /// The limits [`CoreBuilder::library_limits`] set.
     pub fn library_limits(&self) -> LibraryLimits {
         self.library_limits
+    }
+
+    /// The limits [`CoreBuilder::state_limits`] set.
+    pub fn state_limits(&self) -> StateLimits {
+        self.state_limits
     }
 
     /// Ids of the engines in this build, sorted.

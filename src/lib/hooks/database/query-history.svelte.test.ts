@@ -194,7 +194,7 @@ describe("restoreQueryHistory", () => {
     // holds one of the cached rows.
     history.insertRecorded(persisted("early", 50));
     history.insertRecorded(persisted("h1", 10));
-    const restoration = new StateRestorationManager(state, {} as never);
+    const restoration = new StateRestorationManager(state);
 
     restoration.restoreQueryHistory("c1", [persisted("h1", 10), persisted("h0", 5)]);
 
@@ -204,7 +204,7 @@ describe("restoreQueryHistory", () => {
   it("trims the merged list like the file", () => {
     const { state, history } = setup();
     history.insertRecorded(persisted("early", 9999));
-    const restoration = new StateRestorationManager(state, {} as never);
+    const restoration = new StateRestorationManager(state);
     const loaded = Array.from({ length: 500 }, (_, i) => persisted(`h${i}`, 1000 - i, i === 499));
 
     restoration.restoreQueryHistory("c1", loaded);

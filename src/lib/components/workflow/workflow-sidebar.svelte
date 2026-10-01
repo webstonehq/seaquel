@@ -30,11 +30,13 @@
 	const savedWorkflows = $derived(db.state.savedWorkflows);
 
 	const handleLoadWorkflow = (workflowId: string) => {
-		db.workflow.loadWorkflow(workflowId);
+		// Reads the workflow; one that can't be read is said by the manager.
+		void db.workflow.loadWorkflow(workflowId);
 	};
 
 	const handleDeleteWorkflow = (workflowId: string) => {
-		db.workflow.deleteWorkflow(workflowId);
+		// A failure is shown by the manager.
+		void db.workflow.deleteWorkflow(workflowId);
 	};
 
 	const handleNewWorkflow = () => {
@@ -42,10 +44,10 @@
 	};
 
 	const handleSaveWorkflow = () => {
-		// Use existing workflow name if updating, otherwise generate default name
-		const activeWorkflow = savedWorkflows.find(c => c.id === db.workflowState.activeWorkflowId);
-		const name = activeWorkflow?.name ?? `Workflow ${new Date().toLocaleString()}`;
-		db.workflow.saveWorkflow(name);
+		// The workflow keeps its own name (a new one gets a default); Core
+		// stores it, and a refusal (too large on this server, say) is shown
+		// while the canvas stays.
+		void db.workflow.saveWorkflow();
 	};
 
 	const startRename = (workflowId: string, currentName: string) => {
@@ -55,7 +57,7 @@
 
 	const confirmRename = () => {
 		if (editingWorkflowId && editingName.trim()) {
-			db.workflow.renameWorkflow(editingWorkflowId, editingName.trim());
+			void db.workflow.renameWorkflow(editingWorkflowId, editingName.trim());
 		}
 		editingWorkflowId = null;
 		editingName = "";
@@ -110,7 +112,7 @@
 							<span>{m.workflow_new()}</span>
 						</button>
 
-						{#each savedWorkflows as workflow}
+						{#each savedWorkflows as workflow (workflow.id)}
 							{#if editingWorkflowId === workflow.id}
 								<div class="flex items-center gap-2 w-full p-1.5">
 									<FileIcon class="size-3.5 text-muted-foreground shrink-0" />
@@ -165,7 +167,7 @@
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<div class="pl-6 space-y-0.5 max-h-48 overflow-auto">
-						{#each db.workflowState.timeline.slice(0, 20) as entry}
+						{#each db.workflowState.timeline.slice(0, 20) as entry (entry.id)}
 							<div class="flex items-start gap-2 p-1.5 text-xs">
 								<span class="text-muted-foreground shrink-0">
 									{formatRelativeTime(new Date(entry.timestamp))}

@@ -1,33 +1,49 @@
-import { getStorage } from "$lib/storage";
+import { log } from "$lib/utils/logger";
+import { StoredSetting, names, onStoredChange } from "./settings-sync";
 
 export type EditorKeybindingMode = "default" | "vim" | "emacs";
 
-const SETTING_KEY = "editorKeybindingMode";
-
 type ChangeListener = () => void;
 
-class EditorSettingsStore {
+function readMode(raw: string | null): EditorKeybindingMode {
+  return raw === "vim" || raw === "emacs" ? raw : "default";
+}
+
+export class EditorSettingsStore {
   keybindingMode = $state<EditorKeybindingMode>("default");
   private listeners: ChangeListener[] = [];
+  private readonly stored = new StoredSetting("editorKeybindingMode", (v) =>
+    this.show(readMode(v)),
+  );
+
+  constructor() {
+    onStoredChange("setting", (ids) =>
+      names(ids, this.stored.key) ? this.stored.reload() : undefined,
+    );
+  }
+
+  private show(mode: EditorKeybindingMode): void {
+    if (mode === this.keybindingMode) return;
+    this.keybindingMode = mode;
+    this.listeners.forEach((fn) => fn());
+  }
 
   async load(): Promise<void> {
     try {
-      const raw = await getStorage().appState.get(SETTING_KEY);
-      if (raw === "vim" || raw === "emacs") {
-        this.keybindingMode = raw;
-      }
-    } catch {
-      // Default to "default" if storage fails
+      await this.stored.load();
+    } catch (error) {
+      // The default applies; a later change still saves (Core writes the key alone).
+      void log.warn("Failed to load the editor key bindings:", error);
     }
   }
 
   async setKeybindingMode(value: EditorKeybindingMode): Promise<void> {
-    this.keybindingMode = value;
-    this.listeners.forEach((fn) => fn());
+    this.show(value);
     try {
-      await getStorage().appState.set(SETTING_KEY, value);
-    } catch {
-      // Silently fail — setting is still updated in memory
+      await this.stored.set(value);
+    } catch (error) {
+      // The setting still applies here for this session.
+      void log.warn("Failed to save the editor key bindings:", error);
     }
   }
 

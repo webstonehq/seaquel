@@ -179,7 +179,8 @@ export class SharedDashboardManager {
    * - New .json files → create Dashboard with shared=true
    * - Missing .json files for shared dashboards → set shared=false
    * - Updated .json files → update dashboard content
-   * Returns the list of dashboards after reconciliation.
+   * Returns the list of dashboards after reconciliation: the same array when
+   * nothing changed, and an unchanged dashboard as the same object.
    */
   reconcileWithGitFiles(projectId: string, dashboards: Dashboard[]): Dashboard[] {
     const repoId = this.state.activeRepoId;
@@ -194,12 +195,45 @@ export class SharedDashboardManager {
     );
 
     const result = [...dashboards];
-    const matchedGitNames = new Set<string>();
+    /** The dashboards (by index) a file matched: the rest that are shared get unshared. */
+    const matched = new Set<number>();
+    let changed = false;
 
-    // Match existing shared dashboards to git files by name
+    // Pair each file with a shared dashboard in two passes:
+    // 1. by the file's `name` field, case-insensitively, so dashboards whose
+    //    names slug to one path (non-Latin names, punctuation) each keep
+    //    their own file;
+    // 2. for files and shared dashboards still unpaired, by the path each
+    //    dashboard would be written to (`dashboardNameToFilename`, as
+    //    `writeDashboardFile` and `deleteDashboardFile` build it), so a
+    //    case-only rename on either side keeps the pair.
+    // A file still unpaired is a new one; if a local dashboard has its
+    // name, Core refuses it and `storeReconciled` says so.
+    const pairs = new Map<SharedDashboard, number>();
     for (const gitDashboard of gitDashboards) {
-      const matchKey = gitDashboard.name.toLowerCase();
-      const existingIdx = result.findIndex((d) => d.shared && d.name.toLowerCase() === matchKey);
+      const key = gitDashboard.name.toLowerCase();
+      const idx = result.findIndex(
+        (d, i) => !matched.has(i) && d.shared && d.name.toLowerCase() === key,
+      );
+      if (idx !== -1) {
+        matched.add(idx);
+        pairs.set(gitDashboard, idx);
+      }
+    }
+    for (const gitDashboard of gitDashboards) {
+      if (pairs.has(gitDashboard)) continue;
+      const file = gitDashboard.filePath?.split("/").pop();
+      const idx = result.findIndex(
+        (d, i) => !matched.has(i) && d.shared && dashboardNameToFilename(d.name) === file,
+      );
+      if (idx !== -1) {
+        matched.add(idx);
+        pairs.set(gitDashboard, idx);
+      }
+    }
+
+    for (const gitDashboard of gitDashboards) {
+      const existingIdx = pairs.get(gitDashboard) ?? -1;
 
       const updatedAt =
         gitDashboard.updatedAt instanceof Date
@@ -209,8 +243,10 @@ export class SharedDashboardManager {
             : new Date();
 
       if (existingIdx !== -1) {
-        // Update content if git file is newer
         const existing = result[existingIdx];
+        // The file's content is already the dashboard's: nothing to store.
+        if (sameContent(existing, gitDashboard)) continue;
+        changed = true;
         result[existingIdx] = {
           ...existing,
           widgets: gitDashboard.widgets,
@@ -219,11 +255,13 @@ export class SharedDashboardManager {
           dateFilter: gitDashboard.dateFilter,
           updatedAt,
         };
-        matchedGitNames.add(matchKey);
       } else {
-        // New .json file → create a new shared Dashboard
+        changed = true;
+        // New .json file → a new shared Dashboard. Its id is a placeholder
+        // Core replaces (`storeReconciled` creates it and shows Core's row;
+        // this list itself is never shown).
         const newDashboard: Dashboard = {
-          id: `dashboard-${crypto.randomUUID()}`,
+          id: `file:${gitDashboard.filePath ?? gitDashboard.name}`,
           name: gitDashboard.name,
           projectId,
           widgets: gitDashboard.widgets,
@@ -236,21 +274,31 @@ export class SharedDashboardManager {
           description: gitDashboard.description,
         };
         result.push(newDashboard);
-        matchedGitNames.add(matchKey);
+        matched.add(result.length - 1);
       }
     }
 
     // Shared dashboards in SQLite with no matching .json file → mark as unshared
     for (let i = 0; i < result.length; i++) {
       const d = result[i];
-      if (d.shared) {
-        const matchKey = d.name.toLowerCase();
-        if (!matchedGitNames.has(matchKey)) {
-          result[i] = { ...d, shared: false };
-        }
+      if (d.shared && !matched.has(i)) {
+        result[i] = { ...d, shared: false };
+        changed = true;
       }
     }
 
-    return result;
+    return changed ? result : dashboards;
   }
+}
+
+/** Whether a git file holds what the dashboard already has (the fields the reconcile copies). */
+function sameContent(dashboard: Dashboard, file: SharedDashboard): boolean {
+  const content = (d: Pick<Dashboard, "widgets" | "viewport" | "description" | "dateFilter">) =>
+    JSON.stringify([
+      d.widgets.map(stripWidgetRuntimeState),
+      d.viewport,
+      d.description ?? null,
+      d.dateFilter ?? null,
+    ]);
+  return content(dashboard) === content(file);
 }

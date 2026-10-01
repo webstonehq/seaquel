@@ -26,7 +26,6 @@ function setup(run: Run) {
   const manager = new WorkflowManager(
     state as unknown as DatabaseState,
     workflowState,
-    () => {},
     executeQuery,
   );
   const data = (id: string) => workflowState.getNode(id)?.data;

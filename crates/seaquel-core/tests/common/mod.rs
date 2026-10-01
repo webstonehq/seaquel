@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use seaquel_core::secrets::{SecretError, SecretOp, SecretStore};
 use seaquel_core::storage::Storage;
-use seaquel_core::{Core, LibraryLimits};
+use seaquel_core::{Core, LibraryLimits, StateLimits, Workspace, WorkspaceSpec};
 use serde_json::{Map, Value};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 use tokio::sync::Notify;
@@ -254,4 +254,174 @@ pub fn capture_logs() -> &'static KvCapture {
 
 pub fn logged() -> String {
     capture_logs().0.lock().unwrap().join("\n")
+}
+
+/// A clock for the state tests: the wall clock at its start, then one
+/// millisecond more on every reading, so "most recently used" never ties
+/// within a test, and a test can move it (`advance`) or stop it
+/// (`freeze`, for writes in one millisecond).
+pub struct TickClock {
+    start: std::time::Duration,
+    ticks: std::sync::atomic::AtomicU64,
+    frozen: std::sync::atomic::AtomicBool,
+}
+
+impl TickClock {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            start: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap(),
+            ticks: std::sync::atomic::AtomicU64::new(0),
+            frozen: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// From now on every reading is the same millisecond.
+    pub fn freeze(&self) {
+        self.frozen.store(true, Ordering::SeqCst);
+    }
+
+    /// Moves the clock `ms` milliseconds on.
+    pub fn advance(&self, ms: u64) {
+        self.ticks.fetch_add(ms, Ordering::SeqCst);
+    }
+}
+
+impl seaquel_runtime::Executor for TickClock {
+    fn spawn(&self, future: futures::future::BoxFuture<'static, ()>) {
+        seaquel_runtime::TokioExecutor.spawn(future)
+    }
+
+    fn sleep(&self, duration: std::time::Duration) -> futures::future::BoxFuture<'static, ()> {
+        seaquel_runtime::TokioExecutor.sleep(duration)
+    }
+
+    fn unix_time(&self) -> std::time::Duration {
+        let step = u64::from(!self.frozen.load(Ordering::SeqCst));
+        let n = self.ticks.fetch_add(step, Ordering::SeqCst);
+        self.start + std::time::Duration::from_millis(n)
+    }
+
+    fn monotonic(&self) -> std::time::Duration {
+        seaquel_runtime::TokioExecutor.monotonic()
+    }
+}
+
+/// A desktop-like Core on `clock`, with these state limits.
+pub fn state_core(clock: Arc<TickClock>, limits: seaquel_core::StateLimits) -> Core {
+    state_core_with(clock, LibraryLimits::default(), limits)
+}
+
+/// [`state_core`] with library limits too (a web Core's names and fields).
+pub fn state_core_with(
+    clock: Arc<TickClock>,
+    library: LibraryLimits,
+    limits: seaquel_core::StateLimits,
+) -> Core {
+    seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .executor(clock)
+        .library_limits(library)
+        .state_limits(limits)
+        .build()
+}
+
+/// The web server's library limits (`WEB_LIBRARY_LIMITS`), for the state
+/// tests' web Cores.
+pub fn web_library_limits() -> LibraryLimits {
+    LibraryLimits {
+        max_name_bytes: Some(1024),
+        max_field_bytes: Some(64 * 1024),
+        max_query_bytes: Some(2 * 1024 * 1024),
+        max_list_items: Some(1_000),
+        max_connections: Some(10_000),
+        max_projects: Some(1_000),
+        max_saved_queries: Some(50_000),
+        max_version_bytes: Some(16 * 1024 * 1024),
+    }
+}
+
+// ── The state tests' workspace ──
+
+pub const T0: &str = "2024-01-01T00:00:00.000Z";
+
+/// A workspace with projects `p1` and `p2` and a connection `c1` in `p1`.
+pub struct Fx {
+    _dir: tempfile::TempDir,
+    pub core: Core,
+    pub ws: Arc<Workspace>,
+    pub store: Arc<TestStore>,
+    pub clock: Arc<TickClock>,
+}
+
+pub async fn fx_with(limits: StateLimits, with_store: bool) -> Fx {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TestStore::new();
+    let clock = TickClock::new();
+    // A workspace without a store is the web's: its library limits too.
+    let library = if with_store {
+        seaquel_core::LibraryLimits::default()
+    } else {
+        web_library_limits()
+    };
+    let core = state_core_with(clock.clone(), library, limits);
+    let spec = WorkspaceSpec::new(dir.path());
+    let spec = if with_store {
+        spec.with_secrets(store.clone())
+    } else {
+        spec
+    };
+    let ws = core.open_workspace(spec).await.unwrap();
+    for (id, name) in [("p1", "Main"), ("p2", "Other")] {
+        insert_rows(
+            ws.storage(),
+            "projects",
+            &[
+                serde_json::json!({"id": id, "name": name, "description": null, "created_at": T0,
+                     "updated_at": T0, "git_repo_path": null}),
+            ],
+        )
+        .await;
+    }
+    insert_rows(
+        ws.storage(),
+        "connections",
+        &[
+            serde_json::json!({"id": "c1", "project_id": "p1", "name": "C1", "type": "postgres",
+                 "host": "h", "port": 5432, "database_name": "d", "username": "u"}),
+        ],
+    )
+    .await;
+    Fx {
+        _dir: dir,
+        core,
+        ws,
+        store,
+        clock,
+    }
+}
+
+/// A web Core's state limits (`WEB_STATE_LIMITS` in `seaquel-server`).
+pub fn web_state_limits() -> StateLimits {
+    StateLimits {
+        max_view_state_bytes: Some(8 * 1024 * 1024),
+        max_tab_text_bytes: Some(2 * 1024 * 1024),
+        max_tabs: Some(500),
+        max_windows: 50,
+        max_window_states_per_project: 20,
+        spare_main_window: false,
+        max_workflow_bytes: Some(16 * 1024 * 1024),
+        max_workflows: Some(1_000),
+        max_dashboard_bytes: Some(4 * 1024 * 1024),
+        max_dashboards: Some(1_000),
+        max_dashboard_version_bytes: Some(16 * 1024 * 1024),
+        max_message_bytes: Some(1024 * 1024),
+        max_messages_per_chat: Some(5_000),
+        max_chat_bytes: Some(64 * 1024 * 1024),
+        max_chats: Some(10_000),
+        max_setting_bytes: Some(256 * 1024),
+        max_user_themes: Some(200),
+        max_ai_providers: Some(50),
+    }
 }

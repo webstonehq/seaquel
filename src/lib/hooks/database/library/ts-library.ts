@@ -32,8 +32,22 @@ import {
 import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from "$lib/types";
 import type { PersistedQueryParameter } from "$lib/types/generated/PersistedQueryParameter";
 import type { SSHTunnelConfig } from "$lib/types/generated/SSHTunnelConfig";
+import { TsState, workflowMeta } from "./ts-state";
 import {
   LibraryCallError,
+  WORKFLOW_NOT_FOUND,
+  type ChatDraft,
+  type ChatMessageDraft,
+  type ChatMessages,
+  type ChatPatch,
+  type DashboardDraft,
+  type DashboardPatch,
+  type DashboardUpdated,
+  type WireChat,
+  type WireDashboard,
+  type WireDashboardVersion,
+  type WireDashboardVersionMeta,
+  type WireWorkflowMeta,
   type ChangeSeq,
   type ConnectionDraft,
   type ConnectionLabel,
@@ -559,6 +573,8 @@ export class TsLibrary implements LibraryService {
   private n = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private upgraded = false;
+  /** The 5d-2 additions (dashboards, workflows, chats), on the same file. */
+  private readonly state: TsState;
 
   constructor(
     private readonly db: SqliteDatabase,
@@ -566,6 +582,13 @@ export class TsLibrary implements LibraryService {
   ) {
     this.now = options.now ?? (() => new Date());
     this.epoch = options.epoch ?? crypto.randomUUID();
+    this.state = new TsState(db, {
+      iso: () => this.iso(),
+      newId: (prefix) => this.newId(prefix),
+      nameKey,
+      versionPrune,
+      parseVersionLimit,
+    });
   }
 
   // -------- Plumbing --------
@@ -1276,5 +1299,204 @@ export class TsLibrary implements LibraryService {
       ]);
       return { value: null, seq };
     });
+  }
+
+  // -------- Phase 5d-2 --------
+
+  /** As Core's `projectSidebarGet`: no row, or an order that isn't a list, reads as none. */
+  getProjectSidebar(projectId: string): Promise<Seqd<string[]>> {
+    return this.run(async () => {
+      noNul(projectId);
+      const seq = this.seq();
+      const [row] = await this.db.query<Row>(
+        "SELECT connection_order FROM project_state WHERE project_id = ?",
+        [projectId],
+      );
+      return { value: readConnectionOrder(row?.connection_order), seq };
+    });
+  }
+
+  /** As Core's `projectSidebarSet`: an upsert of the order alone. */
+  setProjectSidebar(projectId: string, connectionOrder: string[]): Promise<Seqd<string[]>> {
+    return this.run(async () => {
+      noNul(projectId);
+      for (const id of connectionOrder) noNul(id);
+      await this.projectOrFail(projectId);
+      const seq = await this.write([
+        {
+          sql: `INSERT INTO project_state (project_id, connection_order) VALUES (?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET connection_order = excluded.connection_order`,
+          params: [projectId, JSON.stringify(connectionOrder)],
+        },
+      ]);
+      return { value: [...connectionOrder], seq };
+    });
+  }
+
+  /**
+   * The project's saved workflows without their bodies (5d-2 Task 7); a
+   * row that isn't JSON, or is `null`, is skipped.
+   */
+  listWorkflows(projectId: string): Promise<Seqd<WireWorkflowMeta[]>> {
+    return this.run(async () => {
+      noNul(projectId);
+      const seq = this.seq();
+      const rows = await this.db.query<Row>(
+        "SELECT id, project_id, data FROM saved_canvases WHERE project_id = ? ORDER BY rowid",
+        [projectId],
+      );
+      const value: WireWorkflowMeta[] = [];
+      for (const row of rows) {
+        const meta = workflowMeta(text(row.id), text(row.project_id), text(row.data));
+        if (meta) value.push(meta);
+      }
+      return { value, seq };
+    });
+  }
+
+  /** One saved workflow as stored; a missing one, or one that doesn't read, isn't found. */
+  getWorkflow(id: string): Promise<Seqd<unknown>> {
+    return this.run(async () => {
+      noNul(id);
+      const seq = this.seq();
+      const [row] = await this.db.query<Row>(
+        "SELECT project_id, data FROM saved_canvases WHERE id = ?",
+        [id],
+      );
+      const meta = row ? workflowMeta(id, text(row.project_id), text(row.data)) : null;
+      if (!meta) throw new LibraryCallError(WORKFLOW_NOT_FOUND, "Saved workflow not found.");
+      return { value: JSON.parse(text(row.data)) as unknown, seq };
+    });
+  }
+
+  createWorkflow(projectId: string, workflow: unknown): Promise<Seqd<unknown>> {
+    return this.run(async () => {
+      const { value, writes } = await this.state.createWorkflow(projectId, workflow);
+      return { value, seq: await this.write(writes) };
+    });
+  }
+
+  updateWorkflow(id: string, workflow: unknown): Promise<Seqd<unknown>> {
+    return this.run(async () => {
+      const { value, writes } = await this.state.updateWorkflow(id, workflow);
+      return { value, seq: await this.write(writes) };
+    });
+  }
+
+  renameWorkflow(id: string, name: string): Promise<Seqd<WireWorkflowMeta>> {
+    return this.run(async () => {
+      const { value, writes } = await this.state.renameWorkflow(id, name);
+      return { value, seq: await this.write(writes) };
+    });
+  }
+
+  removeWorkflow(id: string): Promise<Seqd<null>> {
+    return this.run(async () => ({
+      value: null,
+      seq: await this.write(await this.state.removeWorkflow(id)),
+    }));
+  }
+
+  listDashboards(projectId: string): Promise<Seqd<WireDashboard[]>> {
+    return this.run(async () => {
+      const seq = this.seq();
+      return { value: await this.state.listDashboards(projectId), seq };
+    });
+  }
+
+  listDashboardVersions(projectId: string): Promise<Seqd<WireDashboardVersionMeta[]>> {
+    return this.run(async () => {
+      const seq = this.seq();
+      return { value: await this.state.listDashboardVersions(projectId), seq };
+    });
+  }
+
+  getDashboardVersion(dashboardId: string, versionId: string): Promise<Seqd<WireDashboardVersion>> {
+    return this.run(async () => {
+      const seq = this.seq();
+      return { value: await this.state.getDashboardVersion(dashboardId, versionId), seq };
+    });
+  }
+
+  createDashboard(draft: DashboardDraft): Promise<Seqd<WireDashboard>> {
+    return this.run(async () => {
+      const { row, writes } = await this.state.createDashboard(draft);
+      return { value: row, seq: await this.write(writes) };
+    });
+  }
+
+  updateDashboard(id: string, patch: DashboardPatch): Promise<Seqd<DashboardUpdated>> {
+    return this.run(async () => {
+      const { value, writes } = await this.state.updateDashboard(id, patch);
+      return { value, seq: await this.write(writes) };
+    });
+  }
+
+  removeDashboard(id: string): Promise<Seqd<null>> {
+    return this.run(async () => ({
+      value: null,
+      seq: await this.write(await this.state.removeDashboard(id)),
+    }));
+  }
+
+  listChats(connectionId: string): Promise<Seqd<WireChat[]>> {
+    return this.run(async () => {
+      const seq = this.seq();
+      return { value: await this.state.listChats(connectionId), seq };
+    });
+  }
+
+  listChatMessages(chatId: string): Promise<Seqd<ChatMessages>> {
+    return this.run(async () => {
+      const seq = this.seq();
+      return { value: await this.state.listChatMessages(chatId), seq };
+    });
+  }
+
+  createChat(draft: ChatDraft): Promise<Seqd<WireChat>> {
+    return this.run(async () => {
+      const { row, writes } = await this.state.createChat(draft);
+      return { value: row, seq: await this.write(writes) };
+    });
+  }
+
+  updateChat(id: string, patch: ChatPatch): Promise<Seqd<WireChat>> {
+    return this.run(async () => {
+      const { row, writes } = await this.state.updateChat(id, patch);
+      return { value: row, seq: await this.write(writes) };
+    });
+  }
+
+  removeChat(id: string): Promise<Seqd<null>> {
+    return this.run(async () => ({
+      value: null,
+      seq: await this.write(await this.state.removeChat(id)),
+    }));
+  }
+
+  putChatMessages(chatId: string, messages: ChatMessageDraft[]): Promise<Seqd<ChatMessages>> {
+    return this.run(async () => {
+      const { value, writes } = await this.state.putChatMessages(chatId, messages);
+      const seq = await this.write(writes);
+      return { value: { ...value, storedBytes: await this.state.chatBytes(chatId) }, seq };
+    });
+  }
+
+  removeChatMessages(chatId: string, ids: string[]): Promise<Seqd<number>> {
+    return this.run(async () => {
+      const { count, writes } = await this.state.removeChatMessages(chatId, ids);
+      return { value: count, seq: await this.write(writes) };
+    });
+  }
+}
+
+/** A stored connection order read tolerantly: its strings, in order. */
+function readConnectionOrder(stored: unknown): string[] {
+  if (typeof stored !== "string") return [];
+  try {
+    const items: unknown = JSON.parse(stored);
+    return Array.isArray(items) ? items.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
   }
 }

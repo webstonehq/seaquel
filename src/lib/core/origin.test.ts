@@ -1,13 +1,17 @@
 /**
- * The page's write origin: well-formed for Node's and Rust's check, stable
- * for the page, and made without `randomUUID` where the page lacks it.
+ * The page's write origin: its window id (`window-id.test.ts` covers the
+ * web tab's), well-formed for Node's and Rust's check, stable for the page,
+ * and made without `randomUUID` where the page lacks it.
  */
 import { describe, expect, it } from "vitest";
 import { newOrigin, ORIGIN_PATTERN, pageOrigin, webPageOrigin } from "./origin";
+import { windowIdReady } from "./window-id";
 
 describe("origin", () => {
-  it("is well-formed and the same for the whole page", () => {
+  it("is the window id once settled, well-formed and the same for the whole page", async () => {
+    const id = await windowIdReady();
     const origin = webPageOrigin();
+    expect(origin).toBe(id);
     expect(origin).toMatch(ORIGIN_PATTERN);
     expect(webPageOrigin()).toBe(origin);
     // Not in Tauri: the page's origin is the web one.

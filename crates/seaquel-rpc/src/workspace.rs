@@ -1,23 +1,28 @@
 //! The workspace RPC: one `Request`/`Response` pair for everything the GUIs
 //! ask of Core: metadata storage, the library (`library`, see the `library`
-//! module), secrets and database calls (`db`, see the `db` module) on a
-//! user's [`Workspace`], plus SSH, git and desktop licensing, and
+//! module), settings (`settings`), each window's view state (`ui`), secrets
+//! and database calls (`db`, see the `db` module) on a user's
+//! [`Workspace`], plus SSH, git and desktop licensing, and
 //! [`dispatch_workspace`].
 //!
 //! The Tauri app serves it as the `core_call` command and `seaquel-server` as
 //! `POST /rpc`. Wire shape, two levels of adjacent tagging:
 //!
 //! ```json
-//! {"method":"storage","params":{"method":"appStateSet","params":{"key":"k","value":"v"}}}
-//! {"method":"storage","result":{"method":"appStateSet","result":null}}
+//! {"method":"storage","params":{"method":"queryHistorySetFavorite","params":{"id":"h","favorite":true}}}
+//! {"method":"storage","result":{"method":"queryHistorySetFavorite","result":null}}
 //! ```
 //!
 //! Phase 5d-1 retired the storage group's connection, project, saved-query
 //! and version methods (`connectionsLoadAll`, `connectionsSave`, …,
-//! `queryVersionsPrune`): the `library` group replaced them, and naming one
-//! is an unknown method (`INVALID_ARGUMENT`). Every write, in either group,
-//! emits one `StorageChanged` event after it committed, carrying the
-//! caller's [`WriteOrigin`].
+//! `queryVersionsPrune`), and phase 5d-2 its app-state, project-state,
+//! dashboard, chat, theme, onboarding, tutorial, import-state and
+//! connection-override methods (35 in all): the `library`, `settings` and
+//! `ui` groups replaced them (the overrides are retired, Q13), and naming
+//! one is an unknown method (`INVALID_ARGUMENT`). What stays in the storage
+//! group is the query history, shared repos, the license record and the
+//! web vault. Every write, in any group, emits one `StorageChanged` event
+//! after it committed, carrying the caller's [`WriteOrigin`].
 //!
 //! **`method` must come before `params`** at both levels. JSON columns in
 //! the storage rows are `serde_json::RawValue`s, which only deserialize when
@@ -40,10 +45,7 @@ use std::fmt;
 use log::debug;
 use seaquel_core::{Core, CoreError, Workspace, WriteOrigin};
 use seaquel_types::storage::{
-    DashboardVersionsPrune, ImportState, PersistedAIChat, PersistedAIMessage,
-    PersistedConnectionOverride, PersistedCredential, PersistedDashboard,
-    PersistedDashboardVersion, PersistedProjectState, PersistedQueryHistoryItem,
-    PersistedVaultState, SharedReposState, ThemePreferences, TutorialProgress,
+    PersistedCredential, PersistedQueryHistoryItem, PersistedVaultState, SharedReposState,
 };
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -145,6 +147,8 @@ fn rpc_error(e: impl Into<CoreError>) -> RpcError {
 pub enum Request {
     Storage(StorageRequest),
     Library(crate::library::LibraryRequest),
+    Settings(crate::settings::SettingsRequest),
+    Ui(crate::ui::UiRequest),
     Secret(SecretRequest),
     License(crate::license::DesktopLicenseRequest),
     Git(crate::git::GitRequest),
@@ -166,6 +170,8 @@ pub enum Request {
 pub enum Response {
     Storage(StorageResponse),
     Library(crate::library::LibraryResponse),
+    Settings(crate::settings::SettingsResponse),
+    Ui(crate::ui::UiResponse),
     Secret(SecretResponse),
     License(crate::license::DesktopLicenseResponse),
     Git(crate::git::GitResponse),
@@ -174,12 +180,14 @@ pub enum Response {
 }
 
 impl Request {
-    /// The group's wire name: `storage`, `library`, `secret`, `license`,
-    /// `git`, `ssh` or `db`.
+    /// The group's wire name: `storage`, `library`, `settings`, `ui`,
+    /// `secret`, `license`, `git`, `ssh` or `db`.
     pub fn group(&self) -> &'static str {
         match self {
             Request::Storage(_) => "storage",
             Request::Library(_) => "library",
+            Request::Settings(_) => "settings",
+            Request::Ui(_) => "ui",
             Request::Secret(_) => "secret",
             Request::License(_) => "license",
             Request::Git(_) => "git",
@@ -195,6 +203,8 @@ impl Request {
         match self {
             Request::Storage(r) => r.method(),
             Request::Library(r) => r.method(),
+            Request::Settings(r) => r.method(),
+            Request::Ui(r) => r.method(),
             Request::Secret(r) => r.method(),
             Request::License(r) => r.method(),
             Request::Git(r) => r.method(),
@@ -251,55 +261,6 @@ macro_rules! storage_methods {
 }
 
 storage_methods! {
-    // ai_chats
-    AiChatsLoadByConnection = "aiChatsLoadByConnection" [{ connection_id: String }]
-        -> [Vec<PersistedAIChat>],
-    AiChatsSaveChat = "aiChatsSaveChat" [{ chat: PersistedAIChat }] -> [()],
-    AiChatsRemoveChat = "aiChatsRemoveChat" [{ chat_id: String }] -> [()],
-    AiChatsRemoveByConnection = "aiChatsRemoveByConnection" [{ connection_id: String }] -> [()],
-    AiChatsLoadMessages = "aiChatsLoadMessages" [{ chat_id: String }]
-        -> [Vec<PersistedAIMessage>],
-    AiChatsReplaceAllMessages = "aiChatsReplaceAllMessages"
-        [{ chat_id: String, messages: Vec<PersistedAIMessage> }] -> [()],
-
-    // app_state
-    AppStateGet = "appStateGet" [{ key: String }] -> [Option<String>],
-    AppStateSet = "appStateSet" [{ key: String, value: Option<String> }] -> [()],
-
-    // connection_overrides
-    ConnectionOverridesLoad = "connectionOverridesLoad" [{ shared_connection_id: String }]
-        -> [Option<PersistedConnectionOverride>],
-    ConnectionOverridesLoadAll = "connectionOverridesLoadAll" []
-        -> [Vec<PersistedConnectionOverride>],
-    ConnectionOverridesSave = "connectionOverridesSave"
-        [{ connection_override: PersistedConnectionOverride }] -> [()],
-    ConnectionOverridesRemove = "connectionOverridesRemove" [{ shared_connection_id: String }]
-        -> [()],
-
-    // dashboard_versions
-    DashboardVersionsLoadByDashboard = "dashboardVersionsLoadByDashboard"
-        [{ dashboard_id: String }] -> [Vec<PersistedDashboardVersion>],
-    DashboardVersionsLoadByProject = "dashboardVersionsLoadByProject" [{ project_id: String }]
-        -> [Vec<PersistedDashboardVersion>],
-    DashboardVersionsInsert = "dashboardVersionsInsert" [{ version: PersistedDashboardVersion }]
-        -> [()],
-    /// `params` is the prune itself: which versions go, and the snapshot
-    /// the TypeScript computed for the oldest one kept.
-    DashboardVersionsPrune = "dashboardVersionsPrune" [(DashboardVersionsPrune)] -> [()],
-
-    // dashboards
-    DashboardsLoadByProject = "dashboardsLoadByProject" [{ project_id: String }]
-        -> [Vec<PersistedDashboard>],
-    DashboardsSave = "dashboardsSave" [{ dashboard: PersistedDashboard }] -> [()],
-    DashboardsRemove = "dashboardsRemove" [{ id: String }] -> [()],
-    DashboardsRemoveByProject = "dashboardsRemoveByProject" [{ project_id: String }] -> [()],
-
-    // import_state
-    ImportStateLoad = "importStateLoad" [{ source: String }] -> [Option<ImportState>],
-    ImportStateSave = "importStateSave"
-        [{ source: String, has_offered_import: bool, last_check_timestamp: Option<String> }]
-        -> [()],
-
     // license
     LicenseLoad = "licenseLoad" []
         -> [#[cfg_attr(feature = "ts", ts(type = "unknown"))] Option<Box<RawValue>>],
@@ -307,20 +268,6 @@ storage_methods! {
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
         data: Box<RawValue>
     }] -> [()],
-
-    // onboarding
-    OnboardingLoad = "onboardingLoad" []
-        -> [#[cfg_attr(feature = "ts", ts(type = "unknown"))] Option<Box<RawValue>>],
-    OnboardingSave = "onboardingSave" [{
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        data: Box<RawValue>
-    }] -> [()],
-
-    // project_state
-    ProjectStateLoad = "projectStateLoad" [{ project_id: String }]
-        -> [Option<PersistedProjectState>],
-    ProjectStateSave = "projectStateSave" [{ state: PersistedProjectState }] -> [()],
-    ProjectStateRemove = "projectStateRemove" [{ project_id: String }] -> [()],
 
     // query_history
     QueryHistoryLoadByConnection = "queryHistoryLoadByConnection" [{ connection_id: String }]
@@ -340,24 +287,6 @@ storage_methods! {
         repos: Vec<Box<RawValue>>,
         active_repo_id: Option<String>
     }] -> [()],
-
-    // themes
-    ThemesLoadPreferences = "themesLoadPreferences" [] -> [Option<ThemePreferences>],
-    ThemesSavePreferences = "themesSavePreferences"
-        [{ light_theme_id: String, dark_theme_id: String }] -> [()],
-    ThemesLoadUserThemes = "themesLoadUserThemes" []
-        -> [#[cfg_attr(feature = "ts", ts(type = "Array<unknown>"))] Vec<Box<RawValue>>],
-    ThemesSaveUserThemes = "themesSaveUserThemes" [{
-        #[cfg_attr(feature = "ts", ts(type = "Array<unknown>"))]
-        themes: Vec<Box<RawValue>>
-    }] -> [()],
-
-    // tutorial
-    TutorialLoadAll = "tutorialLoadAll" [] -> [Vec<TutorialProgress>],
-    TutorialSave = "tutorialSave"
-        [{ lesson_id: String, challenge_id: String, state: Option<String> }] -> [()],
-    TutorialRemoveLesson = "tutorialRemoveLesson" [{ lesson_id: String }] -> [()],
-    TutorialRemoveAll = "tutorialRemoveAll" [] -> [()],
 
     // user_credentials
     UserCredentialsLoad = "userCredentialsLoad" [{ scope: String, key: String }]
@@ -565,6 +494,10 @@ pub async fn dispatch_workspace(
             Request::Library(r) => crate::library::library(core, ws, r, &origin)
                 .await
                 .map(Response::Library),
+            Request::Settings(r) => crate::settings::settings(core, ws, r, &origin)
+                .await
+                .map(Response::Settings),
+            Request::Ui(r) => crate::ui::ui(core, ws, r, &origin).await.map(Response::Ui),
             Request::Secret(r) => secret(secrets_of(ws), r).await.map(Response::Secret),
             // The desktop serves this group with `dispatch_license`; a web
             // workspace has no activation client.
@@ -662,60 +595,17 @@ fn storage_change(req: &StorageRequest) -> Option<Change> {
     use seaquel_core::StoredKind::{History, Storage};
     use StorageRequest as Q;
     let one = |id: &str| Some((Storage, None, Some(vec![id.to_string()])));
-    let scoped = |scope: &str, id: &str| {
-        Some((Storage, Some(scope.to_string()), Some(vec![id.to_string()])))
-    };
     let all = || Some((Storage, None, None));
     match req {
         // Reads.
-        Q::AiChatsLoadByConnection { .. }
-        | Q::AiChatsLoadMessages { .. }
-        | Q::AppStateGet { .. }
-        | Q::ConnectionOverridesLoad { .. }
-        | Q::ConnectionOverridesLoadAll
-        | Q::DashboardVersionsLoadByDashboard { .. }
-        | Q::DashboardVersionsLoadByProject { .. }
-        | Q::DashboardsLoadByProject { .. }
-        | Q::ImportStateLoad { .. }
-        | Q::LicenseLoad
-        | Q::OnboardingLoad
-        | Q::ProjectStateLoad { .. }
+        Q::LicenseLoad
         | Q::QueryHistoryLoadByConnection { .. }
         | Q::SharedReposLoadAll
-        | Q::ThemesLoadPreferences
-        | Q::ThemesLoadUserThemes
-        | Q::TutorialLoadAll
         | Q::UserCredentialsLoad { .. }
         | Q::VaultStateLoad => None,
         // Writes.
-        Q::AiChatsSaveChat { chat } => scoped(&chat.connection_id, &chat.id),
-        Q::AiChatsRemoveChat { chat_id } => one(chat_id),
-        Q::AiChatsRemoveByConnection { connection_id } => {
-            Some((Storage, Some(connection_id.clone()), None))
-        }
-        Q::AiChatsReplaceAllMessages { chat_id, .. } => {
-            Some((Storage, Some(chat_id.clone()), None))
-        }
-        Q::AppStateSet { key, .. } => one(key),
-        Q::ConnectionOverridesSave {
-            connection_override,
-        } => one(&connection_override.shared_connection_id),
-        Q::ConnectionOverridesRemove {
-            shared_connection_id,
-        } => one(shared_connection_id),
-        Q::DashboardVersionsInsert { version } => one(&version.dashboard_id),
-        Q::DashboardVersionsPrune(prune) => one(&prune.dashboard_id),
-        Q::DashboardsSave { dashboard } => scoped(&dashboard.project_id, &dashboard.id),
-        Q::DashboardsRemove { id } => one(id),
-        Q::DashboardsRemoveByProject { project_id } => {
-            Some((Storage, Some(project_id.clone()), None))
-        }
-        Q::ImportStateSave { source, .. } => one(source),
-        Q::LicenseSave { .. } | Q::OnboardingSave { .. } | Q::VaultStateSave { .. } => all(),
-        Q::VaultStateReset | Q::TutorialRemoveAll | Q::ThemesSaveUserThemes { .. } => all(),
-        Q::ThemesSavePreferences { .. } | Q::SharedReposSaveAll { .. } => all(),
-        Q::ProjectStateSave { state } => one(&state.project_id),
-        Q::ProjectStateRemove { project_id } => one(project_id),
+        Q::LicenseSave { .. } | Q::VaultStateSave { .. } | Q::VaultStateReset => all(),
+        Q::SharedReposSaveAll { .. } => all(),
         Q::QueryHistoryAppend { item } => Some((
             History,
             Some(item.connection_id.clone()),
@@ -725,7 +615,6 @@ fn storage_change(req: &StorageRequest) -> Option<Change> {
         Q::QueryHistoryRemoveByConnection { connection_id } => {
             Some((History, Some(connection_id.clone()), None))
         }
-        Q::TutorialSave { lesson_id, .. } | Q::TutorialRemoveLesson { lesson_id } => one(lesson_id),
         Q::UserCredentialsSave { credential } => one(&credential.key),
         Q::UserCredentialsRemove { key, .. } | Q::UserCredentialsRemoveAllForKey { key } => {
             one(key)
@@ -744,103 +633,8 @@ async fn storage_call(
 
     let st = ws.storage();
     Ok(match req {
-        Q::AiChatsLoadByConnection { connection_id } => {
-            R::AiChatsLoadByConnection(ai_chats::load_by_connection(st, &connection_id).await?)
-        }
-        Q::AiChatsSaveChat { chat } => R::AiChatsSaveChat(ai_chats::save_chat(st, &chat).await?),
-        Q::AiChatsRemoveChat { chat_id } => {
-            R::AiChatsRemoveChat(ai_chats::remove_chat(st, &chat_id).await?)
-        }
-        Q::AiChatsRemoveByConnection { connection_id } => {
-            R::AiChatsRemoveByConnection(ai_chats::remove_by_connection(st, &connection_id).await?)
-        }
-        Q::AiChatsLoadMessages { chat_id } => {
-            R::AiChatsLoadMessages(ai_chats::load_messages(st, &chat_id).await?)
-        }
-        Q::AiChatsReplaceAllMessages { chat_id, messages } => R::AiChatsReplaceAllMessages(
-            ai_chats::replace_all_messages(st, &chat_id, &messages).await?,
-        ),
-
-        Q::AppStateGet { key } => R::AppStateGet(app_state::get(st, &key).await?),
-        Q::AppStateSet { key, value } => {
-            R::AppStateSet(app_state::set(st, &key, value.as_deref()).await?)
-        }
-
-        Q::ConnectionOverridesLoad {
-            shared_connection_id,
-        } => {
-            R::ConnectionOverridesLoad(connection_overrides::load(st, &shared_connection_id).await?)
-        }
-        Q::ConnectionOverridesLoadAll => {
-            R::ConnectionOverridesLoadAll(connection_overrides::load_all(st).await?)
-        }
-        Q::ConnectionOverridesSave {
-            connection_override,
-        } => {
-            R::ConnectionOverridesSave(connection_overrides::save(st, &connection_override).await?)
-        }
-        Q::ConnectionOverridesRemove {
-            shared_connection_id,
-        } => R::ConnectionOverridesRemove(
-            connection_overrides::remove(st, &shared_connection_id).await?,
-        ),
-
-        Q::DashboardVersionsLoadByDashboard { dashboard_id } => {
-            R::DashboardVersionsLoadByDashboard(
-                dashboard_versions::load_by_dashboard(st, &dashboard_id).await?,
-            )
-        }
-        Q::DashboardVersionsLoadByProject { project_id } => R::DashboardVersionsLoadByProject(
-            dashboard_versions::load_by_project(st, &project_id).await?,
-        ),
-        Q::DashboardVersionsInsert { version } => {
-            R::DashboardVersionsInsert(dashboard_versions::insert(st, &version).await?)
-        }
-        Q::DashboardVersionsPrune(prune) => {
-            R::DashboardVersionsPrune(dashboard_versions::prune(st, &prune).await?)
-        }
-
-        Q::DashboardsLoadByProject { project_id } => {
-            R::DashboardsLoadByProject(dashboards::load_by_project(st, &project_id).await?)
-        }
-        Q::DashboardsSave { dashboard } => {
-            R::DashboardsSave(dashboards::save(st, &dashboard).await?)
-        }
-        Q::DashboardsRemove { id } => R::DashboardsRemove(dashboards::remove(st, &id).await?),
-        Q::DashboardsRemoveByProject { project_id } => {
-            R::DashboardsRemoveByProject(dashboards::remove_by_project(st, &project_id).await?)
-        }
-
-        Q::ImportStateLoad { source } => R::ImportStateLoad(import_state::load(st, &source).await?),
-        Q::ImportStateSave {
-            source,
-            has_offered_import,
-            last_check_timestamp,
-        } => R::ImportStateSave(
-            import_state::save(
-                st,
-                &source,
-                has_offered_import,
-                last_check_timestamp.as_deref(),
-            )
-            .await?,
-        ),
-
         Q::LicenseLoad => R::LicenseLoad(license::load(st).await?),
         Q::LicenseSave { data } => R::LicenseSave(license::save(st, &data).await?),
-
-        Q::OnboardingLoad => R::OnboardingLoad(onboarding::load(st).await?),
-        Q::OnboardingSave { data } => R::OnboardingSave(onboarding::save(st, &data).await?),
-
-        Q::ProjectStateLoad { project_id } => {
-            R::ProjectStateLoad(project_state::load(st, &project_id).await?)
-        }
-        Q::ProjectStateSave { state } => {
-            R::ProjectStateSave(project_state::save(st, &state).await?)
-        }
-        Q::ProjectStateRemove { project_id } => {
-            R::ProjectStateRemove(project_state::remove(st, &project_id).await?)
-        }
 
         Q::QueryHistoryLoadByConnection { connection_id } => R::QueryHistoryLoadByConnection(
             query_history::load_by_connection(st, &connection_id).await?,
@@ -862,31 +656,6 @@ async fn storage_call(
         } => R::SharedReposSaveAll(
             shared_repos::save_all(st, &repos, active_repo_id.as_deref()).await?,
         ),
-
-        Q::ThemesLoadPreferences => R::ThemesLoadPreferences(themes::load_preferences(st).await?),
-        Q::ThemesSavePreferences {
-            light_theme_id,
-            dark_theme_id,
-        } => R::ThemesSavePreferences(
-            themes::save_preferences(st, &light_theme_id, &dark_theme_id).await?,
-        ),
-        Q::ThemesLoadUserThemes => R::ThemesLoadUserThemes(themes::load_user_themes(st).await?),
-        Q::ThemesSaveUserThemes { themes: all } => {
-            R::ThemesSaveUserThemes(themes::save_user_themes(st, &all).await?)
-        }
-
-        Q::TutorialLoadAll => R::TutorialLoadAll(tutorial::load_all(st).await?),
-        Q::TutorialSave {
-            lesson_id,
-            challenge_id,
-            state,
-        } => {
-            R::TutorialSave(tutorial::save(st, &lesson_id, &challenge_id, state.as_deref()).await?)
-        }
-        Q::TutorialRemoveLesson { lesson_id } => {
-            R::TutorialRemoveLesson(tutorial::remove_lesson(st, &lesson_id).await?)
-        }
-        Q::TutorialRemoveAll => R::TutorialRemoveAll(tutorial::remove_all(st).await?),
 
         Q::UserCredentialsLoad { scope, key } => {
             R::UserCredentialsLoad(user_credentials::load(st, &scope, &key).await?)

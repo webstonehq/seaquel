@@ -1,11 +1,72 @@
 /**
- * Never save what failed to load: stores whose save writes a whole record
- * or replaces a whole table refuse to save after their load failed.
+ * Never save what failed to load: the license, whose save writes a whole
+ * record, refuses to save after its load failed. The settings stores moved
+ * to targeted `settings` calls in phase 5d-2 (Decision 20): a change there
+ * replaces nothing, so it is sent after a failed load too.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const calls: string[] = [];
 let failLoads = true;
+
+/** The `settings` group (5d-2): every call recorded as `settings.method`. */
+vi.mock("$lib/hooks/database/library/index", () => {
+  let n = 0;
+  const answer = (method: string, args: unknown[]): unknown => {
+    switch (method) {
+      case "getAiSettings":
+      case "patchAiSettings":
+      case "updateAiProvider":
+      case "removeAiProvider":
+        return {
+          enabled: true,
+          providers: [],
+          shareSchemaGlobally: true,
+          shareDataGlobally: false,
+        };
+      case "createAiProvider":
+        return {
+          id: "prov-1",
+          settings: { providers: [{ id: "prov-1", ...(args[0] as object) }] },
+        };
+      case "getThemes":
+      case "setThemePreferences":
+      case "updateUserTheme":
+      case "removeUserTheme":
+        return {
+          preferences: { lightThemeId: "default-light", darkThemeId: "default-dark" },
+          userThemes: [],
+        };
+      case "createUserTheme":
+        return {
+          id: "theme-1",
+          themes: {
+            preferences: { lightThemeId: "default-light", darkThemeId: "default-dark" },
+            userThemes: [{ id: "theme-1", ...(args[0] as object) }],
+          },
+        };
+      case "getOnboarding":
+      case "patchOnboarding":
+        return {};
+      default:
+        return null;
+    }
+  };
+  const settings = new Proxy(
+    {},
+    {
+      get: (_t, method: string) =>
+        vi.fn(async (...args: unknown[]) => {
+          calls.push(`settings.${method}`);
+          if (/^(get|list)/.test(method) && failLoads) {
+            throw new Error("STORAGE_ERROR: upstream unavailable");
+          }
+          return { value: answer(method, args), seq: { epoch: "e", n: ++n } };
+        }),
+    },
+  );
+  return { getSettings: () => settings };
+});
 
 vi.mock("$lib/storage", () => {
   const repo = (name: string) =>
@@ -49,6 +110,12 @@ vi.mock("$lib/api/tauri", () => ({
   getUsername: async () => "me",
 }));
 vi.mock("$lib/themes/apply", () => ({ applyTheme: vi.fn(), cacheThemeColors: vi.fn() }));
+// Onboarding is saved on the desktop only.
+vi.mock("$lib/utils/environment", () => ({
+  isTauri: () => true,
+  isWeb: () => false,
+  isDemo: () => false,
+}));
 vi.mock("mode-watcher", () => ({ mode: { current: "light" } }));
 
 beforeEach(() => {
@@ -62,71 +129,53 @@ beforeEach(() => {
 const writes = () => calls.filter((c) => !/\.(load|get)/.test(c));
 
 describe("AI settings", () => {
-  it("refuses a change after a failed load, without touching settings or keys", async () => {
+  it("a change after a failed load is one targeted call, without touching keys", async () => {
     const { aiSettingsStore } = await import("./ai-settings.svelte");
     await aiSettingsStore.initialize(); // doesn't throw
-    const provider = { id: "p1", name: "Mine", type: "anthropic" as const, baseUrl: "" };
 
-    await expect(aiSettingsStore.addProvider(provider, "sk-key")).rejects.toThrow();
-    await expect(aiSettingsStore.setEnabled(false)).rejects.toThrow();
-    await expect(
-      aiSettingsStore.savePrivacySettings({ shareSchemaGlobally: false, shareDataGlobally: false }),
-    ).rejects.toThrow();
-
-    expect(writes()).toEqual([]);
-    expect(keyring).toEqual([]);
-    expect(aiSettingsStore.settings.providers).toEqual([]);
-  });
-
-  it("loads again before a change, and saves once that works", async () => {
-    const { aiSettingsStore } = await import("./ai-settings.svelte");
-    await aiSettingsStore.initialize();
-    failLoads = false;
-
+    await aiSettingsStore.addProvider({ name: "Mine", type: "anthropic" });
     await aiSettingsStore.setEnabled(false);
+    await aiSettingsStore.savePrivacySettings({
+      shareSchemaGlobally: false,
+      shareDataGlobally: false,
+    });
 
-    expect(writes()).toEqual(["appState.set"]);
+    // Core rewrites the record from its stored copy: nothing is replaced.
+    expect(writes()).toEqual([
+      "settings.createAiProvider",
+      "settings.patchAiSettings",
+      "settings.patchAiSettings",
+    ]);
+    expect(keyring).toEqual([]);
   });
 });
 
 describe("themes", () => {
-  it("doesn't replace the user themes after a failed load", async () => {
+  it("a theme added after a failed load is its own row, nothing else is written", async () => {
     const { themeStore } = await import("./theme.svelte");
     await themeStore.initialize();
     expect(themeStore.isLoaded).toBe(true); // built-in themes still apply
 
-    themeStore.addTheme({ name: "New", isDark: false, colors: {} as never });
-    themeStore.flush();
-    await Promise.resolve();
+    const added = await themeStore.addTheme({ name: "New", isDark: false, colors: {} as never });
 
-    expect(writes()).toEqual([]);
-    expect(toasts).toHaveLength(1);
-  });
-
-  it("saves after a successful load", async () => {
-    failLoads = false;
-    const { themeStore } = await import("./theme.svelte");
-    await themeStore.initialize();
-
-    themeStore.addTheme({ name: "New", isDark: false, colors: {} as never });
-    themeStore.flush();
-    await vi.waitFor(() => expect(writes()).toContain("themes.saveUserThemes"));
+    expect(writes()).toEqual(["settings.createUserTheme"]);
+    expect(added?.id).toBe("theme-1");
+    expect(toasts).toEqual([]);
   });
 });
 
 describe("onboarding", () => {
-  it("doesn't overwrite the stored state after a failed load, and retries the load", async () => {
+  it("a change after a failed load is a patch of its fields, and the load is retried", async () => {
     const { onboardingStore } = await import("./onboarding.svelte");
     await onboardingStore.initialize();
 
     onboardingStore.dismissHint("h1");
-    await Promise.resolve();
-    expect(writes()).toEqual([]);
+    await vi.waitFor(() => expect(writes()).toEqual(["settings.patchOnboarding"]));
 
     failLoads = false;
     calls.length = 0;
     await onboardingStore.initialize();
-    expect(calls).toContain("onboarding.load");
+    expect(calls).toContain("settings.getOnboarding");
   });
 });
 

@@ -96,6 +96,23 @@ const DDL_STATEMENTS = [
     pane_layout TEXT
   )`,
 
+  // Each window's view state per project (phase 5d-2, Decision 22). The
+  // demo has one window (`demo`); `TsUi` keeps Core's rules over these.
+  `CREATE TABLE IF NOT EXISTS windows (
+    window_id TEXT PRIMARY KEY,
+    active_project_id TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS window_state (
+    window_id TEXT NOT NULL REFERENCES windows(window_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    state TEXT NOT NULL,
+    rev INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (window_id, project_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_window_state_project ON window_state(project_id, updated_at DESC)`,
+
   // All tab types (discriminated by tab_type)
   `CREATE TABLE IF NOT EXISTS tabs (
     id TEXT NOT NULL,

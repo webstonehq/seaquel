@@ -3,6 +3,7 @@
 
 use std::ops::{Deref, DerefMut};
 
+use sqlx::pool::PoolConnection;
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use tokio::sync::OwnedMutexGuard;
 
@@ -29,10 +30,11 @@ use crate::{Storage, StorageError};
 /// it waits for the connection the transaction holds, which never comes
 /// back while the caller awaits the read.
 pub struct WriteTx {
-    // Dropped first: the rollback is queued on the connection before the
-    // next writer may begin.
-    tx: Transaction<'static, Sqlite>,
-    _turn: OwnedMutexGuard<()>,
+    /// `None` once committed or handed to the rollback in `Drop`.
+    conn: Option<PoolConnection<Sqlite>>,
+    /// Held until the transaction has ended (a rollback on drop keeps it
+    /// until the `ROLLBACK` ran), so the next writer never begins on top.
+    turn: Option<OwnedMutexGuard<()>>,
 }
 
 impl std::fmt::Debug for WriteTx {
@@ -41,15 +43,44 @@ impl std::fmt::Debug for WriteTx {
     }
 }
 
+/// Runs `ROLLBACK`, ignoring SQLite's "no transaction is active": after
+/// some errors (`SQLITE_FULL`, `SQLITE_IOERR`, …) SQLite has already rolled
+/// the whole transaction back itself. `BEGIN`, `COMMIT` and `ROLLBACK` are
+/// sent as plain statements, not through sqlx's `Transaction`, because sqlx
+/// counts transaction depth and never lowers it when that `ROLLBACK` fails,
+/// which would leave the pooled connection unusable for every later
+/// transaction (phase 5d-2 review, the size cap).
+async fn rollback_on(conn: &mut SqliteConnection) -> Result<(), StorageError> {
+    match sqlx::query("ROLLBACK").execute(conn).await {
+        Ok(_) => Ok(()),
+        Err(sqlx::Error::Database(e)) if e.message().contains("no transaction is active") => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 impl WriteTx {
-    /// Makes every write in it durable.
-    pub async fn commit(self) -> Result<(), StorageError> {
-        Ok(self.tx.commit().await?)
+    /// Makes every write in it durable. If the commit fails, the
+    /// transaction is rolled back.
+    pub async fn commit(mut self) -> Result<(), StorageError> {
+        let Some(conn) = self.conn.as_mut() else {
+            return Ok(());
+        };
+        sqlx::query("COMMIT").execute(&mut **conn).await?;
+        self.conn = None;
+        Ok(())
     }
 
     /// Undoes every write in it. Dropping the transaction does the same.
-    pub async fn rollback(self) -> Result<(), StorageError> {
-        Ok(self.tx.rollback().await?)
+    pub async fn rollback(mut self) -> Result<(), StorageError> {
+        let Some(mut conn) = self.conn.take() else {
+            return Ok(());
+        };
+        let done = rollback_on(&mut conn).await;
+        if done.is_err() {
+            // Leave no connection in an unknown state in the pool.
+            conn.close_on_drop();
+        }
+        done
     }
 
     /// Turns `PRAGMA secure_delete` on or off for this transaction's
@@ -70,20 +101,61 @@ impl WriteTx {
     }
 
     pub(crate) fn conn(&mut self) -> &mut SqliteConnection {
-        &mut self.tx
+        self.conn
+            .as_deref_mut()
+            .expect("a WriteTx has its connection until it's consumed")
+    }
+}
+
+impl Drop for WriteTx {
+    /// Rolls back a transaction that wasn't committed (or a `BEGIN` still
+    /// in flight). The `ROLLBACK` runs on a task that keeps the connection
+    /// and this process's write turn until it has, so the next writer
+    /// begins after it; sqlx runs it after anything already queued on the
+    /// connection.
+    ///
+    /// Without a Tokio runtime (a `WriteTx` outliving it at process exit)
+    /// nothing can run the `ROLLBACK`, and sqlx can't return or close the
+    /// connection either (both need a runtime). The connection is leaked
+    /// with the process; SQLite discards the uncommitted transaction when
+    /// the file is next opened.
+    fn drop(&mut self) {
+        let Some(mut conn) = self.conn.take() else {
+            return;
+        };
+        let turn = self.turn.take();
+        match tokio::runtime::Handle::try_current() {
+            // Storage is native only (never a wasm32 Core crate), so a task
+            // on the caller's runtime is fine here.
+            Ok(rt) => {
+                rt.spawn(async move {
+                    if rollback_on(&mut conn).await.is_err() {
+                        conn.close_on_drop();
+                    }
+                    drop(conn);
+                    drop(turn);
+                });
+            }
+            Err(_) => {
+                std::mem::forget(conn);
+                drop(turn);
+            }
+        }
     }
 }
 
 impl Deref for WriteTx {
     type Target = SqliteConnection;
     fn deref(&self) -> &SqliteConnection {
-        &self.tx
+        self.conn
+            .as_deref()
+            .expect("a WriteTx has its connection until it's consumed")
     }
 }
 
 impl DerefMut for WriteTx {
     fn deref_mut(&mut self) -> &mut SqliteConnection {
-        &mut self.tx
+        self.conn()
     }
 }
 
@@ -109,10 +181,17 @@ impl Storage {
                 path: self.path().to_path_buf(),
                 waited: self.write_wait(),
             })?;
-        Ok(WriteTx {
-            tx: self.pool().begin_with("BEGIN IMMEDIATE").await?,
-            _turn: turn,
-        })
+        let conn = self.pool().acquire().await?;
+        // The guard exists before `BEGIN` is sent: sqlx's worker runs a
+        // statement even when its future is dropped, so a caller cancelled
+        // (or a `BEGIN` that failed) while it waits leaves the connection
+        // to `Drop`, whose `ROLLBACK` ends that transaction or finds none.
+        let mut tx = WriteTx {
+            conn: Some(conn),
+            turn: Some(turn),
+        };
+        sqlx::query("BEGIN IMMEDIATE").execute(tx.conn()).await?;
+        Ok(tx)
     }
 }
 

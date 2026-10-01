@@ -1,5 +1,6 @@
-import { getStorage } from "$lib/storage";
-import { skipUnloadedSave } from "$lib/storage/load-guard";
+import { getSettings } from "$lib/hooks/database/library/index";
+import { isTauri } from "$lib/utils/environment";
+import { WriteOrder, onStoredChange, toastIfStorageFull } from "./settings-sync";
 
 export type UserBackground = "none" | "datagrip" | "dbeaver";
 
@@ -12,7 +13,13 @@ interface PersistedOnboardingState {
   learnEnabled: boolean;
 }
 
-class OnboardingStore {
+/**
+ * The onboarding state (desktop only). Phase 5d-2 (Decision 20): Core
+ * reads it as the six defaults with the stored fields over them, and each
+ * setter sends only the fields it changed (`onboardingPatch`), merged into
+ * the stored record, so another window's change isn't lost.
+ */
+export class OnboardingStore {
   isFirstRun = $state(true);
   userBackground = $state<UserBackground>("none");
   hasCompletedWizard = $state(false);
@@ -20,49 +27,56 @@ class OnboardingStore {
   dismissedHints = $state<string[]>([]);
   learnEnabled = $state(true);
 
-  /**
-   * True once the stored state was read. Saving writes the whole record, so
-   * until then a save would reset the wizard, hints and Learn setting.
-   */
+  /** True once the stored state was read. */
   private initialized = false;
+  private loading: Promise<void> | null = null;
+  /** Orders the patches' answers and reads (`seq`; no flicker back). */
+  private readonly order = new WriteOrder("onboarding", () => this.read());
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
+  constructor() {
+    onStoredChange("onboarding", () => (this.initialized ? this.read() : undefined));
+  }
 
-    try {
-      const persisted = (await getStorage().onboarding.load()) as PersistedOnboardingState | null;
-
-      if (persisted) {
-        this.isFirstRun = persisted.isFirstRun;
-        this.userBackground = persisted.userBackground;
-        this.hasCompletedWizard = persisted.hasCompletedWizard;
-        this.showWizardHints = persisted.showWizardHints;
-        this.dismissedHints = persisted.dismissedHints || [];
-        this.learnEnabled = persisted.learnEnabled ?? true;
-      }
-
-      this.initialized = true;
-    } catch (error) {
-      // Stay uninitialized: a later `initialize` retries, and saves are off.
+  initialize(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+    this.loading = this.read().catch((error: unknown) => {
+      // Stay uninitialized: a later `initialize` retries.
       console.error("Failed to load onboarding state:", error);
-    }
+    });
+    return this.loading;
+  }
+
+  private async read({ again = false } = {}): Promise<void> {
+    const { value, seq } = await getSettings().getOnboarding();
+    this.initialized = true;
+    this.order.read(value, seq, (v) => this.show(v), { again });
+  }
+
+  private show(value: unknown): void {
+    const s = (value ?? {}) as Partial<PersistedOnboardingState>;
+    this.isFirstRun = s.isFirstRun ?? true;
+    this.userBackground = s.userBackground ?? "none";
+    this.hasCompletedWizard = s.hasCompletedWizard ?? false;
+    this.showWizardHints = s.showWizardHints ?? true;
+    this.dismissedHints = Array.isArray(s.dismissedHints) ? s.dismissedHints : [];
+    this.learnEnabled = s.learnEnabled ?? true;
   }
 
   setBackground(background: UserBackground): void {
     this.userBackground = background;
-    void this.persist();
+    void this.persist({ userBackground: background });
   }
 
   completeWizard(): void {
     this.hasCompletedWizard = true;
     this.isFirstRun = false;
-    void this.persist();
+    void this.persist({ hasCompletedWizard: true, isFirstRun: false });
   }
 
   dismissHint(hintId: string): void {
     if (!this.dismissedHints.includes(hintId)) {
       this.dismissedHints = [...this.dismissedHints, hintId];
-      void this.persist();
+      void this.persist({ dismissedHints: this.dismissedHints });
     }
   }
 
@@ -72,31 +86,32 @@ class OnboardingStore {
 
   setShowWizardHints(show: boolean): void {
     this.showWizardHints = show;
-    void this.persist();
+    void this.persist({ showWizardHints: show });
   }
 
   setLearnEnabled(enabled: boolean): void {
     this.learnEnabled = enabled;
-    void this.persist();
+    void this.persist({ learnEnabled: enabled });
   }
 
-  private async persist(): Promise<void> {
-    if (!this.initialized) {
-      skipUnloadedSave("onboarding state");
-      return;
-    }
+  /**
+   * Sends the changed fields. A load still out is waited for first; one
+   * that failed doesn't stop it, since the patch only replaces its fields.
+   */
+  private async persist(patch: Partial<PersistedOnboardingState>): Promise<void> {
+    // Onboarding is desktop-only: the web layout never loads it.
+    if (!isTauri()) return;
+    if (this.loading) await this.loading;
     try {
-      const state: PersistedOnboardingState = {
-        isFirstRun: this.isFirstRun,
-        userBackground: this.userBackground,
-        hasCompletedWizard: this.hasCompletedWizard,
-        showWizardHints: this.showWizardHints,
-        dismissedHints: this.dismissedHints,
-        learnEnabled: this.learnEnabled,
-      };
-      await getStorage().onboarding.save(state);
+      await this.order.write(
+        () => getSettings().patchOnboarding(patch),
+        (v) => this.show(v),
+      );
     } catch (error) {
+      toastIfStorageFull(error);
       console.error("Failed to persist onboarding state:", error);
+      // What shows goes back to what's stored, as the theme store does.
+      await this.read({ again: true }).catch(() => {});
     }
   }
 }

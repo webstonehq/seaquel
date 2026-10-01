@@ -1,5 +1,5 @@
-import { getStorage } from "$lib/storage";
 import { licenseStore } from "./license.svelte.js";
+import { StoredSetting, names, onStoredChange } from "./settings-sync";
 
 /**
  * A one-time "are you using Seaquel for work?" nudge for unlicensed users.
@@ -19,8 +19,6 @@ interface PersistedNudgeState {
   snoozedUntil: string | null;
 }
 
-const STORAGE_KEY = "license_nudge";
-
 /** The saved state, or `null` when there is none or it isn't JSON. */
 function parseNudgeState(raw: string | null): PersistedNudgeState | null {
   if (!raw) return null;
@@ -37,7 +35,7 @@ const SNOOZE_MS = 60 * DAY_MS;
 /** How often to remind people who said they use Seaquel for work but haven't activated a license. */
 const WORK_REMINDER_MS = 30 * DAY_MS;
 
-class LicenseNudgeStore {
+export class LicenseNudgeStore {
   queryCount = $state(0);
   activeDays = $state(0);
   lastActiveDay = $state<string | null>(null);
@@ -45,6 +43,26 @@ class LicenseNudgeStore {
   snoozedUntil = $state<string | null>(null);
 
   private initialized = $state(false);
+  /**
+   * The stored record, a whole value (last writer wins, a follow-up): each
+   * change sends every field.
+   */
+  private readonly stored = new StoredSetting("license_nudge", (raw) => this.show(raw));
+
+  constructor() {
+    onStoredChange("setting", (ids) =>
+      names(ids, this.stored.key) ? this.stored.reload() : undefined,
+    );
+  }
+
+  private show(raw: string | null): void {
+    const persisted = parseNudgeState(raw);
+    this.queryCount = persisted?.queryCount ?? 0;
+    this.activeDays = persisted?.activeDays ?? 0;
+    this.lastActiveDay = persisted?.lastActiveDay ?? null;
+    this.answer = persisted?.answer ?? null;
+    this.snoozedUntil = persisted?.snoozedUntil ?? null;
+  }
 
   /** Whether the nudge card should be visible right now. */
   get shouldShow(): boolean {
@@ -70,16 +88,7 @@ class LicenseNudgeStore {
     if (this.initialized) return;
 
     try {
-      const raw = await getStorage().appState.get(STORAGE_KEY);
-      const persisted = parseNudgeState(raw);
-
-      if (persisted) {
-        this.queryCount = persisted.queryCount ?? 0;
-        this.activeDays = persisted.activeDays ?? 0;
-        this.lastActiveDay = persisted.lastActiveDay ?? null;
-        this.answer = persisted.answer ?? null;
-        this.snoozedUntil = persisted.snoozedUntil ?? null;
-      }
+      await this.stored.load();
       this.initialized = true;
     } catch (error) {
       // Leave `initialized` false: persisting now would overwrite a saved
@@ -122,6 +131,9 @@ class LicenseNudgeStore {
   }
 
   private async persist(): Promise<void> {
+    // Saving writes the whole record: before a load succeeds it would
+    // write zeroed counts over the stored ones.
+    if (!this.initialized) return;
     try {
       const state: PersistedNudgeState = {
         queryCount: this.queryCount,
@@ -130,7 +142,7 @@ class LicenseNudgeStore {
         answer: this.answer,
         snoozedUntil: this.snoozedUntil,
       };
-      await getStorage().appState.set(STORAGE_KEY, JSON.stringify(state));
+      await this.stored.set(JSON.stringify(state));
     } catch (error) {
       console.error("Failed to persist license nudge state:", error);
     }

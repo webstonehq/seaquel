@@ -2,9 +2,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CoreCallError } from "./rust-client";
 
 let probe: () => Promise<string | null> = async () => null;
-const appStateGet = vi.fn((_key: string) => probe());
+const appStateGet = vi.fn(async (key: string) => ({
+  value: await probe(),
+  seq: { epoch: "e", n: key.length },
+}));
 
-vi.mock("$lib/storage", () => ({ getStorage: () => ({ appState: { get: appStateGet } }) }));
+// The probe reads `lastActiveProjectId` through the `settings` group (5d-2).
+vi.mock("$lib/hooks/database/library/index", () => ({
+  getSettings: () => ({ getSetting: appStateGet }),
+}));
+let releaseWindowId: (() => void) | null = null;
+const windowIdSettled = vi.fn(() => {});
+vi.mock("$lib/core/window-id", () => ({
+  windowIdReady: () =>
+    releaseWindowId === null
+      ? Promise.resolve("win-test").then(() => windowIdSettled())
+      : new Promise<void>((resolve) => {
+          const release = releaseWindowId!;
+          releaseWindowId = () => {
+            release();
+            windowIdSettled();
+            resolve();
+          };
+        }),
+}));
 vi.mock("$lib/utils/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() },
 }));
@@ -186,5 +207,23 @@ describe("StorageGate", () => {
     const results = await Promise.all([gate.check(), gate.check(), gate.check()]);
     expect(results).toEqual([true, true, true]);
     expect(appStateGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the window id before the first call", () => {
+  it("the probe waits for the window id (phase 5d-2, Decision 22)", async () => {
+    appStateGet.mockClear();
+    probe = async () => null;
+    releaseWindowId = () => {};
+    const gate = new StorageGate({ retryDelaysMs: [], sleep: async () => {} });
+    const checking = gate.check();
+    await new Promise((r) => setTimeout(r, 0));
+    // Nothing sent while the duplicate-tab check runs.
+    expect(appStateGet).not.toHaveBeenCalled();
+    releaseWindowId();
+    expect(await checking).toBe(true);
+    expect(windowIdSettled).toHaveBeenCalled();
+    expect(appStateGet).toHaveBeenCalledOnce();
+    releaseWindowId = null;
   });
 });

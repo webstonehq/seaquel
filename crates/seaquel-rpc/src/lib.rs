@@ -2,10 +2,11 @@
 //!
 //! - The workspace RPC ([`Request`], [`Response`], [`dispatch_workspace`]):
 //!   metadata storage, the library (connections, projects, labels, saved
-//!   queries), secrets and the `db` group (connect, queries, engine calls on
-//!   the workspace's own connections), served as the `core_call` Tauri
-//!   command and `POST /rpc`. See the `workspace`, `library` and `db`
-//!   modules.
+//!   queries, dashboards, workflows, chats), settings, each window's view
+//!   state (`ui`), secrets and the `db` group (connect, queries, engine
+//!   calls on the workspace's own connections), served as the `core_call`
+//!   Tauri command and `POST /rpc`. See the `workspace`, `library`,
+//!   `settings`, `ui` and `db` modules.
 //! - Query streams ([`dispatch_stream`]) and workspace events
 //!   ([`workspace_events`]: `connectionClosed` and `storageChanged`) as
 //!   [`CoreEvent`]s, for the desktop's `core_stream`/`core_events` and the
@@ -34,7 +35,9 @@ mod db;
 mod git;
 mod library;
 mod license;
+mod settings;
 mod ssh;
+mod ui;
 mod workspace;
 pub use db::{
     dispatch_stream, workspace_events, ConnectParams, ConnectTargetParams, Connected, CoreEvent,
@@ -49,7 +52,9 @@ pub use license::dispatch_license;
 pub use license::{DesktopLicenseRequest, DesktopLicenseResponse, LicenseResponse};
 /// The window or tab a call came from, which [`dispatch_workspace`] takes.
 pub use seaquel_core::WriteOrigin;
+pub use settings::{SettingsRequest, SettingsResponse};
 pub use ssh::{dispatch_ssh, SshRequest, SshResponse, TunnelConfig, TunnelInfo};
+pub use ui::{UiRequest, UiResponse};
 #[cfg(feature = "secrets")]
 pub use workspace::dispatch_secret;
 pub use workspace::{
@@ -58,6 +63,19 @@ pub use workspace::{
 };
 
 use seaquel_core::ConnectionHandle;
+
+/// The TypeScript of a `Seqd` whose value is JSON Core keeps as text (a
+/// workflow, the AI settings record, onboarding): `{value: unknown, seq}`.
+/// Only for the generated types; the Rust side is `Seqd<Box<RawValue>>`.
+#[cfg(feature = "ts")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
+pub struct SeqdJson {
+    #[ts(type = "unknown")]
+    pub value: (),
+    pub seq: seaquel_core::ChangeSeq,
+}
+
 use seaquel_types::{
     ColumnTypeInfo, CreateTableDefinition, DatabaseStatistics, DbError, ExplainResult,
     SchemaColumn, SchemaIndex, SchemaTable, Value,

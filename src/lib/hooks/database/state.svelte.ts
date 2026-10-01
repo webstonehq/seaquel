@@ -23,7 +23,6 @@ import type {
   Dashboard,
   SharedProject,
   SharedConnection,
-  ConnectionOverride,
   SharedDashboard,
   ActiveViewType,
   QueryVersion,
@@ -35,7 +34,7 @@ import type {
 } from "$lib/types";
 import type { PaneLayout } from "$lib/types";
 import type { ConnectionLabel } from "$lib/types/project";
-import type { SavedWorkflow } from "$lib/types/workflow";
+import type { SavedWorkflowSummary } from "$lib/types/workflow";
 import type { EventsUnavailableReason } from "$lib/core/client";
 import { RowSeqs } from "./library/seqs";
 
@@ -107,7 +106,8 @@ export class DatabaseState {
   activeConnectionTabIdByProject = $state<Record<string, string | null>>({});
 
   // Saved workflows per project
-  savedWorkflowsByProject = $state<Record<string, SavedWorkflow[]>>({});
+  /** Each project's saved workflows, without their bodies (opening one reads it). */
+  savedWorkflowsByProject = $state<Record<string, SavedWorkflowSummary[]>>({});
 
   // === DASHBOARD TABS STATE (per-project) ===
   dashboardTabsByProject = $state<Record<string, DashboardTab[]>>({});
@@ -171,14 +171,31 @@ export class DatabaseState {
   sharedProjectsByRepo = $state<Record<string, SharedProject[]>>({});
   /** Shared connections keyed by shared project ID */
   sharedConnectionsByProject = $state<Record<string, SharedConnection[]>>({});
-  /** Personal overrides for shared connections, keyed by shared connection ID */
-  connectionOverrides = $state<Record<string, ConnectionOverride>>({});
 
   // === AI STATE ===
   aiChatsByConnection = $state<Record<string, AIChat[]>>({});
   activeAIChatIdByConnection = $state<Record<string, string | null>>({});
   aiMessagesByChat = $state<Record<string, AIMessage[]>>({});
   isAIStreaming = $state(false);
+  /** The chat whose turn is streaming, if any: deleting it aborts the turn, and a close flush saves it. */
+  aiStreamingChatId = $state<string | null>(null);
+  /**
+   * Chats the web's budget has filled (`max_chat_bytes`, Q17): a refused
+   * turn, or stored bytes at the budget when opened. Sending is off there.
+   */
+  aiChatFull = $state<Record<string, true>>({});
+  /**
+   * Per chat, each message as it was last loaded or sent (its stored form,
+   * as JSON text): a put sends only the ones that differ (Decision 24).
+   * Not reactive: nothing shows it.
+   */
+  readonly aiMessagesSent = new Map<string, Map<string, string>>();
+  /**
+   * Per project, the connection order as last read or stored: a view-state
+   * save first stores the page's order when it differs (a connection was
+   * appended since). Not reactive.
+   */
+  readonly connectionOrderStored = new Map<string, string[]>();
   isDashboardFullscreen = $state(false);
 
   // === RIGHT PANEL STATE ===
@@ -233,6 +250,12 @@ export class DatabaseState {
     | "data"
     | "extensionsDuckdb"
   >("query");
+  /**
+   * The view each project shows or was left on. `activeView` is the active
+   * project's; a project's state is saved with its own entry here, so a save
+   * that runs after a switch doesn't store another project's view.
+   */
+  activeViewByProject: Record<string, ActiveViewType> = {};
 
   // === PROJECT DERIVED VALUES ===
 

@@ -94,6 +94,18 @@ schemars = "1"
 # records (Core, sqlx) reach it, and the `Targets` filter (`registry` + `std`).
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "tracing-log"] }
 
+# Debug and test builds keep line tables only (backtraces still show file
+# and line), and dependencies carry no debug info. Full debug info made each
+# test binary about 200 MB, which slowed linking and, on macOS, the code
+# signature check every freshly built binary and proc-macro dylib goes
+# through. For a debugger session, override locally with
+# CARGO_PROFILE_DEV_DEBUG=true.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # The WebAssembly module (seaquel-wasm):
 #   cargo build --profile wasm-release --target wasm32-unknown-unknown -p seaquel-wasm
 # Kept out of [profile.release] so seaquel-server and the desktop app aren't

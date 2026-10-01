@@ -4,11 +4,13 @@ import type { DesktopLicenseResponse } from "./DesktopLicenseResponse";
 import type { GitResponse } from "./GitResponse";
 import type { LibraryResponse } from "./LibraryResponse";
 import type { SecretResponse } from "./SecretResponse";
+import type { SettingsResponse } from "./SettingsResponse";
 import type { SshResponse } from "./SshResponse";
 import type { StorageResponse } from "./StorageResponse";
+import type { UiResponse } from "./UiResponse";
 
 /**
  * A call's result: `{"method": <group>, "result": <the group's response>}`,
  * where the group's response repeats its method.
  */
-export type CoreResponse = { "method": "storage", "result": StorageResponse } | { "method": "library", "result": LibraryResponse } | { "method": "secret", "result": SecretResponse } | { "method": "license", "result": DesktopLicenseResponse } | { "method": "git", "result": GitResponse } | { "method": "ssh", "result": SshResponse } | { "method": "db", "result": DbResponse };
+export type CoreResponse = { "method": "storage", "result": StorageResponse } | { "method": "library", "result": LibraryResponse } | { "method": "settings", "result": SettingsResponse } | { "method": "ui", "result": UiResponse } | { "method": "secret", "result": SecretResponse } | { "method": "license", "result": DesktopLicenseResponse } | { "method": "git", "result": GitResponse } | { "method": "ssh", "result": SshResponse } | { "method": "db", "result": DbResponse };

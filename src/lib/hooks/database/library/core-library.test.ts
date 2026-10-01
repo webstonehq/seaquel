@@ -61,14 +61,14 @@ describe("CoreLibrary", () => {
     const client = new RustStorageClient(wire.t);
     const library = new CoreLibrary(() => client);
     wire.hold(true);
-    const storageWrite = client.appState.set("k", "v");
+    const storageWrite = client.vaultState.reset();
     const libraryWrite = library.createProject({ name: "P" });
     const list = library.listProjects();
     await Promise.resolve();
     await Promise.resolve();
     // The list went out at once; the library write waits for the storage write.
     expect(new Set(wire.sent.map((s) => JSON.parse(s).params.method))).toEqual(
-      new Set(["appStateSet", "projectsList"]),
+      new Set(["vaultStateReset", "projectsList"]),
     );
     wire.hold(false);
     wire.releaseAll();

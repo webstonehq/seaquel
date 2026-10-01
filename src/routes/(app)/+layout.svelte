@@ -39,6 +39,7 @@
     import { connectionSecretsNotice } from "$lib/stores/connection-secrets-notice.svelte.js";
     import StorageErrorScreen from "$lib/components/storage-error-screen.svelte";
     import { storageGate } from "$lib/storage/storage-gate.svelte";
+    import { windowIdReady } from "$lib/core/window-id";
 
     setDatabase();
 
@@ -83,6 +84,9 @@
             }
         }
 
+        // This tab's window id first: it is the origin of every Core call
+        // (web: a duplicated tab makes a new one here, before any call).
+        await windowIdReady();
         // The first storage call (shared with `UseDatabase`'s init). Legacy
         // or corrupt storage stops here: the template shows the storage
         // error screen and none of the stores load.
@@ -138,10 +142,20 @@
     });
 
     function handleBeforeUnload() {
+        // The web app saves on `pagehide` instead (below), where the active
+        // project's pending save can leave with `keepalive`; flushing here
+        // first would send it through the queue, which the unload cuts off.
+        if (isWeb()) return;
         // Browsers don't await async unload work, so this is best-effort. On
         // desktop the onCloseRequested handler below does the reliable flush.
-        void db.persistence.flush();
-        themeStore.flush();
+        void db.flush();
+        void themeStore.flush();
+    }
+
+    function handlePageHide() {
+        if (!isWeb()) return;
+        db.saveOnPageHide();
+        void themeStore.flush();
     }
 
     // Tauri-only event listeners
@@ -170,8 +184,8 @@
                     async (event) => {
                         event.preventDefault();
                         try {
-                            await db.persistence.flush();
-                            themeStore.flush();
+                            await db.flush();
+                            await themeStore.flush();
                         } catch (error) {
                             console.error(
                                 "[seaquel] flush on close failed:",
@@ -216,14 +230,13 @@
                 name: string;
                 isDark: boolean;
                 colors: ThemeColors;
-            }>("theme-editor:save", (event) => {
+            }>("theme-editor:save", async (event) => {
                 const { themeId, name, isDark, colors } = event.payload;
-                if (themeId) {
-                    themeStore.updateTheme(themeId, { name, isDark, colors });
-                } else {
-                    themeStore.addTheme({ name, isDark, colors });
-                }
-                toast.success(m.theme_save_success());
+                // Said once Core stored it; a refusal is shown by the store.
+                const saved = themeId
+                    ? await themeStore.updateTheme(themeId, { name, isDark, colors })
+                    : (await themeStore.addTheme({ name, isDark, colors })) !== null;
+                if (saved) toast.success(m.theme_save_success());
             });
             cleanupFns.push(unlistenThemeSave);
 
@@ -278,6 +291,7 @@
 <svelte:window
     onkeydown={shortcuts.handleKeydown}
     onbeforeunload={handleBeforeUnload}
+    onpagehide={handlePageHide}
 />
 <!-- ModeWatcher and Toaster are rendered by the root layout so /login and
      /signup get them too. -->

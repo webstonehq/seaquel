@@ -3,50 +3,41 @@
  * `storageChanged` event of every write the page makes, so the page can
  * skip its own changes (its write's answer already updated it).
  *
+ * Since phase 5d-2 it is the page's window id (`window-id.ts`), which the
+ * `ui` group's calls must name (Core refuses any other):
  * - Desktop: the webview's label. `core_call` reads it from the webview
  *   itself; the page never sends it.
- * - Web: a random id per page load, sent as `X-Seaquel-Origin` with every
- *   `/api/rpc` call. Node forwards it only when it matches
- *   `^[A-Za-z0-9_-]{1,64}$`, and Rust checks it again.
+ * - Web: the tab's `win-<uuid>`, kept in `sessionStorage` across reloads,
+ *   sent as `X-Seaquel-Origin` with every `/api/rpc` call and as
+ *   `?origin=` on the stream socket. Node forwards it only when it matches
+ *   `^[A-Za-z0-9_-]{1,64}$`, and Rust checks it again. It is settled before
+ *   the page's first Core call.
  *
  * It isn't a security boundary: a wrong origin only hides a change from
- * the user's own page.
+ * the user's own page, or its own view state from itself.
  */
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri } from "$lib/utils/environment";
+import { ORIGIN_PATTERN, windowId } from "./window-id";
 
-/** What Node and Rust accept as an origin. */
-export const ORIGIN_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export { ORIGIN_PATTERN, newOrigin } from "./window-id";
 
 /** The header the web client sends its origin in. */
 export const ORIGIN_HEADER = "x-seaquel-origin";
 
-let webOrigin: string | null = null;
-
 /**
- * A random origin id: `crypto.randomUUID()`, or 16 random bytes as hex where
- * the page has no `randomUUID` (it's only in secure contexts, and a
- * self-hosted install may be reached over plain http on a LAN address).
+ * The web page's origin: its window id, or `null` before the id is
+ * settled (`windowIdReady()`).
  */
-export function newOrigin(
-  source: Pick<Crypto, "getRandomValues"> & Partial<Crypto> = crypto,
-): string {
-  if (typeof source.randomUUID === "function") return source.randomUUID();
-  const bytes = source.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** The web page's origin: made once per page load. */
-export function webPageOrigin(): string {
-  webOrigin ??= newOrigin();
-  return webOrigin;
+export function webPageOrigin(): string | null {
+  return windowId();
 }
 
 /**
  * The origin this page's writes carry: the webview label on desktop (or
  * `null` when the label isn't a valid origin, as Core then records none),
- * the page's random id on web.
+ * the tab's window id on web (`null` until it is settled).
  */
 export function pageOrigin(): string | null {
   if (!isTauri()) return webPageOrigin();

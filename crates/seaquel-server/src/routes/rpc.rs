@@ -1,6 +1,8 @@
 //! `POST /rpc`: one workspace call (`seaquel_rpc::Request`) for the user in
-//! `X-Seaquel-User`: storage, the library (connections, projects, labels,
-//! saved queries), and `db` (connect, test, disconnect, query,
+//! `X-Seaquel-User`: storage (the history, shared repos, the license and
+//! the vault), the library (connections, projects, labels, saved queries,
+//! dashboards, workflows, chats), settings, each tab's view state (`ui`),
+//! and `db` (connect, test, disconnect, query,
 //! execute, transaction, engine, cancel, and the edits service's
 //! planEdits, applyChanges and duckdbExtension) on the user's own
 //! connections.
@@ -19,7 +21,11 @@
 //! `^[A-Za-z0-9_-]{1,64}$`, and it's checked again here: one that's missing,
 //! repeated or malformed is ignored (the call runs with no origin), never
 //! refused, and never logged. It isn't a security boundary: a lying origin
-//! can only hide a change from that user's own tab.
+//! can only hide a change from that user's own tab. The `ui` group
+//! (phase 5d-2) also takes it as the calling tab's window id: a view-state
+//! call naming any other window, or sent without the header, is refused by
+//! Core with `INVALID_ARGUMENT`, so one tab can't read or overwrite
+//! another's tabs.
 //!
 //! The body goes to `parse_request` as the bytes that came in, never through
 //! a `serde_json::Value`: stored JSON columns keep their exact text, and
@@ -31,9 +37,12 @@
 //! workspace has no store; SSH tunnels), `CONNECTION_NOT_FOUND` 404, the
 //! refused engines and options 400, an edit Core won't build
 //! (`NOT_EDITABLE`) 400, the library's `NAME_TAKEN` and `LAST_PROJECT` 409
-//! and `PROJECT_NOT_FOUND`, `SAVED_QUERY_NOT_FOUND` and `LABEL_NOT_FOUND`
-//! 404, and the storage codes 500 (`STORAGE_ERROR`, `STORAGE_CORRUPT`,
-//! `LEGACY_STORAGE`, `NO_DATA_DIR`).
+//! and `PROJECT_NOT_FOUND`, `SAVED_QUERY_NOT_FOUND`, `LABEL_NOT_FOUND`,
+//! `DASHBOARD_NOT_FOUND`, `DASHBOARD_VERSION_NOT_FOUND`,
+//! `WORKFLOW_NOT_FOUND`, `CHAT_NOT_FOUND`,
+//! `THEME_NOT_FOUND` and `AI_PROVIDER_NOT_FOUND` 404, `STORAGE_FULL` 507
+//! (the user's file reached its cap), and the storage codes 500
+//! (`STORAGE_ERROR`, `STORAGE_CORRUPT`, `LEGACY_STORAGE`, `NO_DATA_DIR`).
 //!
 //! A failure is logged by its code and the request's group and method only:
 //! the message can quote SQL and values (a database's syntax error, a parse
@@ -199,8 +208,10 @@ pub(crate) fn write_origin(headers: &HeaderMap) -> WriteOrigin {
     }
 }
 
-/// A call [`MAX_EDIT_CALLS_PER_USER`] counts. Library calls don't count
-/// (phase 5d, Decision 15): they're small single-row writes and reads.
+/// A call [`MAX_EDIT_CALLS_PER_USER`] counts. Library, settings and `ui`
+/// calls don't count (phase 5d, Decisions 15 and 27): they're single-row
+/// writes and reads, bounded by the web limits; like every call they count
+/// toward [`MAX_IN_FLIGHT_BYTES_PER_USER`] and the body limits.
 fn is_edit_call(request: &seaquel_rpc::Request) -> bool {
     request.group() == "db"
         && matches!(

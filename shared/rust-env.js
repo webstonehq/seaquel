@@ -29,6 +29,8 @@ export const RUST_ENV_NAMES = new Set([
   "SEAQUEL_BUNDLE_TRUSTED_PUBKEY",
   // Lowers the workspace LRU's cap, for tests and manual checks.
   "SEAQUEL_WORKSPACE_CAP",
+  // Each web user's metadata file size cap (phase 5d-2).
+  "SEAQUEL_USER_DB_MAX_BYTES",
   // TLS roots: the control-plane client adds NODE_EXTRA_CA_CERTS; rustls'
   // native store honours SSL_CERT_FILE / SSL_CERT_DIR.
   "NODE_EXTRA_CA_CERTS",

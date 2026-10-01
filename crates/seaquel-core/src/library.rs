@@ -58,15 +58,15 @@ fn now(core: &Core) -> Result<String> {
     Ok(iso_timestamp(executor.unix_time()))
 }
 
-fn new_id(prefix: &str) -> String {
+pub(crate) fn new_id(prefix: &str) -> String {
     format!("{prefix}{}", uuid::Uuid::new_v4())
 }
 
-fn connection_not_found() -> CoreError {
+pub(crate) fn connection_not_found() -> CoreError {
     CoreError::new(SAVED_CONNECTION_NOT_FOUND, "Saved connection not found.")
 }
 
-fn project_not_found() -> CoreError {
+pub(crate) fn project_not_found() -> CoreError {
     CoreError::new(PROJECT_NOT_FOUND, "Project not found.")
 }
 
@@ -286,12 +286,12 @@ impl Workspace {
     }
 
     #[cfg(feature = "secrets")]
-    fn has_secret_store(&self) -> bool {
+    pub(crate) fn has_secret_store(&self) -> bool {
         self.secrets().is_some()
     }
 
     #[cfg(not(feature = "secrets"))]
-    fn has_secret_store(&self) -> bool {
+    pub(crate) fn has_secret_store(&self) -> bool {
         false
     }
 

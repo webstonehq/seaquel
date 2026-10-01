@@ -337,7 +337,7 @@ impl DesktopWorkspace {
                 }
                 seaquel_rpc::dispatch_workspace(core, &db.ws, Request::Db(r), origin).await
             }
-            // Storage and the library.
+            // Storage, the library, settings and ui.
             req => {
                 let ws = self.workspace(core).await?;
                 seaquel_rpc::dispatch_workspace(core, &ws, req, origin).await
@@ -1124,7 +1124,7 @@ async fn check_for_update(app: tauri::AppHandle) -> tauri_plugin_updater::Result
 mod tests {
     use super::*;
 
-    const BODY: &str = r#"{"method":"storage","params":{"method":"onboardingSave","params":{"data":{"z":1e+21,"a":1}}}}"#;
+    const BODY: &str = r#"{"method":"storage","params":{"method":"licenseSave","params":{"data":{"z":1e+21,"a":1}}}}"#;
 
     #[test]
     fn core_call_takes_raw_bytes_as_they_are() {
@@ -1160,7 +1160,7 @@ mod workspace_tests {
         InvokeBody::Raw(json.as_bytes().to_vec())
     }
 
-    const LOAD: &str = r#"{"method":"storage","params":{"method":"tutorialLoadAll"}}"#;
+    const LOAD: &str = r#"{"method":"storage","params":{"method":"queryHistoryLoadByConnection","params":{"connectionId":"c1"}}}"#;
     const SET: &str =
         r#"{"method":"secret","params":{"method":"set","params":{"key":"db:c1","value":"pw"}}}"#;
     const GET: &str = r#"{"method":"secret","params":{"method":"get","params":{"key":"db:c1"}}}"#;
@@ -1812,6 +1812,116 @@ mod workspace_tests {
         assert_eq!(main_rx.recv_timeout(WAIT).unwrap()["origin"], Json::Null);
     }
 
+    /// Phase 5d-2: `core_call` serves the `settings` and `ui` groups, a
+    /// write's event carries the calling webview's label, and a `ui` call
+    /// works only for that webview's own window id.
+    #[test]
+    fn core_call_serves_settings_and_ui_with_the_webview_origin() {
+        let core = sqlite_core();
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = desktop(tmp.path().join("data"));
+        let (main_tx, main_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(main_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+
+        let group = |label: &str, group: &str, method: &str, params: Json| {
+            let inner = if params.is_null() {
+                json!({"method": method})
+            } else {
+                json!({"method": method, "params": params})
+            };
+            let body = json!({"method": group, "params": inner});
+            tauri::async_runtime::block_on(handle_core_call(
+                &core,
+                &ws,
+                label,
+                &InvokeBody::Raw(body.to_string().into_bytes()),
+            ))
+            .map(|res| {
+                let res = serde_json::to_value(res).unwrap();
+                assert_eq!(res["result"]["method"], method, "{res}");
+                res["result"]["result"].clone()
+            })
+        };
+        group("main", "library", "projectEnsureDefault", Json::Null).unwrap();
+        for rx in [&main_rx, &editor_rx] {
+            assert_eq!(rx.recv_timeout(WAIT).unwrap()["kind"], "project");
+        }
+
+        // settings: a write from the theme editor carries its label.
+        let theme = group(
+            "theme-editor",
+            "settings",
+            "userThemeCreate",
+            json!({"theme": {"name": "Mine"}}),
+        )
+        .unwrap();
+        for rx in [&main_rx, &editor_rx] {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(
+                event,
+                json!({"type": "storageChanged", "kind": "theme", "scope": null,
+                       "ids": [theme["value"]["id"]], "origin": "theme-editor",
+                       "seq": theme["seq"]})
+            );
+        }
+        // The desktop has a keychain: an AI provider's key is written.
+        let provider = group(
+            "main",
+            "settings",
+            "aiProviderCreate",
+            json!({"provider": {"name": "P", "type": "anthropic"}, "apiKey": "k-1"}),
+        )
+        .unwrap();
+        let id = provider["value"]["id"].as_str().unwrap();
+        let secret = json!({"method": "secret", "params": {"method": "get",
+            "params": {"key": format!("ai-api-key:{id}")}}});
+        assert_eq!(
+            call(&core, &ws, &secret.to_string()).unwrap()["result"]["result"],
+            "k-1"
+        );
+        assert_eq!(main_rx.recv_timeout(WAIT).unwrap()["kind"], "aiSettings");
+        assert_eq!(editor_rx.recv_timeout(WAIT).unwrap()["kind"], "aiSettings");
+
+        // ui: the main window's own view state; the theme editor can't
+        // name it.
+        let state = json!({"projectId": "default-seaquel", "queryTabs": [], "schemaTabs": [],
+            "explainTabs": [], "erdTabs": [], "tabOrder": [], "activeView": "query"});
+        let saved = group(
+            "main",
+            "ui",
+            "windowStateSave",
+            json!({"windowId": "main", "projectId": "default-seaquel", "rev": 1,
+                "state": state}),
+        )
+        .unwrap();
+        assert_eq!(saved["value"], json!({"stale": false, "rev": 1}));
+        for rx in [&main_rx, &editor_rx] {
+            let event = rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(event["kind"], "projectState", "{event}");
+            assert_eq!(event["ids"], json!(["main"]), "{event}");
+            assert_eq!(event["origin"], "main", "{event}");
+        }
+        let err = group(
+            "theme-editor",
+            "ui",
+            "windowStateLoad",
+            json!({"windowId": "main", "projectId": "default-seaquel"}),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENT");
+        let loaded = group(
+            "main",
+            "ui",
+            "windowStateLoad",
+            json!({"windowId": "main", "projectId": "default-seaquel"}),
+        )
+        .unwrap();
+        assert_eq!(loaded["value"]["rev"], 1);
+        assert!(loaded["value"]["copiedFrom"].is_null(), "{loaded}");
+    }
+
     /// Phase 5d review, M1: a run's history event carries the label of the
     /// webview that started it through `core_stream`.
     #[test]
@@ -1884,7 +1994,7 @@ mod workspace_tests {
         ws.set_event_sink(&core, "main", sink(main_tx));
         let (editor_tx, editor_rx) = mpsc::channel();
         ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
-        let body = r#"{"method":"storage","params":{"method":"appStateSet","params":{"key":"k","value":"v"}}}"#;
+        let body = r#"{"method":"storage","params":{"method":"userCredentialsSave","params":{"credential":{"scope":"db","key":"k","nonce":"n","ciphertext":"c","updatedAt":"t"}}}}"#;
         tauri::async_runtime::block_on(handle_core_call(
             &core,
             &ws,

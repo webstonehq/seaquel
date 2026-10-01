@@ -245,6 +245,30 @@ export function wellFormed(text: string): string {
 }
 
 /**
+ * A JSON value with every string in it, keys included, made well-formed
+ * (`wellFormed`), for a body the page builds from what the user typed: a
+ * window's view state holds the tabs' text and names, and one lone
+ * surrogate in them would make Core refuse every save of it (5d-2 Task 7
+ * probe). Anything that isn't a string, array or plain object is kept.
+ */
+export function wellFormedJson<T>(value: T): T {
+  if (typeof value === "string") return wellFormed(value) as T;
+  if (Array.isArray(value)) return value.map((v: unknown) => wellFormedJson(v)) as T;
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    Object.getPrototypeOf(value) === Object.prototype
+  ) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[wellFormed(k)] = wellFormedJson(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
  * `request` with a run's text, a page's SQL or a table page's filter values
  * made well-formed; anything else as it is.
  */

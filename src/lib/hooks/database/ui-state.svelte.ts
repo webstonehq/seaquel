@@ -11,6 +11,9 @@ import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 
 import { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
+/** The abort reason when a streaming chat is deleted: nothing of it is saved again. */
+const CHAT_DELETED = "chat-deleted";
+
 /**
  * Manages UI state: AI panel, view switching.
  */
@@ -48,10 +51,12 @@ export class UIStateManager {
       this.aiAbortController.abort();
       this.aiAbortController = null;
     }
+    // The chat whose turn this stops, whichever chat is active now.
+    const chatId = this.state.aiStreamingChatId ?? this.state.activeAIChatId;
     this.state.isAIStreaming = false;
+    this.state.aiStreamingChatId = null;
 
     // Clear pendingApproval on any assistant message and persist
-    const chatId = this.state.activeAIChatId;
     if (chatId) {
       const messages = this.state.aiMessagesByChat[chatId] ?? [];
       const hasStale = messages.some((m) => m.pendingApproval);
@@ -65,13 +70,31 @@ export class UIStateManager {
     }
   }
 
+  /**
+   * Stops the turn streaming on `chatId`, if one is, without saving it:
+   * the chat is being deleted. A pending approval settles as denied.
+   */
+  abortStreamFor(chatId: string) {
+    if (this.state.aiStreamingChatId !== chatId) return;
+    this.aiAbortController?.abort(CHAT_DELETED);
+    this.aiAbortController = null;
+    this.state.isAIStreaming = false;
+    this.state.aiStreamingChatId = null;
+  }
+
   toggleAI() {
     this.state.isAIOpen = !this.state.isAIOpen;
   }
 
-  sendAIMessage(content: string) {
-    const chatId = this.aiChatManager.ensureActiveChat();
-    if (!chatId) return;
+  /**
+   * Send a message in the active chat (created first, through Core, when
+   * there's none). A chat the web's budget filled takes no more (Q17).
+   */
+  async sendAIMessage(content: string): Promise<boolean> {
+    const chatId = await this.aiChatManager.ensureActiveChat();
+    // False: nothing was sent (no chat, a refused create, a full chat), so
+    // the caller keeps what was typed.
+    if (!chatId || this.state.aiChatFull[chatId]) return false;
 
     const messages = this.state.aiMessagesByChat[chatId] ?? [];
     const isFirstMessage = messages.filter((m) => m.role === "user").length === 0;
@@ -97,11 +120,12 @@ export class UIStateManager {
     );
 
     this._dispatchToAI(content, chatId, enrichedContent);
+    return true;
   }
 
   retryPendingMessage(messageId: string) {
     const chatId = this.state.activeAIChatId;
-    if (!chatId) return;
+    if (!chatId || this.state.aiChatFull[chatId]) return;
     const messages = this.state.aiMessagesByChat[chatId] ?? [];
     const msg = messages.find((m) => m.id === messageId);
     if (!msg?.pendingModelSelection) return;
@@ -207,7 +231,9 @@ export class UIStateManager {
     const stillActive = () => this.state.activeConnectionId === connectionId;
     return {
       onCreateDashboard: async (name: string) => {
-        const dashboard = await this.dashboardManager.createDashboard(name);
+        const dashboard = await this.dashboardManager.createDashboard(name, {
+          renameIfTaken: true,
+        });
         if (!dashboard) return null;
         this.dashboardTabs.add(dashboard.id, name);
         return { dashboardId: dashboard.id };
@@ -308,7 +334,12 @@ export class UIStateManager {
       timestamp: new Date(),
     };
     this._setMessages(chatId, [...this._getMessages(chatId), assistantMessage]);
+    // A turn still streaming in another chat stops: its partial turn is
+    // saved first, since its end (which saves it) never comes.
+    const previous = this.state.aiStreamingChatId;
+    if (previous && previous !== chatId) void this.persistAIChatMessages(previous);
     this.state.isAIStreaming = true;
+    this.state.aiStreamingChatId = chatId;
 
     if (this.aiAbortController) this.aiAbortController.abort();
     this.aiAbortController = new AbortController();
@@ -319,6 +350,8 @@ export class UIStateManager {
     signal.addEventListener(
       "abort",
       () => {
+        // A deleted chat isn't saved again.
+        if (signal.reason === CHAT_DELETED) return;
         if (!this._getMessages(chatId).find((m) => m.id === assistantMessageId)?.pendingApproval) {
           return;
         }
@@ -331,7 +364,22 @@ export class UIStateManager {
 
     const messagesForApi = this._buildMessagesForApi(chatId, assistantMessageId, enrichedContent);
 
-    void sendAIMessageService({
+    /** The turn ended: this chat stops streaming, unless a newer turn took over. */
+    const endTurn = () => {
+      this.state.isAIStreaming = false;
+      if (this.state.aiStreamingChatId === chatId) this.state.aiStreamingChatId = null;
+    };
+    const onError = (err: string) => {
+      endTurn();
+      this._updateMessage(chatId, assistantMessageId, (m) => ({
+        ...m,
+        content: this._formatAIError(err),
+        pendingApproval: null,
+      }));
+      void this.persistAIChatMessages(chatId);
+    };
+
+    sendAIMessageService({
       messages: messagesForApi,
       schema: this.state.schemas[connection.id] ?? [],
       shareSchema,
@@ -376,7 +424,7 @@ export class UIStateManager {
         }));
       },
       onDone: () => {
-        this.state.isAIStreaming = false;
+        endTurn();
         this._updateMessage(chatId, assistantMessageId, (m) => ({
           ...m,
           pendingApproval: null,
@@ -384,21 +432,21 @@ export class UIStateManager {
         this.aiChatManager.updateChatTimestamp(chatId);
         void this.persistAIChatMessages(chatId);
       },
-      onError: (err: string) => {
-        this.state.isAIStreaming = false;
-        this._updateMessage(chatId, assistantMessageId, (m) => ({
-          ...m,
-          content: this._formatAIError(err),
-          pendingApproval: null,
-        }));
-        void this.persistAIChatMessages(chatId);
-      },
+      onError,
       ...this._createDashboardCallbacks(connection.id),
+    }).catch((error: unknown) => {
+      // A failure the provider didn't handle (a `fetch` that throws, the
+      // keychain, a tool): end the turn as an error, which saves it. An
+      // abort (Stop, a newer message, a deleted chat) isn't an error.
+      if (signal.aborted) return;
+      onError(error instanceof Error ? error.message : String(error));
     });
   }
 
   setActiveView(view: ActiveViewType) {
     this.state.activeView = view;
+    const projectId = this.state.activeProjectId;
+    if (projectId) this.state.activeViewByProject[projectId] = view;
     this.schedulePersistence(this.state.activeProjectId);
   }
 }

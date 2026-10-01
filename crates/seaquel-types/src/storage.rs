@@ -724,6 +724,55 @@ pub struct PersistedDashboardVersion {
     pub created_at: String,
 }
 
+/// A dashboard version without its snapshot (`dashboardVersionsList` and
+/// `dashboardUpdate`'s new version, phase 5d-2 Task 7): what the version
+/// history shows. `dashboardVersionGet` answers one version whole.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct PersistedDashboardVersionMeta {
+    pub id: String,
+    pub dashboard_id: String,
+    #[serde(serialize_with = "js_number")]
+    pub version: f64,
+    pub created_at: String,
+    /// How many widgets the snapshot holds; `None` when its `widgets`
+    /// isn't a list (or the snapshot isn't JSON).
+    pub widget_count: Option<u32>,
+    /// The snapshot's size in bytes.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub bytes: u64,
+}
+
+/// A saved workflow without its body (`workflowsList`, phase 5d-2 Task 7):
+/// what the workflow sidebar shows. `workflowGet` answers one workflow
+/// whole. `name` is `""` when the stored JSON has no text `name`; the
+/// times are `None` when it has no text time. `Debug` leaves the name out.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct PersistedWorkflowMeta {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// The stored JSON's size in bytes.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub bytes: u64,
+}
+
+impl fmt::Debug for PersistedWorkflowMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersistedWorkflowMeta")
+            .field("id", &self.id)
+            .field("project_id", &self.project_id)
+            .field("name_bytes", &self.name.len())
+            .field("bytes", &self.bytes)
+            .finish_non_exhaustive()
+    }
+}
+
 /// A prune of a dashboard's versions, computed in TypeScript and run by
 /// `dashboard_versions::prune` in one transaction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

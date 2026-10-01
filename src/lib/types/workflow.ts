@@ -105,6 +105,20 @@ export interface SavedWorkflow {
   updatedAt: string;
 }
 
+/**
+ * A saved workflow as the sidebar lists it, without its nodes and edges
+ * (`workflowsList`, phase 5d-2 Task 7): opening one fetches the body
+ * (`WorkflowManager.loadWorkflow`). Times are absent on a workflow whose
+ * stored JSON has none.
+ */
+export interface SavedWorkflowSummary {
+  id: string;
+  name: string;
+  projectId: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 // Timeline entry for activity log
 export interface WorkflowTimelineEntry {
   id: string;

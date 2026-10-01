@@ -69,12 +69,55 @@ pub fn capacity_from(value: &str) -> Option<usize> {
     )
 }
 
-/// Each workspace's pool: at most 2 connections, idle ones closed after 60 s.
+/// The variable that sets each user's `meta.db` size cap, in bytes
+/// ([`user_db_max_bytes_from`]).
+pub const USER_DB_MAX_BYTES_ENV: &str = "SEAQUEL_USER_DB_MAX_BYTES";
+/// The cap without [`USER_DB_MAX_BYTES_ENV`]: 2 GiB per user.
+pub const DEFAULT_USER_DB_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// The range the cap is clamped to: 64 MiB to 1 TiB.
+pub const USER_DB_MAX_BYTES_RANGE: std::ops::RangeInclusive<u64> =
+    64 * 1024 * 1024..=1024 * 1024 * 1024 * 1024;
+
+/// The cap from `value` (the [`USER_DB_MAX_BYTES_ENV`] variable), clamped
+/// to [`USER_DB_MAX_BYTES_RANGE`], or `None` when it isn't a whole number.
+pub fn user_db_max_bytes_from(value: &str) -> Option<u64> {
+    let n: u64 = value.trim().parse().ok()?;
+    Some(n.clamp(
+        *USER_DB_MAX_BYTES_RANGE.start(),
+        *USER_DB_MAX_BYTES_RANGE.end(),
+    ))
+}
+
+/// The cap in effect: [`USER_DB_MAX_BYTES_ENV`], else
+/// [`DEFAULT_USER_DB_MAX_BYTES`], read once (the first call, at startup)
+/// and kept for the process.
+pub fn user_db_max_bytes() -> u64 {
+    static CAP: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *CAP.get_or_init(read_user_db_max_bytes)
+}
+
+fn read_user_db_max_bytes() -> u64 {
+    match std::env::var(USER_DB_MAX_BYTES_ENV) {
+        Ok(value) => user_db_max_bytes_from(&value).unwrap_or_else(|| {
+            log::warn!(
+                "{USER_DB_MAX_BYTES_ENV} isn't a whole number; using {DEFAULT_USER_DB_MAX_BYTES}"
+            );
+            DEFAULT_USER_DB_MAX_BYTES
+        }),
+        Err(_) => DEFAULT_USER_DB_MAX_BYTES,
+    }
+}
+
+/// Each workspace's pool: at most 2 connections, idle ones closed after
+/// 60 s, and the file capped at [`user_db_max_bytes`] (phase 5d-2 review:
+/// a per-user backstop behind the per-call limits; a write past it fails
+/// with `STORAGE_FULL`, 507).
 pub fn user_storage_options() -> StorageOptions {
     StorageOptions {
         max_connections: 2,
         idle_timeout: Some(Duration::from_secs(60)),
         read_only: false,
+        max_bytes: Some(user_db_max_bytes()),
     }
 }
 
@@ -796,6 +839,19 @@ pub enum GetError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_user_db_cap_is_clamped() {
+        use super::*;
+        assert_eq!(user_db_max_bytes_from("3000000000"), Some(3_000_000_000));
+        assert_eq!(user_db_max_bytes_from(" 1 "), Some(64 * 1024 * 1024));
+        assert_eq!(
+            user_db_max_bytes_from("99999999999999999"),
+            Some(1024 * 1024 * 1024 * 1024)
+        );
+        assert_eq!(user_db_max_bytes_from("2GB"), None);
+        assert_eq!(user_storage_options().max_bytes, Some(user_db_max_bytes()));
+    }
+
     use super::*;
 
     #[test]

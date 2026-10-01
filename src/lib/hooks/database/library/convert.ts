@@ -3,7 +3,20 @@
  * and the patches the view models send: only the fields that changed
  * (Decision 2), so another window's edit to another field survives.
  */
-import type { DatabaseConnection, Project, Query, QueryVersion } from "$lib/types";
+import type {
+  AIChat,
+  AIMessage,
+  Dashboard,
+  DashboardSnapshot,
+  DashboardVersion,
+  DashboardWidget,
+  DatabaseConnection,
+  Project,
+  Query,
+  QueryVersion,
+  ResolvedDashboardVersion,
+} from "$lib/types";
+import type { SavedWorkflowSummary } from "$lib/types/workflow";
 import { DEFAULT_PROJECT_ID } from "$lib/types";
 import type {
   ConnectionPatch,
@@ -12,6 +25,13 @@ import type {
   WireProject,
   WireQueryVersion,
   WireSavedQuery,
+  WireChat,
+  WireDashboard,
+  WireDashboardVersion,
+  WireDashboardVersionMeta,
+  WireWorkflowMeta,
+  ChatMessages,
+  ChatMessageDraft,
 } from "./types";
 
 /**
@@ -205,4 +225,135 @@ export function savedQueryPatch(
 /** Whether a patch changes anything. */
 export function isEmptyPatch(patch: object): boolean {
   return Object.keys(patch).length === 0;
+}
+
+// -------- Phase 5d-2 --------
+
+/** Stored JSON text, parsed; `fallback` when it doesn't parse. */
+function parsed<T>(text: string | null | undefined, fallback: T): T {
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * A stored dashboard as the page shows it. `keep`: the page's copy, whose
+ * widgets' run state (their rows, loading, error) survives for widgets
+ * with the same id.
+ */
+export function dashboardFromWire(wire: WireDashboard, keep?: Dashboard): Dashboard {
+  const stored = parsed<DashboardWidget[]>(wire.widgets, []);
+  const runtime = new Map((keep?.widgets ?? []).map((w) => [w.id, w]));
+  const widgets = (Array.isArray(stored) ? stored : []).map((w) => {
+    const live = runtime.get(w.id);
+    return live
+      ? {
+          ...w,
+          result: live.result,
+          isLoading: live.isLoading,
+          error: live.error,
+          lastRefreshed: live.lastRefreshed,
+        }
+      : w;
+  });
+  return {
+    id: wire.id,
+    name: wire.name,
+    projectId: wire.projectId,
+    widgets,
+    viewport: parsed(wire.viewport, { x: 0, y: 0, zoom: 1 }),
+    dateFilter: parsed(wire.dateFilter, null),
+    shared: wire.shared ?? false,
+    starred: wire.starred ?? false,
+    description: wire.description,
+    createdAt: new Date(wire.createdAt),
+    updatedAt: new Date(wire.updatedAt),
+  };
+}
+
+/** A listed version (no snapshot) as the history shows it. */
+export function dashboardVersionFromWire(wire: WireDashboardVersionMeta): DashboardVersion {
+  return {
+    id: wire.id,
+    dashboardId: wire.dashboardId,
+    version: wire.version,
+    widgetCount: wire.widgetCount,
+    createdAt: new Date(wire.createdAt),
+  };
+}
+
+/**
+ * A version fetched whole (`dashboardVersionGet`) with its snapshot
+ * parsed, for the diff and restore; `null` when the snapshot isn't JSON.
+ */
+export function resolvedDashboardVersionFromWire(
+  wire: WireDashboardVersion,
+): ResolvedDashboardVersion | null {
+  let dashboard: DashboardSnapshot;
+  try {
+    dashboard = JSON.parse(wire.snapshot) as DashboardSnapshot;
+  } catch {
+    return null;
+  }
+  if (!dashboard || typeof dashboard !== "object") return null;
+  return {
+    id: wire.id,
+    dashboardId: wire.dashboardId,
+    version: wire.version,
+    dashboard,
+    createdAt: new Date(wire.createdAt),
+  };
+}
+
+/** A saved workflow as the sidebar lists it (`workflowsList`, no body). */
+export function workflowSummaryFromWire(wire: WireWorkflowMeta): SavedWorkflowSummary {
+  return {
+    id: wire.id,
+    projectId: wire.projectId,
+    name: wire.name,
+    createdAt: wire.createdAt,
+    updatedAt: wire.updatedAt,
+  };
+}
+
+export function chatFromWire(wire: WireChat): AIChat {
+  return {
+    id: wire.id,
+    connectionId: wire.connectionId,
+    title: wire.title,
+    createdAt: new Date(wire.createdAt),
+    updatedAt: new Date(wire.updatedAt),
+  };
+}
+
+export function messageFromWire(wire: ChatMessages["messages"][number]): AIMessage {
+  return {
+    id: wire.id,
+    chatId: wire.chatId,
+    role: wire.role,
+    content: wire.content,
+    timestamp: new Date(wire.timestamp),
+    query: wire.query,
+    dashboardId: wire.dashboardId,
+  };
+}
+
+/**
+ * A message as `chatMessagesPut` sends it. The page's time is sent as ISO
+ * text (a time that doesn't read as one as it was loaded).
+ */
+export function messageDraft(message: AIMessage, stored?: string): ChatMessageDraft {
+  const time = message.timestamp;
+  const draft: ChatMessageDraft = {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: Number.isNaN(time.getTime()) ? (stored ?? "") : time.toISOString(),
+  };
+  if (message.query !== undefined) draft.query = message.query;
+  if (message.dashboardId !== undefined) draft.dashboardId = message.dashboardId;
+  return draft;
 }

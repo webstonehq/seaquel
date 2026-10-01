@@ -93,6 +93,14 @@ pub(crate) fn parse_json(text: &str) -> Option<Box<RawValue>> {
     serde_json::from_str::<Box<RawValue>>(text).ok()
 }
 
+/// Stored JSON read as bytes (`CAST(col AS BLOB)`), as today's loads read
+/// it: `None` for NULL, text that isn't UTF-8, text that doesn't parse, and
+/// JSON `null`. So a row a user can't fix is skipped, never a failed read.
+pub(crate) fn stored_json(bytes: Option<Vec<u8>>) -> Option<Box<RawValue>> {
+    let text = String::from_utf8(bytes?).ok()?;
+    parse_json(&text).filter(|v| !is_null(v))
+}
+
 /// A literal JSON value (a fallback such as `[]`).
 pub(crate) fn raw(json: &str) -> Box<RawValue> {
     RawValue::from_string(json.to_string()).expect("literal JSON")

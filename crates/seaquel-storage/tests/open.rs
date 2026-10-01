@@ -574,6 +574,37 @@ async fn a_read_only_open_with_an_unapplied_migration_needs_an_upgrade() {
     assert_eq!(disk_state(&path), before);
 }
 
+/// A file the app opened before `0002_window_state.sql` shipped (only
+/// `0001` applied): the CLI refuses it until the app has run `0002`, and
+/// leaves it as it was.
+#[tokio::test]
+async fn a_read_only_open_refuses_a_file_with_0002_pending() {
+    let dir = tempfile::tempdir().unwrap();
+    let only_0001 = dir.path().join("migrations");
+    std::fs::create_dir(&only_0001).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations/0001_name_keys.sql"),
+        only_0001.join("0001_name_keys.sql"),
+    )
+    .unwrap();
+    let path = dir.path().join("seaquel.db");
+    let older = sqlx::migrate::Migrator::new(only_0001).await.unwrap();
+    Storage::open_with_migrator(&path, StorageOptions::default(), older)
+        .await
+        .unwrap()
+        .close()
+        .await;
+    let before = snapshot(&path).await;
+
+    let err = open_read_only(&path).await.unwrap_err();
+    assert_needs_upgrade(&err, "migration 2");
+    assert_eq!(snapshot(&path).await, before);
+
+    // The app's open applies it; then the CLI's works.
+    open(&path).await.unwrap().close().await;
+    open_read_only(&path).await.unwrap().close().await;
+}
+
 #[tokio::test]
 async fn a_read_only_open_with_a_pending_data_step_needs_an_upgrade() {
     for sql in [
@@ -787,4 +818,74 @@ async fn a_failed_migration_rolls_back_everything_under_the_lock() {
     assert_eq!(value, "v");
     storage.close().await;
     open_read_only(&path).await.unwrap().close().await;
+}
+
+/// 5d-2 Task 7 review: a migration can hold the lock past the 5 s busy
+/// timeout (`0003`'s fill takes about 3 s per GB). A second pool opening the
+/// file meanwhile (the web server's evicted workspace next to a fresh one)
+/// keeps waiting for it, up to `MIGRATION_WAIT`, instead of failing with
+/// `STORAGE_ERROR`.
+#[tokio::test]
+async fn a_second_opener_waits_out_a_migration_longer_than_the_busy_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    // Another pool's migrator, holding the write lock for 6 s.
+    let holder = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
+        .await
+        .unwrap();
+    let lock = holder.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let release = async move {
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        lock.commit().await.unwrap();
+    };
+    let migrator = test_migrator().await;
+    let (opened, ()) = tokio::join!(
+        Storage::open_with_migrator(&path, StorageOptions::default(), migrator),
+        release,
+    );
+    let st = opened.unwrap_or_else(|e| panic!("{} {e}", e.code()));
+    let applied: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations WHERE version > 9000")
+            .fetch_all(st.pool())
+            .await
+            .unwrap();
+    assert_eq!(applied, [9001]);
+    st.close().await;
+    holder.close().await;
+}
+
+/// 5d-2 Task 7 re-review: the long wait is only for an open with work to
+/// do. An up-to-date file whose write lock another process holds (a second
+/// app instance, an outside tool) fails after about one busy timeout, as
+/// before, rather than waiting a minute at startup.
+#[tokio::test]
+async fn an_up_to_date_file_waits_one_busy_timeout_for_a_held_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = current_file(dir.path()).await;
+    let holder = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
+        .await
+        .unwrap();
+    let lock = holder.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let started = tokio::time::Instant::now();
+    let opened = tokio::time::timeout(
+        Duration::from_secs(20),
+        Storage::open(&path, StorageOptions::default()),
+    )
+    .await
+    .expect("gave up within 20 s");
+    let waited = started.elapsed();
+    let Err(err) = opened else {
+        panic!("the held lock fails the open");
+    };
+    assert_eq!(err.code(), "STORAGE_ERROR", "{err}");
+    assert!(
+        waited >= Duration::from_secs(4) && waited < Duration::from_secs(9),
+        "{waited:?}"
+    );
+    lock.rollback().await.unwrap();
+    holder.close().await;
 }

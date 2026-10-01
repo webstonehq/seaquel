@@ -74,3 +74,15 @@ pub async fn remove_all_for_key_in(tx: &mut WriteTx, key: &str) -> Result<u64> {
     .await?;
     Ok(done.rows_affected())
 }
+
+/// Deletes the credential `scope`/`key` inside a write transaction (a
+/// removed AI provider's vault row on web, phase 5d-2 Decision 20).
+/// Returns how many rows it deleted.
+pub async fn remove_in(tx: &mut WriteTx, scope: &str, key: &str) -> Result<u64> {
+    let done = sqlx::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
+        .bind(scope)
+        .bind(key)
+        .execute(tx.conn())
+        .await?;
+    Ok(done.rows_affected())
+}
