@@ -52,6 +52,13 @@ describe("decodeCell", () => {
     expect(String(d)).toBe("12.50");
   });
 
+  it("leaves its input untouched, nested arrays included (cleanup pass B review)", () => {
+    const wire = [[{ $sq: "bigint", v: "9007199254740993" }], { $sq: "bytes", v: "AAH/" }];
+    const before = JSON.stringify(wire);
+    expect(decodeCell(wire)).toEqual([[9007199254740993n], new Uint8Array([0, 1, 255])]);
+    expect(JSON.stringify(wire)).toBe(before);
+  });
+
   it("returns JSON cells as the same object the UI got before tagging", () => {
     const inner = { a: 1 };
     expect(decodeCell({ $sq: "json", v: inner })).toBe(inner);

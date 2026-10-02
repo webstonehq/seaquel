@@ -130,7 +130,7 @@ Core too. Both new groups need `LocalFiles`, which only the desktop and the
 CLI grant, and the main window lost the `fs` permissions only the
 projection used. The demo and web have neither. Its measured cost is in
 "Phase 5e cost" below.
-Phase 8: implemented, manual checks pending (see
+Phase 8: implemented, manual checks passed (see
 2026-10-06-rust-core-phase-8-plan.md). The demo runs Seaquel Core in the
 page. `seaquel-browser`, a second WebAssembly module next to the editor's,
 builds Core with `storage` and `workspace` and the DuckDB engine's new

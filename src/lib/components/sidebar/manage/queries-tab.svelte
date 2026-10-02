@@ -21,6 +21,7 @@
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 	import DeleteConfirmDialog from "$lib/components/delete-confirm-dialog.svelte";
 	import { m } from "$lib/paraglide/messages.js";
+	import { formatWireBindValues } from "$lib/utils/bind-values";
 	import ResourceFolder from "./resource-folder.svelte";
 	import ResourceItem from "./resource-item.svelte";
 
@@ -255,6 +256,11 @@
 								<p class="text-xs font-mono line-clamp-2 text-muted-foreground w-full text-left">
 									{item.query}
 								</p>
+								{#if item.params?.length}
+									<p class="text-[11px] font-mono line-clamp-1 break-all text-muted-foreground/80 w-full text-left">
+										{m.pending_changes_values({ values: formatWireBindValues(item.params, 200) })}
+									</p>
+								{/if}
 							</Sidebar.MenuButton>
 						</Sidebar.MenuItem>
 					{/each}

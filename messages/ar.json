@@ -1206,6 +1206,8 @@
   "pending_changes_interrupted": "انتهى تطبيق التغييرات دون رد ({error}). قد يكون بعضها قد نُفِّذ فعلاً؛ أُعيد تحميل علامتي تبويب المخطط والبيانات. تحقّق منها قبل التطبيق مرة أخرى.",
   "pending_changes_maybe_applied": "انتهت آخر عملية تطبيق دون رد، لذا قد يكون بعض هذه التغييرات قد نُفِّذ فعلاً. تحقّق من البيانات قبل التطبيق مرة أخرى.",
   "pending_changes_values": "القيم: {values}",
+  "history_rerun_queued": "أُضيف إلى قائمة الانتظار لـ {connection}. اضغط \"Execute All\" في \"Pending Changes\" لتشغيله.",
+  "history_rerun_already_queued": "مُضاف بالفعل إلى قائمة الانتظار لـ {connection}. اضغط \"Execute All\" في \"Pending Changes\" لتشغيله.",
   "pending_changes_destructive": "{count} عبارة(ات) مدمرة في هذه التغييرات:",
   "workflow_node_read_only": "عُقد الاستعلام في سير العمل للقراءة فقط: يمكنها تشغيل استعلامات SELECT فقط. استخدم علامة تبويب استعلام لتغيير البيانات.",
   "workflow_result_truncated": "يُعرض أول {count} صف فقط: تجلب عقدة سير العمل 10,000 صف كحد أقصى.",

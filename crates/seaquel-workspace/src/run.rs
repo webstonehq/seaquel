@@ -968,6 +968,8 @@ pub fn history_item(
         favorite: false,
         connection_labels_snapshot: Some(ctx.connection_labels.clone()),
         connection_name_snapshot: ctx.connection_name.clone(),
+        // A run records its text with `{{param}}`s; its values aren't kept.
+        params: None,
     }
 }
 

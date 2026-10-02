@@ -1202,6 +1202,8 @@
   "pending_changes_interrupted": "L'application des modifications s'est terminée sans réponse ({error}). Certaines d'entre elles ont peut-être déjà été exécutées ; les onglets Schéma et Données ont été rechargés. Vérifiez-les avant de réappliquer.",
   "pending_changes_maybe_applied": "La dernière application s'est terminée sans réponse, donc certaines de ces modifications ont peut-être déjà été exécutées. Vérifiez les données avant de réappliquer.",
   "pending_changes_values": "Valeurs : {values}",
+  "history_rerun_queued": "Mise en file d'attente pour {connection}. Cliquez sur « Execute All » dans « Pending Changes » pour l'exécuter.",
+  "history_rerun_already_queued": "Déjà en file d'attente pour {connection}. Cliquez sur « Execute All » dans « Pending Changes » pour l'exécuter.",
   "pending_changes_destructive": "{count} instruction(s) destructive(s) dans ces modifications :",
   "workflow_node_read_only": "Les nœuds de requête du workflow sont en lecture seule : ils ne peuvent exécuter que des requêtes SELECT. Utilisez un onglet de requête pour modifier les données.",
   "workflow_result_truncated": "Seules les {count} premières lignes sont affichées : un nœud de workflow récupère au maximum 10 000 lignes.",

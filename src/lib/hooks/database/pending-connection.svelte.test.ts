@@ -76,3 +76,34 @@ describe("pendingConnectionId", () => {
     expect(state.pendingConnectionId).toBe("conn-b");
   });
 });
+
+describe("a history re-run's focus (cleanup pass B review)", () => {
+  it("shows the history row's queue while the sheet is open, over a data tab on another connection", () => {
+    const state = setup();
+    state.activeView = "data";
+    expect(state.pendingConnectionId).toBe("conn-a");
+    state.pendingFocusConnectionId = "conn-b";
+    state.isPendingChangesOpen = true;
+    expect(state.pendingConnectionId).toBe("conn-b");
+    expect(state.activePendingChanges.map((c) => c.id)).toEqual(["b1"]);
+  });
+
+  it("ends when the sheet closes", () => {
+    const state = setup();
+    state.activeView = "data";
+    state.pendingFocusConnectionId = "conn-b";
+    state.isPendingChangesOpen = true;
+    state.activeRightPanel = null;
+    expect(state.pendingFocusConnectionId).toBeNull();
+    state.isPendingChangesOpen = true;
+    expect(state.pendingConnectionId).toBe("conn-a");
+  });
+
+  it("ends when the AI panel replaces the sheet", () => {
+    const state = setup();
+    state.pendingFocusConnectionId = "conn-b";
+    state.isPendingChangesOpen = true;
+    state.isAIOpen = true;
+    expect(state.pendingFocusConnectionId).toBeNull();
+  });
+});

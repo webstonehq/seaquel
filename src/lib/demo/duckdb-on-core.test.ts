@@ -21,7 +21,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AsyncDuckDB, AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import type { StatementResult } from "$lib/types";
+import type { PendingChange, StatementResult } from "$lib/types";
+import type { PersistedQueryHistoryItem } from "$lib/types/generated/PersistedQueryHistoryItem";
 import {
   bootDuckDb,
   loadTestModule,
@@ -32,7 +33,6 @@ import type { SnapshotStore } from "$lib/core/browser/snapshot-store";
 import type { OpenedBrowserCore } from "$lib/core/browser";
 import type { DatabaseState } from "$lib/hooks/database/state.svelte.js";
 import type { QueryHistoryManager } from "$lib/hooks/database/query-history.svelte.js";
-import type { PendingChangesManager } from "$lib/hooks/database/pending-changes.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
 
 vi.mock("$lib/utils/logger", () => ({
@@ -48,6 +48,9 @@ const { openBrowserCore, makeDuckDbBridge } = await import("$lib/core/browser");
 const { setCoreClient } = await import("$lib/core");
 const { CoreProvider } = await import("$lib/providers/core-provider");
 const { QueryExecutionManager } = await import("$lib/hooks/database/query-execution.svelte.js");
+const { PendingChangesManager } = await import("$lib/hooks/database/pending-changes.svelte.js");
+const { CoreEditService } = await import("$lib/hooks/database/edit-service/core-service.js");
+const { fromPersisted } = await import("$lib/hooks/database/query-history.svelte.js");
 
 const missing = testModuleMissing();
 
@@ -142,7 +145,7 @@ function editor(query: string) {
     state,
     history as unknown as QueryHistoryManager,
     { getForType: async () => provider } as unknown as ProviderRegistry,
-    { isEnabled: () => false } as unknown as PendingChangesManager,
+    { isEnabled: () => false } as unknown as InstanceType<typeof PendingChangesManager>,
   );
   const results = () => state.queryTabsByProject.p[0].results ?? [];
   return { manager, results, history };
@@ -190,6 +193,74 @@ describe.skipIf(missing)("the demo's editor runs in Core", () => {
     expect(results()[0]).toMatchObject({ page: 2, rows: [[5], [6]] });
     // A page records nothing.
     expect(history.insertRecorded).toHaveBeenCalledOnce();
+  });
+});
+
+describe.skipIf(missing)("the demo's applied edits keep their values in history", () => {
+  beforeEach(async () => {
+    await plain.query("DROP TABLE IF EXISTS t; CREATE TABLE t (a INTEGER)");
+  });
+
+  /** The pending-changes queue over the demo's Core, as the demo wires it. */
+  function queue() {
+    const state = {
+      connections: [
+        {
+          id: "demo-connection",
+          type: "duckdb",
+          name: "Demo Database",
+          providerConnectionId: demoId,
+        },
+      ],
+      pendingChangesByConnection: {} as Record<string, PendingChange[]>,
+      pendingChangesInterrupted: {} as Record<string, boolean>,
+      isPendingChangesOpen: false,
+    };
+    const history = {
+      contextFor: (id: string) => ({
+        connectionId: id,
+        connectionName: "Demo Database",
+        connectionLabels: [],
+      }),
+      insertRecorded: vi.fn(),
+    };
+    const service = new CoreEditService(() => opened.client);
+    const manager = new PendingChangesManager(
+      state as unknown as DatabaseState,
+      {} as ProviderRegistry,
+      history as unknown as QueryHistoryManager,
+      async () => service,
+    );
+    return { manager, history };
+  }
+
+  async function storedHistory(): Promise<PersistedQueryHistoryItem[]> {
+    const response = (await opened.client.call({
+      method: "storage",
+      params: {
+        method: "queryHistoryLoadByConnection",
+        params: { connectionId: "demo-connection" },
+      },
+    })) as { result: { result: PersistedQueryHistoryItem[] } };
+    return response.result.result;
+  }
+
+  it("records the values, shows them, and runs the row again with them", async () => {
+    const { manager, history } = queue();
+    manager.addSql("demo-connection", "INSERT INTO t VALUES (?)", [7], "insert", "query-editor");
+    expect(await manager.apply("demo-connection")).toMatchObject({ kind: "applied", applied: 1 });
+    expect(await rowsInT()).toBe(1);
+    const recorded = history.insertRecorded.mock.calls[0][0] as PersistedQueryHistoryItem;
+    expect(recorded).toMatchObject({ query: "INSERT INTO t VALUES (?)", params: [7] });
+    const stored = (await storedHistory()).find((h) => h.id === recorded.id);
+    expect(stored?.params).toEqual([7]);
+
+    // Run it again from history: queued with its values, applied as before.
+    manager.addFromHistory(fromPersisted(stored!));
+    expect(await manager.apply("demo-connection")).toMatchObject({ kind: "applied", applied: 1 });
+    expect(Number(await scalar("SELECT count(*) FROM t WHERE a = 7"))).toBe(2);
+    const again = history.insertRecorded.mock.calls[1][0] as PersistedQueryHistoryItem;
+    expect(again.params).toEqual([7]);
   });
 });
 

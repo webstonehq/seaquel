@@ -182,6 +182,41 @@ describe("QueryHistoryManager", () => {
   });
 });
 
+describe("history rows with values (cleanup pass B)", () => {
+  it("insertRecorded keeps an applied change's values in the wire format", async () => {
+    const { state, history } = setup();
+    const params = ["Jonson", { $sq: "bigint", v: "9007199254740993" }, null];
+    history.insertRecorded({
+      id: "hist-edit",
+      query: "UPDATE t SET a = $1, b = $2 WHERE c = $3",
+      timestamp: "2026-02-03T04:05:06.789Z",
+      executionTime: 3,
+      rowCount: 1,
+      connectionId: "c1",
+      favorite: false,
+      connectionLabelsSnapshot: LABELS,
+      connectionNameSnapshot: "Prod DB",
+      params,
+    });
+    await settle();
+    expect(calls).toEqual([]);
+    expect(state.queryHistoryByConnection.c1[0].params).toEqual(params);
+  });
+
+  it("a row without values has none, and a restored row keeps its values", () => {
+    const { state } = setup();
+    const restoration = new StateRestorationManager(state);
+    restoration.restoreQueryHistory("c1", [
+      { ...cached("with", 2), timestamp: "2026-01-01T00:00:02.000Z", params: ["x", 1] },
+      { ...cached("without", 1), timestamp: "2026-01-01T00:00:01.000Z" },
+    ]);
+    const [withValues, without] = state.queryHistoryByConnection.c1;
+    expect(withValues.params).toEqual(["x", 1]);
+    expect(without.params).toBeUndefined();
+    expect("params" in without).toBe(false);
+  });
+});
+
 describe("restoreQueryHistory", () => {
   const persisted = (id: string, n: number, favorite = false): PersistedQueryHistoryItem => ({
     ...cached(id, n, favorite),

@@ -216,6 +216,8 @@ export interface PersistedQueryHistoryItem {
   connectionLabelsSnapshot: ConnectionLabel[] | null;
   /** Connection name at execution time */
   connectionNameSnapshot: string;
+  /** An applied change's values, in the cell wire format (see `QueryHistoryItem.params`) */
+  params?: unknown[];
 }
 
 /**

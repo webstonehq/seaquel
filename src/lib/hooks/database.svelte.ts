@@ -303,6 +303,7 @@ export class UseDatabase {
     // git status and each sync's outcome.
     this.sharedRepos = new SharedRepoManager(this.state);
     this.queryTabs.setSavedQueryRename((id, name) => this.savedQueries.renameQuery(id, name));
+    this.queryTabs.setHistoryRerun((item) => this.pendingChanges.addFromHistory(item));
 
     // Connections (depends on other managers)
     this.connections = new ConnectionManager(

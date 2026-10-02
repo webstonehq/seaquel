@@ -13,7 +13,8 @@
 #![cfg(target_arch = "wasm32")]
 
 use seaquel_storage::{
-    app_state, connections, dashboards, onboarding, projects, Storage, StorageOptions,
+    app_state, connections, dashboards, onboarding, projects, query_history, Storage,
+    StorageOptions,
 };
 use seaquel_types::storage::PersistedProject;
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -44,6 +45,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         5,
         "shared connection origin",
         include_str!("../migrations/0005_shared_connection_origin.sql"),
+    ),
+    (
+        6,
+        "history params",
+        include_str!("../migrations/0006_history_params.sql"),
     ),
 ];
 
@@ -233,6 +239,38 @@ async fn json_reads_back_byte_for_byte() {
     onboarding::save(&st, &raw).await.unwrap();
     let back = onboarding::load(&st).await.unwrap().unwrap();
     assert_eq!(back.get(), text);
+}
+
+#[wasm_bindgen_test]
+async fn history_keeps_an_applied_changes_values() {
+    // Cleanup pass B: the demo records a grid edit's values like desktop.
+    let st = open(None).await;
+    let project: PersistedProject = serde_json::from_value(serde_json::json!({
+        "id": "p", "name": "P", "createdAt": "c", "updatedAt": "u", "customLabels": []
+    }))
+    .unwrap();
+    projects::save(&st, &project).await.unwrap();
+    let c: seaquel_types::storage::PersistedConnection =
+        serde_json::from_value(serde_json::json!({
+            "id": "c1", "projectId": "p", "name": "C", "type": "duckdb", "host": "",
+            "port": 0, "databaseName": "", "username": "", "labelIds": []
+        }))
+        .unwrap();
+    connections::save(&st, &c).await.unwrap();
+    let item: seaquel_types::storage::PersistedQueryHistoryItem =
+        serde_json::from_value(serde_json::json!({
+            "id": "h", "query": "UPDATE t SET a = ? WHERE id = ?", "timestamp": "t",
+            "executionTime": 1, "rowCount": 1, "connectionId": "c1", "favorite": false,
+            "connectionNameSnapshot": "C",
+            "params": ["Jonson", {"$sq": "bigint", "v": "9007199254740993"}]
+        }))
+        .unwrap();
+    query_history::append_many(&st, &[item]).await.unwrap();
+    let rows = query_history::load_by_connection(&st, "c1").await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&rows[0]).unwrap()["params"],
+        serde_json::json!(["Jonson", {"$sq": "bigint", "v": "9007199254740993"}])
+    );
 }
 
 #[wasm_bindgen_test]

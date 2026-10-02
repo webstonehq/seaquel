@@ -1202,6 +1202,8 @@
   "pending_changes_interrupted": "Al aplicar los cambios no se recibió respuesta ({error}). Algunos de ellos pueden haberse ejecutado ya; se recargaron las pestañas de esquema y datos. Revísalos antes de volver a aplicar.",
   "pending_changes_maybe_applied": "La última aplicación terminó sin respuesta, así que algunos de estos cambios pueden haberse ejecutado ya. Revisa los datos antes de volver a aplicar.",
   "pending_changes_values": "Valores: {values}",
+  "history_rerun_queued": "En cola para {connection}. Pulsa \"Execute All\" en \"Pending Changes\" para ejecutarla.",
+  "history_rerun_already_queued": "Ya está en cola para {connection}. Pulsa \"Execute All\" en \"Pending Changes\" para ejecutarla.",
   "pending_changes_destructive": "{count} instrucción(es) destructiva(s) en estos cambios:",
   "workflow_node_read_only": "Los nodos de consulta del flujo de trabajo son de solo lectura: solo pueden ejecutar consultas SELECT. Usa una pestaña de consulta para modificar datos.",
   "workflow_result_truncated": "Solo se muestran las primeras {count} filas: un nodo de flujo de trabajo obtiene un máximo de 10.000 filas.",

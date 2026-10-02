@@ -57,6 +57,23 @@ jobs:
       - name: Tests
         run: cargo test --workspace --exclude seaquel --features seaquel-runtime/tokio
 
+      # The interface binaries as they ship, each with only its own features.
+      # The steps above build the whole workspace, where Cargo unifies every
+      # crate's features (src-tauri's `git` included), so a cfg gate that's
+      # wrong for one interface's set compiles there anyway: 5e's
+      # `connection_order_in` broke `npm run cli:build` (Core with `imports`
+      # and without `git`) and nothing else. One `-p` per invocation: the
+      # resolver unifies features across every package named in one command.
+      # Lib and bins only, no `--all-targets`, so no dev-dependency adds a
+      # feature. Clippy rather than check: same cost, and dead code under one
+      # set fails too. Same target dir, so dependencies whose features match
+      # are reused.
+      - name: Interfaces build on their own features
+        run: |
+          cargo clippy -p seaquel-cli -- -D warnings
+          cargo clippy -p seaquel-server -- -D warnings
+          cargo clippy -p seaquel-mcp -- -D warnings
+
       - name: Pure crates build for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-types -p seaquel-runtime -p seaquel-engine -p seaquel-sql -p seaquel-wasm -- -D warnings
 
@@ -75,6 +92,21 @@ jobs:
 
       - name: Storage builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-storage --all-targets -- -D warnings
+
+      # Phase 8 Task 2: the browser storage's tests (the wrapper's unit tests
+      # and tests/wasm.rs) run in wasm32 under Node (set up above) through
+      # wasm-bindgen-test-runner, which comes with wasm-bindgen-cli at
+      # Cargo.lock's version, installed as the frontend job does.
+      - name: wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: echo "version=$(node scripts/build-wasm.mjs --bindgen-version)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Storage tests in wasm32
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test --target wasm32-unknown-unknown -p seaquel-storage --all-targets
 
       - name: DuckDB's browser driver builds for wasm32
         run: cargo clippy --target wasm32-unknown-unknown -p seaquel-engine-duckdb --no-default-features --features seaquel-engine-duckdb/browser -- -D warnings

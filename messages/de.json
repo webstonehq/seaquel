@@ -1202,6 +1202,8 @@
   "pending_changes_interrupted": "Beim Anwenden der Änderungen kam keine Antwort zurück ({error}). Einige davon wurden möglicherweise bereits ausgeführt; die Schema- und Daten-Registerkarten wurden neu geladen. Prüfen Sie sie, bevor Sie erneut anwenden.",
   "pending_changes_maybe_applied": "Die letzte Anwendung endete ohne Antwort, daher wurden einige dieser Änderungen möglicherweise bereits ausgeführt. Prüfen Sie die Daten, bevor Sie erneut anwenden.",
   "pending_changes_values": "Werte: {values}",
+  "history_rerun_queued": "Für {connection} eingereiht. Klicken Sie auf \"Execute All\" in \"Pending Changes\", um es auszuführen.",
+  "history_rerun_already_queued": "Bereits für {connection} eingereiht. Klicken Sie auf \"Execute All\" in \"Pending Changes\", um es auszuführen.",
   "pending_changes_destructive": "{count} destruktive Anweisung(en) in diesen Änderungen:",
   "workflow_node_read_only": "Workflow-Abfrageknoten sind schreibgeschützt: Sie können nur SELECT-Abfragen ausführen. Verwenden Sie eine Abfrage-Registerkarte, um Daten zu ändern.",
   "workflow_result_truncated": "Es werden nur die ersten {count} Zeilen angezeigt: Ein Workflow-Knoten ruft höchstens 10.000 Zeilen ab.",

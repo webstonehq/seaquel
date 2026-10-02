@@ -3,6 +3,14 @@ import type { ConnectionLabel } from "./ConnectionLabel";
 
 /**
  * A query history item (`query_history`). `connectionLabelsSnapshot` is
- * the stored JSON, `[]` when NULL or unparseable.
+ * the stored JSON, `[]` when NULL or unparseable. `Debug` shows no SQL,
+ * names or values.
  */
-export type PersistedQueryHistoryItem = { id: string, query: string, timestamp: string, executionTime: number, rowCount: number, connectionId: string, favorite: boolean, connectionLabelsSnapshot: Array<ConnectionLabel> | null, connectionNameSnapshot: string, };
+export type PersistedQueryHistoryItem = { id: string, query: string, timestamp: string, executionTime: number, rowCount: number, connectionId: string, favorite: boolean, connectionLabelsSnapshot: Array<ConnectionLabel> | null, connectionNameSnapshot: string, 
+/**
+ * The values an applied change was bound with, in the cell wire format
+ * (`query_history.params`, migration `0006`; cleanup pass B). Absent
+ * for runs, which record the text with its `{{param}}`s, for changes
+ * without values, and for rows written before `0006`.
+ */
+params?: Array<unknown>, };

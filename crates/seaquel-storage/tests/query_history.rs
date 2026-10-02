@@ -7,6 +7,8 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -15,6 +17,7 @@ use seaquel_storage::{
     STORAGE_ERROR,
 };
 use seaquel_types::storage::{PersistedConnection, PersistedProject, PersistedQueryHistoryItem};
+use seaquel_types::Value;
 use serde_json::json;
 use serde_json::value::RawValue;
 
@@ -66,6 +69,7 @@ fn item(id: &str, connection_id: &str, n: u32, favorite: bool) -> PersistedQuery
         favorite,
         connection_labels_snapshot: Some(RawValue::from_string("[]".into()).unwrap()),
         connection_name_snapshot: connection_id.into(),
+        params: None,
     }
 }
 
@@ -401,4 +405,159 @@ async fn append_many_is_all_or_nothing() {
     let items = [item("a", "c1", 1, false), item("a", "c1", 2, false)];
     assert!(query_history::append_many(&st, &items).await.is_err());
     assert!(load(&st, "c1").await.is_empty());
+}
+
+// ── params (cleanup pass B, migration 0006) ──
+
+/// An applied grid edit's values, as Core binds them.
+fn edit_values() -> Vec<Value> {
+    vec![
+        Value::Text("Jonson".into()),
+        Value::Int(1),
+        Value::Int(i64::MAX),
+        Value::Float(f64::NAN),
+        Value::Decimal("12.50".into()),
+        Value::Bytes(vec![0, 1, 255]),
+        Value::Json(json!({"a": [1, 2]})),
+        Value::Null,
+    ]
+}
+
+#[tokio::test]
+async fn params_are_stored_and_read_back_in_the_wire_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    let mut with = item("with", "c1", 1, false);
+    with.query = "UPDATE t SET name = $1 WHERE id = $2".into();
+    with.params = Some(edit_values());
+    let without = item("without", "c1", 2, false);
+    query_history::append_many(&st, &[with.clone(), without.clone()])
+        .await
+        .unwrap();
+    let mut single = item("single", "c1", 3, false);
+    single.params = Some(vec![Value::Text("x".into())]);
+    query_history::append(&st, &single).await.unwrap();
+
+    let rows = load(&st, "c1").await;
+    assert_eq!(ids(&rows), ["single", "without", "with"]);
+    assert_eq!(rows[0].params, Some(vec![Value::Text("x".into())]));
+    assert_eq!(rows[1].params, None);
+    // NaN != NaN, so compare the wire form.
+    assert_eq!(
+        serde_json::to_value(&rows[2]).unwrap()["params"],
+        serde_json::to_value(edit_values()).unwrap()
+    );
+    // The column holds the wire format as JSON text.
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT params FROM query_history WHERE id = 'with'")
+            .fetch_one(st.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&stored.unwrap()).unwrap(),
+        serde_json::to_value(edit_values()).unwrap()
+    );
+    // A row without values stores NULL and leaves `params` out of its JSON.
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT params FROM query_history WHERE id = 'without'")
+            .fetch_one(st.pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, None);
+    assert!(serde_json::to_value(&rows[1])
+        .unwrap()
+        .get("params")
+        .is_none());
+}
+
+#[tokio::test]
+async fn empty_params_are_stored_as_null() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    let mut h = item("h", "c1", 1, false);
+    h.params = Some(vec![]);
+    query_history::append(&st, &h).await.unwrap();
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT params FROM query_history WHERE id = 'h'")
+            .fetch_one(st.pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, None);
+    assert_eq!(load(&st, "c1").await[0].params, None);
+}
+
+#[tokio::test]
+async fn unreadable_params_load_as_none_and_keep_the_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = setup(dir.path()).await;
+    for (id, params) in [
+        ("not-json", "not json"),
+        ("not-a-list", r#"{"a":1}"#),
+        ("bad-tag", r#"[{"$sq":"nope","v":1}]"#),
+    ] {
+        sqlx::query(
+            "INSERT INTO query_history (id, connection_id, query, timestamp, execution_time, row_count, params) \
+             VALUES (?, 'c1', 'SELECT 1', '2026-01-01T00:00:00.000Z', 1, 1, ?)",
+        )
+        .bind(id)
+        .bind(params)
+        .execute(st.pool())
+        .await
+        .unwrap();
+    }
+    let rows = load(&st, "c1").await;
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|r| r.params.is_none()));
+}
+
+/// On every release's file `0006` adds `params`; a row an older release
+/// wrote (its own column list, no `params`) reads with no values, and a new
+/// row keeps them.
+#[tokio::test]
+async fn migration_0006_applies_on_every_release_schema() {
+    for release in [
+        "v2026.4.5-beta.1",
+        "v2026.4.5",
+        "v2026.4.8",
+        "v2026.9.1",
+        "v2026.9.2",
+        "current",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seaquel.db");
+        common::load_fixture(&path, &format!("schemas/{release}.sql")).await;
+        common::exec_file(
+            &path,
+            "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p', 'P', 'c', 'u'); \
+             INSERT INTO connections (id, project_id, name, type, host, port, database_name, username) \
+               VALUES ('c1', 'p', 'C', 'postgres', 'h', 5432, 'd', 'u'); \
+             INSERT INTO query_history (id, connection_id, query, timestamp, execution_time, row_count) \
+               VALUES ('old', 'c1', 'UPDATE t SET a = $1', '2026-01-01T00:00:00.000Z', 1, 1);",
+        )
+        .await;
+        let st = Storage::open(&path, StorageOptions::default())
+            .await
+            .unwrap_or_else(|e| panic!("{release}: {e}"));
+        let mut new = item("new", "c1", 1_000_000, false);
+        new.params = Some(vec![Value::Text("v".into())]);
+        query_history::append(&st, &new).await.unwrap();
+        // An older release appends naming its own columns.
+        sqlx::query(
+            "INSERT INTO query_history (id, query, timestamp, execution_time, row_count, \
+               connection_id, favorite, connection_labels_snapshot, connection_name_snapshot) \
+             VALUES ('older-app', 'SELECT 1', '2026-01-01T00:00:01.000Z', 1, 1, 'c1', 0, '[]', 'C')",
+        )
+        .execute(st.pool())
+        .await
+        .unwrap_or_else(|e| panic!("{release}: {e}"));
+        let rows = load(&st, "c1").await;
+        assert_eq!(ids(&rows), ["new", "older-app", "old"], "{release}");
+        assert_eq!(
+            rows[0].params,
+            Some(vec![Value::Text("v".into())]),
+            "{release}"
+        );
+        assert_eq!(rows[1].params, None, "{release}");
+        assert_eq!(rows[2].params, None, "{release}");
+    }
 }

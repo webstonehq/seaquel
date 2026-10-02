@@ -16,6 +16,8 @@ vi.mock("$lib/stores/pending-changes-settings.svelte.js", () => ({
   pendingChangesSettingsStore: settings,
 }));
 const logs = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn() }));
+const toasts = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn() }));
+vi.mock("svelte-sonner", () => ({ toast: toasts }));
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: logs.error, info: vi.fn(), warn: logs.warn },
 }));
@@ -41,6 +43,7 @@ function setup(script: Parameters<typeof scriptedCore>[0] = {}) {
     pendingChangesByConnection: {} as Record<string, PendingChange[]>,
     pendingChangesInterrupted: {} as Record<string, boolean>,
     isPendingChangesOpen: false,
+    pendingFocusConnectionId: null as string | null,
   });
   const core = scriptedCore(script);
   const service = new CoreEditService(() => core.client);
@@ -154,6 +157,100 @@ describe("PendingChangesManager queueing", () => {
       sourceTabId: "tab-1",
       description: "Delete row from t",
     });
+  });
+});
+
+describe("PendingChangesManager.addFromHistory (cleanup pass B)", () => {
+  const row = {
+    id: "hist-1",
+    query: "UPDATE public.users SET name = $1 WHERE id = $2",
+    timestamp: new Date("2026-01-01T00:00:00.000Z"),
+    executionTime: 1,
+    rowCount: 1,
+    connectionId: "conn-1",
+    favorite: false,
+    connectionLabelsSnapshot: [],
+    connectionNameSnapshot: "Local",
+    params: ["Jonson", { $sq: "bigint", v: "9007199254740993" }],
+  };
+
+  it("queues a history row's SQL with its values, as typed SQL, and opens the sheet", () => {
+    const { manager, queue, state } = setup();
+    manager.addFromHistory(row);
+    const [entry] = queue();
+    expect(entry.change).toEqual({
+      type: "sql",
+      id: entry.id,
+      sql: row.query,
+      params: row.params,
+    });
+    expect(entry).toMatchObject({
+      connectionId: "conn-1",
+      sql: row.query,
+      bindValues: ["Jonson", 9007199254740993n],
+      queryType: "update",
+      dml: true,
+      origin: "history",
+    });
+    expect(state.isPendingChangesOpen).toBe(true);
+  });
+
+  it("opens the sheet when the queue already holds changes", () => {
+    const { manager, queue, state, edit } = setup();
+    edit(updateEdit(1, "a"));
+    state.isPendingChangesOpen = false;
+    manager.addFromHistory(row);
+    expect(queue()).toHaveLength(2);
+    expect(state.isPendingChangesOpen).toBe(true);
+  });
+
+  it("focuses the row's connection in the sheet and says it was queued", () => {
+    toasts.info.mockClear();
+    const { manager, state } = setup();
+    manager.addFromHistory(row);
+    expect(state.pendingFocusConnectionId).toBe("conn-1");
+    expect(toasts.info).toHaveBeenCalledOnce();
+    expect(String(toasts.info.mock.calls[0][0])).toContain("Local");
+  });
+
+  it("a second click on the same row doesn't queue it twice", () => {
+    toasts.info.mockClear();
+    const { manager, queue } = setup();
+    manager.addFromHistory(row);
+    manager.addFromHistory({ ...row, params: structuredClone(row.params) });
+    expect(queue()).toHaveLength(1);
+    expect(toasts.info).toHaveBeenCalledTimes(2);
+    expect(String(toasts.info.mock.calls[1][0])).not.toBe(String(toasts.info.mock.calls[0][0]));
+    // Other values are another change.
+    manager.addFromHistory({ ...row, params: ["Smith", 2] });
+    expect(queue()).toHaveLength(2);
+  });
+
+  it("nested values stay in the wire format, shown decoded, and re-run as sent", async () => {
+    const { manager, queue, applies } = setup();
+    const nested = [[{ $sq: "bigint", v: "9007199254740993" }]];
+    manager.addFromHistory({ ...row, params: nested });
+    const [entry] = queue();
+    expect(entry.bindValues).toEqual([[9007199254740993n]]);
+    expect(entry.change).toMatchObject({ params: [[{ $sq: "bigint", v: "9007199254740993" }]] });
+    await manager.apply("conn-1");
+    // What went to Core is JSON (no BigInt), the wire values unchanged.
+    expect(JSON.stringify(applies()[0].changes[0])).toContain(
+      '"params":[[{"$sq":"bigint","v":"9007199254740993"}]]',
+    );
+    expect(JSON.stringify(nested)).toBe('[[{"$sq":"bigint","v":"9007199254740993"}]]');
+  });
+
+  it("applying it sends the values back with history, unconfirmed", async () => {
+    const { manager, applies } = setup();
+    manager.addFromHistory(row);
+    await manager.apply("conn-1");
+    const [sent] = applies();
+    expect(sent.changes).toEqual([
+      { type: "sql", id: expect.any(String), sql: row.query, params: row.params },
+    ]);
+    expect(sent.confirmed).toBeUndefined();
+    expect(sent.history?.connectionId).toBe("conn-1");
   });
 });
 

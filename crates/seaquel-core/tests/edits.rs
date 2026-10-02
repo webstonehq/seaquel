@@ -1670,6 +1670,84 @@ async fn history_is_appended_after_commit_and_only_for_what_ran() {
     );
 }
 
+/// Cleanup pass B: each history row keeps the values its change was bound
+/// with, in the cell wire format, so the history shows what ran and the
+/// row can run again. A change without values stores none.
+#[tokio::test]
+async fn history_rows_keep_their_values() {
+    let e = env("postgres").await;
+    e.driver.set_metadata(&users_meta());
+    let big = json!({"$sq": "bigint", "v": "9007199254740993"});
+    let bytes = json!({"$sq": "bytes", "v": "AAH/"});
+    // Atomic: an edit, a typed change with values, one without.
+    e.driver.load(vec![
+        expect(
+            "tx",
+            UPDATE_SQL,
+            json!(["Jonson", 1]),
+            json!({"rowsAffected": 1}),
+        ),
+        expect(
+            "tx",
+            "UPDATE t SET a = $1, b = $2 WHERE c = $3",
+            json!([big, bytes, null]),
+            json!({"rowsAffected": 1}),
+        ),
+        expect(
+            "tx",
+            "DELETE FROM t WHERE a = 1",
+            json!([]),
+            json!({"rowsAffected": 1}),
+        ),
+    ]);
+    let got = apply(
+        &e,
+        json!([
+            update("c1", 1, "Jonson"),
+            {"type": "sql", "id": "c2", "sql": "UPDATE t SET a = $1, b = $2 WHERE c = $3",
+             "params": [big, bytes, null]},
+            typed("c3", "DELETE FROM t WHERE a = 1")
+        ]),
+        true,
+        Some(history_ctx(SAVED)),
+    )
+    .await;
+    assert_eq!(got["mode"], "atomic", "{got}");
+    let h = got["history"].as_array().unwrap();
+    assert_eq!(h.len(), 3, "{got}");
+    assert_eq!(h[0]["params"], json!(["Jonson", 1]));
+    assert_eq!(h[1]["params"], json!([big, bytes, null]));
+    assert!(h[2].get("params").is_none(), "{}", h[2]);
+    // Stored the same: newest first, the last change on top.
+    let stored = query_history::load_by_connection(e.ws.storage(), SAVED)
+        .await
+        .unwrap();
+    let stored: Vec<Json> = stored
+        .iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect();
+    assert_eq!(stored[2]["params"], json!(["Jonson", 1]));
+    assert_eq!(stored[1]["params"], json!([big, bytes, null]));
+    assert!(stored[0].get("params").is_none());
+
+    // A single change (execute) keeps its values too.
+    e.driver.load(vec![expect(
+        "execute",
+        UPDATE_SQL,
+        json!(["Smith", 2]),
+        json!({"rowsAffected": 1}),
+    )]);
+    let got = apply(
+        &e,
+        json!([update("c4", 2, "Smith")]),
+        false,
+        Some(history_ctx(SAVED)),
+    )
+    .await;
+    assert_eq!(got["mode"], "single", "{got}");
+    assert_eq!(got["history"][0]["params"], json!(["Smith", 2]));
+}
+
 #[tokio::test]
 async fn a_failed_append_does_not_fail_the_apply() {
     let e = env("postgres").await;
@@ -2291,7 +2369,12 @@ fn debug_shows_no_sql_keys_or_values() {
             message: "canary".into(),
         }),
         ddl: false,
-        history: vec![],
+        history: vec![serde_json::from_value(
+            json!({"id": "h", "query": "UPDATE canary SET a = $1",
+            "timestamp": "t", "executionTime": 1, "rowCount": 1, "connectionId": "c",
+            "favorite": false, "connectionNameSnapshot": "canary", "params": ["canary"]}),
+        )
+        .unwrap()],
     };
     let debug = format!("{change:?} {edit:?} {insert:#?} {page:?} {apply:?} {outcome:?}");
     assert!(!debug.contains("canary"), "{debug}");

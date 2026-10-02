@@ -9,6 +9,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import { mode } from "mode-watcher";
 	import { initMonaco, createSchemaCompletionProvider, type Monaco } from "$lib/monaco";
+	import { oncePerTask } from "$lib/monaco/once-per-task";
 	// Type-only import — erased at compile time. The runtime monaco namespace
 	// is captured from `initMonaco()` into the `monaco` local below.
 	import type * as MonacoNS from "monaco-editor";
@@ -136,6 +137,11 @@
 		}
 	}
 
+	// One pass per input event, not per model change: Monaco can change the
+	// model once per character of a single input (see `once-per-task.ts`), and
+	// each pass reads the whole text.
+	const scheduleVariableDecorations = oncePerTask(updateVariableDecorations);
+
 	onMount(async () => {
 		monaco = await initMonaco();
 
@@ -172,7 +178,7 @@
 				onChange(newValue);
 			}
 			// Update variable decorations on content change
-			updateVariableDecorations();
+			scheduleVariableDecorations();
 		});
 
 		// Initial decoration pass
@@ -281,7 +287,7 @@
 			editor.setValue(currentValue);
 			isUpdatingFromProp = false;
 			// Update decorations for new content
-			updateVariableDecorations();
+			scheduleVariableDecorations();
 		}
 	});
 

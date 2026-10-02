@@ -29,6 +29,7 @@ export function fromPersisted(h: PersistedQueryHistoryItem): QueryHistoryItem {
     favorite: h.favorite,
     connectionLabelsSnapshot: h.connectionLabelsSnapshot || [],
     connectionNameSnapshot: h.connectionNameSnapshot || "",
+    ...(h.params?.length ? { params: h.params } : {}),
   };
 }
 

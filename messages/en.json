@@ -1202,6 +1202,8 @@
   "pending_changes_interrupted": "Applying the changes ended without an answer ({error}). Some of them may already have run; the schema and data tabs were reloaded. Check them before applying again.",
   "pending_changes_maybe_applied": "The last apply ended without an answer, so some of these changes may already have run. Check the data before applying again.",
   "pending_changes_values": "Values: {values}",
+  "history_rerun_queued": "Queued for {connection}. Press Execute All in Pending Changes to run it.",
+  "history_rerun_already_queued": "Already queued for {connection}. Press Execute All in Pending Changes to run it.",
   "pending_changes_destructive": "{count} destructive statement(s) in these changes:",
   "workflow_node_read_only": "Workflow query nodes are read-only: they can run SELECT queries only. Use a query tab to change data.",
   "workflow_result_truncated": "Only the first {count} rows are shown: a workflow node fetches at most 10,000 rows.",

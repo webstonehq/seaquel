@@ -34,6 +34,7 @@ use seaquel_runtime::Executor;
 use seaquel_sql::statements::{destructive_reason, QueryType, TableRef};
 use seaquel_sql::SqlEngine;
 use seaquel_types::storage::PersistedQueryHistoryItem;
+use seaquel_types::Value;
 use seaquel_workspace::edits::{
     check_change_limits, check_edit_limits, check_query_limits, classify, extension_statements,
     is_dml, plan_edit, plan_sql, table_select, ApplyChangesParams, ApplyFailure, ApplyMode,
@@ -214,6 +215,9 @@ fn closed_mid_apply(index: Option<usize>) -> DbError {
 #[cfg_attr(not(feature = "storage"), allow(dead_code))]
 struct Ran {
     sql: String,
+    /// The values it was bound with, kept in its history row (cleanup
+    /// pass B). Never logged.
+    params: Vec<Value>,
     rows: u64,
     elapsed_ms: f64,
 }
@@ -395,6 +399,7 @@ impl Workspace {
                         {
                             ran.push(Ran {
                                 sql: r.planned.sql.clone(),
+                                params: r.planned.params.clone(),
                                 rows,
                                 elapsed_ms: elapsed,
                             });
@@ -427,6 +432,7 @@ impl Workspace {
                             ddl |= !r.planned.dml;
                             ran.push(Ran {
                                 sql: r.planned.sql.clone(),
+                                params: r.planned.params.clone(),
                                 rows: result.rows_affected,
                                 elapsed_ms: elapsed_ms(start, executor.monotonic()),
                             });
@@ -483,8 +489,9 @@ impl Workspace {
         let now = executor.unix_time();
         let items: Vec<PersistedQueryHistoryItem> = ran
             .iter()
-            .map(|r| {
-                history_item(
+            .map(|r| PersistedQueryHistoryItem {
+                params: (!r.params.is_empty()).then(|| r.params.clone()),
+                ..history_item(
                     ctx,
                     &r.sql,
                     r.elapsed_ms,

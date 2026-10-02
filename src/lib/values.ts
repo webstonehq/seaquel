@@ -80,16 +80,14 @@ function decodeTagged(t: Tagged): unknown {
   }
 }
 
-/** Wire → JS. Recurses into arrays (decoding them in place). */
+/**
+ * Wire → JS. Pure: an array comes back as a decoded copy and the input is
+ * never written, so wire values kept to be sent again (a queued change's
+ * `params`, a history row's) and deep `$state` stay as they are.
+ */
 export function decodeCell(v: unknown): unknown {
   if (v === null || typeof v !== "object") return v;
-  if (Array.isArray(v)) {
-    for (let i = 0; i < v.length; i++) {
-      const item: unknown = v[i];
-      if (item !== null && typeof item === "object") v[i] = decodeCell(item);
-    }
-    return v;
-  }
+  if (Array.isArray(v)) return v.map(decodeCell);
   return isTagged(v) ? decodeTagged(v) : v;
 }
 

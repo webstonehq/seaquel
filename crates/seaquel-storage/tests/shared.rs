@@ -146,7 +146,7 @@ async fn migration_0004_applies_on_every_release_schema() {
                 .fetch_all(st.pool())
                 .await
                 .unwrap();
-        assert_eq!(applied, [1, 2, 3, 4, 5], "{release}");
+        assert_eq!(applied, [1, 2, 3, 4, 5, 6], "{release}");
 
         for (table, column) in NEW_COLUMNS {
             assert!(

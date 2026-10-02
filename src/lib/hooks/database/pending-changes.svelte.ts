@@ -4,14 +4,17 @@ import type {
   PendingChange,
   PendingChangeOrigin,
   PendingChangeTarget,
+  QueryHistoryItem,
 } from "$lib/types";
-import { isDestructiveStatement, type QueryType } from "$lib/sql";
+import { detectQueryType, isDestructiveStatement, type QueryType } from "$lib/sql";
 import type { DatabaseState } from "./state.svelte.js";
 import type { QueryHistoryManager } from "./query-history.svelte.js";
 import type { ProviderRegistry } from "$lib/providers";
 import { describeChange, describePendingChange } from "./pending-change-description.js";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte.js";
 import { log } from "$lib/utils/logger";
+import { toast } from "svelte-sonner";
+import { m } from "$lib/paraglide/messages.js";
 import { cellKey, decodeCell } from "$lib/values";
 import { noRowMatchedMessage } from "./stale-edit.js";
 import { callError, errorText } from "./error-text.js";
@@ -224,6 +227,7 @@ export class PendingChangesManager {
       connectionId,
       change: { type: "sql", id, sql, params },
       sql,
+      // `decodeCell` copies: `params` stays the wire values apply sends back.
       bindValues: params.length > 0 ? params.map(decodeCell) : undefined,
       queryType,
       dml: queryType === "insert" || queryType === "update" || queryType === "delete",
@@ -232,6 +236,40 @@ export class PendingChangesManager {
       sourceTabId,
       origin,
     });
+  }
+
+  /**
+   * Queue a history row recorded with values (an applied grid edit) to run
+   * again: its SQL with those binds, as typed SQL, and open the sheet. The
+   * editor can't run it (its runs only fill `{{param}}`s), and going through
+   * the queue keeps the sheet's review, its destructive-statement dialog and
+   * Core's `confirmRequired`, and records the run in history again.
+   */
+  addFromHistory(item: QueryHistoryItem): void {
+    const connection = this.state.connections.find((c) => c.id === item.connectionId);
+    const params = item.params ?? [];
+    // A second click on the same row: it's already waiting.
+    const key = JSON.stringify([item.query, params]);
+    const queued = this.queue(item.connectionId).some(
+      (c) =>
+        c.origin === "history" &&
+        c.change.type === "sql" &&
+        JSON.stringify([c.change.sql, c.change.params]) === key,
+    );
+    if (!queued) {
+      const engine = connection?.type;
+      const queryType = engine ? detectQueryType(item.query, engine) : "other";
+      this.addSql(item.connectionId, item.query, params, queryType, "history");
+    }
+    // The sheet shows this connection's queue until it closes, whatever tab is focused.
+    this.state.pendingFocusConnectionId = item.connectionId;
+    this.openSheet();
+    const name = connection?.name ?? item.connectionNameSnapshot;
+    toast.info(
+      queued
+        ? m.history_rerun_already_queued({ connection: name })
+        : m.history_rerun_queued({ connection: name }),
+    );
   }
 
   /** Find a queued update or Set default of the same cell (same table, column, key values). */

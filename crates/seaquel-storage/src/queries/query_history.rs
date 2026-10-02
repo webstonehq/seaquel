@@ -2,11 +2,14 @@
 
 use crate::db;
 use seaquel_types::storage::PersistedQueryHistoryItem;
+use seaquel_types::Value;
 
-use super::codec::{begin, bit, flag, insert_sql, json_or, json_text, number, text, Result};
+use super::codec::{
+    begin, bit, encode_error, flag, insert_sql, json_or, json_text, number, opt_text, text, Result,
+};
 use crate::Storage;
 
-const COLUMNS: [&str; 9] = [
+const COLUMNS: [&str; 10] = [
     "id",
     "query",
     "timestamp",
@@ -16,6 +19,7 @@ const COLUMNS: [&str; 9] = [
     "favorite",
     "connection_labels_snapshot",
     "connection_name_snapshot",
+    "params",
 ];
 
 /// How many of a connection's newest rows [`append`] keeps, favourites
@@ -54,9 +58,29 @@ pub async fn load_by_connection(
                 favorite: flag(row, "favorite")?,
                 connection_labels_snapshot: Some(json_or(row, "connection_labels_snapshot", "[]")?),
                 connection_name_snapshot: text(row, "connection_name_snapshot")?,
+                params: read_params(opt_text(row, "params")?),
             })
         })
         .collect()
+}
+
+/// `query_history.params` as stored (migration `0006`): a JSON array of
+/// values in the cell wire format. NULL, and anything that doesn't read as
+/// such an array (a hand-edited file), is `None`: the row loads without its
+/// values rather than failing the whole list.
+fn read_params(stored: Option<String>) -> Option<Vec<Value>> {
+    serde_json::from_str(&stored?).ok()
+}
+
+/// What [`read_params`] reads: `None` and an empty list store NULL.
+fn params_text(params: &Option<Vec<Value>>) -> Result<Option<String>> {
+    match params {
+        Some(values) if !values.is_empty() => serde_json::to_string(values)
+            .map(Some)
+            // The message is serde's, which never quotes a value.
+            .map_err(|e| encode_error(format!("query_history.params: {e}"))),
+        _ => Ok(None),
+    }
 }
 
 /// Adds one row and removes the connection's non-favourite rows past the
@@ -64,10 +88,15 @@ pub async fn load_by_connection(
 /// transaction. Fails, removing nothing, when the connection isn't saved
 /// (the foreign key) or the id is taken.
 pub async fn append(st: &Storage, item: &PersistedQueryHistoryItem) -> Result<()> {
+    let params = params_text(&item.params)?;
     let mut tx = begin(st).await?;
-    bind_item(db::query(&insert_sql("query_history", &COLUMNS)), item)
-        .execute(&mut *tx)
-        .await?;
+    bind_item(
+        db::query(&insert_sql("query_history", &COLUMNS)),
+        item,
+        params,
+    )
+    .execute(&mut *tx)
+    .await?;
     // `favorite IS NOT 1` is "not a favourite" as `flag` reads it.
     db::query(
         "DELETE FROM query_history WHERE connection_id = ?1 AND favorite IS NOT 1 AND rowid IN (\
@@ -91,10 +120,14 @@ pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> R
     if items.is_empty() {
         return Ok(());
     }
+    let params = items
+        .iter()
+        .map(|item| params_text(&item.params))
+        .collect::<Result<Vec<_>>>()?;
     let mut tx = begin(st).await?;
     let insert = insert_sql("query_history", &COLUMNS);
-    for item in items {
-        bind_item(db::query(&insert), item)
+    for (item, params) in items.iter().zip(params) {
+        bind_item(db::query(&insert), item, params)
             .execute(&mut *tx)
             .await?;
     }
@@ -132,8 +165,12 @@ pub async fn set_favorite(st: &Storage, id: &str, favorite: bool) -> Result<()> 
 
 type Query<'q> = crate::db::SqliteQuery<'q>;
 
-/// Binds `h` in [`COLUMNS`]' order.
-fn bind_item<'q>(q: Query<'q>, h: &'q PersistedQueryHistoryItem) -> Query<'q> {
+/// Binds `h` in [`COLUMNS`]' order, with `params` as [`params_text`] wrote it.
+fn bind_item<'q>(
+    q: Query<'q>,
+    h: &'q PersistedQueryHistoryItem,
+    params: Option<String>,
+) -> Query<'q> {
     q.bind(&h.id)
         .bind(&h.query)
         .bind(&h.timestamp)
@@ -143,6 +180,7 @@ fn bind_item<'q>(q: Query<'q>, h: &'q PersistedQueryHistoryItem) -> Query<'q> {
         .bind(bit(h.favorite))
         .bind(json_text(&h.connection_labels_snapshot))
         .bind(&h.connection_name_snapshot)
+        .bind(params)
 }
 
 /// Replaces a connection's history with `items`, in one transaction. The
@@ -152,14 +190,20 @@ pub async fn replace_all(
     connection_id: &str,
     items: &[PersistedQueryHistoryItem],
 ) -> Result<()> {
+    let params = items
+        .iter()
+        .map(|h| params_text(&h.params))
+        .collect::<Result<Vec<_>>>()?;
     let mut tx = begin(st).await?;
     db::query("DELETE FROM query_history WHERE connection_id = ?")
         .bind(connection_id)
         .execute(&mut *tx)
         .await?;
     let insert = insert_sql("query_history", &COLUMNS);
-    for h in items {
-        bind_item(db::query(&insert), h).execute(&mut *tx).await?;
+    for (h, params) in items.iter().zip(params) {
+        bind_item(db::query(&insert), h, params)
+            .execute(&mut *tx)
+            .await?;
     }
     tx.commit().await?;
     Ok(())

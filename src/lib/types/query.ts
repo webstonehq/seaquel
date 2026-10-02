@@ -221,6 +221,12 @@ export interface QueryHistoryItem {
   connectionLabelsSnapshot: ConnectionLabel[];
   /** Connection name at execution time (in case it changes later) */
   connectionNameSnapshot: string;
+  /**
+   * The values an applied change was bound with, in the cell wire format,
+   * for the `$1`/`?`/`@P1` placeholders in `query` (cleanup pass B). Absent
+   * for runs and for rows stored without values.
+   */
+  params?: unknown[];
 }
 
 /**

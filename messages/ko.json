@@ -1202,6 +1202,8 @@
   "pending_changes_interrupted": "변경 사항을 적용하는 중 응답 없이 종료되었습니다 ({error}). 일부는 이미 실행되었을 수 있습니다. 스키마 및 데이터 탭이 다시 로드되었습니다. 다시 적용하기 전에 확인하세요.",
   "pending_changes_maybe_applied": "마지막 적용이 응답 없이 종료되어 이 변경 사항 중 일부가 이미 실행되었을 수 있습니다. 다시 적용하기 전에 데이터를 확인하세요.",
   "pending_changes_values": "값: {values}",
+  "history_rerun_queued": "{connection}에 대기열로 추가되었습니다. 실행하려면 \"Pending Changes\"에서 \"Execute All\"을 누르세요.",
+  "history_rerun_already_queued": "이미 {connection}에 대기열로 추가되어 있습니다. 실행하려면 \"Pending Changes\"에서 \"Execute All\"을 누르세요.",
   "pending_changes_destructive": "이 변경 사항에 위험한 구문이 {count}개 있습니다:",
   "workflow_node_read_only": "워크플로우 쿼리 노드는 읽기 전용입니다. SELECT 쿼리만 실행할 수 있습니다. 데이터를 변경하려면 쿼리 탭을 사용하세요.",
   "workflow_result_truncated": "처음 {count}개 행만 표시됩니다. 워크플로우 노드는 최대 10,000개 행을 가져옵니다.",

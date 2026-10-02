@@ -74,7 +74,9 @@ export type PendingChangeOrigin =
   | "alter-table"
   | "drop-table"
   | "drop-view"
-  | "truncate-table";
+  | "truncate-table"
+  /** A history row with values, queued to run again (cleanup pass B). */
+  | "history";
 
 /**
  * View mode for the pending changes panel.

@@ -602,8 +602,9 @@ pub struct QueryVersionPromote {
 }
 
 /// A query history item (`query_history`). `connectionLabelsSnapshot` is
-/// the stored JSON, `[]` when NULL or unparseable.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// the stored JSON, `[]` when NULL or unparseable. `Debug` shows no SQL,
+/// names or values.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields))]
 pub struct PersistedQueryHistoryItem {
@@ -624,6 +625,13 @@ pub struct PersistedQueryHistoryItem {
     )]
     pub connection_labels_snapshot: Option<Box<RawValue>>,
     pub connection_name_snapshot: String,
+    /// The values an applied change was bound with, in the cell wire format
+    /// (`query_history.params`, migration `0006`; cleanup pass B). Absent
+    /// for runs, which record the text with its `{{param}}`s, for changes
+    /// without values, and for rows written before `0006`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "Array<unknown>", optional))]
+    pub params: Option<Vec<crate::Value>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -897,6 +905,19 @@ pub struct PersistedCredential {
     pub updated_at: String,
 }
 
+impl fmt::Debug for PersistedQueryHistoryItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersistedQueryHistoryItem")
+            .field("id", &self.id)
+            .field("query_len", &self.query.len())
+            .field("timestamp", &self.timestamp)
+            .field("connection_id", &self.connection_id)
+            .field("favorite", &self.favorite)
+            .field("params", &self.params.as_ref().map(Vec::len))
+            .finish_non_exhaustive()
+    }
+}
+
 impl fmt::Debug for PersistedCredential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PersistedCredential")
@@ -912,6 +933,43 @@ impl fmt::Debug for PersistedCredential {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_debug_shows_no_values_or_sql() {
+        let h = PersistedQueryHistoryItem {
+            id: "hist-1".into(),
+            query: "UPDATE t SET secret_col = $1 WHERE id = $2".into(),
+            timestamp: "t".into(),
+            execution_time: 1.0,
+            row_count: 1.0,
+            connection_id: "c".into(),
+            favorite: false,
+            connection_labels_snapshot: None,
+            connection_name_snapshot: "Prod".into(),
+            params: Some(vec![
+                crate::Value::Text("CANARY-VALUE".into()),
+                crate::Value::Int(424242),
+            ]),
+        };
+        let debug = format!("{h:?}");
+        assert!(!debug.contains("CANARY"), "{debug}");
+        assert!(!debug.contains("424242"), "{debug}");
+        assert!(!debug.contains("secret_col"), "{debug}");
+        assert!(debug.contains("hist-1"), "{debug}");
+        // The values cross the wire in the cell format.
+        let json = serde_json::to_value(&h).unwrap();
+        assert_eq!(json["params"], serde_json::json!(["CANARY-VALUE", 424242]));
+        let back: PersistedQueryHistoryItem = serde_json::from_value(json).unwrap();
+        assert_eq!(back.params, h.params);
+        // Absent stays absent.
+        let none: PersistedQueryHistoryItem = serde_json::from_str(
+            r#"{"id":"h","query":"q","timestamp":"t","executionTime":1,"rowCount":1,
+                "connectionId":"c","favorite":false,"connectionNameSnapshot":""}"#,
+        )
+        .unwrap();
+        assert_eq!(none.params, None);
+        assert!(serde_json::to_value(&none).unwrap().get("params").is_none());
+    }
 
     #[test]
     fn whole_numbers_serialize_without_a_fraction() {

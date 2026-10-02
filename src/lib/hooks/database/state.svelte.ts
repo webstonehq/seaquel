@@ -189,7 +189,22 @@ export class DatabaseState {
 
   // === RIGHT PANEL STATE ===
   /** Which right-side panel is currently open, or null if none */
-  activeRightPanel = $state<"ai" | "pendingChanges" | null>(null);
+  #activeRightPanel = $state<"ai" | "pendingChanges" | null>(null);
+  get activeRightPanel(): "ai" | "pendingChanges" | null {
+    return this.#activeRightPanel;
+  }
+  /** Leaving the sheet (closed, or the AI panel instead) ends a history re-run's focus. */
+  set activeRightPanel(v: "ai" | "pendingChanges" | null) {
+    this.#activeRightPanel = v;
+    if (v !== "pendingChanges") this.pendingFocusConnectionId = null;
+  }
+
+  /**
+   * The connection whose queue the sheet shows while it stays open, set
+   * when a history row is queued to run again (it may not be the
+   * connection the user is looking at). Cleared when the sheet closes.
+   */
+  pendingFocusConnectionId = $state<string | null>(null);
 
   get isAIOpen() {
     return this.activeRightPanel === "ai";
@@ -293,9 +308,13 @@ export class DatabaseState {
    * The connection whose pending changes the sheet and the header badge
    * show: the one the user is looking at. That's the focused data tab's
    * connection, or the focused query result's, which can differ from the
-   * active one in the sidebar; otherwise the active connection.
+   * active one in the sidebar; otherwise the active connection. While a
+   * history re-run's focus is set and the sheet is open, that connection.
    */
   pendingConnectionId = $derived.by((): string | null => {
+    if (this.pendingFocusConnectionId && this.activeRightPanel === "pendingChanges") {
+      return this.pendingFocusConnectionId;
+    }
     if (this.activeView === "data" && this.activeDataTab) return this.activeDataTab.connectionId;
     if (this.activeView === "query" && this.activeQueryResult?.connectionId) {
       return this.activeQueryResult.connectionId;

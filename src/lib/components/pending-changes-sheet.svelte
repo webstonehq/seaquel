@@ -13,7 +13,7 @@
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
-	import { cellText } from "$lib/values";
+	import { formatBindValues } from "$lib/utils/bind-values";
 	import { confirmedFor, listDestructive } from "$lib/hooks/database/pending-changes.svelte.js";
 	import { m } from "$lib/paraglide/messages.js";
 	import type { DestructiveStatement } from "$lib/types/generated/DestructiveStatement";
@@ -81,6 +81,8 @@
 				return "Drop View";
 			case "truncate-table":
 				return "Truncate";
+			case "history":
+				return "History";
 			default:
 				return "Query";
 		}
@@ -93,18 +95,6 @@
 		if (minutes < 60) return `${minutes}m ago`;
 		const hours = Math.floor(minutes / 60);
 		return `${hours}h ago`;
-	}
-
-	/** A bind value as the SQL view lists it beside the statement. */
-	function formatValue(value: unknown): string {
-		if (value === null || value === undefined) return "NULL";
-		if (typeof value === "string") return `'${value}'`;
-		return cellText(value);
-	}
-
-	/** The statement's values, numbered in bind order, e.g. `1: 'a'  2: 5`. */
-	function formatValues(bindValues?: unknown[]): string {
-		return (bindValues ?? []).map((v, i) => `${i + 1}: ${formatValue(v)}`).join("  ");
 	}
 
 	function truncateSql(sql: string, maxLength = 120): string {
@@ -279,7 +269,7 @@
 									</code>
 									{#if change.bindValues?.length}
 										<code class="mt-0.5 block text-[11px] text-muted-foreground/80 break-all whitespace-pre-wrap">
-											{m.pending_changes_values({ values: truncateSql(formatValues(change.bindValues), 200) })}
+											{m.pending_changes_values({ values: truncateSql(formatBindValues(change.bindValues, 200), 201) })}
 										</code>
 									{/if}
 								{/if}
@@ -359,7 +349,7 @@
 					</div>
 					<code class="text-muted-foreground mt-1 block overflow-x-auto whitespace-nowrap scrollbar-hide text-xs">{change.sql}</code>
 					{#if change.bindValues?.length}
-						<code class="text-muted-foreground/80 block overflow-x-auto whitespace-nowrap scrollbar-hide text-[11px]">{m.pending_changes_values({ values: formatValues(change.bindValues) })}</code>
+						<code class="text-muted-foreground/80 block overflow-x-auto whitespace-nowrap scrollbar-hide text-[11px]">{m.pending_changes_values({ values: formatBindValues(change.bindValues, 200) })}</code>
 					{/if}
 				</div>
 			{/each}

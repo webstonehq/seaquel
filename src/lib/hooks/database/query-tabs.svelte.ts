@@ -1,4 +1,4 @@
-import type { QueryTab, ExplainResult, ParsedQueryVisual } from "$lib/types";
+import type { QueryTab, ExplainResult, ParsedQueryVisual, QueryHistoryItem } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { BaseTabManager, type TabStateAccessors } from "./base-tab-manager.svelte.js";
@@ -21,6 +21,13 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
   /** How a linked saved query is renamed with its tab (`SavedQueryManager.renameQuery`). */
   setSavedQueryRename(fn: (queryId: string, name: string) => Promise<void>): void {
     this.renameSavedQuery = fn;
+  }
+
+  /** Where a history row with values goes instead of a tab (`PendingChangesManager.addFromHistory`). */
+  private historyRerun: ((item: QueryHistoryItem) => void) | null = null;
+
+  setHistoryRerun(fn: (item: QueryHistoryItem) => void): void {
+    this.historyRerun = fn;
   }
 
   /** Told when a tab closes (its run is cancelled) and when one becomes active. */
@@ -190,6 +197,9 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
 
   /**
    * Load a query from history into a tab (or switch to existing tab).
+   * A row recorded with values (an applied grid edit, whose SQL has
+   * `$1`/`?`/`@P1` placeholders) goes to the history handler instead: the
+   * pending-changes queue, which runs it with those values.
    * Note: Query history is per-connection, so we need an active connection.
    */
   loadFromHistory(historyId: string, setActiveView?: () => void): void {
@@ -198,6 +208,11 @@ export class QueryTabManager extends BaseTabManager<QueryTab> {
     const queryHistory = this.state.queryHistoryByConnection[this.state.activeConnectionId] ?? [];
     const item = queryHistory.find((h) => h.id === historyId);
     if (!item) return;
+
+    if (item.params?.length) {
+      this.historyRerun?.(item);
+      return;
+    }
 
     // Check if a tab with the exact same query is already open
     const tabs = this.getProjectTabs();

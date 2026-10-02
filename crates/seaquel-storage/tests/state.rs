@@ -203,7 +203,7 @@ async fn migration_0002_applies_on_every_release_schema() {
                 .await
                 .unwrap();
         // Every later migration runs too (`0004`, phase 5e).
-        assert_eq!(applied, [1, 2, 3, 4, 5], "{release}");
+        assert_eq!(applied, [1, 2, 3, 4, 5, 6], "{release}");
 
         let mut tx = st.write().await.unwrap();
         projects::insert(&mut tx, &project("p")).await.unwrap();
@@ -296,7 +296,7 @@ async fn migration_0003_numbers_the_windows_and_fills_the_list_meta() {
             .fetch_all(st.pool())
             .await
             .unwrap();
-    assert_eq!(applied, [1, 2, 3, 4, 5]);
+    assert_eq!(applied, [1, 2, 3, 4, 5, 6]);
     let seqs: Vec<(String, i64)> =
         sqlx::query_as("SELECT window_id, write_seq FROM windows ORDER BY window_id")
             .fetch_all(st.pool())
