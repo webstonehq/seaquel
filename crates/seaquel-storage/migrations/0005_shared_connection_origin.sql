@@ -1,0 +1,23 @@
+-- Phase 5e (Q31 of the 5e plan): where a linked connection came from, so
+-- unlinking a project keeps the user's own connections and asks about the
+-- ones the repo brought.
+--
+-- `connections.shared_origin` is `exported` for a connection this project
+-- shared (ticked at link time, or shared later with the local-only switch)
+-- and `imported` for one a sync made from a teammate's template. NULL means
+-- "not known": no link, or a link an older release (or a build before this
+-- migration) stored. Every link an older release stored came from importing
+-- a template, so Core treats a linked connection with a NULL origin as
+-- imported.
+--
+-- A new file rather than an edit of `0004_shared_links.sql`: sqlx records
+-- each applied file's checksum, and a dev database that already ran `0004`
+-- would be refused if its text changed (README: "Never edit a migration
+-- that has shipped").
+--
+-- Expand-only (see README.md): one nullable column with no default. Only
+-- Core writes it (`connections::set_origin`, and `set_link` clearing it with
+-- the link); older releases never read it, and their upserts name their own
+-- columns, so it stays as it was.
+
+ALTER TABLE connections ADD COLUMN shared_origin TEXT;

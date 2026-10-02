@@ -1,10 +1,11 @@
 //! The blocking operations behind [`crate::Git`], ported from `src-tauri`'s
 //! `git.rs` with its messages and codes. The changes, each in the docs of the
 //! function it touches: `commit_changes` finishes a merge and refuses to
-//! commit conflicts, and `push_repo` tells a non-fast-forward from other
-//! refusals and reports the server's. `repo_status` also lists conflicted
-//! files, and the credential chain never hands out a rejected credential
-//! twice.
+//! commit conflicts, `push_repo` tells a non-fast-forward from other
+//! refusals and reports the server's, and `pull_repo`'s fast-forward checks
+//! out safely, refusing to overwrite local changes (phase 5e).
+//! `repo_status` also lists conflicted files, and the credential chain never
+//! hands out a rejected credential twice.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -141,6 +142,22 @@ pub(crate) fn pull_repo(
     }
 
     if analysis.is_fast_forward() {
+        // The working tree first, safely, while HEAD still names the commit
+        // it was checked out from: libgit2 then refuses before writing
+        // anything when a file the pull changes has local changes (phase 5e
+        // bug 2; this used to `force()` over them). Only then does the
+        // branch move.
+        let target = repo
+            .find_commit(fetch_commit.id())
+            .map_err(err("PULL_ERROR", "Failed to find commit"))?;
+        checkout_fast_forward(&repo, target.as_object())?;
+        // A narrow window: if the checkout succeeds and `set_target` or
+        // `set_head` below then fails (a locked ref, a full disk), the
+        // working tree and index hold the fetched commit while the branch
+        // still names the old one, so `git status` shows the pull's changes
+        // as local edits. Nothing local is lost (the safe checkout refused
+        // to overwrite any), and pulling again moves the branch. Left as is
+        // in phase 5e Task 1.
         let refname = format!("refs/heads/{branch_name}");
         let mut reference = repo
             .find_reference(&refname)
@@ -150,8 +167,6 @@ pub(crate) fn pull_repo(
             .map_err(err("PULL_ERROR", "Failed to update reference"))?;
         repo.set_head(&refname)
             .map_err(err("PULL_ERROR", "Failed to set HEAD"))?;
-        repo.checkout_head(Some(CheckoutBuilder::default().force()))
-            .map_err(err("PULL_ERROR", "Failed to checkout"))?;
 
         info!(activity = "git.pull", result = "fast-forward"; "Fast-forward merge");
         return Ok(sync_result(true, "Fast-forward merge successful"));
@@ -162,8 +177,23 @@ pub(crate) fn pull_repo(
             .find_commit(fetch_commit.id())
             .map_err(err("MERGE_ERROR", "Failed to find commit"))?;
 
-        repo.merge(&[&fetch_commit], None, None)
-            .map_err(err("MERGE_ERROR", "Failed to merge"))?;
+        if let Err(e) = repo.merge(&[&fetch_commit], None, None) {
+            // Probe fix 6: local changes the merge would overwrite refuse
+            // it as they refuse a fast-forward, naming the paths.
+            if e.code() == ErrorCode::Conflict || e.class() == git2::ErrorClass::Merge {
+                let paths = dirty_paths_the_merge_changes(&repo, &fetch_commit_obj);
+                if !paths.is_empty() {
+                    warn!(
+                        activity = "git.pull",
+                        error_code = "PULL_ERROR",
+                        count = paths.len();
+                        "Merge refused: local changes would be overwritten"
+                    );
+                    return Err(GitError::new("PULL_ERROR", refused_message(&paths)));
+                }
+            }
+            return Err(err("MERGE_ERROR", "Failed to merge")(e));
+        }
 
         let mut index = repo
             .index()
@@ -175,7 +205,9 @@ pub(crate) fn pull_repo(
                 .map_err(err("CONFLICT_ERROR", "Failed to get conflicts"))?
                 .filter_map(|c| c.ok())
                 .filter_map(|c| {
+                    // `their` too: a file we deleted has no `our` entry.
                     c.our
+                        .or(c.their)
                         .map(|entry| String::from_utf8_lossy(&entry.path).to_string())
                 })
                 .collect();
@@ -219,6 +251,113 @@ pub(crate) fn pull_repo(
 
     error!(activity = "git.pull", error_code = "MERGE_ERROR"; "Unable to merge");
     Err(GitError::new("MERGE_ERROR", "Unable to merge"))
+}
+
+/// The words a refused fast-forward's `PULL_ERROR` message starts with:
+/// the TS sync button matches them to say what to do.
+pub const PULL_REFUSED_LOCAL_CHANGES: &str = "Commit or discard your changes to ";
+
+/// The most paths a refused fast-forward names.
+const MAX_REFUSED_PATHS: usize = 10;
+
+/// Checks `target` out over the working tree with `CheckoutBuilder::safe()`.
+/// A file the checkout would change that has local changes (an edit, or an
+/// untracked file in the way) refuses it with `PULL_ERROR` "Commit or
+/// discard your changes to … first", naming at most ten of them, and
+/// nothing is written. The paths go in the message for the GUI, never in a
+/// log line.
+fn checkout_fast_forward(repo: &Repository, target: &git2::Object<'_>) -> Result<(), GitError> {
+    let conflicts = RefCell::new(Vec::<String>::new());
+    let result = {
+        let mut builder = CheckoutBuilder::new();
+        builder
+            .safe()
+            .notify_on(git2::CheckoutNotificationType::CONFLICT)
+            .notify(|_, path, _, _, _| {
+                if let Some(path) = path {
+                    conflicts
+                        .borrow_mut()
+                        .push(path.to_string_lossy().replace('\\', "/"));
+                }
+                true
+            });
+        repo.checkout_tree(target, Some(&mut builder))
+    };
+    let mut conflicts = conflicts.into_inner();
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) if e.code() == ErrorCode::Conflict || !conflicts.is_empty() => {
+            warn!(
+                activity = "git.pull",
+                error_code = "PULL_ERROR",
+                count = conflicts.len();
+                "Fast-forward refused: local changes would be overwritten"
+            );
+            conflicts.sort();
+            conflicts.dedup();
+            Err(GitError::new("PULL_ERROR", refused_message(&conflicts)))
+        }
+        Err(e) => Err(err("PULL_ERROR", "Failed to checkout")(e)),
+    }
+}
+
+/// "Commit or discard your changes to "a", "b" and 2 more first": each path
+/// as a JSON string, so the GUI can read them back whatever they hold and
+/// put them in its own sentence.
+fn refused_message(paths: &[String]) -> String {
+    let mut named = paths
+        .iter()
+        .take(MAX_REFUSED_PATHS)
+        .map(|path| serde_json::to_string(path).unwrap_or_else(|_| "\"?\"".to_string()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if named.is_empty() {
+        named = "files the pull changes".to_string();
+    }
+    let more = paths.len().saturating_sub(MAX_REFUSED_PATHS);
+    if more > 0 {
+        named.push_str(&format!(" and {more} more"));
+    }
+    format!("{PULL_REFUSED_LOCAL_CHANGES}{named} first")
+}
+
+/// The working tree's changed files (modified, added, deleted, untracked)
+/// that the merge with `theirs` changes: what a refused merge names. Sorted,
+/// `/`-separated.
+fn dirty_paths_the_merge_changes(repo: &Repository, theirs: &git2::Commit<'_>) -> Vec<String> {
+    let changed_by_them: std::collections::HashSet<String> = (|| {
+        let head = repo.head().ok()?.peel_to_commit().ok()?;
+        let base = repo.merge_base(head.id(), theirs.id()).ok()?;
+        let base_tree = repo.find_commit(base).ok()?.tree().ok()?;
+        let diff = repo
+            .diff_tree_to_tree(Some(&base_tree), Some(&theirs.tree().ok()?), None)
+            .ok()?;
+        Some(
+            diff.deltas()
+                .flat_map(|d| [d.old_file().path(), d.new_file().path()])
+                .flatten()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .collect(),
+        )
+    })()
+    .unwrap_or_default();
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true);
+    let mut out: Vec<String> = repo
+        .statuses(Some(&mut opts))
+        .map(|st| {
+            st.iter()
+                .filter(|e| {
+                    e.status() != git2::Status::CURRENT && e.status() != git2::Status::IGNORED
+                })
+                .filter_map(|e| e.path().map(|p| p.replace('\\', "/")))
+                .filter(|p| changed_by_them.contains(p))
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The words in a `PUSH_ERROR` message that mean "pull first": the TS marks
@@ -469,8 +608,9 @@ pub(crate) fn resolve_conflict(
 ) -> Result<(), GitError> {
     debug!(activity = "git.resolve"; "Resolving conflict");
     let repo = open(path)?;
+    check_conflicted(&repo, path, file_path)?;
 
-    std::fs::write(path.join(file_path), resolution).map_err(|e| {
+    crate::tree::write_resolved(path, file_path, resolution.as_bytes()).map_err(|e| {
         GitError::new(
             "CONFLICT_ERROR",
             format!("Failed to write resolved file: {e}"),
@@ -524,10 +664,16 @@ pub(crate) fn conflict_content(
         if conflict_path != file_path {
             continue;
         }
+        // A side with no entry while the base has one deleted the file.
+        let had_base = conflict.ancestor.is_some();
+        let ours_deleted = had_base && conflict.our.is_none();
+        let theirs_deleted = had_base && conflict.their.is_none();
         return Ok(GitConflictContent {
             base: blob_text(conflict.ancestor),
             ours: blob_text(conflict.our),
             theirs: blob_text(conflict.their),
+            ours_deleted,
+            theirs_deleted,
         });
     }
 
@@ -535,7 +681,71 @@ pub(crate) fn conflict_content(
         base: String::new(),
         ours: String::new(),
         theirs: String::new(),
+        ours_deleted: false,
+        theirs_deleted: false,
     })
+}
+
+/// Review A2: `file_path` must be a path the index holds as conflicted,
+/// and safe to write below `root` (relative, no `..`, no backslash, no
+/// symlinked component). Anything else is `CONFLICT_ERROR` and nothing is
+/// touched.
+fn check_conflicted(repo: &Repository, root: &Path, file_path: &str) -> Result<(), GitError> {
+    let refused = || {
+        GitError::new(
+            "CONFLICT_ERROR",
+            "That file isn't a conflicted file in this repository.",
+        )
+    };
+    if crate::tree::check_resolvable(root, file_path).is_err() {
+        return Err(refused());
+    }
+    let index = repo
+        .index()
+        .map_err(err("INDEX_ERROR", "Failed to get index"))?;
+    let conflicts = index
+        .conflicts()
+        .map_err(err("CONFLICT_ERROR", "Failed to get conflicts"))?;
+    for conflict in conflicts {
+        let conflict = conflict.map_err(err("CONFLICT_ERROR", "Failed to read conflict"))?;
+        let named = [&conflict.ancestor, &conflict.our, &conflict.their]
+            .into_iter()
+            .flatten()
+            .any(|e| e.path.as_slice() == file_path.as_bytes());
+        if named {
+            return Ok(());
+        }
+    }
+    Err(refused())
+}
+
+/// Resolves a conflicted `file_path` by deleting it (probe fix 5: the
+/// side the user keeps deleted the file): the file goes from the working
+/// tree, its conflict entries from the index, and the deletion is staged.
+pub(crate) fn resolve_conflict_deleted(path: &Path, file_path: &str) -> Result<(), GitError> {
+    debug!(activity = "git.resolve"; "Resolving a conflict by deleting the file");
+    let repo = open(path)?;
+    check_conflicted(&repo, path, file_path)?;
+    match std::fs::remove_file(path.join(file_path)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(GitError::new(
+                "CONFLICT_ERROR",
+                format!("Failed to delete the resolved file: {e}"),
+            ))
+        }
+    }
+    let mut index = repo
+        .index()
+        .map_err(err("INDEX_ERROR", "Failed to get index"))?;
+    index
+        .remove_path(Path::new(file_path))
+        .map_err(err("STAGE_ERROR", "Failed to stage the deletion"))?;
+    index
+        .write()
+        .map_err(err("INDEX_ERROR", "Failed to write index"))?;
+    Ok(())
 }
 
 pub(crate) fn set_remote(path: &Path, url: &str) -> Result<(), GitError> {
@@ -600,6 +810,36 @@ fn ahead_behind(repo: &Repository, branch: &str) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The refused fast-forward names each path as a JSON string, so the GUI
+    /// can read them back even when a path holds `, `, `"` or ` first`.
+    #[test]
+    fn a_refused_fast_forward_quotes_each_path_as_json() {
+        let paths = [
+            "a, b.sql".to_string(),
+            "say \"hi\" first.sql".to_string(),
+            "back\\slash\nnew.sql".to_string(),
+        ];
+        let message = refused_message(&paths);
+        let list = message
+            .strip_prefix(PULL_REFUSED_LOCAL_CHANGES)
+            .and_then(|rest| rest.strip_suffix(" first"))
+            .unwrap();
+        let parsed: Vec<String> = serde_json::from_str(&format!("[{list}]")).unwrap();
+        assert_eq!(parsed, paths);
+    }
+
+    #[test]
+    fn past_ten_paths_the_rest_are_counted() {
+        let paths: Vec<String> = (0..12).map(|i| format!("q{i:02}.sql")).collect();
+        let message = refused_message(&paths);
+        let list = message
+            .strip_prefix(PULL_REFUSED_LOCAL_CHANGES)
+            .and_then(|rest| rest.strip_suffix(" and 2 more first"))
+            .unwrap();
+        let parsed: Vec<String> = serde_json::from_str(&format!("[{list}]")).unwrap();
+        assert_eq!(parsed, paths[..10]);
+    }
 
     #[test]
     fn a_server_refusal_is_behind_only_when_it_says_non_fast_forward() {

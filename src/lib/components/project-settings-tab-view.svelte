@@ -7,6 +7,7 @@
 	import { Input } from "$lib/components/ui/input";
 	import SyncButton from "$lib/components/shared-queries/sync-button.svelte";
 	import SyncStatusBadge from "$lib/components/shared-queries/sync-status-badge.svelte";
+	import { projectSyncStatus } from "$lib/components/shared-queries/project-sync-status";
 	import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
 	import Trash2Icon from "@lucide/svelte/icons/trash-2";
 	import LinkIcon from "@lucide/svelte/icons/link";
@@ -22,6 +23,8 @@
 	import { isTauri } from "$lib/utils/environment";
 	import { DEFAULT_PROJECT_ID } from "$lib/types";
 	import { buildDeepLinkUrl } from "$lib/services/deep-link";
+	import { linkProjectDialogStore } from "$lib/stores/link-project-dialog.svelte.js";
+	import { unlinkProjectDialogStore } from "$lib/stores/unlink-project-dialog.svelte.js";
 	import type { SettingsTab } from "$lib/types";
 
 	type ProjectSettingsSection = "general" | "sharing" | "danger";
@@ -51,20 +54,29 @@
 
 	const projectId = $derived(db.state.activeProjectId ?? "");
 	const project = $derived(db.state.projects.find((p) => p.id === projectId));
-	const repo = $derived.by(() => {
-		if (!project?.gitRepoPath) return null;
-		return db.state.sharedRepos.find((r) => r.path === project.gitRepoPath) ?? null;
-	});
+	const repo = $derived(project?.gitRepoPath ? db.sharedRepos.repoForProject(projectId) : null);
 	const syncState = $derived(repo ? (db.state.syncStateByRepo[repo.id] ?? null) : null);
-	const sharedProject = $derived.by(() => {
-		if (!repo) return null;
-		const projects = db.state.sharedProjectsByRepo[repo.id] ?? [];
-		return projects.find((p) => p.name === project?.name) ?? projects[0] ?? null;
+
+	// The project's directory in the repo, as Core's scan reports it (the
+	// directory Core stored when it linked the project; never derived from
+	// the project's name). `null` when there's none or the scan fails.
+	// The repo's path alone: a status refresh replaces the repo object but
+	// not its path, so the scan runs again only when the path changes.
+	const repoPath = $derived(repo?.path ?? null);
+	const sharedDir = $derived.by(() => {
+		const path = repoPath;
+		const id = projectId;
+		if (!path) return Promise.resolve(null);
+		return db.sharedRepos
+			.scan(path)
+			.then((preview) => preview.projects.find((p) => p.linkedProjectIds.includes(id))?.dir ?? null)
+			.catch(() => null);
 	});
 
 	const copyProjectLink = async () => {
-		if (!repo?.remoteUrl || !sharedProject) return;
-		const filePath = `.seaquel/projects/${sharedProject.dirName}`;
+		const dir = await sharedDir;
+		if (!repo?.remoteUrl || !dir) return;
+		const filePath = `.seaquel/projects/${dir}`;
 		const url = buildDeepLinkUrl(repo.remoteUrl, repo.branch, filePath);
 		await navigator.clipboard.writeText(url);
 		toast.success("Link copied to clipboard");
@@ -141,27 +153,47 @@
 		descriptionInput = baselineDescription;
 		openedRevision = revision;
 
-		if (saveHasPendingGitChange) {
+		const linkedPath = project?.gitRepoPath;
+		if (saveHasPendingGitChange && savePendingGitRepoPath !== linkedPath) {
+			// Every question first, so a cancel changes nothing (Q30, Q31).
+			// A new link asks which connections to share: the user's own,
+			// the ones shared from here included (a relink keeps them).
+			let share: string[] = [];
+			if (savePendingGitRepoPath) {
+				const ticked = await linkProjectDialogStore.prompt(
+					project?.name ?? "",
+					db.state.connections
+						.filter(
+							(c) =>
+								c.projectId === projectId &&
+								(!c.sharedConnectionId || c.sharedOrigin === "exported"),
+						)
+						.map((c) => ({ id: c.id, name: c.name, isLocalOnly: c.isLocalOnly })),
+				);
+				if (ticked === null) return;
+				share = ticked;
+			}
 			try {
-				await db.projects.setGitRepoPath(projectId, savePendingGitRepoPath);
+				// Unlinking keeps the user's own connections and asks about the
+				// ones the repo brought; a link failing afterwards loses neither.
+				if (linkedPath) {
+					const unlinked = await db.projects.unlinkWithConfirmation(projectId, (name, imported) =>
+						unlinkProjectDialogStore.prompt(name, imported),
+					);
+					if (!unlinked) return;
+				}
+				if (savePendingGitRepoPath) {
+					await db.projects.linkProject(projectId, savePendingGitRepoPath, share);
+				}
 			} catch (error) {
 				showErrorUnlessShown(error);
 				return;
-			}
-			if (savePendingGitRepoPath) {
-				try {
-					await db.projects.importSharedConnections(projectId);
-				} catch (error) {
-					showErrorUnlessShown(error);
-				}
 			}
 		}
 
 		hasPendingGitChange = false;
 
-		const updatedRepo = savePendingGitRepoPath
-			? db.state.sharedRepos.find((r) => r.path === savePendingGitRepoPath)
-			: repo;
+		const updatedRepo = db.sharedRepos.repoForProject(projectId);
 		if (updatedRepo && saveRemoteUrlInput !== (updatedRepo.remoteUrl ?? "")) {
 			try {
 				await db.sharedRepos.setRemoteUrl(updatedRepo.id, saveRemoteUrlInput);
@@ -440,7 +472,7 @@
 								<div class="flex items-center gap-2 min-w-0 flex-wrap">
 									<SyncButton repoId={repo.id} size="sm" />
 									<SyncStatusBadge
-										status={repo.syncStatus}
+										status={projectSyncStatus(repo.syncStatus, db.state.sharedSyncSkipped[projectId])}
 										{syncState}
 									/>
 									{#if repo.lastSyncAt}
@@ -452,15 +484,17 @@
 							{/if}
 
 							<div class="flex items-center gap-3">
-								{#if repo?.remoteUrl && sharedProject}
-									<button
-										class="text-xs text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1"
-										onclick={copyProjectLink}
-									>
-										<LinkIcon class="size-3" />
-										{m.share_project()}
-									</button>
-								{/if}
+								{#await sharedDir then dir}
+									{#if repo?.remoteUrl && dir}
+										<button
+											class="text-xs text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1"
+											onclick={copyProjectLink}
+										>
+											<LinkIcon class="size-3" />
+											{m.share_project()}
+										</button>
+									{/if}
+								{/await}
 								<button
 									class="text-xs text-muted-foreground hover:text-destructive cursor-pointer flex items-center gap-1"
 									onclick={handleRemoveGitDir}

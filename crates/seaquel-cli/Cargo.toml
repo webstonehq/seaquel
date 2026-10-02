@@ -11,8 +11,10 @@ path = "src/main.rs"
 [dependencies]
 # The five engines (Core's defaults) and the infrastructure the MCP server
 # needs. No `git` and no `license-*`: the CLI doesn't check licenses
-# (decision 14 of the design doc).
-seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace"] }
+# (decision 14 of the design doc). `imports` (phase 5e): the CLI's Core is
+# built like the desktop's, with `LocalFiles` and the import paths, though
+# no command uses them yet (Q26).
+seaquel-core = { path = "../seaquel-core", features = ["storage", "secrets", "ssh", "workspace", "imports"] }
 seaquel-mcp = { path = "../seaquel-mcp" }
 # `TokioExecutor`, Core's clock (phase 5b).
 seaquel-runtime = { path = "../seaquel-runtime", features = ["tokio"] }

@@ -2,10 +2,9 @@
 import type { PersistedCredential } from "./PersistedCredential";
 import type { PersistedQueryHistoryItem } from "./PersistedQueryHistoryItem";
 import type { PersistedVaultState } from "./PersistedVaultState";
-import type { SharedReposState } from "./SharedReposState";
 
 /**
  * A storage call's result, as `{"method": …, "result": …}`. Calls
  * that return nothing have `"result": null`.
  */
-export type StorageResponse = { "method": "licenseLoad", "result": unknown } | { "method": "licenseSave", "result": null } | { "method": "queryHistoryLoadByConnection", "result": Array<PersistedQueryHistoryItem> } | { "method": "queryHistoryAppend", "result": null } | { "method": "queryHistorySetFavorite", "result": null } | { "method": "queryHistoryRemoveByConnection", "result": null } | { "method": "sharedReposLoadAll", "result": SharedReposState } | { "method": "sharedReposSaveAll", "result": null } | { "method": "userCredentialsLoad", "result": PersistedCredential | null } | { "method": "userCredentialsSave", "result": null } | { "method": "userCredentialsRemove", "result": null } | { "method": "userCredentialsRemoveAllForKey", "result": null } | { "method": "vaultStateLoad", "result": PersistedVaultState | null } | { "method": "vaultStateSave", "result": null } | { "method": "vaultStateReset", "result": null };
+export type StorageResponse = { "method": "licenseLoad", "result": unknown } | { "method": "licenseSave", "result": null } | { "method": "queryHistoryLoadByConnection", "result": Array<PersistedQueryHistoryItem> } | { "method": "queryHistoryAppend", "result": null } | { "method": "queryHistorySetFavorite", "result": null } | { "method": "queryHistoryRemoveByConnection", "result": null } | { "method": "userCredentialsLoad", "result": PersistedCredential | null } | { "method": "userCredentialsSave", "result": null } | { "method": "userCredentialsRemove", "result": null } | { "method": "userCredentialsRemoveAllForKey", "result": null } | { "method": "vaultStateLoad", "result": PersistedVaultState | null } | { "method": "vaultStateSave", "result": null } | { "method": "vaultStateReset", "result": null };

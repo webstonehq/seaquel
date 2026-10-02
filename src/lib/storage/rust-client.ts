@@ -19,7 +19,10 @@
  *   themes, onboarding, tutorial and import state to the `library`,
  *   `settings` and `ui` groups (`library()`, `settings()`, `ui()` here,
  *   used by `CoreLibrary`, `CoreSettings` and `CoreUi`). The storage group
- *   keeps query history, shared repos, the license and the web vault.
+ *   keeps query history, the license and the web vault.
+ * - **Phase 5e** moved the shared repos to the `shared` group and added the
+ *   `imports` group (`shared()`, `imports()` here, used by `CoreShared` and
+ *   `CoreImports`; desktop only).
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -33,6 +36,10 @@ import type { LibraryResponse } from "$lib/types/generated/LibraryResponse";
 import type { PersistedConnection as WireConnection } from "$lib/types/generated/PersistedConnection";
 import type { RpcError } from "$lib/types/generated/RpcError";
 import type { SecretRequest } from "$lib/types/generated/SecretRequest";
+import type { ImportsRequest } from "$lib/types/generated/ImportsRequest";
+import type { ImportsResponse } from "$lib/types/generated/ImportsResponse";
+import type { SharedRequest } from "$lib/types/generated/SharedRequest";
+import type { SharedResponse } from "$lib/types/generated/SharedResponse";
 import type { SettingsRequest } from "$lib/types/generated/SettingsRequest";
 import type { SettingsResponse } from "$lib/types/generated/SettingsResponse";
 import type { UiRequest } from "$lib/types/generated/UiRequest";
@@ -183,8 +190,6 @@ export const STORAGE_METHOD_KIND: Record<StorageMethod, "read" | "write"> = {
   queryHistoryAppend: "write",
   queryHistorySetFavorite: "write",
   queryHistoryRemoveByConnection: "write",
-  sharedReposLoadAll: "read",
-  sharedReposSaveAll: "write",
   userCredentialsLoad: "read",
   userCredentialsSave: "write",
   userCredentialsRemove: "write",
@@ -392,6 +397,87 @@ async function callUiOnce<M extends UiMethod>(
   return response.result.result as UiResult<M>;
 }
 
+// -------- The shared and imports groups (phase 5e) --------
+
+export type SharedMethod = SharedRequest["method"];
+type SharedRequestOf<M extends SharedMethod> = Extract<SharedRequest, { method: M }>;
+/** A shared method's params, or `undefined` for one that takes none. */
+export type SharedParams<M extends SharedMethod> =
+  SharedRequestOf<M> extends { params: infer P } ? P : undefined;
+export type SharedResult<M extends SharedMethod> = Extract<SharedResponse, { method: M }>["result"];
+
+/**
+ * Whether each shared call writes (writes join the write queue, so a sync
+ * lands after the library writes this page issued before it). `scan` and
+ * the list read.
+ */
+export const SHARED_METHOD_KIND: Record<SharedMethod, "read" | "write"> = {
+  reposList: "read",
+  repoRegister: "write",
+  repoUpdate: "write",
+  repoRemove: "write",
+  linkProject: "write",
+  unlinkProject: "write",
+  unlinkPreview: "read",
+  scan: "read",
+  importProjects: "write",
+  sync: "write",
+  syncRepo: "write",
+};
+
+export type ImportsMethod = ImportsRequest["method"];
+type ImportsRequestOf<M extends ImportsMethod> = Extract<ImportsRequest, { method: M }>;
+export type ImportsParams<M extends ImportsMethod> =
+  ImportsRequestOf<M> extends { params: infer P } ? P : undefined;
+export type ImportsResult<M extends ImportsMethod> = Extract<
+  ImportsResponse,
+  { method: M }
+>["result"];
+
+/** Whether each imports call writes. */
+export const IMPORTS_METHOD_KIND: Record<ImportsMethod, "read" | "write"> = {
+  candidates: "read",
+  create: "write",
+};
+
+/** One shared call, without the write queue. Never echoes the request (paths). */
+async function callSharedOnce<M extends SharedMethod>(
+  transport: CoreTransport,
+  method: M,
+  params: SharedParams<M>,
+): Promise<SharedResult<M>> {
+  const response = await send(transport, {
+    method: "shared",
+    params: inner<SharedRequest>(method, params),
+  });
+  if (response?.method !== "shared" || response.result?.method !== method) {
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected a shared ${method} response`,
+    });
+  }
+  return response.result.result as SharedResult<M>;
+}
+
+/** One imports call, without the write queue. Never echoes the request (paths). */
+async function callImportsOnce<M extends ImportsMethod>(
+  transport: CoreTransport,
+  method: M,
+  params: ImportsParams<M>,
+): Promise<ImportsResult<M>> {
+  const response = await send(transport, {
+    method: "imports",
+    params: inner<ImportsRequest>(method, params),
+  });
+  if (response?.method !== "imports" || response.result?.method !== method) {
+    throw new CoreCallError({
+      code: "PROTOCOL_ERROR",
+      message: `expected an imports ${method} response`,
+    });
+  }
+  return response.result.result as ImportsResult<M>;
+}
+
 /**
  * Sends one request as a `keepalive` `POST /api/rpc` (web only), outside
  * any write queue and without waiting for its answer: for a page that is
@@ -517,6 +603,18 @@ export class RustStorageClient implements StorageClient {
     );
   }
 
+  /** One `shared` call (phase 5e, desktop only); writes share the write queue. */
+  shared<M extends SharedMethod>(method: M, params: SharedParams<M>): Promise<SharedResult<M>> {
+    const run = () => callSharedOnce(this.transport, method, params);
+    return SHARED_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
+  }
+
+  /** One `imports` call (phase 5e, desktop only); writes share the write queue. */
+  imports<M extends ImportsMethod>(method: M, params: ImportsParams<M>): Promise<ImportsResult<M>> {
+    const run = () => callImportsOnce(this.transport, method, params);
+    return IMPORTS_METHOD_KIND[method] === "write" ? this.enqueueWrite(run) : run();
+  }
+
   private call<M extends StorageMethod>(
     method: M,
     params: StorageParams<M>,
@@ -544,13 +642,6 @@ export class RustStorageClient implements StorageClient {
     },
     removeByConnection: async (connectionId) => {
       await this.call("queryHistoryRemoveByConnection", { connectionId });
-    },
-  };
-
-  sharedRepos: StorageClient["sharedRepos"] = {
-    loadAll: () => this.call("sharedReposLoadAll", undefined),
-    saveAll: async (repos, activeRepoId) => {
-      await this.call("sharedReposSaveAll", { repos, activeRepoId });
     },
   };
 

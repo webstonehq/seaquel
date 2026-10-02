@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>ID</key>
+		<string>path</string>
+		<key>ConnectionName</key>
+		<string>App</string>
+		<key>Driver</key>
+		<string>SQLite</string>
+		<key>DatabaseHost</key>
+		<string></string>
+		<key>DatabasePort</key>
+		<string></string>
+		<key>DatabaseName</key>
+		<string>Data</string>
+		<key>DatabaseUser</key>
+		<string></string>
+		<key>DatabasePath</key>
+		<string>/Users/me/data.sqlite</string>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<string>name-only</string>
+		<key>ConnectionName</key>
+		<string>App</string>
+		<key>Driver</key>
+		<string>SQLite</string>
+		<key>DatabaseHost</key>
+		<string></string>
+		<key>DatabasePort</key>
+		<string></string>
+		<key>DatabaseName</key>
+		<string>/Users/me/fallback.db</string>
+		<key>DatabaseUser</key>
+		<string></string>
+		<key>DatabasePath</key>
+		<string></string>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<string>neither</string>
+		<key>ConnectionName</key>
+		<string>App</string>
+		<key>Driver</key>
+		<string>SQLite</string>
+		<key>DatabaseHost</key>
+		<string></string>
+		<key>DatabasePort</key>
+		<string></string>
+		<key>DatabaseName</key>
+		<string></string>
+		<key>DatabaseUser</key>
+		<string></string>
+		<key>DatabasePath</key>
+		<string></string>
+	</dict>
+</array>
+</plist>

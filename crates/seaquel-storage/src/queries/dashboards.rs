@@ -4,7 +4,7 @@ use seaquel_types::storage::PersistedDashboard;
 use sqlx::sqlite::SqliteRow;
 
 use super::codec::{bit, flag, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
-use super::IdName;
+use super::{IdName, RowLink, SharedLink};
 use crate::{Reader, Storage, WriteTx};
 
 const TABLE: &str = "dashboards";
@@ -22,6 +22,23 @@ const COLUMNS: [&str; 11] = [
     "updated_at",
 ];
 
+/// [`COLUMNS`] and the link path (migration `0004`), which the reads carry
+/// and only [`set_link`] writes.
+const READ_COLUMNS: [&str; 12] = [
+    "id",
+    "project_id",
+    "name",
+    "viewport",
+    "widgets",
+    "date_filter",
+    "starred",
+    "shared",
+    "description",
+    "created_at",
+    "updated_at",
+    "shared_path",
+];
+
 fn map_row(row: &SqliteRow) -> Result<PersistedDashboard> {
     Ok(PersistedDashboard {
         id: text(row, "id")?,
@@ -35,6 +52,7 @@ fn map_row(row: &SqliteRow) -> Result<PersistedDashboard> {
         description: opt_text(row, "description")?,
         created_at: text(row, "created_at")?,
         updated_at: text(row, "updated_at")?,
+        shared_path: opt_text(row, "shared_path")?,
     })
 }
 
@@ -52,7 +70,7 @@ pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Pers
     let mut conn = r.into().conn().await?;
     let rows = sqlx::query(&select_sql(
         TABLE,
-        &COLUMNS,
+        &READ_COLUMNS,
         "project_id = ? ORDER BY rowid",
     ))
     .bind(project_id)
@@ -65,7 +83,7 @@ pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Pers
 /// value that doesn't decode, which no list shows either).
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedDashboard>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
+    let row = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -93,10 +111,11 @@ pub async fn insert(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<()> {
     super::set_name_key(conn, TABLE, &d.id, &d.name).await
 }
 
-/// Writes every field of an existing dashboard but `project_id` and
-/// `created_at` (a dashboard never moves, and keeps when it was made), and
-/// its name key. `false` when there's no dashboard with that id: an update
-/// never re-inserts a deleted one.
+/// Writes every field of an existing dashboard but `project_id`,
+/// `created_at` and its link (a dashboard never moves, keeps when it was
+/// made, and its link changes only through [`set_link`]), and its name
+/// key. `false` when there's no dashboard with that id: an update never
+/// re-inserts a deleted one.
 pub async fn update(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<bool> {
     let conn = tx.conn();
     let done = sqlx::query(
@@ -163,6 +182,63 @@ pub async fn with_name_key(
         .fetch_all(&mut *conn)
         .await?;
     Ok(super::matching_key(rows, key))
+}
+
+/// [`set_link`]'s statement: by primary key.
+pub const SET_LINK: &str = "UPDATE dashboards SET shared_path = ?1, shared_base = ?2, \
+     shared_file_id = ?3 WHERE id = ?4";
+
+/// Stores a dashboard's [`SharedLink`] (all three columns; `None` clears
+/// one), and nothing else. `false` when there's no dashboard with that id.
+pub async fn set_link(tx: &mut WriteTx, id: &str, link: &SharedLink) -> Result<bool> {
+    super::set_link(tx.conn(), SET_LINK, id, link).await
+}
+
+/// [`link`]'s query: by primary key.
+pub const LINK: &str =
+    "SELECT shared_path, shared_base, shared_file_id FROM dashboards WHERE id = ?1";
+
+/// One dashboard's [`SharedLink`], or `None` when there's no such row.
+pub async fn link(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<SharedLink>> {
+    let mut conn = r.into().conn().await?;
+    super::link_of(&mut conn, LINK, id).await
+}
+
+/// [`links`]' query (`?1` the project), through the dashboards'
+/// `project_id` indexes.
+pub const LINKS: &str = "SELECT id, shared_path, shared_base, shared_file_id \
+     FROM dashboards WHERE project_id = ?1 ORDER BY rowid";
+
+/// The link of every dashboard in a project, shared or not, in rowid
+/// order. On a beta-era file a dashboard with a NULL `project_id` is in no
+/// project's list, as in [`list`].
+pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query_as(LINKS)
+        .bind(project_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(super::row_links(rows))
+}
+
+/// [`by_shared_path`]'s query: one search of `idx_dashboards_shared_path`
+/// (`?1` the project, `?2` the path).
+pub const BY_SHARED_PATH: &str = "SELECT id FROM dashboards \
+     WHERE project_id = ?1 AND shared_path = ?2 AND id IS NOT NULL ORDER BY rowid";
+
+/// The ids of a project's dashboards whose file is `path`, compared
+/// exactly, in rowid order.
+pub async fn by_shared_path(
+    r: impl Into<Reader<'_>>,
+    project_id: &str,
+    path: &str,
+) -> Result<Vec<String>> {
+    let mut conn = r.into().conn().await?;
+    Ok(sqlx::query_scalar(BY_SHARED_PATH)
+        .bind(project_id)
+        .bind(path)
+        .fetch_all(&mut *conn)
+        .await?)
 }
 
 /// How many dashboards the file holds, in every project.

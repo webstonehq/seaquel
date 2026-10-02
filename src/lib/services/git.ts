@@ -100,9 +100,16 @@ export async function commitChanges(path: string, message: string): Promise<stri
 export async function resolveConflict(
   path: string,
   filePath: string,
-  resolution: string,
+  resolution: string | null,
 ): Promise<void> {
-  await callGit({ method: "resolveConflict", params: { path, filePath, resolution } });
+  // `null` keeps the side that deleted the file: Core deletes it.
+  await callGit({
+    method: "resolveConflict",
+    params:
+      resolution === null
+        ? { path, filePath, resolution: "", delete: true }
+        : { path, filePath, resolution },
+  });
 }
 
 /**

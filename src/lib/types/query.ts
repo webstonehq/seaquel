@@ -225,7 +225,7 @@ export interface QueryHistoryItem {
 
 /**
  * A query (local or shared). SQLite is the source of truth.
- * When shared=true, a .sql file is also maintained as a git projection.
+ * When shared=true in a linked project, Core keeps a .sql file in step.
  */
 export interface Query {
   /** Unique identifier (stable across share/unshare) */
@@ -254,6 +254,8 @@ export interface Query {
   tags?: string[];
   /** Folder path for organization within the queries directory */
   folder?: string;
+  /** A shared query's file, relative to the repo (Core's link; read only). */
+  sharedPath?: string;
 }
 
 /** @deprecated Use Query instead */

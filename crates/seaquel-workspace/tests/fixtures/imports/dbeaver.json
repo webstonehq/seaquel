@@ -1,0 +1,768 @@
+[
+  {
+    "name": "providers",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"postgres-jdbc-1\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"PG\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"postgres-jdbc-2\": {\n\t\t\t\"provider\": \"postgres\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"PG2\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"mysql8-1\": {\n\t\t\t\"provider\": \"mysql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"My\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"mariaDB-1\": {\n\t\t\t\"provider\": \"mariadb\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Maria\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"sqlite-1\": {\n\t\t\t\"provider\": \"sqlite\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Lite\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"database\": \"/Users/me/app.db\"\n\t\t\t}\n\t\t},\n\t\t\"mssql-1\": {\n\t\t\t\"provider\": \"mssql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Ms\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"sa\"\n\t\t\t}\n\t\t},\n\t\t\"sqlserver-1\": {\n\t\t\t\"provider\": \"sqlserver\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Ms2\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"sa\"\n\t\t\t}\n\t\t},\n\t\t\"duckdb-1\": {\n\t\t\t\"provider\": \"duckdb\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Duck\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"database\": \"/Users/me/app.duckdb\"\n\t\t\t}\n\t\t},\n\t\t\"upper-1\": {\n\t\t\t\"provider\": \"PostgreSQL\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Upper\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"oracle-1\": {\n\t\t\t\"provider\": \"oracle\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Ora\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"generic-1\": {\n\t\t\t\"provider\": \"generic\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Generic\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "PG",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "type": "dev",
+            "auth-model": "native"
+          },
+          "id": "postgres-jdbc-1"
+        },
+        "name": "PG",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgres",
+          "driver": "postgres-jdbc",
+          "name": "PG2",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "type": "dev",
+            "auth-model": "native"
+          },
+          "id": "postgres-jdbc-2"
+        },
+        "name": "PG2",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "mysql",
+          "driver": "postgres-jdbc",
+          "name": "My",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "mysql8-1"
+        },
+        "name": "My",
+        "type": "mysql",
+        "host": "db",
+        "port": 3306,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "mariadb",
+          "driver": "postgres-jdbc",
+          "name": "Maria",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "mariaDB-1"
+        },
+        "name": "Maria",
+        "type": "mariadb",
+        "host": "db",
+        "port": 3306,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "sqlite",
+          "driver": "postgres-jdbc",
+          "name": "Lite",
+          "save-password": true,
+          "configuration": {
+            "database": "/Users/me/app.db"
+          },
+          "id": "sqlite-1"
+        },
+        "name": "Lite",
+        "type": "sqlite",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/app.db",
+        "username": "",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "mssql",
+          "driver": "postgres-jdbc",
+          "name": "Ms",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "database": "app",
+            "user": "sa"
+          },
+          "id": "mssql-1"
+        },
+        "name": "Ms",
+        "type": "mssql",
+        "host": "db",
+        "port": 1433,
+        "databaseName": "app",
+        "username": "sa",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "sqlserver",
+          "driver": "postgres-jdbc",
+          "name": "Ms2",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "database": "app",
+            "user": "sa"
+          },
+          "id": "sqlserver-1"
+        },
+        "name": "Ms2",
+        "type": "mssql",
+        "host": "db",
+        "port": 1433,
+        "databaseName": "app",
+        "username": "sa",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "duckdb",
+          "driver": "postgres-jdbc",
+          "name": "Duck",
+          "save-password": true,
+          "configuration": {
+            "database": "/Users/me/app.duckdb"
+          },
+          "id": "duckdb-1"
+        },
+        "name": "Duck",
+        "type": "duckdb",
+        "host": "localhost",
+        "port": 0,
+        "databaseName": "/Users/me/app.duckdb",
+        "username": "",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "PostgreSQL",
+          "driver": "postgres-jdbc",
+          "name": "Upper",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "type": "dev",
+            "auth-model": "native"
+          },
+          "id": "upper-1"
+        },
+        "name": "Upper",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "ports",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"default\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Default\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"custom\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Custom\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"6543\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"number\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Number\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": 6544,\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"variable\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Variable\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"${port}\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"exponent\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Exponent\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"1e3\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"space\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Space\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \" 15432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"negative\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Negative\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"-1\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"empty\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Empty\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Default",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "default"
+        },
+        "name": "Default",
+        "type": "postgres",
+        "host": "db",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Custom",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "6543",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "custom"
+        },
+        "name": "Custom",
+        "type": "postgres",
+        "host": "db",
+        "port": 6543,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Number",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": 6544,
+            "database": "app",
+            "user": "me"
+          },
+          "id": "number"
+        },
+        "name": "Number",
+        "type": "postgres",
+        "host": "db",
+        "port": 6544,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Variable",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "${port}",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "variable"
+        },
+        "name": "Variable",
+        "type": "postgres",
+        "host": "db",
+        "port": "NaN",
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Exponent",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "1e3",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "exponent"
+        },
+        "name": "Exponent",
+        "type": "postgres",
+        "host": "db",
+        "port": 1,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Space",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": " 15432",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "space"
+        },
+        "name": "Space",
+        "type": "postgres",
+        "host": "db",
+        "port": 15432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Negative",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "-1",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "negative"
+        },
+        "name": "Negative",
+        "type": "postgres",
+        "host": "db",
+        "port": -1,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Empty",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "empty"
+        },
+        "name": "Empty",
+        "type": "postgres",
+        "host": "db",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "missing-configuration",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"bare\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Bare\"\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Bare",
+          "id": "bare"
+        },
+        "name": "Bare",
+        "type": "postgres",
+        "host": "localhost",
+        "port": 5432,
+        "databaseName": "",
+        "username": "",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "url-only",
+    "note": "A URL-only configuration isn't read (a follow-up): its host, port and database come out as the defaults.",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"url\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"By URL\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"url\": \"jdbc:postgresql://db.example.com:6543/app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "By URL",
+          "save-password": true,
+          "configuration": {
+            "url": "jdbc:postgresql://db.example.com:6543/app",
+            "user": "me"
+          },
+          "id": "url"
+        },
+        "name": "By URL",
+        "type": "postgres",
+        "host": "localhost",
+        "port": 5432,
+        "databaseName": "",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "ssh-handlers-ignored",
+    "note": "DBeaver's SSH handlers aren't read (a follow-up).",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"ssh\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Over SSH\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"10.0.0.5\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"handlers\": {\n\t\t\t\t\t\"ssh_tunnel\": {\n\t\t\t\t\t\t\"type\": \"TUNNEL\",\n\t\t\t\t\t\t\"enabled\": true,\n\t\t\t\t\t\t\"properties\": {\n\t\t\t\t\t\t\t\"host\": \"bastion\",\n\t\t\t\t\t\t\t\"port\": 22\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Over SSH",
+          "save-password": true,
+          "configuration": {
+            "host": "10.0.0.5",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "handlers": {
+              "ssh_tunnel": {
+                "type": "TUNNEL",
+                "enabled": true,
+                "properties": {
+                  "host": "bastion",
+                  "port": 22
+                }
+              }
+            }
+          },
+          "id": "ssh"
+        },
+        "name": "Over SSH",
+        "type": "postgres",
+        "host": "10.0.0.5",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "duplicates",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"same\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Same\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"other-type\": {\n\t\t\t\"provider\": \"mysql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Type\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\",\n\t\t\t\t\"type\": \"dev\",\n\t\t\t\t\"auth-model\": \"native\"\n\t\t\t}\n\t\t},\n\t\t\"other-host\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Host\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db2\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"other-port\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Port\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5433\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"other-database\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Database\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"reports\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"other-user\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"User\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db.example.com\",\n\t\t\t\t\"port\": \"5432\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"app\"\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [
+      {
+        "id": "c1",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me"
+      }
+    ],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Same",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "type": "dev",
+            "auth-model": "native"
+          },
+          "id": "same"
+        },
+        "name": "Same",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": true,
+        "selected": false
+      },
+      {
+        "original": {
+          "provider": "mysql",
+          "driver": "postgres-jdbc",
+          "name": "Type",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "me",
+            "type": "dev",
+            "auth-model": "native"
+          },
+          "id": "other-type"
+        },
+        "name": "Type",
+        "type": "mysql",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Host",
+          "save-password": true,
+          "configuration": {
+            "host": "db2",
+            "port": "5432",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "other-host"
+        },
+        "name": "Host",
+        "type": "postgres",
+        "host": "db2",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Port",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5433",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "other-port"
+        },
+        "name": "Port",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5433,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Database",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "reports",
+            "user": "me"
+          },
+          "id": "other-database"
+        },
+        "name": "Database",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "reports",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "User",
+          "save-password": true,
+          "configuration": {
+            "host": "db.example.com",
+            "port": "5432",
+            "database": "app",
+            "user": "app"
+          },
+          "id": "other-user"
+        },
+        "name": "User",
+        "type": "postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "databaseName": "app",
+        "username": "app",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  },
+  {
+    "name": "no-connections-key",
+    "input": "{\"folders\":{}}",
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "empty-connections",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {}\n}",
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "empty-file",
+    "input": "",
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "not-json",
+    "input": "{\"connections\": {",
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "no-file",
+    "input": null,
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "unreadable",
+    "note": "The read fails (a permission error): today the mapper logs it and returns nothing.",
+    "input": {
+      "error": "Failed to read DBeaver config: Permission denied (os error 13)"
+    },
+    "existing": [],
+    "output": []
+  },
+  {
+    "name": "out-of-range-ports",
+    "input": "{\n\t\"folders\": {},\n\t\"connections\": {\n\t\t\"max\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Max\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"65535\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"past-max\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Past max\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": \"65536\",\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t},\n\t\t\"far\": {\n\t\t\t\"provider\": \"postgresql\",\n\t\t\t\"driver\": \"postgres-jdbc\",\n\t\t\t\"name\": \"Far\",\n\t\t\t\"save-password\": true,\n\t\t\t\"configuration\": {\n\t\t\t\t\"host\": \"db\",\n\t\t\t\t\"port\": 70000,\n\t\t\t\t\"database\": \"app\",\n\t\t\t\t\"user\": \"me\"\n\t\t\t}\n\t\t}\n\t}\n}",
+    "existing": [],
+    "output": [
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Max",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "65535",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "max"
+        },
+        "name": "Max",
+        "type": "postgres",
+        "host": "db",
+        "port": 65535,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Past max",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": "65536",
+            "database": "app",
+            "user": "me"
+          },
+          "id": "past-max"
+        },
+        "name": "Past max",
+        "type": "postgres",
+        "host": "db",
+        "port": 65536,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      },
+      {
+        "original": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Far",
+          "save-password": true,
+          "configuration": {
+            "host": "db",
+            "port": 70000,
+            "database": "app",
+            "user": "me"
+          },
+          "id": "far"
+        },
+        "name": "Far",
+        "type": "postgres",
+        "host": "db",
+        "port": 70000,
+        "databaseName": "app",
+        "username": "me",
+        "isDuplicate": false,
+        "selected": true
+      }
+    ]
+  }
+]

@@ -69,13 +69,20 @@ pub struct GitSyncResult {
 }
 
 /// The three sides of a conflicted file. A side that doesn't exist (a file
-/// added on both sides has no base) is an empty string.
+/// added on both sides has no base) is an empty string; a side that
+/// deleted the file says so in `oursDeleted`/`theirsDeleted` (phase 5e
+/// probe fix 5), so keeping it deletes the file instead of writing `""`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct GitConflictContent {
     pub base: String,
     pub ours: String,
     pub theirs: String,
+    #[serde(default)]
+    pub ours_deleted: bool,
+    #[serde(default)]
+    pub theirs_deleted: bool,
 }
 
 #[cfg(test)]
@@ -133,10 +140,12 @@ mod tests {
             base: "b".into(),
             ours: "o".into(),
             theirs: "t".into(),
+            ours_deleted: false,
+            theirs_deleted: true,
         };
         assert_eq!(
             serde_json::to_string(&conflict).unwrap(),
-            r#"{"base":"b","ours":"o","theirs":"t"}"#
+            r#"{"base":"b","ours":"o","theirs":"t","oursDeleted":false,"theirsDeleted":true}"#
         );
     }
 

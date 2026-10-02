@@ -4,8 +4,7 @@
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { toast } from "svelte-sonner";
-	import { showErrorUnlessShown } from "$lib/errors";
+	import { importSelectedProjects } from "$lib/services/shared-project-import";
 	import { m } from "$lib/paraglide/messages.js";
 	import FolderGit2Icon from "@lucide/svelte/icons/folder-git-2";
 	import LoaderIcon from "@lucide/svelte/icons/loader";
@@ -16,19 +15,8 @@
 		sharedProjectImportStore.discoveredProjects.filter((p) => p.selected).length
 	);
 
-	async function handleImport() {
-		const selected = sharedProjectImportStore.discoveredProjects.filter((p) => p.selected);
-		if (selected.length === 0 || !sharedProjectImportStore.folderPath) return;
-
-		sharedProjectImportStore.isImporting = true;
-		try {
-			await db.projects.importFromGitRepo(sharedProjectImportStore.folderPath, selected);
-			toast.success(m.shared_import_success({ count: selected.length }));
-			sharedProjectImportStore.reset();
-		} catch (error) {
-			showErrorUnlessShown(error);
-			sharedProjectImportStore.isImporting = false;
-		}
+	function handleImport() {
+		return importSelectedProjects(db);
 	}
 </script>
 
@@ -76,19 +64,23 @@
 
 				<!-- Project list -->
 				<div class="max-h-64 overflow-y-auto space-y-2 border rounded-lg p-2">
-					{#each sharedProjectImportStore.discoveredProjects as project, index (index)}
+					{#each sharedProjectImportStore.discoveredProjects as project, index (project.dir)}
 						<label
 							class="flex items-start gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
 						>
 							<Checkbox
 								checked={project.selected}
+								disabled={project.alreadyLinked}
 								onCheckedChange={() => sharedProjectImportStore.toggleProject(index)}
 							/>
 							<div class="flex-1 min-w-0">
 								<span class="font-medium">{project.name}</span>
-								{#if project.connections.length > 0}
+								{#if project.alreadyLinked}
+									<p class="text-xs text-muted-foreground">{m.shared_import_project_linked()}</p>
+								{/if}
+								{#if project.templates.length > 0}
 									<p class="text-xs text-muted-foreground">
-										{project.connections.length} connection{project.connections.length !== 1 ? "s" : ""}
+										{project.templates.length} connection{project.templates.length !== 1 ? "s" : ""}
 									</p>
 								{/if}
 							</div>

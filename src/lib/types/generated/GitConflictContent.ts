@@ -2,6 +2,8 @@
 
 /**
  * The three sides of a conflicted file. A side that doesn't exist (a file
- * added on both sides has no base) is an empty string.
+ * added on both sides has no base) is an empty string; a side that
+ * deleted the file says so in `oursDeleted`/`theirsDeleted` (phase 5e
+ * probe fix 5), so keeping it deletes the file instead of writing `""`.
  */
-export type GitConflictContent = { base: string, ours: string, theirs: string, };
+export type GitConflictContent = { base: string, ours: string, theirs: string, oursDeleted: boolean, theirsDeleted: boolean, };

@@ -1,11 +1,10 @@
 /**
  * Never save what failed to load.
  *
- * A few stored things are still saved by replacing everything (the shared
- * repos, a window's view state of a project) or by writing one record whole
- * (the license). If the load failed and the store fell
- * back to empty or default state, the next save would overwrite the stored
- * data with that. So a store marks a failed load, and its saves refuse until
+ * A few stored things are still saved by replacing everything (a window's
+ * view state of a project) or by writing one record whole (the license). If
+ * the load failed and the store fell back to empty or default state, the
+ * next save would overwrite the stored data with that. So a store marks a failed load, and its saves refuse until
  * a later load succeeds.
  *
  * - Interactive saves throw `NotLoadedError`; the UI shows it with

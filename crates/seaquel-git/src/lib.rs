@@ -13,16 +13,19 @@
 //! `REMOTE_ERROR`, `PULL_ERROR`, `MERGE_ERROR`, `INDEX_ERROR`,
 //! `CONFLICT_ERROR`, `STAGE_ERROR`, `COMMIT_ERROR` and `PUSH_ERROR`, plus
 //! `GIT_TASK_ERROR` when the blocking task itself fails. A push that isn't a
-//! fast-forward says [`PUSH_REJECTED_NON_FAST_FORWARD`]; commit refuses with
-//! `CONFLICT_ERROR` while files are conflicted.
+//! fast-forward says [`PUSH_REJECTED_NON_FAST_FORWARD`]; a fast-forward pull
+//! that would overwrite local changes starts with
+//! [`PULL_REFUSED_LOCAL_CHANGES`]; commit refuses with `CONFLICT_ERROR` while
+//! files are conflicted.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 mod credentials;
 mod ops;
+pub mod tree;
 
-pub use ops::PUSH_REJECTED_NON_FAST_FORWARD;
+pub use ops::{PULL_REFUSED_LOCAL_CHANGES, PUSH_REJECTED_NON_FAST_FORWARD};
 pub use seaquel_types::git::{GitConflictContent, GitCredentials, GitRepoStatus, GitSyncResult};
 
 /// A failed git call: a code from the crate docs and a message that includes
@@ -90,7 +93,9 @@ impl Git {
     }
 
     /// Fetch the current branch from `origin` and merge it: fast-forward,
-    /// a merge commit, or `success: false` with the conflicting paths.
+    /// a merge commit, or `success: false` with the conflicting paths. A
+    /// fast-forward that would overwrite local changes is `PULL_ERROR`
+    /// naming them, and changes nothing.
     pub async fn pull_repo(
         &self,
         path: impl AsRef<Path>,
@@ -137,6 +142,17 @@ impl Git {
         let (path, file_path, resolution) =
             (owned(path), file_path.to_string(), resolution.to_string());
         blocking(move || ops::resolve_conflict(&path, &file_path, &resolution)).await
+    }
+
+    /// Resolve the conflicted `file_path` by deleting it (keeping the side
+    /// that deleted it), and stage the deletion.
+    pub async fn resolve_conflict_deleted(
+        &self,
+        path: impl AsRef<Path>,
+        file_path: &str,
+    ) -> Result<(), GitError> {
+        let (path, file_path) = (owned(path), file_path.to_string());
+        blocking(move || ops::resolve_conflict_deleted(&path, &file_path)).await
     }
 
     /// The base, ours and theirs of a conflicted file; empty strings for a

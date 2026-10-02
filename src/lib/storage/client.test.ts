@@ -44,6 +44,7 @@ import {
   projectsRepo,
   queryVersionsRepo,
   savedQueriesRepo,
+  sharedReposRepo,
   themeRepo,
   tutorialRepo,
 } from "./repository";
@@ -127,7 +128,13 @@ const LIBRARY_RETIRED = new Set([
  * the demo's replay runs them through the repositories, which stay for the
  * frozen fixtures.
  */
+/**
+ * Phase 5e retired the shared repos' storage methods too (the `shared`
+ * group's repo calls replaced them): gone from both clients, and the demo's
+ * replay runs them on the sql.js repository, which stays for the fixture.
+ */
 const STATE_RETIRED_REPOS = new Set([
+  "sharedRepos",
   "appState",
   "connectionOverrides",
   "themes",
@@ -205,7 +212,6 @@ const REPOS: Record<string, string> = {
 const PARAMS: Partial<Record<StorageMethod, string[]>> = {
   queryHistoryLoadByConnection: ["connectionId"],
   queryHistoryRemoveByConnection: ["connectionId"],
-  sharedReposSaveAll: ["repos", "activeRepoId"],
   licenseSave: ["data"],
   vaultStateSave: ["state"],
   userCredentialsLoad: ["scope", "key"],
@@ -364,6 +370,7 @@ function libraryRepos(db: WebSqliteDatabase): Record<string, unknown> {
     dashboards: bind(dashboardsRepo),
     dashboardVersions: bind(dashboardVersionsRepo),
     aiChats: bind(aiChatsRepo),
+    sharedRepos: bind(sharedReposRepo),
   };
 }
 

@@ -12,7 +12,7 @@
  *   until phase 8.
  */
 
-import type { PersistedQueryHistoryItem, PersistedSharedQueryRepo } from "$lib/types";
+import type { PersistedQueryHistoryItem } from "$lib/types";
 
 /**
  * A retired connection override row (Q13, Decision 25): the demo's
@@ -87,8 +87,9 @@ export interface TutorialProgressRow {
 export const HISTORY_KEEP = 500;
 
 /**
- * What is left in the storage group after phase 5d (Decision 19): query
- * history, shared repos, the license and the web vault. Connections,
+ * What is left in the storage group after phase 5e: query history, the
+ * license and the web vault. The shared repos moved to the `shared` group
+ * (`SharedService`) in 5e. Connections,
  * projects, labels, saved queries and their versions moved to the library
  * in 5d-1 (`LibraryService`, `$lib/hooks/database/library`); a window's
  * view state to the `ui` group (`UiService`), and settings, AI settings,
@@ -108,10 +109,6 @@ export interface StorageClient {
     /** Sets (not toggles) the flag, so writes queued in either order agree. */
     setFavorite(id: string, favorite: boolean): Promise<void>;
     removeByConnection(connectionId: string): Promise<void>;
-  };
-  sharedRepos: {
-    loadAll(): Promise<{ repos: PersistedSharedQueryRepo[]; activeRepoId: string | null }>;
-    saveAll(repos: PersistedSharedQueryRepo[], activeRepoId: string | null): Promise<void>;
   };
   license: {
     load(): Promise<unknown>;

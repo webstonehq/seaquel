@@ -75,6 +75,7 @@ fn connection(id: &str, project_id: &str, name: &str) -> PersistedConnection {
         ai_share_data: None,
         active_ai_provider_id: None,
         active_ai_model: None,
+        shared_origin: None,
     }
 }
 
@@ -98,6 +99,7 @@ fn saved_query(
         database_type: None,
         tags: None,
         folder: folder.map(Into::into),
+        shared_path: None,
     }
 }
 

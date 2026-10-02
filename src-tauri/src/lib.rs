@@ -12,7 +12,6 @@ use seaquel_rpc::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::ipc::{Channel, InvokeBody};
@@ -47,6 +46,23 @@ impl std::fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+/// The desktop's Core: every engine, file and tunnel (the desktop connects
+/// wherever its user asks, so no config check), and the user's own files
+/// (phase 5e, Decision 31): shared repos, and TablePlus's and DBeaver's
+/// files under `import_paths` (the user's home; `None` when there is none,
+/// and then the imports find nothing at the default locations).
+fn desktop_core(import_paths: Option<seaquel_core::ImportPaths>) -> Core {
+    let builder = seaquel_core::with_default_plugins()
+        .connect_policy(ConnectPolicy::Unrestricted)
+        .executor(std::sync::Arc::new(seaquel_runtime::TokioExecutor))
+        .local_files(seaquel_core::LocalFiles::Allowed);
+    match import_paths {
+        Some(paths) => builder.import_paths(paths),
+        None => builder,
+    }
+    .build()
+}
 
 /// The license server: `LICENSE_API_URL` at compile time, else the dev
 /// server in debug builds and seaquel.app in release builds.
@@ -323,9 +339,24 @@ impl DesktopWorkspace {
             Request::License(r) => seaquel_rpc::dispatch_license(&self.license, r)
                 .await
                 .map(Response::License),
-            Request::Git(r) => seaquel_rpc::dispatch_git(&self.git, r)
-                .await
-                .map(Response::Git),
+            // Pull, push, commit and conflict resolution run under the repo
+            // lock (Decision 38) through the storage workspace, which also
+            // records a pull's or push's `lastSyncAt` (best effort). Getting
+            // the workspace may open storage, or retry a failure worth
+            // retrying, like any storage call; any error is dropped here, so
+            // storage never blocks git: without it these calls still take
+            // the lock and only skip `lastSyncAt`. The other git calls need
+            // no storage.
+            Request::Git(r) => {
+                let ws = if r.takes_repo_lock() {
+                    self.workspace(core).await.ok()
+                } else {
+                    None
+                };
+                seaquel_rpc::dispatch_git(core, ws.as_deref(), &self.git, r, &origin)
+                    .await
+                    .map(Response::Git)
+            }
             // Core owns the tunnels; they need no storage.
             Request::Ssh(r) => seaquel_rpc::dispatch_ssh(core, r).await.map(Response::Ssh),
             Request::Db(r) => {
@@ -337,7 +368,9 @@ impl DesktopWorkspace {
                 }
                 seaquel_rpc::dispatch_workspace(core, &db.ws, Request::Db(r), origin).await
             }
-            // Storage, the library, settings and ui.
+            // Storage, the library, settings, ui, and (phase 5e) the
+            // `shared` and `imports` groups, which `dispatch_workspace`
+            // serves only because this Core has `LocalFiles`.
             req => {
                 let ws = self.workspace(core).await?;
                 seaquel_rpc::dispatch_workspace(core, &ws, req, origin).await
@@ -519,67 +552,6 @@ fn core_events(
         webview.label(),
         Box::new(move |event| channel.send(event).is_ok()),
     );
-}
-
-#[tauri::command]
-fn read_dbeaver_config() -> Result<Option<String>, CommandError> {
-    let home = dirs::home_dir().ok_or(CommandError {
-        message: "Could not find home directory".to_string(),
-        code: "HOME_DIR_ERROR".to_string(),
-    })?;
-
-    #[cfg(target_os = "macos")]
-    let config_path =
-        home.join("Library/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
-
-    #[cfg(target_os = "windows")]
-    let config_path =
-        home.join("AppData/Roaming/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
-
-    #[cfg(target_os = "linux")]
-    let config_path =
-        home.join(".local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json");
-
-    if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| CommandError {
-            message: format!("Failed to read DBeaver config: {}", e),
-            code: "READ_ERROR".to_string(),
-        })?;
-        Ok(Some(content))
-    } else {
-        Ok(None)
-    }
-}
-
-#[tauri::command]
-fn read_tableplus_config() -> Result<Option<String>, CommandError> {
-    #[cfg(not(target_os = "macos"))]
-    return Ok(None);
-
-    // TablePlus only runs on macOS
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir().ok_or(CommandError {
-            message: "Could not find home directory".to_string(),
-            code: "HOME_DIR_ERROR".to_string(),
-        })?;
-
-        let config_path =
-            home.join("Library/Application Support/com.tinyapp.TablePlus/Data/Connections.plist");
-        if config_path.exists() {
-            let value: plist::Value = plist::from_file(&config_path).map_err(|e| CommandError {
-                message: format!("Failed to parse TablePlus plist: {}", e),
-                code: "PARSE_ERROR".to_string(),
-            })?;
-            let json = serde_json::to_string(&value).map_err(|e| CommandError {
-                message: format!("Failed to serialize plist to JSON: {}", e),
-                code: "SERIALIZE_ERROR".to_string(),
-            })?;
-            Ok(Some(json))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 #[tauri::command]
@@ -950,12 +922,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         // Every engine, file and tunnel: the desktop connects wherever its
         // user asks, so no config check.
-        .manage(
-            seaquel_core::with_default_plugins()
-                .connect_policy(ConnectPolicy::Unrestricted)
-                .executor(std::sync::Arc::new(seaquel_runtime::TokioExecutor))
-                .build(),
-        )
+        .manage(desktop_core(seaquel_core::ImportPaths::from_env()))
         .manage(PendingUpdate {
             bytes: Mutex::new(None),
         })
@@ -979,8 +946,6 @@ pub fn run() {
             get_username,
             install_update,
             check_for_update_command,
-            read_dbeaver_config,
-            read_tableplus_config,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
@@ -2203,5 +2168,183 @@ mod workspace_tests {
         let req = serde_json::json!({"method": "git", "params": {"method": "remoteUrl", "params": {"path": tmp.path()}}});
         let err = call(&core, &ws, &req.to_string()).unwrap_err();
         assert_eq!(err.code, "REPO_OPEN_ERROR", "{}", err.message);
+    }
+
+    // ── Phase 5e: the `shared` and `imports` groups, the repo lock ──
+
+    /// The desktop's Core ([`desktop_core`]) with the imports reading
+    /// `home`, never the user's.
+    fn files_core(home: &std::path::Path) -> Core {
+        desktop_core(Some(seaquel_core::ImportPaths::new(home)))
+    }
+
+    /// `core_call` serves both groups through the storage workspace, on a
+    /// Core built as the app builds it (`LocalFiles`, the import paths),
+    /// and each write's event carries the calling webview's label.
+    #[test]
+    fn core_call_serves_shared_and_imports_with_the_webview_origin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let core = files_core(&home);
+        assert_eq!(core.local_files(), Some(seaquel_core::LocalFiles::Allowed));
+        let ws = desktop(tmp.path().join("data"));
+        let (main_tx, main_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "main", sink(main_tx));
+        let (editor_tx, editor_rx) = mpsc::channel();
+        ws.set_event_sink(&core, "theme-editor", sink(editor_tx));
+        let group = |label: &str, group: &str, method: &str, params: Json| {
+            let inner = if params.is_null() {
+                json!({"method": method})
+            } else {
+                json!({"method": method, "params": params})
+            };
+            let body = json!({"method": group, "params": inner});
+            tauri::async_runtime::block_on(handle_core_call(
+                &core,
+                &ws,
+                label,
+                &InvokeBody::Raw(body.to_string().into_bytes()),
+            ))
+            .map(|res| {
+                let res = serde_json::to_value(res).unwrap();
+                assert_eq!(res["method"], group, "{res}");
+                assert_eq!(res["result"]["method"], method, "{res}");
+                res["result"]["result"].clone()
+            })
+        };
+        group("main", "library", "projectEnsureDefault", Json::Null).unwrap();
+        for rx in [&main_rx, &editor_rx] {
+            assert_eq!(rx.recv_timeout(WAIT).unwrap()["kind"], "project");
+        }
+
+        // shared: a repo registered from the theme editor carries its label.
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let registered = group(
+            "theme-editor",
+            "shared",
+            "repoRegister",
+            json!({"path": repo.display().to_string()}),
+        )
+        .unwrap();
+        for rx in [&main_rx, &editor_rx] {
+            assert_eq!(
+                rx.recv_timeout(WAIT).unwrap(),
+                json!({"type": "storageChanged", "kind": "sharedRepo", "scope": null,
+                    "ids": [registered["value"]["id"]], "origin": "theme-editor",
+                    "seq": registered["seq"]})
+            );
+        }
+        let list = group("main", "shared", "reposList", Json::Null).unwrap();
+        assert_eq!(list["value"][0]["id"], registered["value"]["id"]);
+        let preview = group(
+            "main",
+            "shared",
+            "scan",
+            json!({"path": repo.display().to_string()}),
+        )
+        .unwrap();
+        assert_eq!(preview, json!({"conflicted": false, "projects": []}));
+
+        // imports: the default location is under the injected home.
+        let none = group(
+            "main",
+            "imports",
+            "candidates",
+            json!({"source": "dbeaver", "projectId": "default-seaquel"}),
+        )
+        .unwrap();
+        assert_eq!(none, json!({"found": false}));
+        let Some(rel) = seaquel_core::domain::imports::default_path(
+            seaquel_core::domain::imports::ImportSource::Dbeaver,
+            std::env::consts::OS,
+        ) else {
+            return;
+        };
+        let file = home.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            r#"{"connections": {"pg-1": {"provider": "postgresql", "name": "Shop",
+                "configuration": {"host": "db.example.com", "port": "5432", "database": "shop",
+                "user": "app"}}}}"#,
+        )
+        .unwrap();
+        let found = group(
+            "main",
+            "imports",
+            "candidates",
+            json!({"source": "dbeaver", "projectId": "default-seaquel"}),
+        )
+        .unwrap();
+        assert_eq!(found["candidates"][0]["key"], "pg-1", "{found}");
+        let created = group(
+            "log-viewer",
+            "imports",
+            "create",
+            json!({"source": "dbeaver", "projectId": "default-seaquel", "keys": ["pg-1"]}),
+        )
+        .unwrap();
+        assert_eq!(created["value"]["results"][0]["status"], "imported");
+        let id = &created["value"]["results"][0]["id"];
+        let mut kinds = Vec::new();
+        for _ in 0..2 {
+            let event = main_rx.recv_timeout(WAIT).unwrap();
+            assert_eq!(event["origin"], "log-viewer", "{event}");
+            if event["kind"] == "connection" {
+                assert_eq!(event["ids"], json!([id]), "{event}");
+            }
+            kinds.push(event["kind"].as_str().unwrap().to_string());
+        }
+        kinds.sort();
+        assert_eq!(kinds, ["connection", "project"]);
+    }
+
+    /// Decision 38: a pull through `core_call` waits for the repo's lock,
+    /// which the shared projection's syncs and publishes hold, with storage
+    /// open and with no storage at all.
+    #[test]
+    fn pull_takes_the_repo_lock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let core = Arc::new(files_core(&home));
+        let with_storage = desktop(tmp.path().join("data"));
+        let no_storage = DesktopWorkspace::new(
+            Err(RpcError::from(CoreError::from(
+                seaquel_core::storage::StorageError::NoDataDir,
+            ))),
+            Arc::new(MemoryStore::new()),
+        );
+        // Not a repository, so git answers at once (without reading any
+        // git config) once it runs.
+        let repo = tmp.path().join("not-a-repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        for mut ws in [with_storage, no_storage] {
+            ws.git = Git::new(Some(home.clone()));
+            let ws = Arc::new(ws);
+            let lock = tauri::async_runtime::block_on(core.repo_lock(&repo));
+            let (tx, rx) = mpsc::channel();
+            let (c, w, path) = (core.clone(), ws.clone(), repo.display().to_string());
+            let task = std::thread::spawn(move || {
+                let body = json!({"method": "git", "params": {"method": "pull",
+                    "params": {"path": path}}});
+                let res = tauri::async_runtime::block_on(handle_core_call(
+                    &c,
+                    &w,
+                    "main",
+                    &InvokeBody::Raw(body.to_string().into_bytes()),
+                ));
+                tx.send(res.map(|_| ()).map_err(|e| e.code)).unwrap();
+            });
+            assert!(
+                rx.recv_timeout(Duration::from_millis(500)).is_err(),
+                "the pull ran while the repo was locked"
+            );
+            drop(lock);
+            let answer = rx.recv_timeout(WAIT).unwrap();
+            assert!(answer.is_err(), "not a repo: {answer:?}");
+            task.join().unwrap();
+        }
     }
 }

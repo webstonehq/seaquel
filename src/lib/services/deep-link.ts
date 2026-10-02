@@ -8,9 +8,11 @@
 
 import type { useDatabase } from "$lib/hooks/database.svelte.js";
 import { deepLinkDialogStore } from "$lib/stores/deep-link-dialog.svelte.js";
-import { deepLinkProjectPickerStore } from "$lib/stores/deep-link-project-picker.svelte.js";
 import { toast } from "svelte-sonner";
 import { errorToast } from "$lib/utils/toast";
+import { m } from "$lib/paraglide/messages.js";
+import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
+import { templatePath } from "$lib/components/sidebar/manage/share-link";
 
 type DatabaseContext = ReturnType<typeof useDatabase>;
 
@@ -133,6 +135,12 @@ export function normalizeGitUrl(url: string): string {
 
 /**
  * Handle a deep link URL. Dispatches to the appropriate handler based on resource type.
+ *
+ * Shared files are Core's (phase 5e): a query or dashboard opens the stored
+ * row whose `sharedPath` is the link's path, once the project linked to its
+ * directory has synced; a file not stored yet says so (bug 24). No "active
+ * repo" is set: the repo is the link's, and the project is the one linked
+ * to the file's directory (Task 1, M5).
  */
 export async function handleDeepLink(url: string, db: DatabaseContext): Promise<void> {
   const action = parseDeepLink(url);
@@ -145,19 +153,19 @@ export async function handleDeepLink(url: string, db: DatabaseContext): Promise<
 
   switch (action.type) {
     case "query":
-      handleQueryDeepLink(repo.id, action.filePath, db);
-      break;
     case "dashboard":
-      handleDashboardDeepLink(repo.id, action.filePath, db);
+      await handleFileDeepLink(repo, action.type, action.filePath, db);
       break;
     case "connection":
-      await handleConnectionDeepLink(repo.id, action.filePath, db);
+      await handleConnectionDeepLink(repo, action.filePath, db);
       break;
     case "project":
-      await handleProjectDeepLink(repo.id, action.filePath, db);
+      await handleProjectDeepLink(repo, action.filePath, db);
       break;
   }
 }
+
+type LinkedRepo = { id: string; path: string };
 
 /**
  * Find the local repo matching the deep link, or prompt to clone it.
@@ -165,13 +173,13 @@ export async function handleDeepLink(url: string, db: DatabaseContext): Promise<
 async function resolveRepo(
   action: DeepLinkAction,
   db: DatabaseContext,
-): Promise<{ id: string } | null> {
+): Promise<LinkedRepo | null> {
   const normalizedActionUrl = normalizeGitUrl(action.repoUrl);
 
   const findRepo = () =>
     db.state.sharedRepos.find((repo) => normalizeGitUrl(repo.remoteUrl) === normalizedActionUrl);
 
-  let repo = findRepo();
+  const repo = findRepo();
   if (repo) return repo;
 
   // Repo not cloned — show clone dialog
@@ -186,145 +194,153 @@ async function resolveRepo(
   return findRepo() ?? null;
 }
 
-function handleQueryDeepLink(repoId: string, filePath: string, db: DatabaseContext): void {
-  // Look up from scan cache first, then match to unified queries by name
-  const scannedQueries = db.state.sharedQueriesByRepo[repoId] ?? [];
-  const scannedQuery = scannedQueries.find((q) => q.filePath === filePath);
-
-  if (scannedQuery) {
-    db.sharedRepos.setActiveRepo(repoId);
-    // Find the unified query by matching name
-    const unifiedQuery = db.state.projectQueries.find(
-      (q) => q.shared && q.name === scannedQuery.name,
-    );
-    if (unifiedQuery) {
-      db.queryTabs.loadQuery(unifiedQuery.id, () => db.ui.setActiveView("query"));
-    } else {
-      // Fallback: open as a new tab with the scanned content
-      db.queryTabs.focusOrCreate(scannedQuery.query, scannedQuery.name, () =>
-        db.ui.setActiveView("query"),
-      );
-    }
-    toast.success(`Opened shared query: ${scannedQuery.name}`);
-  } else {
-    errorToast(`Query not found: ${filePath}`);
-  }
+/** The project directory a repo path names (`.seaquel/projects/<dir>/…`). */
+function projectDirOf(filePath: string): string | null {
+  return /^\.seaquel\/projects\/([^/]+)/.exec(filePath)?.[1] ?? null;
 }
 
-function handleDashboardDeepLink(repoId: string, filePath: string, db: DatabaseContext): void {
-  // Look up from scan cache, then match to unified dashboard by name
-  const scannedDashboards = db.state.sharedDashboardsByRepo[repoId] ?? [];
-  const scannedDashboard = scannedDashboards.find((d) => d.filePath === filePath);
-
-  if (scannedDashboard) {
-    db.sharedRepos.setActiveRepo(repoId);
-    const unifiedDashboard = db.state.projectDashboards.find(
-      (d) => d.shared && d.name === scannedDashboard.name,
-    );
-    if (unifiedDashboard) {
-      db.dashboardTabs.add(unifiedDashboard.id, unifiedDashboard.name);
-    } else {
-      db.dashboardTabs.add(scannedDashboard.id, scannedDashboard.name);
-    }
-    toast.success(`Opened shared dashboard: ${scannedDashboard.name}`);
-  } else {
-    errorToast(`Dashboard not found: ${filePath}`);
-  }
+/** The local project linked to `dir` of `repo` (Core's scan says), if any. */
+async function linkedProjectFor(
+  repo: LinkedRepo,
+  dir: string,
+  db: DatabaseContext,
+): Promise<string | null> {
+  const preview = await db.sharedRepos.scan(repo.path);
+  const project = preview.projects.find((p) => p.dir === dir);
+  return project?.linkedProjectIds.find((id) => db.state.projects.some((p) => p.id === id)) ?? null;
 }
 
-async function handleConnectionDeepLink(
-  repoId: string,
+/** Show a linked project, synced with its files (activation syncs it). */
+async function showSyncedProject(projectId: string, db: DatabaseContext): Promise<void> {
+  if (db.state.activeProjectId === projectId) await db.sharedRepos.syncProject(projectId);
+  else await db.projects.setActive(projectId);
+}
+
+/** A query or dashboard file: the stored row with that `sharedPath`, opened. */
+async function handleFileDeepLink(
+  repo: LinkedRepo,
+  type: "query" | "dashboard",
   filePath: string,
   db: DatabaseContext,
 ): Promise<void> {
-  let connection = db.state.allSharedConnections.find(
-    (c) => c.repoId === repoId && c.filePath === filePath,
-  );
+  const dir = projectDirOf(filePath);
+  const projectId = dir ? await linkedProjectFor(repo, dir, db) : null;
+  if (!projectId) {
+    errorToast(m.deep_link_project_not_linked({ path: filePath }));
+    return;
+  }
+  await showSyncedProject(projectId, db);
 
-  if (!connection) {
-    // After a fresh clone, connections may not be in derived state yet — reload and retry
-    await db.sharedRepos.loadSharedConfigs(repoId);
-    connection = db.state.allSharedConnections.find(
-      (c) => c.repoId === repoId && c.filePath === filePath,
+  if (type === "query") {
+    const query = (db.state.queriesByProject[projectId] ?? []).find(
+      (q) => q.sharedPath === filePath,
     );
+    if (!query) {
+      errorToast(m.deep_link_not_stored({ path: filePath }));
+      return;
+    }
+    db.queryTabs.loadQuery(query.id, () => db.ui.setActiveView("query"));
+    toast.success(m.deep_link_opened_query({ name: query.name }));
+    return;
   }
+  const dashboard = (db.state.dashboardsByProject[projectId] ?? []).find(
+    (d) => d.sharedPath === filePath,
+  );
+  if (!dashboard) {
+    errorToast(m.deep_link_not_stored({ path: filePath }));
+    return;
+  }
+  db.dashboardTabs.add(dashboard.id, dashboard.name);
+  toast.success(m.deep_link_opened_dashboard({ name: dashboard.name }));
+}
 
+/**
+ * A connection template: in a project linked to its directory, the sync
+ * imports it (Q23) and the connection whose template is the link's path
+ * opens. In a directory no local project links, the import dialog asks
+ * to import that project (Q32: the directory ticked); once imported, which
+ * imports its templates (Decision 40), the connection opens. Cancelling
+ * does nothing.
+ */
+async function handleConnectionDeepLink(
+  repo: LinkedRepo,
+  filePath: string,
+  db: DatabaseContext,
+): Promise<void> {
+  const dir = projectDirOf(filePath);
+  if (!dir) {
+    errorToast(m.deep_link_not_stored({ path: filePath }));
+    return;
+  }
+  const projectId = await linkedProjectFor(repo, dir, db);
+  if (projectId) {
+    await showSyncedProject(projectId, db);
+    await openTemplateConnection(projectId, filePath, db);
+    return;
+  }
+  const preview = await db.sharedRepos.scan(repo.path);
+  const project = preview.projects.find((p) => p.dir === dir);
+  if (!project) {
+    errorToast(m.deep_link_project_not_found({ name: dir }));
+    return;
+  }
+  sharedProjectImportStore.openWithResults(repo.path, [project], {
+    onImported: async (ids) => {
+      const imported = ids[0];
+      if (imported) await openTemplateConnection(imported, filePath, db);
+    },
+  });
+}
+
+/** Open the connection of `projectId` whose template is `filePath`, or say it isn't there. */
+async function openTemplateConnection(
+  projectId: string,
+  filePath: string,
+  db: DatabaseContext,
+): Promise<void> {
+  const connection = db.state.connections.find(
+    (c) => c.projectId === projectId && templatePath(c.sharedConnectionId) === filePath,
+  );
   if (!connection) {
-    errorToast(`Connection not found: ${filePath}`);
+    errorToast(m.deep_link_not_stored({ path: filePath }));
     return;
   }
-
-  // Check if already imported
-  const alreadyImported = db.state.connections.find((c) => c.sharedConnectionId === connection.id);
-  if (alreadyImported) {
-    toast.info(`Connection already imported: ${connection.name}`);
-    return;
-  }
-
-  // Pick target project
-  const projectId = await pickTargetProject("connection", connection.name, db);
-  if (!projectId) return;
-
-  // Import the connection into the selected project
-  await db.projects.importSingleSharedConnection(connection, projectId);
-  toast.success(`Imported connection: ${connection.name}`);
+  await db.connectionTabs.open(connection);
 }
 
 async function handleProjectDeepLink(
-  repoId: string,
+  repo: LinkedRepo,
   filePath: string,
   db: DatabaseContext,
 ): Promise<void> {
   // Extract project dirName from path like .seaquel/projects/<dirName>
-  const dirName = filePath.replace(/\/$/, "").split("/").pop();
-  if (!dirName) {
-    errorToast("Invalid project path");
+  const dir = filePath.replace(/\/$/, "").split("/").pop();
+  if (!dir) {
+    errorToast(m.deep_link_invalid_project());
     return;
   }
-
-  const sharedProjects = db.state.sharedProjectsByRepo[repoId] ?? [];
-  const sharedProject = sharedProjects.find((p) => p.dirName === dirName);
-
-  if (!sharedProject) {
-    errorToast(`Project not found: ${dirName}`);
+  const projectId = await linkedProjectFor(repo, dir, db);
+  if (projectId) {
+    await db.projects.setActive(projectId);
+    const name = db.state.projects.find((p) => p.id === projectId)?.name ?? dir;
+    toast.info(m.deep_link_project_already_imported({ name }));
     return;
   }
-
-  // Check if already imported (project linked to same repo with matching dir)
-  const alreadyImported = db.state.projects.find((p) => {
-    if (!p.gitRepoPath) return false;
-    const repo = db.state.sharedRepos.find((r) => r.path === p.gitRepoPath);
-    return repo?.id === repoId;
-  });
-
-  if (alreadyImported) {
-    await db.projects.setActive(alreadyImported.id);
-    toast.info(`Project already imported: ${alreadyImported.name}`);
-    return;
-  }
-
-  const repo = db.state.sharedRepos.find((r) => r.id === repoId);
-  if (!repo) return;
-
-  await db.projects.importFromGitRepo(repo.path, [sharedProject]);
-  toast.success(`Imported project: ${sharedProject.name}`);
+  await importProjectDir(repo, dir, db);
 }
 
-/**
- * Pick which project to import a resource into.
- * Auto-selects if there's only one project, otherwise shows a picker dialog.
- */
-async function pickTargetProject(
-  resourceType: DeepLinkResourceType,
-  resourceName: string,
-  db: DatabaseContext,
-): Promise<string | null> {
-  const projects = db.state.projects;
-
-  if (projects.length === 1) {
-    return projects[0].id;
+/** Import one project directory of `repo` (Core links it and imports its templates). */
+async function importProjectDir(repo: LinkedRepo, dir: string, db: DatabaseContext): Promise<void> {
+  const preview = await db.sharedRepos.scan(repo.path);
+  const project = preview.projects.find((p) => p.dir === dir);
+  if (!project) {
+    errorToast(m.deep_link_project_not_found({ name: dir }));
+    return;
   }
-
-  // If there's an active project, offer it as default
-  return deepLinkProjectPickerStore.prompt(resourceType, resourceName);
+  try {
+    const ids = await db.projects.importProjects(repo.path, [dir]);
+    if (ids.length > 0) toast.success(m.deep_link_project_imported({ name: project.name }));
+  } catch (error) {
+    errorToast(error instanceof Error ? error.message : String(error));
+  }
 }

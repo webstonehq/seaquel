@@ -225,6 +225,45 @@ pub async fn with_name_key(r: impl Into<Reader<'_>>, key: &str) -> Result<Vec<su
     Ok(super::matching_key(rows, key))
 }
 
+/// [`set_shared_dir`]'s statement: by primary key.
+pub const SET_SHARED_DIR: &str = "UPDATE projects SET shared_dir = ?1 WHERE id = ?2";
+
+/// Stores the project's directory under `.seaquel/projects/` in its repo
+/// (migration `0004`; `None` clears it), and nothing else, so a rename
+/// never moves it (Q25). `false` when there's no project with that id.
+pub async fn set_shared_dir(tx: &mut WriteTx, id: &str, dir: Option<&str>) -> Result<bool> {
+    let done = sqlx::query(SET_SHARED_DIR)
+        .bind(dir)
+        .bind(id)
+        .execute(tx.conn())
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// The project's stored directory in its repo. `None` when it has none
+/// (the slug of its name then) or there's no such project.
+pub async fn shared_dir(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<String>> {
+    let mut conn = r.into().conn().await?;
+    let dir: Option<Option<String>> =
+        sqlx::query_scalar("SELECT shared_dir FROM projects WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(dir.flatten())
+}
+
+/// The ids of the projects linked to the repo at `path` (`git_repo_path`,
+/// compared exactly), in rowid order. Few rows, so a scan.
+pub async fn ids_with_repo_path(r: impl Into<Reader<'_>>, path: &str) -> Result<Vec<String>> {
+    let mut conn = r.into().conn().await?;
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM projects WHERE git_repo_path = ? AND id IS NOT NULL ORDER BY rowid",
+    )
+    .bind(path)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
 /// How many projects the file holds.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;

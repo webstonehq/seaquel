@@ -45,18 +45,20 @@ use seaquel_workspace::run::iso_timestamp;
 use seaquel_workspace::state::{
     self as st, AiProviderCreated, AiProviderDraft, AiProviderPatch, AiSettings, AiSettingsPatch,
     ChatDraft, ChatMessageDraft, ChatMessages, ChatPatch, CopiedFrom, DashboardDraft,
-    DashboardPatch, DashboardUpdated, SettingKey, ThemeCreated, Themes, WindowActive, WindowFrom,
-    WindowStateLoaded, WindowStateSaved, WorkflowDraft, AI_API_KEY_VAULT_SCOPE, AI_SETTINGS_KEY,
-    CHAT_NOT_FOUND, DASHBOARD_ID_PREFIX, DASHBOARD_NOT_FOUND, DASHBOARD_VERSION_ID_PREFIX,
-    DASHBOARD_VERSION_LIMIT_KEY, DASHBOARD_VERSION_NOT_FOUND, DEFAULT_DARK_THEME,
-    DEFAULT_LIGHT_THEME, LAST_ACTIVE_PROJECT_KEY, MAIN_WINDOW, THEME_ID_PREFIX, THEME_NOT_FOUND,
-    WINDOW_UNUSED_DAYS, WORKFLOW_ID_PREFIX, WORKFLOW_NOT_FOUND,
+    DashboardPatch, DashboardUpdated, SettingKey, StateLimits, ThemeCreated, Themes, WindowActive,
+    WindowFrom, WindowStateLoaded, WindowStateSaved, WorkflowDraft, AI_API_KEY_VAULT_SCOPE,
+    AI_SETTINGS_KEY, CHAT_NOT_FOUND, DASHBOARD_ID_PREFIX, DASHBOARD_NOT_FOUND,
+    DASHBOARD_VERSION_ID_PREFIX, DASHBOARD_VERSION_LIMIT_KEY, DASHBOARD_VERSION_NOT_FOUND,
+    DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, LAST_ACTIVE_PROJECT_KEY, MAIN_WINDOW, THEME_ID_PREFIX,
+    THEME_NOT_FOUND, WINDOW_UNUSED_DAYS, WORKFLOW_ID_PREFIX, WORKFLOW_NOT_FOUND,
 };
 use serde_json::value::RawValue;
 
 use crate::changes::WriteOrigin;
 use crate::library::{connection_not_found, new_id, project_not_found};
+use crate::projection::Publish;
 use crate::{Core, CoreError, Seqd, StoredKind, Workspace};
+use seaquel_workspace::shared::Kind;
 
 type Result<T> = std::result::Result<T, CoreError>;
 
@@ -128,7 +130,11 @@ impl Workspace {
         check_id(project_id, "project id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = dashboards::list(self.storage(), project_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// The versions of a project's dashboards without their snapshots
@@ -143,7 +149,11 @@ impl Workspace {
         check_id(project_id, "project id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = dashboard_versions::list_meta_by_project(self.storage(), project_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// One version of a dashboard, with its snapshot
@@ -168,7 +178,11 @@ impl Workspace {
         let value = dashboard_versions::get(self.storage(), dashboard_id, version_id)
             .await?
             .ok_or_else(dashboard_version_not_found)?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save a new dashboard (`dashboardCreate`) with a Core id.
@@ -189,31 +203,37 @@ impl Workspace {
         let row = st::dashboard_from_draft(id.clone(), &draft, &now);
         let mut tx = self.storage().write().await?;
         let ticket = self.take_seq();
-        check_count(
-            dashboards::count(&mut tx).await?,
-            stl.max_dashboards,
-            "max_dashboards",
-        )?;
-        project_exists(&mut tx, &row.project_id).await?;
-        let mut row = row;
-        if draft.rename_if_taken {
-            row.name = dashboard_free_name(&mut tx, &row.project_id, &row.name).await?;
-        } else {
-            dashboard_name_free(&mut tx, &row.project_id, &row.name, None).await?;
-        }
-        dashboards::insert(&mut tx, &row).await?;
-        let stored = dashboards::get(&mut tx, &id)
-            .await?
-            .ok_or_else(dashboard_not_found)?;
+        let stored = insert_dashboard_in(&mut tx, row, draft.rename_if_taken, &stl).await?;
         tx.commit().await?;
         let seq = self.announce(
             ticket,
             StoredKind::Dashboard,
             Some(stored.project_id.clone()),
-            Some(vec![id]),
+            Some(vec![id.clone()]),
             origin,
         );
-        Ok(Seqd { value: stored, seq })
+        let mut out = Seqd::new(stored, seq);
+        if out.value.shared {
+            // Decision 36: a dashboard created shared in a linked project
+            // gets its file.
+            out.projection = self
+                .publish_row(
+                    core,
+                    origin,
+                    &out.value.project_id.clone(),
+                    Publish::Dashboard {
+                        id: &id,
+                        renamed: false,
+                    },
+                )
+                .await;
+            if out.projection.is_some() {
+                if let Ok(Some(link)) = dashboards::link(self.storage(), &id).await {
+                    out.value.shared_path = link.path;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Change a dashboard (`dashboardUpdate`, Decision 21): only the
@@ -235,69 +255,58 @@ impl Workspace {
         check_id(id, "dashboard id", &libl)?;
         st::check_dashboard_patch(&patch, &libl, &stl)?;
         let (_, now) = clock(core)?;
-        let mut tx = self.storage().write().await?;
-        let ticket = self.take_seq();
-        let mut row = dashboards::get(&mut tx, id)
-            .await?
-            .ok_or_else(dashboard_not_found)?;
-        let snapshot = patch.capture_version.then(|| st::dashboard_snapshot(&row));
-        let before = st::dashboard_size(&row);
-        let renamed = st::apply_dashboard_patch(&mut row, &patch, &now);
-        // Past `max_dashboard_bytes` only when it grew: a dashboard stored
-        // before the limit stays editable.
-        st::check_dashboard_size(&row, Some(before), &stl)?;
-        if renamed {
-            dashboard_name_free(&mut tx, &row.project_id, &row.name, Some(id)).await?;
-        }
-        if !dashboards::update(&mut tx, &row).await? {
-            return Err(dashboard_not_found());
-        }
-        let mut version = None;
-        let mut pruned_version_ids = Vec::new();
-        if let Some(snapshot) = snapshot {
-            let v = dashboard_versions::append(
-                &mut tx,
-                &new_id(DASHBOARD_VERSION_ID_PREFIX),
-                id,
-                &snapshot,
-                &now,
-            )
-            .await?;
-            let limit = app_state::get(&mut tx, DASHBOARD_VERSION_LIMIT_KEY).await?;
-            let keep = lib::parse_version_limit(limit.as_deref());
-            let metas: Vec<VersionMeta> = dashboard_versions::list_meta(&mut tx, id)
+        // Phase 5e, Decision 37: unsharing deletes the file first (keeping
+        // its bytes), then writes the row; a failed write puts it back.
+        let unsharing = patch.shared == Some(false);
+        let pending = if unsharing {
+            self.unpublish_begin(core, Kind::Dashboard, id, true)
                 .await?
-                .into_iter()
-                .map(|m| VersionMeta {
-                    id: m.id,
-                    version: m.version,
-                    keyframe: m.keyframe,
-                    bytes: m.bytes,
-                })
-                .collect();
-            pruned_version_ids = lib::version_prune(&metas, keep, stl.max_dashboard_version_bytes);
-            dashboard_versions::delete_ids(&mut tx, id, &pruned_version_ids).await?;
-            version = Some(v);
+        } else {
+            None
+        };
+        let written = async {
+            let mut tx = self.storage().write().await?;
+            let ticket = self.take_seq();
+            let (updated, renamed) = update_dashboard_in(&mut tx, id, &patch, &now, &stl).await?;
+            tx.commit().await?;
+            Ok::<_, CoreError>((updated, renamed, ticket))
         }
-        let stored = dashboards::get(&mut tx, id)
-            .await?
-            .ok_or_else(dashboard_not_found)?;
-        tx.commit().await?;
+        .await;
+        let unpublished = if unsharing {
+            self.unpublish_end(core, origin, pending, written.is_ok())
+                .await
+        } else {
+            None
+        };
+        let (updated, renamed, ticket) = written?;
         let seq = self.announce(
             ticket,
             StoredKind::Dashboard,
-            Some(stored.project_id.clone()),
+            Some(updated.dashboard.project_id.clone()),
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd {
-            value: DashboardUpdated {
-                dashboard: stored,
-                version,
-                pruned_version_ids,
-            },
-            seq,
-        })
+        let mut out = Seqd::new(updated, seq);
+        out.projection = if unsharing {
+            unpublished
+        } else if out.value.dashboard.shared || out.value.dashboard.shared_path.is_some() {
+            // Q24: a viewport-only change plans no write.
+            self.publish_row(
+                core,
+                origin,
+                &out.value.dashboard.project_id.clone(),
+                Publish::Dashboard { id, renamed },
+            )
+            .await
+        } else {
+            None
+        };
+        if out.projection.is_some() {
+            if let Ok(Some(link)) = dashboards::link(self.storage(), id).await {
+                out.value.dashboard.shared_path = link.path;
+            }
+        }
+        Ok(out)
     }
 
     /// Remove a dashboard (`dashboardRemove`) and its versions (on every
@@ -310,15 +319,28 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.dashboardRemove", dashboard_id = log_id(id); "Remove a dashboard");
         check_id(id, "dashboard id", &core.library_limits())?;
-        let mut tx = self.storage().write().await?;
-        let ticket = self.take_seq();
-        let row = dashboards::get(&mut tx, id)
-            .await?
-            .ok_or_else(dashboard_not_found)?;
-        if !dashboards::delete(&mut tx, id).await? {
-            return Err(dashboard_not_found());
+        // Decision 37: a shared dashboard's file goes first, its bytes kept
+        // until the row is gone.
+        let pending = self
+            .unpublish_begin(core, Kind::Dashboard, id, false)
+            .await?;
+        let written = async {
+            let mut tx = self.storage().write().await?;
+            let ticket = self.take_seq();
+            let row = dashboards::get(&mut tx, id)
+                .await?
+                .ok_or_else(dashboard_not_found)?;
+            if !dashboards::delete(&mut tx, id).await? {
+                return Err(dashboard_not_found());
+            }
+            tx.commit().await?;
+            Ok::<_, CoreError>((row, ticket))
         }
-        tx.commit().await?;
+        .await;
+        let projection = self
+            .unpublish_end(core, origin, pending, written.is_ok())
+            .await;
+        let (row, ticket) = written?;
         let seq = self.announce(
             ticket,
             StoredKind::Dashboard,
@@ -326,8 +348,102 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection,
+        })
     }
+}
+
+/// A new dashboard's write inside `tx`: the count limit, its project and
+/// its name (the first free `"<name> (n)"` with `rename`), then the row.
+pub(crate) async fn insert_dashboard_in(
+    tx: &mut WriteTx,
+    mut row: PersistedDashboard,
+    rename: bool,
+    stl: &StateLimits,
+) -> Result<PersistedDashboard> {
+    check_count(
+        dashboards::count(&mut *tx).await?,
+        stl.max_dashboards,
+        "max_dashboards",
+    )?;
+    project_exists(&mut *tx, &row.project_id).await?;
+    if rename {
+        row.name = dashboard_free_name(tx, &row.project_id, &row.name).await?;
+    } else {
+        dashboard_name_free(tx, &row.project_id, &row.name, None).await?;
+    }
+    dashboards::insert(&mut *tx, &row).await?;
+    dashboards::get(&mut *tx, &row.id)
+        .await?
+        .ok_or_else(dashboard_not_found)
+}
+
+/// A dashboard patch inside `tx` (Decision 21): with `captureVersion`, a
+/// version of the stored dashboard first, then the prune. The answer and
+/// whether the name changed.
+pub(crate) async fn update_dashboard_in(
+    tx: &mut WriteTx,
+    id: &str,
+    patch: &DashboardPatch,
+    now: &str,
+    stl: &StateLimits,
+) -> Result<(DashboardUpdated, bool)> {
+    let mut row = dashboards::get(&mut *tx, id)
+        .await?
+        .ok_or_else(dashboard_not_found)?;
+    let snapshot = patch.capture_version.then(|| st::dashboard_snapshot(&row));
+    let before = st::dashboard_size(&row);
+    let renamed = st::apply_dashboard_patch(&mut row, patch, now);
+    // Past `max_dashboard_bytes` only when it grew: a dashboard stored
+    // before the limit stays editable.
+    st::check_dashboard_size(&row, Some(before), stl)?;
+    if renamed {
+        dashboard_name_free(tx, &row.project_id, &row.name, Some(id)).await?;
+    }
+    if !dashboards::update(&mut *tx, &row).await? {
+        return Err(dashboard_not_found());
+    }
+    let mut version = None;
+    let mut pruned_version_ids = Vec::new();
+    if let Some(snapshot) = snapshot {
+        let v = dashboard_versions::append(
+            &mut *tx,
+            &new_id(DASHBOARD_VERSION_ID_PREFIX),
+            id,
+            &snapshot,
+            now,
+        )
+        .await?;
+        let limit = app_state::get(&mut *tx, DASHBOARD_VERSION_LIMIT_KEY).await?;
+        let keep = lib::parse_version_limit(limit.as_deref());
+        let metas: Vec<VersionMeta> = dashboard_versions::list_meta(&mut *tx, id)
+            .await?
+            .into_iter()
+            .map(|m| VersionMeta {
+                id: m.id,
+                version: m.version,
+                keyframe: m.keyframe,
+                bytes: m.bytes,
+            })
+            .collect();
+        pruned_version_ids = lib::version_prune(&metas, keep, stl.max_dashboard_version_bytes);
+        dashboard_versions::delete_ids(&mut *tx, id, &pruned_version_ids).await?;
+        version = Some(v);
+    }
+    let stored = dashboards::get(&mut *tx, id)
+        .await?
+        .ok_or_else(dashboard_not_found)?;
+    Ok((
+        DashboardUpdated {
+            dashboard: stored,
+            version,
+            pruned_version_ids,
+        },
+        renamed,
+    ))
 }
 
 /// `NAME_TAKEN` naming the first other dashboard of the project whose name
@@ -387,7 +503,11 @@ impl Workspace {
         check_id(project_id, "project id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = saved_canvases::list_meta(self.storage(), project_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// One saved workflow as its stored JSON (`workflowGet`), byte for
@@ -400,7 +520,11 @@ impl Workspace {
             .await?
             .and_then(|row| row.data)
             .ok_or_else(workflow_not_found)?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save a new workflow (`workflowCreate`). Core sets its `id`,
@@ -441,6 +565,7 @@ impl Workspace {
         Ok(Seqd {
             value: raw(json),
             seq,
+            projection: None,
         })
     }
 
@@ -486,6 +611,7 @@ impl Workspace {
         Ok(Seqd {
             value: raw(json),
             seq,
+            projection: None,
         })
     }
 
@@ -538,6 +664,7 @@ impl Workspace {
                 bytes: json.len() as u64,
             },
             seq,
+            projection: None,
         })
     }
 
@@ -564,7 +691,11 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection: None,
+        })
     }
 }
 
@@ -586,6 +717,7 @@ impl Workspace {
         Ok(Seqd {
             value: st::read_connection_order(stored.as_deref()),
             seq,
+            projection: None,
         })
     }
 
@@ -618,6 +750,7 @@ impl Workspace {
         Ok(Seqd {
             value: connection_order,
             seq,
+            projection: None,
         })
     }
 }
@@ -634,7 +767,11 @@ impl Workspace {
         check_id(connection_id, "connection id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = ai_chats::list(self.storage(), connection_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// A chat's messages, by `timestamp` then the order they were first
@@ -658,6 +795,7 @@ impl Workspace {
                 full,
             },
             seq,
+            projection: None,
         })
     }
 
@@ -692,7 +830,11 @@ impl Workspace {
             Some(vec![id]),
             origin,
         );
-        Ok(Seqd { value: row, seq })
+        Ok(Seqd {
+            value: row,
+            seq,
+            projection: None,
+        })
     }
 
     /// Change a chat (`chatUpdate`): its title, and `touched` sets
@@ -726,7 +868,11 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: row, seq })
+        Ok(Seqd {
+            value: row,
+            seq,
+            projection: None,
+        })
     }
 
     /// Remove a chat and its messages (`chatRemove`).
@@ -752,7 +898,11 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection: None,
+        })
     }
 
     /// Upsert messages into a chat by their (GUI-made) ids
@@ -829,6 +979,7 @@ impl Workspace {
                 full,
             },
             seq,
+            projection: None,
         })
     }
 
@@ -861,6 +1012,7 @@ impl Workspace {
         Ok(Seqd {
             value: removed,
             seq,
+            projection: None,
         })
     }
 }
@@ -875,7 +1027,11 @@ impl Workspace {
         let k = SettingKey::parse(key)?;
         let seq = self.change_seq();
         let value = app_state::get(self.storage(), k.as_str()).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Set a setting (`settingSet`): the value is checked for the key, and
@@ -912,7 +1068,11 @@ impl Workspace {
             Some(vec![k.as_str().to_string()]),
             origin,
         );
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 }
 
@@ -930,7 +1090,11 @@ impl Workspace {
     pub async fn get_ai_settings(&self) -> Result<Seqd<Box<RawValue>>> {
         let seq = self.change_seq();
         let value = self.read_ai_settings(self.storage()).await?.to_raw();
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Rewrite the stored record inside `tx` with `change` applied: read
@@ -970,6 +1134,7 @@ impl Workspace {
         Ok(Seqd {
             value: settings.to_raw(),
             seq,
+            projection: None,
         })
     }
 
@@ -1043,6 +1208,7 @@ impl Workspace {
                         settings: settings.to_raw(),
                     },
                     seq,
+                    projection: None,
                 })
             }
             Err(e) => {
@@ -1114,6 +1280,7 @@ impl Workspace {
         Ok(Seqd {
             value: settings.to_raw(),
             seq,
+            projection: None,
         })
     }
 
@@ -1146,6 +1313,7 @@ impl Workspace {
         Ok(Seqd {
             value: settings.to_raw(),
             seq,
+            projection: None,
         })
     }
 
@@ -1254,7 +1422,11 @@ impl Workspace {
     pub async fn get_themes(&self) -> Result<Seqd<Themes>> {
         let seq = self.change_seq();
         let value = read_themes(Src::Pool(self.storage())).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Set the light and dark theme ids (`themePreferencesSet`).
@@ -1279,7 +1451,11 @@ impl Workspace {
         let value = read_themes(Src::Tx(&mut tx)).await?;
         tx.commit().await?;
         let seq = self.announce(ticket, StoredKind::Theme, None, None, origin);
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Add a user theme (`userThemeCreate`) with a Core id (`theme-<uuid>`),
@@ -1318,6 +1494,7 @@ impl Workspace {
         Ok(Seqd {
             value: ThemeCreated { id, themes: value },
             seq,
+            projection: None,
         })
     }
 
@@ -1355,7 +1532,11 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Remove a user theme (`userThemeRemove`). A preference that named it
@@ -1398,7 +1579,11 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 }
 
@@ -1423,6 +1608,7 @@ impl Workspace {
         Ok(Seqd {
             value: st::read_onboarding(stored.as_deref()),
             seq,
+            projection: None,
         })
     }
 
@@ -1453,14 +1639,22 @@ impl Workspace {
         onboarding::set(&mut tx, &merged).await?;
         tx.commit().await?;
         let seq = self.announce(ticket, StoredKind::Onboarding, None, None, origin);
-        Ok(Seqd { value: merged, seq })
+        Ok(Seqd {
+            value: merged,
+            seq,
+            projection: None,
+        })
     }
 
     /// Every tutorial progress row (`tutorialList`); `state` stays text.
     pub async fn list_tutorial(&self) -> Result<Seqd<Vec<TutorialProgress>>> {
         let seq = self.change_seq();
         let value = tutorial::list(self.storage()).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save one challenge's progress (`tutorialSave`), and answer every row.
@@ -1495,7 +1689,11 @@ impl Workspace {
             Some(vec![progress.lesson_id]),
             origin,
         );
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Delete a lesson's progress (`tutorialRemoveLesson`).
@@ -1519,7 +1717,11 @@ impl Workspace {
             Some(vec![lesson_id.to_string()]),
             origin,
         );
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Delete every tutorial progress row (`tutorialReset`).
@@ -1536,6 +1738,7 @@ impl Workspace {
         Ok(Seqd {
             value: Vec::new(),
             seq,
+            projection: None,
         })
     }
 
@@ -1545,7 +1748,11 @@ impl Workspace {
         st::check_import_source(source)?;
         let seq = self.change_seq();
         let value = import_state::get(self.storage(), source).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save one import source's state (`importStateSave`).
@@ -1579,7 +1786,11 @@ impl Workspace {
             Some(vec![source.to_string()]),
             origin,
         );
-        Ok(Seqd { value: state, seq })
+        Ok(Seqd {
+            value: state,
+            seq,
+            projection: None,
+        })
     }
 }
 
@@ -1636,7 +1847,11 @@ impl Workspace {
                 from: None,
             }
         };
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Make `project_id` the window's active project (`windowActivate`),
@@ -1666,7 +1881,11 @@ impl Workspace {
             Some(vec![window_id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection: None,
+        })
     }
 
     /// The window's view state of a project (`windowStateLoad`). Its own
@@ -1696,6 +1915,7 @@ impl Workspace {
                         copied_from: None,
                     },
                     seq,
+                    projection: None,
                 });
             }
         }
@@ -1718,6 +1938,7 @@ impl Workspace {
                         copied_from: None,
                     },
                     seq: self.change_seq(),
+                    projection: None,
                 });
             }
         }
@@ -1741,6 +1962,7 @@ impl Workspace {
                             copied_from: Some(CopiedFrom::Empty),
                         },
                         seq: self.change_seq(),
+                        projection: None,
                     });
                 }
             },
@@ -1765,6 +1987,7 @@ impl Workspace {
                 copied_from: Some(copied_from),
             },
             seq,
+            projection: None,
         })
     }
 
@@ -1850,6 +2073,7 @@ impl Workspace {
                     rev: put.rev,
                 },
                 seq: self.change_seq(),
+                projection: None,
             });
         }
         let skipped = project_state::write_legacy_mirror(&mut tx, &mirror).await?;
@@ -1883,6 +2107,7 @@ impl Workspace {
                 rev: put.rev,
             },
             seq,
+            projection: None,
         })
     }
 }

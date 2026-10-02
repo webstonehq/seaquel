@@ -38,7 +38,12 @@ async fn call(git: &Git, body: Json) -> Result<Json, RpcError> {
     let Request::Git(req) = parse_request(body.to_string().as_bytes())? else {
         panic!("not a git request: {body}");
     };
-    let res = dispatch_git(git, req).await?;
+    // No workspace and no `LocalFiles`: the calls that change the tree
+    // take the repo lock and nothing else (tests/shared.rs covers the
+    // workspace path).
+    static CORE: OnceLock<Core> = OnceLock::new();
+    let core = CORE.get_or_init(|| Core::builder().build());
+    let res = dispatch_git(core, None, git, req, &seaquel_rpc::WriteOrigin::none()).await?;
     Ok(serde_json::to_value(&res).unwrap())
 }
 
@@ -150,7 +155,10 @@ async fn init_commit_push_status_through_the_rpc() {
     )
     .await
     .unwrap();
-    assert_eq!(content, json!({"base": "", "ours": "", "theirs": ""}));
+    assert_eq!(
+        content,
+        json!({"base": "", "ours": "", "theirs": "", "oursDeleted": false, "theirsDeleted": false})
+    );
 }
 
 #[tokio::test]
@@ -284,4 +292,55 @@ async fn dispatch_git_logs_the_method_and_never_the_credentials() {
             && r.contains("code=CLONE_ERROR")),
         "{records:#?}"
     );
+}
+
+/// Probe fix 5 over the wire: a modify/delete conflict says which side
+/// deleted the file, and `resolveConflict` with `delete` deletes it
+/// instead of writing an empty file.
+#[tokio::test]
+async fn keeping_a_deletion_over_the_rpc_deletes_the_file() {
+    setup();
+    let dir = tempfile::tempdir().unwrap();
+    let git = Git::new(Some(dir.path().join("home")));
+    let origin = dir.path().join("origin.git");
+    git2::Repository::init_bare(&origin).unwrap();
+    let url = format!("file://{}", origin.display());
+    let a = dir.path().join("a");
+    git.clone_repo(&url, &a, None).await.unwrap();
+    std::fs::write(a.join("q.sql"), "base\n").unwrap();
+    git.commit_changes(&a, "base").await.unwrap();
+    git.push_repo(&a, None).await.unwrap();
+    let b = dir.path().join("b");
+    git.clone_repo(&url, &b, None).await.unwrap();
+    std::fs::remove_file(a.join("q.sql")).unwrap();
+    git.commit_changes(&a, "deleted").await.unwrap();
+    git.push_repo(&a, None).await.unwrap();
+    std::fs::write(b.join("q.sql"), "edited\n").unwrap();
+    git.commit_changes(&b, "edited").await.unwrap();
+    assert!(!git.pull_repo(&b, None).await.unwrap().success);
+
+    let b_path = path_str(&b);
+    let content = git_call(
+        &git,
+        "conflictContent",
+        json!({"path": b_path, "filePath": "q.sql"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(content["theirsDeleted"], true, "{content}");
+    git_call(
+        &git,
+        "resolveConflict",
+        json!({"path": b_path, "filePath": "q.sql", "resolution": "", "delete": true}),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !b.join("q.sql").exists(),
+        "keeping their deletion wrote a file"
+    );
+    let status = git_call(&git, "status", json!({"path": b_path}))
+        .await
+        .unwrap();
+    assert_eq!(status["has_conflicts"], false, "{status}");
 }

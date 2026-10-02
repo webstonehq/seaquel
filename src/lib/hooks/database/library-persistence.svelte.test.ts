@@ -42,9 +42,9 @@ const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { ConnectionManager } = await import("./connection-manager.svelte.js");
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
-const { queryNameToFilename } = await import("$lib/services/query-file-parser");
 const { TsLibrary } = await import("./library/ts-library");
 const { setLibrary, LibraryCallError } = await import("./library/index");
+const { setShared, NoShared } = await import("./shared/index");
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 
@@ -98,7 +98,6 @@ async function openTab(projectId = "p1", windowId = `win-${crypto.randomUUID()}`
     () => {},
   );
   projects.setConnectionManager(connections);
-  projects.setRemoveConnectionCallback((id, options) => connections.remove(id, options));
   await projects.initialize();
   await connections.initializePersistedConnections();
   await projects.setActive(projectId);
@@ -402,113 +401,15 @@ describe("dashboard version history", () => {
 });
 
 describe("shared saved queries", () => {
-  /** A tab whose saved query `q` is shared, over a fake repo of `.sql` files. */
-  async function sharedQueryTab() {
+  // Core writes, moves and deletes a shared query's file inside the library
+  // call (phase 5e, Decision 36); the GUI's side is `shared-gui.svelte.test.ts`.
+  it("renaming a shared query is one library call", async () => {
     const tab = await openTab();
-    const files = new Set<string>();
-    const ops: string[] = [];
-    const fileOf = (q: { name: string; folder?: string }) =>
-      `${q.folder ?? ""}/${queryNameToFilename(q.name)}`;
-    tab.savedQueries.setFileProjection({
-      writeQueryFile: async (q) => {
-        ops.push(`write ${fileOf(q)}`);
-        files.add(fileOf(q));
-      },
-      deleteQueryFile: async (q) => {
-        ops.push(`delete ${fileOf(q)}`);
-        files.delete(fileOf(q));
-      },
-    });
-    tab.state.queryTabsByProject = {
-      p1: [{ id: "t1", name: "Orders", query: "SELECT 1" } as never],
-    };
-    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1", "t1"))!;
+    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
     await tab.savedQueries.shareQuery(id);
-    ops.length = 0;
-    return { ...tab, files, ops, id };
-  }
-
-  it("renaming a shared query leaves one .sql file", async () => {
-    const { savedQueries, files, id } = await sharedQueryTab();
-    await savedQueries.renameQuery(id, "Big orders");
-    expect([...files]).toEqual(["/big-orders.sql"]);
-  });
-
-  it("renaming a shared query writes the new file before deleting the old one", async () => {
-    const { savedQueries, ops, id } = await sharedQueryTab();
-    await savedQueries.renameQuery(id, "Big orders");
-    expect(ops).toEqual(["write /big-orders.sql", "delete /orders.sql"]);
-  });
-
-  it("a rename that keeps the file name (only its case changes) deletes nothing", async () => {
-    const { savedQueries, files, ops, id } = await sharedQueryTab();
-    await savedQueries.renameQuery(id, "ORDERS");
-    expect(ops).toEqual(["write /orders.sql"]);
-    expect([...files]).toEqual(["/orders.sql"]);
-  });
-
-  it("a failed file write on save is shown as an error", async () => {
-    const { savedQueries } = await sharedQueryTab();
-    savedQueries.setFileProjection({
-      writeQueryFile: async () => {
-        throw new Error("EACCES");
-      },
-      deleteQueryFile: async () => {},
-    });
-    await savedQueries.saveQuery("Orders", "SELECT 2", "t1");
-    await vi.waitFor(() => expect(toasts).toEqual([expect.stringContaining("EACCES")]));
-  });
-
-  it("sharing is saved even when writing the file fails", async () => {
-    const tab = await openTab();
-    tab.savedQueries.setFileProjection({
-      writeQueryFile: async () => {
-        throw new Error("EACCES");
-      },
-      deleteQueryFile: async () => {},
-    });
-    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
-
-    await expect(tab.savedQueries.shareQuery(id)).rejects.toThrow("EACCES");
-
-    expect((await library.listSavedQueries("p1")).value[0].shared).toBe(true);
-  });
-
-  it("saving a shared query under a new name leaves one .sql file", async () => {
-    const { savedQueries, files } = await sharedQueryTab();
-    await savedQueries.saveQuery("Big orders", "SELECT 2", "t1");
-    await vi.waitFor(() => expect([...files]).toEqual(["/big-orders.sql"]));
-  });
-});
-
-describe("the git reconcile", () => {
-  it("a shared file whose name another saved query has is said, not dropped silently", async () => {
-    const tab = await openTab();
-    await tab.savedQueries.saveQuery("Orders", "SELECT 1");
-    tab.projects.setSharedQueryManager({
-      reconcileWithGitFiles: (_p: string, queries: unknown[]) => [
-        ...queries,
-        { id: "saved-temp", name: "ORDERS", query: "SELECT 2", projectId: "p1", shared: true },
-      ],
-    } as never);
-
-    await tab.projects.reconcileGitState("p1");
-
-    expect(toasts).toEqual([expect.stringContaining('shared query "ORDERS"')]);
-    expect(await storedQueryNames()).toEqual(["Orders"]);
-  });
-
-  it("a reconciled text change shows the version Core stored", async () => {
-    const tab = await openTab();
-    const id = (await tab.savedQueries.saveQuery("Orders", "SELECT 1"))!;
-    tab.projects.setSharedQueryManager({
-      reconcileWithGitFiles: (_p: string, queries: { id: string }[]) =>
-        queries.map((q) => (q.id === id ? { ...q, query: "SELECT 2" } : q)),
-    } as never);
-
-    await tab.projects.reconcileGitState("p1");
-
-    expect(tab.state.queryVersionsByProject.p1.map((v) => v.snapshot)).toEqual(["SELECT 1"]);
+    await tab.savedQueries.renameQuery(id, "Big orders");
+    expect(await storedQueryNames()).toEqual(["Big orders"]);
+    expect(toasts).toEqual([]);
   });
 });
 
@@ -547,56 +448,45 @@ describe("project removal", () => {
   });
 });
 
-describe("shared-connection imports", () => {
-  it("an imported shared connection joins the project's order with its maps", async () => {
+describe("unlinking a project", () => {
+  it("takes the connections Core removed out of the page and the project's order", async () => {
     const tab = await openTab();
-    await tab.projects.importSingleSharedConnection(
-      {
-        id: "shared-1",
-        name: "Prod",
-        type: "postgres",
-        host: "db",
-        port: 5432,
-        databaseName: "app",
-      } as never,
-      "p1",
-    );
-
-    const [connection] = tab.state.connections;
-    expect(connection.id).toMatch(/^conn-/);
-    expect(tab.state.connectionOrderByProject.p1).toEqual([connection.id]);
-    expect(tab.state.queryHistoryByConnection[connection.id]).toEqual([]);
-    expect((await library.listConnections()).value.map((c) => c.id)).toEqual([connection.id]);
-  });
-
-  it('a shared project whose name is taken is imported as "<name> (2)"', async () => {
-    const tab = await openTab();
-    tab.projects.setSharedRepoManager({
-      initRepo: async () => "repo-1",
-      loadQueriesFromRepo: async () => {},
-    } as never);
-    await tab.projects.importFromGitRepo("/repos/team", [{ name: "P1" } as never]);
-    expect(tab.state.projects.map((p) => p.name)).toContain("P1 (2)");
-  });
-});
-
-describe("clearing a project's git path", () => {
-  it("takes the connections it removes out of the project's connection order", async () => {
-    const tab = await openTab();
-    tab.state.sharedRepos = [{ id: "repo-1", path: "/repos/team" } as never];
-    tab.state.sharedProjectsByRepo = { "repo-1": [{ id: "sp" } as never] };
-    tab.state.sharedConnectionsByProject = { sp: [{ id: "shared-1" } as never] };
     const kept = await storedConnection("p1", "Kept");
-    const imported = await storedConnection("p1", "Prod", { sharedConnectionId: "shared-1" });
+    const imported = await storedConnection("p1", "Prod", {
+      sharedConnectionId: "repo-1:.seaquel/projects/p1/connections/prod.yaml",
+    });
     await tab.connections.refreshFromLibrary(null);
+    await library.setProjectSidebar("p1", [kept, imported]);
     tab.state.connectionOrderByProject = { p1: [kept, imported] };
-    tab.projects.setSharedRepoManager({ removeRepo: () => {} } as never);
-    await tab.projects.update("p1", { gitRepoPath: "/repos/team" });
-
-    await tab.projects.setGitRepoPath("p1", undefined);
+    // Core removes the template's connection and stores the order without
+    // it, in one transaction (phase 5e, Decision 40).
+    const none = new NoShared();
+    setShared({
+      listRepos: none.listRepos,
+      registerRepo: none.registerRepo,
+      updateRepo: none.updateRepo,
+      removeRepo: none.removeRepo,
+      linkProject: none.linkProject,
+      scan: none.scan,
+      importProjects: none.importProjects,
+      sync: none.sync,
+      unlinkPreview: async () => ({ importedConnectionIds: [imported] }),
+      unlinkProject: async () => {
+        await library.removeConnection(imported);
+        await library.setProjectSidebar("p1", [kept]);
+        return {
+          value: { removedConnectionIds: [imported], keptConnectionIds: [], repoRemoved: true },
+          seq: (await library.listConnections()).seq,
+        };
+      },
+    });
+    try {
+      await tab.projects.unlinkProject("p1", true);
+    } finally {
+      setShared(null);
+    }
 
     expect(tab.state.connectionOrderByProject.p1).toEqual([kept]);
     expect(tab.state.connections.map((c) => c.id)).toEqual([kept]);
-    expect((await library.listConnections()).value.map((c) => c.id)).toEqual([kept]);
   });
 });

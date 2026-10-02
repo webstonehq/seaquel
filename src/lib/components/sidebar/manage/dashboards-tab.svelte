@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ShareResource } from "./share-link.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { Button } from "$lib/components/ui/button";
@@ -20,7 +21,7 @@
 	import ResourceItem from "./resource-item.svelte";
 
 	interface Props {
-		oncopyShareLink: (resource: { repoId?: string; filePath?: string; name?: string; folder?: string }, resourceType: "dashboard") => Promise<void>;
+		oncopyShareLink: (resource: ShareResource, resourceType: "dashboard") => Promise<void>;
 	}
 
 	let { oncopyShareLink }: Props = $props();

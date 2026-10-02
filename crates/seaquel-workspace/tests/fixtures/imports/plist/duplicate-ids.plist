@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>ID</key>
+		<string>dup</string>
+		<key>ConnectionName</key>
+		<string>First</string>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<string>db.example.com</string>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<string>app</string>
+		<key>DatabaseUser</key>
+		<string>me</string>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<string>dup</string>
+		<key>ConnectionName</key>
+		<string>Second</string>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<string>db.example.com</string>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<string>other</string>
+		<key>DatabaseUser</key>
+		<string>me</string>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<string>own</string>
+		<key>ConnectionName</key>
+		<string>App</string>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<string>db.example.com</string>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<string>app</string>
+		<key>DatabaseUser</key>
+		<string>me</string>
+	</dict>
+</array>
+</plist>

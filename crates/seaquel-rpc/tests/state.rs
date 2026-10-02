@@ -969,10 +969,10 @@ fn a_retired_storage_method_is_unknown() {
             err.message
         );
     }
-    // What stays: the vault, the license, shared repos and the history.
+    // What stays: the vault, the license and the history (phase 5e moved
+    // the shared repos to the `shared` group).
     for (method, params) in [
         ("queryHistoryLoadByConnection", json!({"connectionId": "c"})),
-        ("sharedReposLoadAll", Json::Null),
         ("licenseLoad", Json::Null),
         ("vaultStateLoad", Json::Null),
         ("userCredentialsLoad", json!({"scope": "db", "key": "c"})),
@@ -1300,4 +1300,193 @@ async fn state_calls_log_group_method_and_code_only() {
             && r.contains("code=INVALID_ARGUMENT")),
         "{records:#?}"
     );
+}
+
+/// Phase 5e review, C1 and re-review R1: every library call that may
+/// publish a shared file runs on a 2 MiB thread, the size of a debug
+/// desktop build's tokio workers, through `dispatch_workspace`, on a Core
+/// with `LocalFiles` and a project linked to a real repo. The calls take
+/// every boxed path: a publish, a publish that finds a teammate's change
+/// (stale, then the sync and its row writes), and a stale unshare and
+/// remove. 768 KiB of the thread is taken first, so the calls must fit in
+/// the remaining 1.25 MiB (a caller's own frames need room too). A stack
+/// overflow aborts the process, which fails this test binary.
+#[test]
+fn library_calls_fit_a_2_mib_stack() {
+    #[inline(never)]
+    fn reserved<R>(f: impl FnOnce() -> R) -> R {
+        let pad = [0u8; RESERVED_KIB * 1024];
+        std::hint::black_box(&pad);
+        let r = f();
+        std::hint::black_box(&pad);
+        r
+    }
+    let worker = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            reserved(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(publishing_calls());
+            })
+        })
+        .unwrap();
+    worker.join().unwrap();
+}
+
+/// How much of the 2 MiB thread `library_calls_fit_a_2_mib_stack` takes
+/// before the calls run.
+const RESERVED_KIB: usize = 768;
+
+async fn publishing_calls() {
+    let env = files_env().await;
+    let project = env.project().await;
+    let repo = env._dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git2::Repository::init(&repo).unwrap();
+    env.ws
+        .shared_link_project(
+            &env.core,
+            &WriteOrigin::new(Some(WINDOW)),
+            &project,
+            &repo.to_string_lossy(),
+            &[],
+        )
+        .await
+        .unwrap();
+    let conn = env.connection(&project).await;
+    let on_disk = |shared_path: &Json| repo.join(shared_path.as_str().unwrap());
+    let teammate = |path: &std::path::Path, from: &str, to: &str| {
+        let text = std::fs::read_to_string(path).unwrap();
+        std::fs::write(path, text.replace(from, to)).unwrap();
+    };
+    let code = |v: &Json| v["projection"]["code"].as_str().map(str::to_string);
+
+    // A shared connection: its template is written.
+    let shared = env
+        .lib(
+            "connectionUpdate",
+            json!({"id": conn, "patch": {"isLocalOnly": false}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(shared["projection"]["status"], "written", "{shared}");
+    env.lib(
+        "connectionUpdate",
+        json!({"id": conn, "patch": {"host": "h2"}}),
+    )
+    .await
+    .unwrap();
+
+    // A saved query: written, then a stale update (publish → stale → sync
+    // → the row takes the file), then a stale unshare.
+    let q = env
+        .lib(
+            "savedQueryCreate",
+            json!({"query": {"projectId": project, "name": "Q", "query": "SELECT 1",
+                "shared": true}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(q["projection"]["status"], "written", "{q}");
+    let q_file = on_disk(&q["value"]["sharedPath"]);
+    let q = id_of(&q);
+    teammate(&q_file, "SELECT 1", "SELECT 'theirs'");
+    let stale = env
+        .lib(
+            "savedQueryUpdate",
+            json!({"id": q, "patch": {"query": "SELECT 2"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(code(&stale).as_deref(), Some("FILE_CHANGED"), "{stale}");
+    teammate(&q_file, "SELECT 'theirs'", "SELECT 'again'");
+    let stale = env
+        .lib(
+            "savedQueryUpdate",
+            json!({"id": q, "patch": {"shared": false}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(code(&stale).as_deref(), Some("FILE_CHANGED"), "{stale}");
+
+    // A dashboard: written, renamed, then a stale remove.
+    let d = env
+        .lib(
+            "dashboardCreate",
+            json!({"dashboard": {"projectId": project, "name": "D", "shared": true,
+                "widgets": [], "viewport": {"x":0,"y":0,"zoom":1}}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(d["projection"]["status"], "written", "{d}");
+    let d_id = id_of(&d);
+    let renamed = env
+        .lib(
+            "dashboardUpdate",
+            json!({"id": d_id, "patch": {"name": "D2"}}),
+        )
+        .await
+        .unwrap();
+    let d_file = on_disk(&renamed["value"]["dashboard"]["sharedPath"]);
+    teammate(
+        &d_file,
+        "\"widgets\": []",
+        "\"widgets\": [{\"id\": \"w9\"}]",
+    );
+    let stale = env
+        .lib("dashboardRemove", json!({"id": d_id}))
+        .await
+        .unwrap();
+    assert_eq!(code(&stale).as_deref(), Some("FILE_CHANGED"), "{stale}");
+
+    // The project's rename and the connection's removal.
+    env.lib(
+        "projectUpdate",
+        json!({"id": project, "patch": {"name": "Renamed"}}),
+    )
+    .await
+    .unwrap();
+    let removed = env
+        .lib("connectionRemove", json!({"id": conn}))
+        .await
+        .unwrap();
+    assert_eq!(removed["projection"]["status"], "deleted", "{removed}");
+}
+
+/// [`env`] with secrets, on a Core that may touch the user's files, with
+/// libgit2 kept away from the user's git config.
+async fn files_env() -> Env {
+    static ISOLATE: Once = Once::new();
+    static EMPTY: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    ISOLATE.call_once(|| {
+        let dir = EMPTY.get_or_init(|| tempfile::tempdir().unwrap());
+        for level in [
+            git2::ConfigLevel::Global,
+            git2::ConfigLevel::XDG,
+            git2::ConfigLevel::System,
+            git2::ConfigLevel::ProgramData,
+        ] {
+            // SAFETY: once, before this binary's other libgit2 calls.
+            unsafe { git2::opts::set_search_path(level, dir.path()).unwrap() };
+        }
+    });
+    let core = seaquel_core::with_plugins(|id| id == "postgres")
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
+        .local_files(seaquel_core::LocalFiles::Allowed)
+        .build();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(MemoryStore::new());
+    let ws = core
+        .open_workspace(WorkspaceSpec::new(dir.path()).with_secrets(store.clone()))
+        .await
+        .unwrap();
+    Env {
+        core,
+        ws,
+        store: Some(store),
+        _dir: dir,
+    }
 }

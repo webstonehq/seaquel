@@ -52,14 +52,6 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return invoke<UpdateInfo | null>("check_for_update_command");
 }
 
-export async function readDbeaverConfig(): Promise<string | null> {
-  return invoke<string | null>("read_dbeaver_config");
-}
-
-export async function readTablePlusConfig(): Promise<string | null> {
-  return invoke<string | null>("read_tableplus_config");
-}
-
 export async function getUsername(): Promise<string> {
   return invoke<string>("get_username");
 }

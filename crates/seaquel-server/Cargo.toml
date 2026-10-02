@@ -60,6 +60,12 @@ mime_guess = "2"
 libc = "0.2"
 
 [dev-dependencies]
+# tests/rpc_shared.rs: the server's Core refuses the `shared` and `imports`
+# groups (no `LocalFiles`) with Core's `git` and `imports` compiled in, as
+# a workspace test build's feature unification does. Dev only: the "Web
+# server dependencies" CI step reads the normal dependencies, which keep
+# neither git2 nor plist.
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace", "git", "imports"] }
 # The /rpc and /rpc/stream tests' fake "postgres" engine (`tests/common`):
 # the real Postgres dialect, no database behind it.
 seaquel-engine = { path = "../seaquel-engine" }

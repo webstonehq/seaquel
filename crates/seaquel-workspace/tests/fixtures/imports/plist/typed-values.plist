@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>ID</key>
+		<string>typed</string>
+		<key>ConnectionName</key>
+		<integer>42</integer>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<string>db</string>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<integer>7</integer>
+		<key>DatabaseUser</key>
+		<true/>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<integer>1234</integer>
+		<key>ConnectionName</key>
+		<string>Numeric id</string>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<string>db.example.com</string>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<string>app</string>
+		<key>DatabaseUser</key>
+		<string>me</string>
+	</dict>
+	<dict>
+		<key>ID</key>
+		<string>nested</string>
+		<key>ConnectionName</key>
+		<array>
+			<string>not</string>
+			<string>text</string>
+		</array>
+		<key>Driver</key>
+		<string>PostgreSQL</string>
+		<key>DatabaseHost</key>
+		<dict>
+			<key>a</key>
+			<integer>1</integer>
+		</dict>
+		<key>DatabasePort</key>
+		<string>5432</string>
+		<key>DatabaseName</key>
+		<string>app</string>
+		<key>DatabaseUser</key>
+		<string>me</string>
+	</dict>
+</array>
+</plist>

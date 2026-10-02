@@ -2,10 +2,6 @@ import type { Query, QueryTab, QueryParameter, QueryVersion } from "$lib/types";
 import type { ResolvedQueryVersion } from "$lib/types";
 import { resolveVersions } from "$lib/utils/query-versions";
 import type { DatabaseState } from "./state.svelte.js";
-import { queryNameToFilename } from "$lib/services/query-file-parser";
-import { extractErrorMessage } from "$lib/errors";
-import { errorToast } from "$lib/utils/toast";
-import { m } from "$lib/paraglide/messages.js";
 import {
   NEW,
   getLibrary,
@@ -24,18 +20,18 @@ import {
 } from "./library/convert.js";
 import { libraryError } from "./library/messages.js";
 import { libraryNameOf, refreshQueryVersions } from "./library/view.js";
+import { reportProjection } from "./shared/projection.js";
 
 /**
  * Manages queries (both local and shared): save, delete, share, unshare.
  * Queries are per-project. The library (Core on desktop and web) is the
  * source of truth: every change is one targeted call, written at once, and
- * Core numbers and prunes the versions. When shared=true, a .sql file is
- * maintained as a git projection.
+ * Core numbers and prunes the versions. In a linked project Core keeps a
+ * shared query's `.sql` file in step inside the same call (Decision 36), and
+ * what it did to the file is said (`reportProjection`).
  */
 export class SavedQueryManager {
   private removeTab: ((id: string) => void) | null = null;
-  private writeQueryFile: ((query: Query) => Promise<void>) | null = null;
-  private deleteQueryFile: ((query: Query) => Promise<void>) | null = null;
 
   /**
    * Saved queries are stored through the library, one targeted call per
@@ -49,14 +45,6 @@ export class SavedQueryManager {
 
   setRemoveTab(fn: (id: string) => void) {
     this.removeTab = fn;
-  }
-
-  setFileProjection(fns: {
-    writeQueryFile: (query: Query) => Promise<void>;
-    deleteQueryFile: (query: Query) => Promise<void>;
-  }) {
-    this.writeQueryFile = fns.writeQueryFile;
-    this.deleteQueryFile = fns.deleteQueryFile;
   }
 
   /**
@@ -90,14 +78,7 @@ export class SavedQueryManager {
       ? (this.state.queriesByProject[projectId] ?? []).find((q) => q.id === existingQueryId)
       : undefined;
     if (existingQuery) {
-      const updated = await this.update(projectId, existingQuery, { name, query, parameters });
-
-      // If shared, also update the .sql file
-      if (existingQuery.shared && updated) {
-        this.projectRenamedFile(existingQuery, updated).catch((err) =>
-          errorToast(m.shared_query_save_failed({ message: extractErrorMessage(err) })),
-        );
-      }
+      await this.update(projectId, existingQuery, { name, query, parameters });
 
       // Also update tab name if it differs
       if (tabId) this.renameTab(projectId, tabId, name);
@@ -107,7 +88,7 @@ export class SavedQueryManager {
     // Create new query
     let created: Query;
     try {
-      const { value, seq } = await this.state.librarySeqs.write([rowKey("savedQuery", NEW)], () =>
+      const answer = await this.state.librarySeqs.write([rowKey("savedQuery", NEW)], () =>
         getLibrary().createSavedQuery({
           projectId,
           name,
@@ -115,8 +96,9 @@ export class SavedQueryManager {
           ...(parameters ? { parameters } : {}),
         }),
       );
-      this.state.librarySeqs.note(rowKey("savedQuery", value.id), seq);
-      created = savedQueryFromWire(value);
+      this.state.librarySeqs.note(rowKey("savedQuery", answer.value.id), answer.seq);
+      created = savedQueryFromWire(answer.value);
+      reportProjection(answer, projectId);
     } catch (error) {
       throw libraryError(error, this.nameOf);
     }
@@ -168,7 +150,8 @@ export class SavedQueryManager {
   /**
    * Store `changes` to saved query `before` (only the fields that differ)
    * and show Core's answer: the row, the version it appended and the ones
-   * it pruned. Returns the updated query, or `before` when nothing changed.
+   * it pruned, and what it did to a shared query's file. Returns the
+   * updated query, or `before` when nothing changed.
    */
   private async update(
     projectId: string,
@@ -178,13 +161,13 @@ export class SavedQueryManager {
     const patch = savedQueryPatch(before, { ...before, ...changes });
     if (isEmptyPatch(patch)) return before;
     let result: SavedQueryUpdated;
+    let answer;
     try {
-      const { value, seq } = await this.state.librarySeqs.write(
-        [rowKey("savedQuery", before.id)],
-        () => getLibrary().updateSavedQuery(before.id, patch),
+      answer = await this.state.librarySeqs.write([rowKey("savedQuery", before.id)], () =>
+        getLibrary().updateSavedQuery(before.id, patch),
       );
-      this.state.librarySeqs.note(rowKey("savedQuery", before.id), seq);
-      result = value;
+      this.state.librarySeqs.note(rowKey("savedQuery", before.id), answer.seq);
+      result = answer.value;
     } catch (error) {
       throw libraryError(error, this.nameOf);
     }
@@ -204,13 +187,15 @@ export class SavedQueryManager {
       };
       await refreshQueryVersions(this.state, projectId);
     }
+    reportProjection(answer, projectId, { removal: patch.shared === false });
     return updated;
   }
 
   /**
    * Delete a saved query (its versions go with it) and close the tabs
-   * linked to it. A shared query's `.sql` file goes too. A refusal throws,
-   * worded for the user, and changes nothing.
+   * linked to it. Core deletes a shared query's `.sql` file first
+   * (Decision 37). A refusal throws, worded for the user, and changes
+   * nothing.
    */
   async deleteQuery(id: string): Promise<void> {
     if (!this.state.activeProjectId) return;
@@ -219,23 +204,18 @@ export class SavedQueryManager {
     const queries = this.state.queriesByProject[projectId] ?? [];
     const query = queries.find((q) => q.id === id);
 
+    let answer;
     try {
-      const { seq } = await this.state.librarySeqs.write([rowKey("savedQuery", id)], () =>
+      answer = await this.state.librarySeqs.write([rowKey("savedQuery", id)], () =>
         getLibrary().removeSavedQuery(id),
       );
-      this.state.librarySeqs.note(rowKey("savedQuery", id), seq);
+      this.state.librarySeqs.note(rowKey("savedQuery", id), answer.seq);
     } catch (error) {
       throw libraryError(error, this.nameOf);
     }
 
-    // If shared, delete the .sql file too
-    if (query?.shared) {
-      this.deleteQueryFile?.(query)?.catch((err) =>
-        console.error("[saved-queries] Failed to delete shared query file:", err),
-      );
-    }
-
     this.forget(projectId, id);
+    reportProjection(answer, query?.projectId ?? projectId, { removal: true });
 
     // Close any tabs linked to this query
     const tabs = this.state.queryTabsByProject[projectId] ?? [];
@@ -261,8 +241,8 @@ export class SavedQueryManager {
   }
 
   /**
-   * Rename a saved query (a linked tab's rename). A shared query's file is
-   * named after the query, so its old file goes and the new one is written.
+   * Rename a saved query (a linked tab's rename). Core moves a shared
+   * query's file with it.
    */
   async renameQuery(id: string, name: string): Promise<void> {
     const projectId = this.state.activeProjectId;
@@ -271,24 +251,7 @@ export class SavedQueryManager {
     const query = queries.find((q) => q.id === id);
     if (!query) return;
 
-    const updated = await this.update(projectId, query, { name });
-    if (query.shared) await this.projectRenamedFile(query, updated);
-  }
-
-  /**
-   * Write a shared query's `.sql` file after a change, then delete the file
-   * under its old name if the change moved it. Left behind, the old file
-   * would come back as a second query at the next reconcile. The new file is
-   * written first so a failure never leaves the query with no file, and the
-   * paths are compared ignoring case: on a case-insensitive disk a rename
-   * that only changes case is the same file, and deleting it would lose it.
-   */
-  private async projectRenamedFile(before: Query, after: Query): Promise<void> {
-    await this.writeQueryFile?.(after);
-    const path = (q: Query) => `${q.folder ?? ""}/${queryNameToFilename(q.name)}`.toLowerCase();
-    if (path(before) !== path(after)) {
-      await this.deleteQueryFile?.(before);
-    }
+    await this.update(projectId, query, { name });
   }
 
   /** @deprecated Use deleteQuery instead */
@@ -317,8 +280,9 @@ export class SavedQueryManager {
   }
 
   /**
-   * Share a query: store shared=true, then write the .sql file. The flag is
-   * stored first, so a failed file write can't leave it unsaved.
+   * Share a query: one call storing `shared`; in a linked project Core
+   * writes its `.sql` file after the row (a failed write is said, and the
+   * next sync writes it).
    */
   async shareQuery(queryId: string): Promise<void> {
     if (!this.state.activeProjectId) return;
@@ -328,14 +292,12 @@ export class SavedQueryManager {
     const query = queries.find((q) => q.id === queryId);
     if (!query || query.shared) return;
 
-    const updatedQuery = await this.update(projectId, query, { shared: true });
-
-    // Write the .sql file
-    await this.writeQueryFile?.(updatedQuery);
+    await this.update(projectId, query, { shared: true });
   }
 
   /**
-   * Unshare a query: delete the .sql file, then store shared=false.
+   * Unshare a query: one call; Core deletes its file before storing the
+   * row (Decision 37).
    */
   async unshareQuery(queryId: string): Promise<void> {
     if (!this.state.activeProjectId) return;
@@ -344,9 +306,6 @@ export class SavedQueryManager {
     const queries = this.state.queriesByProject[projectId] ?? [];
     const query = queries.find((q) => q.id === queryId);
     if (!query || !query.shared) return;
-
-    // Delete the .sql file first. If that fails nothing has changed yet.
-    await this.deleteQueryFile?.(query);
 
     await this.update(projectId, query, { shared: false });
   }

@@ -14,16 +14,13 @@ import { errorCode } from "$lib/core/client";
 import {
   getLibrary,
   rowKey,
-  takenByOf,
   DASHBOARD_NOT_FOUND,
   DASHBOARD_VERSION_NOT_FOUND,
-  NAME_TAKEN,
   NEW,
   type DashboardDraft,
   type DashboardPatch,
   type DashboardUpdated,
 } from "./library/index.js";
-import { extractErrorMessage } from "$lib/errors";
 import {
   dashboardFromWire,
   dashboardVersionFromWire,
@@ -31,6 +28,7 @@ import {
 } from "./library/convert.js";
 import { libraryErrorMessage, limitMessage, limitOf } from "./library/messages.js";
 import { closeDashboardTabs } from "./connection-tabs-cleanup.js";
+import { reportProjection } from "./shared/projection.js";
 
 export { stripWidgetRuntimeState } from "./dashboard-serialize.js";
 
@@ -41,24 +39,6 @@ function runKey(dashboardId: string, widgetId: string): string {
 /** The widgets as stored: without their run state (rows, loading, error). */
 function storedWidgets(widgets: readonly DashboardWidget[]) {
   return widgets.map(stripWidgetRuntimeState);
-}
-
-/** The fields the git reconcile copies, where `after` differs from `before`, as stored. */
-function reconcilePatch(before: Dashboard, after: Dashboard): DashboardPatch {
-  const patch: DashboardPatch = {};
-  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  if (!same(storedWidgets(before.widgets), storedWidgets(after.widgets))) {
-    patch.widgets = storedWidgets(after.widgets);
-  }
-  if (!same(before.viewport, after.viewport)) patch.viewport = after.viewport;
-  if ((before.description ?? null) !== (after.description ?? null)) {
-    patch.description = after.description ?? null;
-  }
-  if (!same(before.dateFilter ?? null, after.dateFilter ?? null)) {
-    patch.dateFilter = after.dateFilter ?? null;
-  }
-  if (before.shared !== after.shared) patch.shared = after.shared;
-  return patch;
 }
 
 /**
@@ -85,10 +65,6 @@ export class DashboardManager {
    * Closing the dashboard or removing the widget aborts it.
    */
   private runs = new Map<string, AbortController>();
-  private writeDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
-  private deleteDashboardFile: ((dashboard: Dashboard) => Promise<void>) | null = null;
-  /** Shared files skipped because a local dashboard has their name, told once each. */
-  private toldFileSkipped = new Set<string>();
   /** Dashboards refused as too large (Decision 27), told once each. */
   private toldTooLarge = new Set<string>();
   /** The pane manager's `syncGlobalActiveState`, for closing a deleted dashboard's tabs. */
@@ -110,14 +86,6 @@ export class DashboardManager {
 
   setSyncActive(fn: (tabId: string) => void): void {
     this.syncActive = fn;
-  }
-
-  setFileProjection(fns: {
-    writeDashboardFile: (dashboard: Dashboard) => Promise<void>;
-    deleteDashboardFile: (dashboard: Dashboard) => Promise<void>;
-  }) {
-    this.writeDashboardFile = fns.writeDashboardFile;
-    this.deleteDashboardFile = fns.deleteDashboardFile;
   }
 
   // === CRUD ===
@@ -154,12 +122,13 @@ export class DashboardManager {
   /** One `dashboardCreate`, shown in its project's list (once) as Core answered it. */
   private async create(projectId: string, draft: DashboardDraft): Promise<Dashboard> {
     const seqs = this.state.librarySeqs;
-    const { value, seq } = await seqs.write([rowKey("dashboard", NEW)], () =>
+    const answer = await seqs.write([rowKey("dashboard", NEW)], () =>
       getLibrary().createDashboard(draft),
     );
-    seqs.note(rowKey("dashboard", value.id), seq);
-    const dashboard = dashboardFromWire(value);
+    seqs.note(rowKey("dashboard", answer.value.id), answer.seq);
+    const dashboard = dashboardFromWire(answer.value);
     this.show(projectId, dashboard);
+    reportProjection(answer, projectId);
     return dashboard;
   }
 
@@ -174,77 +143,18 @@ export class DashboardManager {
     };
   }
 
-  /**
-   * Store what the shared-dashboard reconcile changed (re-survey bug 9:
-   * only what changed, compared in stored form), each shown as Core
-   * answers it; the reconcile's own list is never shown, so no placeholder
-   * can be opened or edited. A new `.json` file is one `dashboardCreate`,
-   * shared, under the file's exact name (a shared dashboard's name is its
-   * file's). When a local dashboard already has that name Core refuses it
-   * (`NAME_TAKEN`): the file is skipped and said once per file this
-   * session, naming both, since renaming the local one lets it appear. A
-   * changed one is a patch of the fields the reconcile copies. A failed
-   * one is said and the rest go on; nothing Core stored is dropped.
-   */
-  async storeReconciled(
-    projectId: string,
-    before: readonly Dashboard[],
-    after: readonly Dashboard[],
-  ): Promise<void> {
-    const byId = new Map(before.map((d) => [d.id, d]));
-    const seqs = this.state.librarySeqs;
-    for (const dashboard of after) {
-      const old = byId.get(dashboard.id);
-      try {
-        if (!old) {
-          await this.create(projectId, {
-            projectId,
-            name: dashboard.name,
-            widgets: storedWidgets(dashboard.widgets),
-            viewport: dashboard.viewport,
-            ...(dashboard.dateFilter ? { dateFilter: dashboard.dateFilter } : {}),
-            ...(dashboard.description !== undefined ? { description: dashboard.description } : {}),
-            shared: true,
-          });
-          continue;
-        }
-        const patch = reconcilePatch(old, dashboard);
-        if (Object.keys(patch).length === 0) continue;
-        const { value, seq } = await seqs.write([rowKey("dashboard", dashboard.id)], () =>
-          getLibrary().updateDashboard(dashboard.id, patch),
-        );
-        seqs.note(rowKey("dashboard", dashboard.id), seq);
-        this.show(projectId, dashboardFromWire(value.dashboard, this.getDashboard(dashboard.id)));
-      } catch (error) {
-        const takenBy = !old && errorCode(error) === NAME_TAKEN ? takenByOf(error) : undefined;
-        if (takenBy) {
-          // Once per file this session: the reconcile runs on every activation.
-          if (this.toldFileSkipped.has(dashboard.id)) continue;
-          this.toldFileSkipped.add(dashboard.id);
-          toast.warning(
-            m.dashboard_shared_name_taken({
-              name: dashboard.name,
-              local: this.getDashboard(takenBy)?.name ?? dashboard.name,
-            }),
-          );
-          continue;
-        }
-        void log.error(`Failed to save dashboard ${dashboard.id}:`, error);
-        errorToast(m.dashboard_save_failed({ message: libraryErrorMessage(error) }));
-      }
-    }
-  }
-
   async deleteDashboard(id: string): Promise<void> {
     const projectId = this.state.activeProjectId;
     if (!projectId) return;
 
-    // Remove the stored row first: if that fails the dashboard stays, as stored.
+    // One call: Core deletes a shared dashboard's file first (Decision 37);
+    // a refusal leaves the dashboard as stored.
+    let answer;
     try {
-      const { seq } = await this.state.librarySeqs.write([rowKey("dashboard", id)], () =>
+      answer = await this.state.librarySeqs.write([rowKey("dashboard", id)], () =>
         getLibrary().removeDashboard(id),
       );
-      this.state.librarySeqs.note(rowKey("dashboard", id), seq);
+      this.state.librarySeqs.note(rowKey("dashboard", id), answer.seq);
     } catch (error) {
       void log.error("Failed to delete dashboard:", error);
       errorToast(m.dashboard_delete_failed({ message: libraryErrorMessage(error) }));
@@ -254,19 +164,8 @@ export class DashboardManager {
     // Stop any auto-refresh timers
     const dashboard = this.getDashboard(id);
     this.forget(id);
-    if (dashboard) {
-      this.closeDashboard(id);
-      // Clean up git file for shared dashboards. The dashboard is gone
-      // either way; a file left behind is said.
-      if (dashboard.shared) {
-        try {
-          await this.deleteDashboardFile?.(dashboard);
-        } catch (error) {
-          void log.warn("Deleting a shared dashboard's file failed:", error);
-          errorToast(m.dashboard_delete_failed({ message: extractErrorMessage(error) }));
-        }
-      }
-    }
+    if (dashboard) this.closeDashboard(id);
+    reportProjection(answer, dashboard?.projectId ?? projectId, { removal: true });
   }
 
   /**
@@ -675,7 +574,7 @@ export class DashboardManager {
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
 
-    await this.writeDashboardFile?.(updated);
+    // One call: Core writes its file after the row (Decision 36).
     await this.save(id, { shared: true }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
@@ -688,14 +587,13 @@ export class DashboardManager {
     const dashboard = dashboards.find((d) => d.id === id);
     if (!dashboard || !dashboard.shared) return;
 
-    await this.deleteDashboardFile?.(dashboard);
-
     const updated = { ...dashboard, shared: false, updatedAt: new Date() };
     this.state.dashboardsByProject = {
       ...this.state.dashboardsByProject,
       [projectId]: dashboards.map((d) => (d.id === id ? updated : d)),
     };
 
+    // One call: Core deletes its file before the row (Decision 37).
     await this.save(id, { shared: false }, dashboard);
     this.scheduleProjectPersistence(projectId);
   }
@@ -850,12 +748,13 @@ export class DashboardManager {
     if (!dashboard) return false;
     const seqs = this.state.librarySeqs;
     let updated: DashboardUpdated;
+    let answer;
     try {
-      const { value, seq } = await seqs.write([rowKey("dashboard", id)], () =>
+      answer = await seqs.write([rowKey("dashboard", id)], () =>
         getLibrary().updateDashboard(id, patch),
       );
-      seqs.note(rowKey("dashboard", id), seq);
-      updated = value;
+      seqs.note(rowKey("dashboard", id), answer.seq);
+      updated = answer.value;
     } catch (error) {
       this.saveFailed(id, before.name, error);
       await this.restoreStored(id, patch, before);
@@ -863,6 +762,9 @@ export class DashboardManager {
     }
     this.toldTooLarge.delete(id);
     this.spliceVersions(dashboard.projectId, updated);
+    // Core writes a shared dashboard's file from the stored row inside the
+    // call (bug 1; not for a pan or zoom alone, Q24).
+    reportProjection(answer, dashboard.projectId, { removal: patch.shared === false });
     // The stored row, which holds other windows' changes to other fields,
     // shows unless a later edit here is still on its way (its answer will).
     if (!seqs.busy(rowKey("dashboard", id))) {

@@ -6,12 +6,19 @@ description = "Seaquel git operations for shared projects: clone, pull, push, st
 
 [dependencies]
 seaquel-types = { path = "../seaquel-types" }
+# `tree`: the shared projection's file operations and scan types, and the
+# hash a write's `expect_hash` is checked against (phase 5e).
+seaquel-workspace = { path = "../seaquel-workspace" }
 dirs = { workspace = true }
 git2 = { workspace = true }
 log = { workspace = true }
+serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt"] }
 
+# `tree` opens files with `O_NOFOLLOW` (Decision 32).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
-serde_json = { workspace = true }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

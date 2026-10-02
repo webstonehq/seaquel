@@ -5,4 +5,11 @@
  * TypeScript builds itself. `dateFilter` always loads (`null` when unset);
  * a NULL `starred` loads as `false`.
  */
-export type PersistedDashboard = { id: string, projectId: string, name: string, viewport: string, widgets: string, dateFilter?: string | null, starred?: boolean, shared?: boolean, description?: string, createdAt: string, updatedAt: string, };
+export type PersistedDashboard = { id: string, projectId: string, name: string, viewport: string, widgets: string, dateFilter?: string | null, starred?: boolean, shared?: boolean, description?: string, createdAt: string, updatedAt: string, 
+/**
+ * The repo-relative path of its shared file (`dashboards.shared_path`,
+ * migration `0004`), once Core has synced or written it. Read only:
+ * storage writes it through `dashboards::set_link`, never from this
+ * field.
+ */
+sharedPath?: string, };

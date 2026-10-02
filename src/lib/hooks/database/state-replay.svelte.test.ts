@@ -47,7 +47,6 @@ const rec = vi.hoisted(() => {
     toasts: [] as { kind: string; message: string }[],
     secretCalls: [] as { method: string; key: string; value?: string }[],
     secrets: new Map<string, string>(),
-    files: [] as Record<string, unknown>[],
     ai: null as null | ((p: unknown) => Promise<void>),
     /** What a workflow query node's run answers. */
     workflowRows: (() => []) as () => Record<string, unknown>[],
@@ -92,14 +91,6 @@ vi.mock("$lib/engine", () => ({
 vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
   sshHostKeyPromptStore: { prompt: async () => true },
 }));
-vi.mock("$lib/services/git", () => ({ getRemoteUrl: async () => null }));
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  mkdir: async () => {},
-  rename: async () => {},
-  exists: async () => false,
-  writeTextFile: async () => {},
-}));
-vi.mock("@tauri-apps/api/path", () => ({ join: async (...p: string[]) => p.join("/") }));
 vi.mock("$lib/services/ai", () => ({
   sendAIMessage: (p: unknown) => (rec.ai ? rec.ai(p) : Promise.resolve()),
 }));
@@ -981,10 +972,7 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
   const panes = new PaneManager(state, schedule);
   const tabs = new TabOrderingManager(state, schedule, panes);
   const restoration = new StateRestorationManager(state);
-  const projects = new ProjectManager(state, windowState, restoration, {
-    storeReconciled: (projectId, before, after) =>
-      dashboards.storeReconciled(projectId, before, after),
-  });
+  const projects = new ProjectManager(state, windowState, restoration);
   const aiChats = new AIChatManager(
     state,
     (chatId) => restoration.loadAIChatMessages(chatId),
@@ -996,11 +984,6 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
     async () => [{ total: 1n, day: "2030-01-01" }],
     schedule,
   );
-  dashboards.setFileProjection({
-    writeDashboardFile: async (d) => void rec.files.push({ call: "writeDashboardFile", id: d.id }),
-    deleteDashboardFile: async (d) =>
-      void rec.files.push({ call: "deleteDashboardFile", id: d.id }),
-  });
   dashboards.setSyncActive((tabId) => panes.syncGlobalActiveState(tabId));
   dashboardTabs.setOnClose((id) => dashboards.closeDashboard(id));
   const ui = new UIStateManager(
@@ -1064,7 +1047,6 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
     () => {},
     () => ui.resetAISessionState(),
   );
-  projects.setRemoveConnectionCallback((id, options) => connections.remove(id, options));
   projects.setStarterTabManager(starterTabs);
   projects.setConnectionManager(connections);
   /** `UseDatabase.flush`: the view state, then a chat still streaming. */
@@ -1116,8 +1098,8 @@ async function importStores() {
     theme: (await import("$lib/stores/theme.svelte")).themeStore,
     onboarding: (await import("$lib/stores/onboarding.svelte")).onboardingStore,
     tutorial: (await import("$lib/stores/tutorial-progress.svelte")).tutorialProgressStore,
-    tableplus: (await import("$lib/stores/tableplus-import.svelte")).tablePlusImportStore,
-    dbeaver: (await import("$lib/stores/dbeaver-import.svelte")).dbeaverImportStore,
+    tableplus: (await import("$lib/stores/connection-import.svelte")).tablePlusImportStore,
+    dbeaver: (await import("$lib/stores/connection-import.svelte")).dbeaverImportStore,
     editor: (await import("$lib/stores/editor-settings.svelte")).editorSettingsStore,
     pending: (await import("$lib/stores/pending-changes-settings.svelte"))
       .pendingChangesSettingsStore,
@@ -1590,7 +1572,6 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
   rec.env.web = !!c.web;
   rec.toasts.length = 0;
   rec.secretCalls.length = 0;
-  rec.files.length = 0;
   rec.secrets = new Map(Object.entries(c.secrets ?? {}));
   rec.ai = null;
   rec.workflowRows = () => [];
@@ -1630,7 +1611,6 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
       const recorded = fx.steps[i];
       rec.toasts.length = 0;
       rec.secretCalls.length = 0;
-      rec.files.length = 0;
       let ok: boolean;
       try {
         await step.run(t, ids);
@@ -1659,11 +1639,8 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
           why.push(`${table}:\n  expected ${JSON.stringify(e)}\n  actual   ${JSON.stringify(a)}`);
         }
       }
-      if (!valueMatches(recorded.files, plain(rec.files), b)) {
-        why.push(
-          `files: expected ${JSON.stringify(recorded.files)}, got ${JSON.stringify(rec.files)}`,
-        );
-      }
+      // `files` (a shared dashboard's file calls) aren't compared: Core
+      // writes a shared row's file inside the library call since phase 5e.
       const expectedView = change && "view" in change ? change.view : recorded.view;
       if (expectedView !== null && !EXEMPT[`${c.name}#${i} view`]) {
         const shown = plain(await view(t));

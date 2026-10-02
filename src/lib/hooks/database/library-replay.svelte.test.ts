@@ -3,10 +3,9 @@
  * fixtures README's "TypeScript replay"): every case's `op` with its `args`
  * runs through the real managers, wired as `UseDatabase` wires them, over
  * the demo's `TsLibrary` on an in-memory sql.js file, with the recorder's
- * stubs (providers, engine client, shared repos, file projection) and clock.
+ * stubs (providers, engine client) and clock.
  *
- * After every step it compares `outcome.ok`, the shared-repo and file calls
- * (`files`) in order, what the window shows (`view`), and the rows as the
+ * After every step it compares `outcome.ok`, what the window shows (`view`), and the rows as the
  * Rust replay does (the library tables whole, the cascade tables by id, no
  * state of a removed project), with `changes.json`'s expected steps in
  * place of the recorded ones. `view` isn't compared for a step whose
@@ -17,6 +16,12 @@
  * - `add/keychain-failure` step 0: it injects a keychain failure, and the
  *   demo has no keychain.
  * - `add/web-vault-cancelled`: a web case (its `library` is `null`).
+ * - Phase 5e moved the shared projection and the imports to Core: the
+ *   cases built on `RETIRED_OPS` (linking a git path, importing shared
+ *   projects or templates, the TablePlus/DBeaver import) aren't replayed
+ *   here (Core's `shared`/`imports` tests and the 5e fixtures pin them), and
+ *   the recorded file calls (`files`) aren't compared: Core writes the files
+ *   inside the library calls.
  *
  * The injected "Broken" import fails its `connectionCreate`, the demo's
  * equivalent of the recorder's failed storage save.
@@ -24,12 +29,10 @@
 import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { StorageClient } from "$lib/storage/client";
-import type { DatabaseConnection, SharedConnection, SharedProject } from "$lib/types";
 
 const rec = vi.hoisted(() => ({
   storage: null as unknown,
   toasts: [] as { kind: string; message: string }[],
-  files: [] as Record<string, unknown>[],
 }));
 
 vi.mock("$lib/storage", () => ({ getStorage: () => rec.storage }));
@@ -47,13 +50,6 @@ vi.mock("$lib/engine", () => ({
 }));
 vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
   sshHostKeyPromptStore: { prompt: async () => true },
-}));
-vi.mock("$lib/services/git", () => ({ getRemoteUrl: async () => null }));
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  mkdir: async () => {},
-  rename: async () => {},
-  exists: async () => false,
-  writeTextFile: async () => {},
 }));
 vi.mock("@tauri-apps/api/path", () => ({ join: async (...p: string[]) => p.join("/") }));
 vi.mock("svelte-sonner", () => {
@@ -86,7 +82,6 @@ const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { LabelManager } = await import("./label-manager.svelte.js");
 const { ConnectionManager } = await import("./connection-manager.svelte.js");
-const { queryNameToFilename } = await import("$lib/services/query-file-parser");
 const { TsLibrary } = await import("./library/ts-library");
 const { setLibrary } = await import("./library/index");
 const {
@@ -109,8 +104,28 @@ type Obj = Record<string, Json>;
 type Db = Awaited<ReturnType<typeof openCaseDb>>;
 type Outcome = { ok: true; value: Json } | { ok: false; code: string; takenBy?: string };
 
-/** Steps the demo can't replay (see the header). */
-const SKIPPED = new Set(["add/keychain-failure#0"]);
+/**
+ * Steps the demo can't replay (see the header), and one the shared switch
+ * no longer makes: `local-only/toggle-off-and-on#1` clicked the switch of an
+ * unlinked connection a second time, which flipped it back to local-only.
+ * Since the Task 7 review (I2) the switch shows "shared" only for a
+ * connection with a template link, so a click on an unlinked one always
+ * shares it (`isLocalOnly: false`). The Rust replays send the recorded
+ * `connectionUpdate` and still cover the stored write.
+ */
+const SKIPPED = new Set(["add/keychain-failure#0", "local-only/toggle-off-and-on#1"]);
+
+/** Steps replayed once the `RETIRED_OPS` cases are left out (145 before phase 5e). */
+const STEPS_REPLAYED = 133;
+
+/** The ops whose work moved to Core in phase 5e (see the header). */
+const RETIRED_OPS = new Set([
+  "projects.setGitRepoPath",
+  "projects.importFromGitRepo",
+  "projects.importSharedConnections",
+  "projects.importSingleSharedConnection",
+  "connections.importConnections",
+]);
 
 /**
  * Differences Task 6 makes that `changes.json` doesn't list, each for one
@@ -162,76 +177,6 @@ afterAll(() => {
 
 // ---------------------------------------------------------------- the page
 
-/** The recorder's recording shared-repo stub. */
-function sharedRepoStub(state: InstanceType<typeof DatabaseState>) {
-  const push = (r: Record<string, unknown>) => rec.files.push(r);
-  return {
-    updateSharedConnection: async (oldName: string, c: DatabaseConnection) =>
-      push({ call: "updateSharedConnection", oldName, id: c.id, name: c.name }),
-    shareConnection: async (c: DatabaseConnection) => push({ call: "shareConnection", id: c.id }),
-    unshareConnection: async (c: DatabaseConnection) =>
-      push({ call: "unshareConnection", id: c.id }),
-    initRepo: async (name: string, path: string) => {
-      push({ call: "initRepo", name, path });
-      const id = "repo-new";
-      state.sharedRepos = [
-        ...state.sharedRepos,
-        { id, name, path, remoteUrl: "", branch: "main", lastSyncAt: null, syncStatus: "synced" },
-      ] as never;
-      return id;
-    },
-    loadQueriesFromRepo: async (id: string) => push({ call: "loadQueriesFromRepo", repoId: id }),
-    setRemoteUrl: async (id: string, url: string) =>
-      push({ call: "setRemoteUrl", repoId: id, url }),
-    exportProject: async (repoId: string, projectName: string, conns: DatabaseConnection[]) =>
-      push({ call: "exportProject", repoId, projectName, connectionIds: conns.map((c) => c.id) }),
-    removeRepo: (id: string) => push({ call: "removeRepo", repoId: id }),
-  };
-}
-
-/** The recorder's team repo, in memory. */
-function seedSharedRepo(state: InstanceType<typeof DatabaseState>) {
-  state.sharedRepos = [
-    {
-      id: "repo-1",
-      name: "team",
-      path: "/repos/team",
-      remoteUrl: "",
-      branch: "main",
-      lastSyncAt: null,
-      syncStatus: "synced",
-    },
-  ] as never;
-  const project = {
-    id: "repo-1:.seaquel/projects/team",
-    repoId: "repo-1",
-    name: "Team",
-    dirName: "team",
-  } as SharedProject;
-  state.sharedProjectsByRepo = { "repo-1": [project] };
-  const shared = (id: string, name: string, extra: Partial<SharedConnection> = {}) =>
-    ({
-      id,
-      repoId: "repo-1",
-      projectId: project.id,
-      filePath: `.seaquel/projects/team/connections/${name}.yaml`,
-      name,
-      type: "postgres",
-      host: "db.internal",
-      port: 5432,
-      databaseName: "app",
-      ...extra,
-    }) as SharedConnection;
-  state.sharedConnectionsByProject = {
-    [project.id]: [
-      shared("repo-1:prod", "Prod", { sslMode: "require" }),
-      shared("repo-1:bastion", "Behind bastion", {
-        sshTunnel: { host: "bastion", port: 22 } as never,
-      }),
-    ],
-  };
-}
-
 /** One window: the managers over the case's database, wired as `UseDatabase` wires them. */
 async function openPage(load: boolean) {
   const state = new DatabaseState();
@@ -241,14 +186,6 @@ async function openPage(load: boolean) {
   const projects = new ProjectManager(state, windowState, restoration);
   const labels = new LabelManager(state);
   const savedQueries = new SavedQueryManager(state, (id) => windowState.scheduleProject(id));
-  const fileOf = (q: { id: string; name: string; folder?: string }) => ({
-    id: q.id,
-    path: `${q.folder ?? ""}/${queryNameToFilename(q.name)}`,
-  });
-  savedQueries.setFileProjection({
-    writeQueryFile: async (q) => void rec.files.push({ call: "writeQueryFile", ...fileOf(q) }),
-    deleteQueryFile: async (q) => void rec.files.push({ call: "deleteQueryFile", ...fileOf(q) }),
-  });
   let coreSeq = 0;
   const provider = {
     connect: async () => `core-${++coreSeq}`,
@@ -265,10 +202,6 @@ async function openPage(load: boolean) {
     () => {},
   );
   projects.setConnectionManager(connections);
-  projects.setRemoveConnectionCallback((id, options) => connections.remove(id, options));
-  const repos = sharedRepoStub(state);
-  projects.setSharedRepoManager(repos as never);
-  connections.setSharedRepoManager(repos as never);
   if (load) {
     await projects.initialize();
     await connections.initializePersistedConnections();
@@ -391,27 +324,6 @@ async function runOp(t: Page, op: string, rawArgs: Json, cx: Ctx): Promise<Json>
     case "connections.toggleLocalOnly":
       await t.connections.toggleLocalOnly(a.connectionId as string);
       return null;
-    case "connections.importConnections": {
-      const inject = cx.step.inject as string | undefined;
-      const failName = inject?.match(/the save of "([^"]+)" fails/)?.[1];
-      const lib = libraryOf(cx);
-      if (failName) {
-        const create = lib.createConnection.bind(lib);
-        const spy = vi
-          .spyOn(lib, "createConnection")
-          .mockImplementation((draft, secrets) =>
-            draft.name === failName
-              ? Promise.reject(new Error("STORAGE_ERROR: disk full"))
-              : create(draft, secrets),
-          );
-        try {
-          return await t.connections.importConnections(a.drafts as never);
-        } finally {
-          spy.mockRestore();
-        }
-      }
-      return await t.connections.importConnections(a.drafts as never);
-    }
     case "connections.initializePersistedConnections":
       await t.connections.initializePersistedConnections();
       return null;
@@ -446,9 +358,6 @@ async function runOp(t: Page, op: string, rawArgs: Json, cx: Ctx): Promise<Json>
       await t.projects.update(a.id as string, undef({ ...updates }) as never);
       return null;
     }
-    case "projects.setGitRepoPath":
-      await t.projects.setGitRepoPath(a.id as string, a.path as string | undefined);
-      return null;
     case "projects.remove":
       return await t.projects.remove(a.id as string);
     case "projects.addCustomLabel": {
@@ -466,27 +375,6 @@ async function runOp(t: Page, op: string, rawArgs: Json, cx: Ctx): Promise<Json>
     case "projects.removeCustomLabel":
       await t.projects.removeCustomLabel(a.projectId as string, a.labelId as string);
       return null;
-    case "projects.importFromGitRepo": {
-      const base = t.state.sharedProjectsByRepo["repo-1"][0];
-      const selected = (a.selected as Obj[]).map((s) => ({ ...base, name: s.name as string }));
-      const made = await t.projects.importFromGitRepo(a.repoPath as string, selected);
-      cx.created.push(...made);
-      return made;
-    }
-    case "projects.importSharedConnections":
-      t.state.projects = t.state.projects.map((p) =>
-        p.id === a.projectId ? { ...p, gitRepoPath: "/repos/team" } : p,
-      );
-      await t.projects.importSharedConnections(a.projectId as string);
-      return null;
-    case "projects.importSingleSharedConnection": {
-      const sc = Object.values(t.state.sharedConnectionsByProject)
-        .flat()
-        .find((c) => c.id === a.sharedConnectionId)!;
-      await t.projects.importSingleSharedConnection(sc, a.projectId as string);
-      await t.projects.importSingleSharedConnection(sc, a.projectId as string);
-      return null;
-    }
     case "savedQueries.saveQuery": {
       if (Array.isArray(a.saves)) {
         tabWith(t, "t1");
@@ -547,11 +435,6 @@ async function runOp(t: Page, op: string, rawArgs: Json, cx: Ctx): Promise<Json>
   }
 }
 
-const libraries = new WeakMap<Db, InstanceType<typeof TsLibrary>>();
-function libraryOf(cx: Ctx): InstanceType<typeof TsLibrary> {
-  return libraries.get(cx.db)!;
-}
-
 /** The ids a step made, from the rows it left (library ids the case didn't have before). */
 function madeIds(before: Set<string>, rows: Record<string, Record<string, unknown>[]>): string[] {
   const out: string[] = [];
@@ -591,22 +474,20 @@ describe("the library fixtures through the view models", () => {
     for (const file of FILES) {
       for (const c of load(file)) {
         if (c.target === "web") continue; // add/web-vault-cancelled: see the header
+        if ((c.steps as Obj[]).some((s) => RETIRED_OPS.has(s.op as string))) continue;
         cases++;
         const name = c.name as string;
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: FIXED });
         try {
           const db = await openCaseDb(SQL, c);
           const lib = new TsLibrary(db);
-          libraries.set(db, lib);
           setLibrary(lib);
           rec.storage = createSqljsStorageClient(db) as StorageClient;
           const steps0 = c.steps as Obj[];
           const load0 = steps0[0]?.op !== "projects.initialize";
           const t = await openPage(load0);
-          if (c.sharedRepo) seedSharedRepo(t.state);
           await settle();
           rec.toasts.length = 0;
-          rec.files.length = 0;
           const bound = new Map<string, string>();
           const cx: Ctx = { case: c, step: {}, created: [], db };
           const started = FIXED.toISOString();
@@ -637,7 +518,6 @@ describe("the library fixtures through the view models", () => {
               outcome: expOutcome,
               rows: expectedRows(step.rows as Obj, entry),
             };
-            const files = [...rec.files];
             const shown = view(t);
             // Rows only: the outcome is compared by `ok` below (the
             // managers' errors are worded for the user).
@@ -650,11 +530,8 @@ describe("the library fixtures through the view models", () => {
                 started,
               });
             const fits = (b: Map<string, string>) =>
-              rowsWhyFor(b) === null &&
-              matches(step.files, files, { bound: b, started }) &&
-              (!!entry?.rows || viewMatches(step.view, shown, b));
-            bindStep(bound, [expected.outcome, expected.rows, step.files, step.view], fresh, fits);
-            const ctx = { bound, started };
+              rowsWhyFor(b) === null && (!!entry?.rows || viewMatches(step.view, shown, b));
+            bindStep(bound, [expected.outcome, expected.rows, step.view], fresh, fits);
             const why: string[] = [];
             // `outcome.ok` only: the managers' errors are worded for the user.
             const exempt = (field: string) => EXEMPT.has(`${name}#${i} ${field}`);
@@ -665,11 +542,6 @@ describe("the library fixtures through the view models", () => {
             }
             const rowsWhy = rowsWhyFor(bound);
             if (rowsWhy) why.push(rowsWhy);
-            if (!matches(step.files, files, ctx)) {
-              why.push(
-                `files: expected ${JSON.stringify(step.files)}\n  actual   ${JSON.stringify(files)}`,
-              );
-            }
             if (!entry?.rows && !exempt("view") && !viewMatches(step.view, shown, bound)) {
               why.push(
                 `view: expected ${JSON.stringify(step.view)}\n  actual   ${JSON.stringify(shown)}`,
@@ -679,7 +551,6 @@ describe("the library fixtures through the view models", () => {
             if (why.length)
               failures.push(`${name} step ${i} (${String(step.op)}):\n${why.join("\n")}`);
             rec.toasts.length = 0;
-            rec.files.length = 0;
             known = new Set([...known, ...fresh]);
           }
         } finally {
@@ -696,7 +567,8 @@ describe("the library fixtures through the view models", () => {
     expect([...exemptSeen].sort(), "every exemption names a replayed step").toEqual(
       [...EXEMPT].sort(),
     );
-    expect(cases).toBeGreaterThanOrEqual(115);
-    expect(steps).toBeGreaterThanOrEqual(145);
+    // 115 before phase 5e; the 11 cases built on `RETIRED_OPS` moved to Core.
+    expect(cases).toBeGreaterThanOrEqual(104);
+    expect(steps).toBeGreaterThanOrEqual(STEPS_REPLAYED);
   }, 300_000);
 });

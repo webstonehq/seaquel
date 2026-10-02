@@ -14,8 +14,7 @@
     import NetworkIcon from "@lucide/svelte/icons/network";
     import SettingsIcon from "@lucide/svelte/icons/settings";
     import FolderGit2Icon from "@lucide/svelte/icons/folder-git-2";
-    import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
-    import { toast } from "svelte-sonner";
+    import { importSharedProjectsFrom } from "$lib/services/shared-project-import";
     import { errorToast } from "$lib/utils/toast";
     import { showErrorUnlessShown } from "$lib/errors";
     import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
@@ -145,17 +144,7 @@
             });
             if (!selected) return;
 
-            const projects = await db.sharedRepos.scanForSharedProjects(selected as string);
-            if (projects.length === 0) {
-                toast.info(m.shared_import_none_found());
-                return;
-            }
-            if (projects.length === 1) {
-                await db.projects.importFromGitRepo(selected as string, projects);
-                toast.success(m.shared_import_success({ count: 1 }));
-                return;
-            }
-            sharedProjectImportStore.openWithResults(selected as string, projects);
+            await importSharedProjectsFrom(db, selected as string);
         } catch (error) {
             showErrorUnlessShown(error);
         }
@@ -449,8 +438,4 @@
     onconfirm={handleRemoveProject}
 />
 
-{#if sharedProjectImportStore.isOpen}
-    {#await import("./import-shared-project-dialog.svelte") then module}
-        <module.default />
-    {/await}
-{/if}
+

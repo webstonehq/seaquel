@@ -21,15 +21,16 @@
     import { licenseStore } from "$lib/stores/license.svelte.js";
     import { licenseNudgeStore } from "$lib/stores/license-nudge.svelte.js";
     import LicenseNudgeCard from "$lib/components/license-nudge-card.svelte";
-    import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
-    import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
+    import { dbeaverImportStore, tablePlusImportStore } from "$lib/stores/connection-import.svelte.js";
+    import { linkProjectDialogStore } from "$lib/stores/link-project-dialog.svelte.js";
+    import { unlinkProjectDialogStore } from "$lib/stores/unlink-project-dialog.svelte.js";
+    import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
     import { tutorialProgressStore } from "$lib/stores/tutorial-progress.svelte.js";
     import { isDemo, isTauri, isWeb } from "$lib/utils/environment";
     import { initLogger } from "$lib/utils/logger";
     import { updateStore } from "$lib/stores/update.svelte.js";
     import type { UpdateInfo } from "$lib/api/tauri";
     import { deepLinkDialogStore } from "$lib/stores/deep-link-dialog.svelte.js";
-    import { deepLinkProjectPickerStore } from "$lib/stores/deep-link-project-picker.svelte.js";
     import { sshHostKeyPromptStore } from "$lib/stores/ssh-host-key-prompt.svelte.js";
     import VaultGate from "$lib/components/vault/vault-gate.svelte";
     import { handleDeepLink } from "$lib/services/deep-link";
@@ -319,22 +320,44 @@
         {/await}
     {/if}
     {#if dbeaverImportStore.isOpen}
-        {#await import("$lib/components/dbeaver-import-dialog.svelte") then module}
-            <module.default />
+        {#await import("$lib/components/connection-import-dialog.svelte") then module}
+            <module.default store={dbeaverImportStore} />
         {/await}
     {/if}
     {#if tablePlusImportStore.isOpen}
-        {#await import("$lib/components/tableplus-import-dialog.svelte") then module}
+        {#await import("$lib/components/connection-import-dialog.svelte") then module}
+            <module.default store={tablePlusImportStore} />
+        {/await}
+    {/if}
+    {#if linkProjectDialogStore.isOpen}
+        {#await import("$lib/components/link-project-dialog.svelte") then module}
             <module.default />
+        {/await}
+    {/if}
+    {#if sharedProjectImportStore.isOpen}
+        <!-- One mount for the header, the getting-started tab and deep links. -->
+        {#await import("$lib/components/import-shared-project-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if unlinkProjectDialogStore.isOpen}
+        {#await import("$lib/components/unlink-project-dialog.svelte") then module}
+            <module.default />
+        {/await}
+    {/if}
+    {#if db.state.sharedConflict}
+        {@const conflict = db.state.sharedConflict}
+        {#await import("$lib/components/shared-queries/sync-conflict-dialog.svelte") then module}
+            <module.default
+                open={true}
+                onOpenChange={(open) => { if (!open) db.sharedRepos.closeConflict(); }}
+                repoId={conflict.repoId}
+                conflictFiles={conflict.files}
+            />
         {/await}
     {/if}
     {#if deepLinkDialogStore.open}
         {#await import("$lib/components/deep-link-clone-dialog.svelte") then module}
-            <module.default />
-        {/await}
-    {/if}
-    {#if deepLinkProjectPickerStore.open}
-        {#await import("$lib/components/deep-link-project-picker-dialog.svelte") then module}
             <module.default />
         {/await}
     {/if}

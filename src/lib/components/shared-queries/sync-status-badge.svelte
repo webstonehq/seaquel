@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Badge } from "$lib/components/ui/badge";
 	import * as Tooltip from "$lib/components/ui/tooltip/index.js";
-	import type { RepoSyncStatus, SyncState } from "$lib/types";
+	import type { SyncState } from "$lib/types";
+	import type { ProjectSyncStatus } from "./project-sync-status";
+	import { m } from "$lib/paraglide/messages.js";
 	import CheckCircle2Icon from "@lucide/svelte/icons/check-circle-2";
 	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
 	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
@@ -11,7 +13,7 @@
 	import Loader2Icon from "@lucide/svelte/icons/loader-2";
 
 	interface Props {
-		status: RepoSyncStatus;
+		status: ProjectSyncStatus;
 		syncState?: SyncState | null;
 		showCounts?: boolean;
 	}
@@ -64,6 +66,13 @@
 					variant: "destructive" as const,
 					iconClass: ""
 				};
+			case "skipped":
+				return {
+					icon: AlertTriangleIcon,
+					label: m.shared_sync_status_skipped(),
+					variant: "outline" as const,
+					iconClass: "text-orange-500"
+				};
 			case "uninitialized":
 				return {
 					icon: CircleDashedIcon,
@@ -83,6 +92,10 @@
 
 	const tooltipContent = $derived.by(() => {
 		const parts: string[] = [];
+
+		if (status === "skipped") {
+			parts.push(m.shared_sync_status_skipped_tooltip());
+		}
 
 		if (syncState?.lastError) {
 			parts.push(`Error: ${syncState.lastError}`);
@@ -119,7 +132,7 @@
 				<ArrowUpIcon class="size-3 text-blue-500" />
 			{:else if status === "behind"}
 				<ArrowDownIcon class="size-3 text-orange-500" />
-			{:else if status === "diverged"}
+			{:else if status === "diverged" || status === "skipped"}
 				<AlertTriangleIcon class="size-3" />
 			{:else if status === "error"}
 				<AlertCircleIcon class="size-3" />

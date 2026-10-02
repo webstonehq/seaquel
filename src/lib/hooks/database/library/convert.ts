@@ -77,6 +77,7 @@ export function connectionFromWire(
     labelIds: wire.labelIds ?? [],
     isLocalOnly: wire.isLocalOnly,
     sharedConnectionId: wire.sharedConnectionId,
+    ...(wire.sharedOrigin ? { sharedOrigin: wire.sharedOrigin } : {}),
     aiShareSchema: wire.aiShareSchema,
     aiShareData: wire.aiShareData,
     activeAIProviderId: wire.activeAIProviderId,
@@ -114,6 +115,7 @@ export function savedQueryFromWire(wire: WireSavedQuery): Query {
     databaseType: wire.databaseType,
     tags: wire.tags ?? undefined,
     folder: wire.folder,
+    ...(wire.sharedPath ? { sharedPath: wire.sharedPath } : {}),
   };
 }
 
@@ -271,6 +273,7 @@ export function dashboardFromWire(wire: WireDashboard, keep?: Dashboard): Dashbo
     description: wire.description,
     createdAt: new Date(wire.createdAt),
     updatedAt: new Date(wire.updatedAt),
+    ...(wire.sharedPath ? { sharedPath: wire.sharedPath } : {}),
   };
 }
 

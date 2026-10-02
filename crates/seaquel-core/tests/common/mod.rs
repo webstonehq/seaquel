@@ -195,6 +195,43 @@ pub async fn dump(st: &Storage, table: &str, order: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The link columns migrations `0004_shared_links.sql` and
+/// `0005_shared_connection_origin.sql` (phase 5e) added, by table. The 5d
+/// replays were recorded before them and never link a row.
+pub const LINK_COLUMNS: &[(&str, &[&str])] = &[
+    ("projects", &["shared_dir"]),
+    (
+        "saved_queries",
+        &["shared_path", "shared_base", "shared_file_id"],
+    ),
+    (
+        "dashboards",
+        &["shared_path", "shared_base", "shared_file_id"],
+    ),
+    (
+        "connections",
+        &["shared_base", "shared_file_id", "shared_origin"],
+    ),
+];
+
+/// Takes `0004`'s and `0005`'s link columns out of `table`'s dumped rows, after checking
+/// that each is there and NULL: a 5d call never links a row.
+pub fn drop_link_columns(table: &str, rows: &mut [Value]) {
+    let Some((_, columns)) = LINK_COLUMNS.iter().find(|(t, _)| *t == table) else {
+        return;
+    };
+    for row in rows {
+        let obj = row.as_object_mut().unwrap();
+        for column in *columns {
+            assert_eq!(
+                obj.remove(*column),
+                Some(Value::Null),
+                "{table}.{column} in {obj:?}"
+            );
+        }
+    }
+}
+
 /// Reads the whole file at `path`, for canary scans.
 pub fn file_bytes(dir: &Path) -> Vec<u8> {
     let mut out = Vec::new();

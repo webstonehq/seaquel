@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use git2::{ConfigLevel, Repository};
-use seaquel_git::{Git, GitError, GitRepoStatus, PUSH_REJECTED_NON_FAST_FORWARD};
+use seaquel_git::{
+    Git, GitError, GitRepoStatus, PULL_REFUSED_LOCAL_CHANGES, PUSH_REJECTED_NON_FAST_FORWARD,
+};
 use tempfile::TempDir;
 
 /// Isolates libgit2 from the user's config, once per test binary.
@@ -146,6 +148,136 @@ async fn pull_fast_forward() {
     let again = w.git.pull_repo(&b, None).await.unwrap();
     assert!(again.success);
     assert_eq!(again.message, "Already up to date");
+}
+
+/// Phase 5e bug 2: a fast-forward used to check out with `force()`, which
+/// overwrote the files the shared-project projection wrote and the user
+/// hadn't committed. It now refuses, naming the files, and changes nothing.
+#[tokio::test]
+async fn a_fast_forward_keeps_uncommitted_changes() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    write(&a, "q.sql", "v1\n");
+    write(&a, "other.sql", "o1\n");
+    w.git.commit_changes(&a, "v1").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+
+    // The remote moves ahead on q.sql while b edits it without committing.
+    write(&a, "q.sql", "v2\n");
+    w.git.commit_changes(&a, "v2").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    write(&b, "q.sql", "mine\n");
+    let head_before = Repository::open(&b)
+        .unwrap()
+        .head()
+        .unwrap()
+        .target()
+        .unwrap();
+
+    let refused = w.git.pull_repo(&b, None).await.unwrap_err();
+    assert_eq!(refused.code, "PULL_ERROR");
+    assert!(
+        refused.message.starts_with(PULL_REFUSED_LOCAL_CHANGES),
+        "{refused:?}"
+    );
+    assert!(refused.message.ends_with(" first"), "{refused:?}");
+    assert!(refused.message.contains("q.sql"), "{refused:?}");
+    assert!(!refused.message.contains("other.sql"), "{refused:?}");
+    // Nothing moved: the edit, the branch and the other files.
+    assert_eq!(read(&b, "q.sql"), "mine\n");
+    assert_eq!(read(&b, "other.sql"), "o1\n");
+    let repo = Repository::open(&b).unwrap();
+    assert_eq!(repo.head().unwrap().target().unwrap(), head_before);
+    let status = w.status(&b).await;
+    assert_eq!(status.modified_files, ["q.sql"]);
+    assert_eq!(ahead_behind(&status), (0, 1));
+
+    // After a commit the pull merges (the conflict is then git's).
+    write(&b, "q.sql", "v2\n");
+    w.git.commit_changes(&b, "same as theirs").await.unwrap();
+    assert!(w.git.pull_repo(&b, None).await.unwrap().success);
+}
+
+/// The refusal names at most ten paths, then how many more.
+#[tokio::test]
+async fn a_refused_fast_forward_names_at_most_ten_paths() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    for i in 0..12 {
+        write(&a, &format!("q{i:02}.sql"), "v1\n");
+    }
+    w.git.commit_changes(&a, "v1").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+    for i in 0..12 {
+        write(&a, &format!("q{i:02}.sql"), "v2\n");
+        write(&b, &format!("q{i:02}.sql"), "mine\n");
+    }
+    w.git.commit_changes(&a, "v2").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+
+    let refused = w.git.pull_repo(&b, None).await.unwrap_err();
+    assert_eq!(refused.code, "PULL_ERROR");
+    let named = (0..12)
+        .filter(|i| refused.message.contains(&format!("q{i:02}.sql")))
+        .count();
+    assert_eq!(named, 10, "{refused:?}");
+    assert!(refused.message.contains("and 2 more"), "{refused:?}");
+    for i in 0..12 {
+        assert_eq!(read(&b, &format!("q{i:02}.sql")), "mine\n");
+    }
+}
+
+/// An untracked file the fast-forward would add is a local change too.
+#[tokio::test]
+async fn a_fast_forward_keeps_an_untracked_file_it_would_overwrite() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    write(&a, "q.sql", "v1\n");
+    w.git.commit_changes(&a, "v1").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+    write(&a, "new.sql", "theirs\n");
+    w.git.commit_changes(&a, "new").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    write(&b, "new.sql", "mine\n");
+
+    let refused = w.git.pull_repo(&b, None).await.unwrap_err();
+    assert_eq!(refused.code, "PULL_ERROR");
+    assert!(refused.message.contains("new.sql"), "{refused:?}");
+    assert_eq!(read(&b, "new.sql"), "mine\n");
+}
+
+#[tokio::test]
+async fn a_fast_forward_without_local_changes_still_works() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    write(&a, "q.sql", "v1\n");
+    write(&a, "gone.sql", "g\n");
+    w.git.commit_changes(&a, "v1").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+
+    write(&a, "q.sql", "v2\n");
+    write(&a, "added.sql", "new\n");
+    std::fs::remove_file(a.join("gone.sql")).unwrap();
+    w.git.commit_changes(&a, "v2").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    // A local edit to a file the pull doesn't touch stays.
+    write(&b, "untouched.sql", "local\n");
+
+    let pulled = w.git.pull_repo(&b, None).await.unwrap();
+    assert!(pulled.success, "{pulled:?}");
+    assert_eq!(pulled.message, "Fast-forward merge successful");
+    assert_eq!(read(&b, "q.sql"), "v2\n");
+    assert_eq!(read(&b, "added.sql"), "new\n");
+    assert!(!b.join("gone.sql").exists());
+    assert_eq!(read(&b, "untouched.sql"), "local\n");
+    let status = w.status(&b).await;
+    assert_eq!(status.untracked_files, ["untouched.sql"]);
+    assert!(status.modified_files.is_empty(), "{status:?}");
+    assert_eq!(ahead_behind(&status), (0, 0));
 }
 
 #[tokio::test]
@@ -447,4 +579,148 @@ async fn error_codes() {
         "{err:?}"
     );
     assert_eq!(err.to_string(), format!("REPO_OPEN_ERROR: {}", err.message));
+}
+
+/// Probe fix 5: on a modify/delete conflict, keeping their side (they
+/// deleted the file) deletes it rather than writing an empty file, and the
+/// conflict's content says which side deleted it.
+#[tokio::test]
+async fn keeping_their_deletion_deletes_the_file() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    write(&a, "q.sql", "base\n");
+    write(&a, "keep.sql", "keep\n");
+    w.git.commit_changes(&a, "base").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+
+    std::fs::remove_file(a.join("q.sql")).unwrap();
+    w.git.commit_changes(&a, "a deletes").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+
+    write(&b, "q.sql", "from b\n");
+    w.git.commit_changes(&b, "b edits").await.unwrap();
+    let pulled = w.git.pull_repo(&b, None).await.unwrap();
+    assert!(!pulled.success, "{pulled:?}");
+    assert_eq!(pulled.conflicts, ["q.sql"]);
+
+    let content = w.git.conflict_content(&b, "q.sql").await.unwrap();
+    assert!(content.theirs_deleted, "{content:?}");
+    assert!(!content.ours_deleted);
+    assert_eq!(content.ours, "from b\n");
+
+    w.git.resolve_conflict_deleted(&b, "q.sql").await.unwrap();
+    assert!(!b.join("q.sql").exists(), "keeping their side left a file");
+    let status = w.status(&b).await;
+    assert!(!status.has_conflicts, "{status:?}");
+    w.git.commit_changes(&b, "Resolved").await.unwrap();
+    let repo = git2::Repository::open(&b).unwrap();
+    let tree = repo.head().unwrap().peel_to_tree().unwrap();
+    assert!(tree.get_path(Path::new("q.sql")).is_err());
+    assert!(tree.get_path(Path::new("keep.sql")).is_ok());
+}
+
+/// Probe fix 6: a pull that has to merge (both sides committed) and finds
+/// local changes in a file the merge changes is refused like a fast-forward
+/// is: `PULL_ERROR` naming the paths as JSON strings, nothing changed.
+#[tokio::test]
+async fn a_refused_merge_names_the_paths() {
+    let w = World::new();
+    let a = w.clone("a").await;
+    write(&a, "q.sql", "base\n");
+    write(&a, "other.sql", "base\n");
+    w.git.commit_changes(&a, "base").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+
+    write(&a, "q.sql", "from a\n");
+    w.git.commit_changes(&a, "a").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+
+    write(&b, "other.sql", "from b\n");
+    w.git.commit_changes(&b, "b").await.unwrap();
+    // An uncommitted edit to the file the merge would change.
+    write(&b, "q.sql", "uncommitted\n");
+    let err = w.git.pull_repo(&b, None).await.unwrap_err();
+    assert_eq!(err.code, "PULL_ERROR", "{err:?}");
+    assert!(
+        err.message.starts_with(PULL_REFUSED_LOCAL_CHANGES),
+        "{err:?}"
+    );
+    assert!(err.message.contains("\"q.sql\""), "{err:?}");
+    assert_eq!(read(&b, "q.sql"), "uncommitted\n");
+}
+
+/// A clone `b` whose pull left `d/q.sql` conflicted.
+async fn conflicted_in_dir(w: &World) -> PathBuf {
+    let a = w.clone("a").await;
+    std::fs::create_dir_all(a.join("d")).unwrap();
+    write(&a, "d/q.sql", "base\n");
+    w.git.commit_changes(&a, "base").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    let b = w.clone("b").await;
+    write(&a, "d/q.sql", "from a\n");
+    w.git.commit_changes(&a, "a").await.unwrap();
+    w.git.push_repo(&a, None).await.unwrap();
+    write(&b, "d/q.sql", "from b\n");
+    w.git.commit_changes(&b, "b").await.unwrap();
+    let pulled = w.git.pull_repo(&b, None).await.unwrap();
+    assert_eq!(pulled.conflicts, ["d/q.sql"]);
+    b
+}
+
+/// Probe-fix review A2: resolving takes only a conflicted path in the
+/// index, never an absolute path, `..`, a backslash or a path through a
+/// symlink, and touches nothing outside the repo.
+#[tokio::test]
+async fn resolving_refuses_paths_outside_the_conflict() {
+    let w = World::new();
+    let b = conflicted_in_dir(&w).await;
+    let outside = w.path("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("q.sql"), "outside\n").unwrap();
+    let victim = outside.join("q.sql");
+
+    let bad = [
+        "../outside/q.sql".to_string(),
+        "d/../../outside/q.sql".to_string(),
+        victim.to_string_lossy().into_owned(),
+        "d\\q.sql".to_string(),
+        "other.sql".to_string(),
+        String::new(),
+    ];
+    for p in &bad {
+        let e = w.git.resolve_conflict(&b, p, "pwned\n").await.unwrap_err();
+        assert_eq!(e.code, "CONFLICT_ERROR", "{p}: {e:?}");
+        let e = w.git.resolve_conflict_deleted(&b, p).await.unwrap_err();
+        assert_eq!(e.code, "CONFLICT_ERROR", "{p}: {e:?}");
+    }
+    // A symlinked component: `d` now points outside the repo.
+    let kept = w.path("kept-d");
+    std::fs::rename(b.join("d"), &kept).unwrap();
+    std::os::unix::fs::symlink(&outside, b.join("d")).unwrap();
+    let e = w
+        .git
+        .resolve_conflict(&b, "d/q.sql", "pwned\n")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "CONFLICT_ERROR", "{e:?}");
+    let e = w
+        .git
+        .resolve_conflict_deleted(&b, "d/q.sql")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, "CONFLICT_ERROR", "{e:?}");
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "outside\n");
+    assert!(!w.path("pwned").exists());
+
+    // Back to a real folder: the conflicted path itself resolves.
+    std::fs::remove_file(b.join("d")).unwrap();
+    std::fs::rename(&kept, b.join("d")).unwrap();
+    w.git
+        .resolve_conflict(&b, "d/q.sql", "merged\n")
+        .await
+        .unwrap();
+    assert_eq!(read(&b, "d/q.sql"), "merged\n");
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "outside\n");
 }

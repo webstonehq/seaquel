@@ -49,6 +49,7 @@ import type { ChatPatch } from "$lib/types/generated/ChatPatch";
 import type { DashboardDraft } from "$lib/types/generated/DashboardDraft";
 import type { DashboardPatch } from "$lib/types/generated/DashboardPatch";
 import type { DashboardUpdated } from "$lib/types/generated/DashboardUpdated";
+import type { ImportSource } from "$lib/types/generated/ImportSource";
 import type { ImportState } from "$lib/types/generated/ImportState";
 import type { PersistedAIChat } from "$lib/types/generated/PersistedAIChat";
 import type { PersistedDashboard } from "$lib/types/generated/PersistedDashboard";
@@ -110,8 +111,8 @@ export type {
   TutorialProgress,
 };
 
-/** The import sources whose state is stored (`importStateGet`). */
-export type ImportSource = "tableplus" | "dbeaver";
+/** The import sources whose state is stored (`importStateGet`): Core's own. */
+export type { ImportSource };
 
 export interface LibraryService {
   // -------- Reads --------

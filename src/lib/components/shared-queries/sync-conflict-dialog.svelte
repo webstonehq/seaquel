@@ -5,8 +5,9 @@
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { toast } from "svelte-sonner";
-import { errorToast } from "$lib/utils/toast";
-	import { resolveConflict, getConflictContent } from "$lib/services/git.js";
+	import { errorToast } from "$lib/utils/toast";
+	import { getConflictContent } from "$lib/services/git.js";
+	import { conflictChoice } from "./conflict-choice";
 	import type { ConflictContent } from "$lib/types";
 	import Loader2Icon from "@lucide/svelte/icons/loader-2";
 	import AlertTriangleIcon from "@lucide/svelte/icons/alert-triangle";
@@ -63,20 +64,11 @@ import { errorToast } from "$lib/utils/toast";
 
 		isResolving = true;
 		try {
-			let content: string;
-			switch (resolution) {
-				case "ours":
-					content = currentContent.ours ?? "";
-					break;
-				case "theirs":
-					content = currentContent.theirs ?? "";
-					break;
-				case "base":
-					content = currentContent.base ?? "";
-					break;
-			}
+			// A side that deleted the file deletes it (`null`), never `""`.
+			const content = conflictChoice(currentContent, resolution);
 
-			await resolveConflict(repo.path, currentFile, content);
+			// Core takes the repo lock; once none is left, the repo's projects sync.
+			await db.sharedRepos.resolveConflict(repoId, currentFile, content);
 			resolvedFiles = new Set([...resolvedFiles, currentFile]);
 
 			// Move to next unresolved file
@@ -100,8 +92,8 @@ import { errorToast } from "$lib/utils/toast";
 		if (!repo) return;
 
 		try {
+			// The commit refreshes the status and syncs the repo's projects.
 			await db.sharedRepos.commitChanges(repoId, "Resolved merge conflicts");
-			await db.sharedRepos.refreshRepoStatus(repoId);
 			toast.success(m.conflict_committed());
 			onOpenChange(false);
 		} catch (error) {
@@ -184,13 +176,13 @@ import { errorToast } from "$lib/utils/toast";
 						<div class="flex-1 min-h-0 mt-2">
 							<Tabs.Content value="ours" class="h-full">
 								<ScrollArea class="h-[350px] border rounded-md">
-									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.ours ?? m.conflict_no_local()}</pre>
+									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.oursDeleted ? m.conflict_no_local() : (currentContent.ours ?? m.conflict_no_local())}</pre>
 								</ScrollArea>
 							</Tabs.Content>
 
 							<Tabs.Content value="theirs" class="h-full">
 								<ScrollArea class="h-[350px] border rounded-md">
-									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.theirs ?? m.conflict_no_remote()}</pre>
+									<pre class="p-3 text-xs font-mono whitespace-pre-wrap">{currentContent.theirsDeleted ? m.conflict_no_remote() : (currentContent.theirs ?? m.conflict_no_remote())}</pre>
 								</ScrollArea>
 							</Tabs.Content>
 

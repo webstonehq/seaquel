@@ -164,6 +164,14 @@ pub struct PersistedConnection {
         skip_serializing_if = "Option::is_none"
     )]
     pub active_ai_model: Option<String>,
+    /// Where a linked connection came from (`connections.shared_origin`,
+    /// migration `0005`): `exported` (this project shared it) or `imported`
+    /// (a sync made it from a teammate's template); absent when not known.
+    /// Read only: storage writes it through `connections::set_origin`, never
+    /// from this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "\"exported\" | \"imported\""))]
+    pub shared_origin: Option<String>,
 }
 
 /// Hides `connection_string`, which can hold a password until
@@ -196,6 +204,7 @@ impl fmt::Debug for PersistedConnection {
             .field("ai_share_data", &self.ai_share_data)
             .field("active_ai_provider_id", &self.active_ai_provider_id)
             .field("active_ai_model", &self.active_ai_model)
+            .field("shared_origin", &self.shared_origin)
             .finish()
     }
 }
@@ -545,6 +554,12 @@ pub struct PersistedSavedQuery {
     pub tags: Option<Box<RawValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// The repo-relative path of its shared file (`saved_queries.shared_path`,
+    /// migration `0004`), once Core has synced or written it. Read only:
+    /// storage writes it through `saved_queries::set_link`, never from this
+    /// field, so a library write never moves a link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_path: Option<String>,
 }
 
 /// One version of a saved query (`query_versions`): a keyframe holds
@@ -708,6 +723,12 @@ pub struct PersistedDashboard {
     pub description: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// The repo-relative path of its shared file (`dashboards.shared_path`,
+    /// migration `0004`), once Core has synced or written it. Read only:
+    /// storage writes it through `dashboards::set_link`, never from this
+    /// field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_path: Option<String>,
 }
 
 /// One version of a dashboard (`dashboard_versions`), always a full

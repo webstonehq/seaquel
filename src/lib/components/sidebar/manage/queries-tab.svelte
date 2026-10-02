@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ShareResource } from "./share-link.js";
 	import { showErrorUnlessShown } from "$lib/errors";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { formatRelativeTime } from "$lib/utils.js";
@@ -24,7 +25,7 @@
 	import ResourceItem from "./resource-item.svelte";
 
 	interface Props {
-		oncopyShareLink: (resource: { repoId?: string; filePath?: string; name?: string; folder?: string }, resourceType: "query") => Promise<void>;
+		oncopyShareLink: (resource: ShareResource, resourceType: "query") => Promise<void>;
 	}
 
 	let { oncopyShareLink }: Props = $props();

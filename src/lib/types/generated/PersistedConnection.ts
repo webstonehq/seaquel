@@ -13,4 +13,12 @@ import type { SSHTunnelConfig } from "./SSHTunnelConfig";
  * - Saving strips a password from `connectionString`
  *   (`seaquel_storage::strip_connection_string_password`).
  */
-export type PersistedConnection = { id: string, projectId: string, name: string, type: "postgres" | "mysql" | "sqlite" | "mariadb" | "mssql" | "duckdb", host: string, port: number, databaseName: string, username: string, sslMode?: string, connectionString?: string, lastConnected?: string, sshTunnel?: SSHTunnelConfig | null, savePassword?: boolean, saveSshPassword?: boolean, saveSshKeyPassphrase?: boolean, labelIds: Array<string>, isLocalOnly?: boolean, sharedConnectionId?: string, aiShareSchema?: boolean, aiShareData?: boolean, activeAIProviderId?: string, activeAIModel?: string, };
+export type PersistedConnection = { id: string, projectId: string, name: string, type: "postgres" | "mysql" | "sqlite" | "mariadb" | "mssql" | "duckdb", host: string, port: number, databaseName: string, username: string, sslMode?: string, connectionString?: string, lastConnected?: string, sshTunnel?: SSHTunnelConfig | null, savePassword?: boolean, saveSshPassword?: boolean, saveSshKeyPassphrase?: boolean, labelIds: Array<string>, isLocalOnly?: boolean, sharedConnectionId?: string, aiShareSchema?: boolean, aiShareData?: boolean, activeAIProviderId?: string, activeAIModel?: string, 
+/**
+ * Where a linked connection came from (`connections.shared_origin`,
+ * migration `0005`): `exported` (this project shared it) or `imported`
+ * (a sync made it from a teammate's template); absent when not known.
+ * Read only: storage writes it through `connections::set_origin`, never
+ * from this field.
+ */
+sharedOrigin?: "exported" | "imported", };

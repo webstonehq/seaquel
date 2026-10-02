@@ -1,8 +1,16 @@
 //! The `git` group of the workspace RPC: shared projects' repositories.
 //!
-//! The desktop serves it with [`dispatch_git`], which needs no storage. The
-//! web server has no shared projects, so `dispatch_workspace` answers
-//! `NOT_SUPPORTED` for it.
+//! The desktop serves it with [`dispatch_git`]. The web server has no
+//! shared projects, so `dispatch_workspace` answers `NOT_SUPPORTED` for it.
+//!
+//! **The repo lock (phase 5e, Decision 38).** Pull, push, commit and
+//! conflict resolution change the working tree or the branch, so they run
+//! under Core's per-repo lock, which the shared projection's syncs and
+//! publishes take too: a checkout never races a file write. With the
+//! desktop's storage workspace (and `LocalFiles`) they go through
+//! `Workspace::shared_git_*`, which also record a successful pull's or
+//! push's `lastSyncAt`; before storage opens they take the lock here and
+//! record nothing. The other calls don't touch the tree's files.
 //!
 //! Paths are absolute paths to a repository's working tree, and `filePath` is
 //! relative to it. Errors keep `seaquel-git`'s codes (`CLONE_ERROR`,
@@ -60,6 +68,12 @@ pub enum GitRequest {
         path: String,
         file_path: String,
         resolution: String,
+        /// Keep the side that deleted the file (phase 5e probe fix 5):
+        /// the file is deleted and the deletion staged; `resolution` is
+        /// ignored.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(optional, as = "Option<bool>"))]
+        delete: bool,
     },
     ConflictContent {
         path: String,
@@ -75,6 +89,18 @@ pub enum GitRequest {
 }
 
 impl GitRequest {
+    /// Whether the call runs under the repo lock: pull, push, commit and
+    /// conflict resolution. The desktop gives those its storage workspace.
+    pub fn takes_repo_lock(&self) -> bool {
+        matches!(
+            self,
+            Self::Pull { .. }
+                | Self::Push { .. }
+                | Self::Commit { .. }
+                | Self::ResolveConflict { .. }
+        )
+    }
+
     /// The method's wire name.
     pub fn method(&self) -> &'static str {
         match self {
@@ -111,16 +137,86 @@ pub enum GitResponse {
     RemoteUrl(Option<String>),
 }
 
-/// Run one git call. The desktop routes the `git` group here, before any
-/// storage opens. Logs like `dispatch_workspace`: the method, never the
-/// params.
+/// Run one git call. The desktop routes the `git` group here, with its
+/// storage workspace for the calls that take the repo lock
+/// ([`GitRequest::takes_repo_lock`]) once it's open, and `None` before (or
+/// when it can't open). Logs like `dispatch_workspace`: the method, never
+/// the params.
 #[cfg(feature = "git")]
 pub async fn dispatch_git(
+    core: &seaquel_core::Core,
+    ws: Option<&seaquel_core::Workspace>,
     git: &seaquel_core::git::Git,
     req: GitRequest,
+    origin: &seaquel_core::WriteOrigin,
 ) -> Result<GitResponse, RpcError> {
     let method = req.method();
     crate::workspace::logged("git", method, async move {
+        // Through the workspace: the lock, and `lastSyncAt` after a pull or
+        // push.
+        #[cfg(feature = "storage")]
+        if let Some(ws) = ws.filter(|_| core.local_files().is_some()) {
+            match req {
+                GitRequest::Pull { path, credentials } => {
+                    return Ok(GitResponse::Pull(
+                        ws.shared_git_pull(core, origin, git, &path, credentials)
+                            .await?,
+                    ))
+                }
+                GitRequest::Push { path, credentials } => {
+                    return Ok(GitResponse::Push(
+                        ws.shared_git_push(core, origin, git, &path, credentials)
+                            .await?,
+                    ))
+                }
+                GitRequest::Commit { path, message } => {
+                    return Ok(GitResponse::Commit(
+                        ws.shared_git_commit(core, git, &path, &message).await?,
+                    ))
+                }
+                GitRequest::ResolveConflict {
+                    path,
+                    file_path,
+                    resolution,
+                    delete,
+                } => {
+                    let resolution = (!delete).then_some(resolution.as_str());
+                    return Ok(GitResponse::ResolveConflict(
+                        ws.shared_git_resolve(core, git, &path, &file_path, resolution)
+                            .await?,
+                    ));
+                }
+                other => return plain(core, git, other).await,
+            }
+        }
+        #[cfg(not(feature = "storage"))]
+        let _ = (ws, origin);
+        plain(core, git, req).await
+    })
+    .await
+}
+
+/// One git call with no workspace: the calls that change the tree take the
+/// repo lock and record nothing.
+#[cfg(feature = "git")]
+async fn plain(
+    core: &seaquel_core::Core,
+    git: &seaquel_core::git::Git,
+    req: GitRequest,
+) -> Result<GitResponse, RpcError> {
+    let _lock = match &req {
+        GitRequest::Pull { path, .. }
+        | GitRequest::Push { path, .. }
+        | GitRequest::Commit { path, .. }
+        | GitRequest::ResolveConflict { path, .. } => {
+            // Keyed as `Workspace::shared_git_*` key it, so both routes
+            // share one lock for one repo.
+            let key = seaquel_core::git::repo_path_key(path);
+            Some(core.repo_lock(std::path::Path::new(&key)).await)
+        }
+        _ => None,
+    };
+    {
         let to_rpc = |e: seaquel_core::git::GitError| RpcError::new(e.code, e.message);
         Ok(match req {
             GitRequest::Clone {
@@ -151,10 +247,14 @@ pub async fn dispatch_git(
                 path,
                 file_path,
                 resolution,
+                delete,
             } => GitResponse::ResolveConflict(
-                git.resolve_conflict(&path, &file_path, &resolution)
-                    .await
-                    .map_err(to_rpc)?,
+                if delete {
+                    git.resolve_conflict_deleted(&path, &file_path).await
+                } else {
+                    git.resolve_conflict(&path, &file_path, &resolution).await
+                }
+                .map_err(to_rpc)?,
             ),
             GitRequest::ConflictContent { path, file_path } => GitResponse::ConflictContent(
                 git.conflict_content(&path, &file_path)
@@ -168,8 +268,7 @@ pub async fn dispatch_git(
                 GitResponse::RemoteUrl(git.remote_url(&path).await.map_err(to_rpc)?)
             }
         })
-    })
-    .await
+    }
 }
 
 #[cfg(test)]

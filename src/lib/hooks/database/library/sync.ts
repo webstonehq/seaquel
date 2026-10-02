@@ -21,7 +21,9 @@
  * - `history`: a connection's history, if the page shows it. An event
  *   without a scope (a favourite set) is matched to its connection by the
  *   row id.
- * - `storage`: nothing (the vault, license and shared repos aren't shown live).
+ * - `storage`: nothing (the vault and license aren't shown live).
+ * - `sharedRepo` (5e): another window wrote a repo's row or a file of its
+ *   projects: the repo list and those repos' git status are read again.
  * - `dashboard` (5d-2): the project's dashboards and versions, if the page
  *   holds them; one deleted elsewhere closes its tabs in every project, and
  *   one with an edit this page couldn't save shows the banner instead.
@@ -80,6 +82,8 @@ export interface LibraryViews {
   };
   /** The settings stores (`applyStoredChange`). */
   settings?: (kind: SettingsKind, ids: readonly string[] | null) => Promise<void>;
+  /** Phase 5e: the repo list and the named repos' git status. */
+  sharedRepos?: { refreshRepos(ids: readonly string[] | null): Promise<void> };
 }
 
 export class LibrarySync {
@@ -121,6 +125,11 @@ export class LibrarySync {
       feed.subscribe("workflow", (c) => this.run(c, () => this.refreshWorkflows(c))),
       feed.subscribe("chat", (c) => this.run(c, () => this.refreshChats(c))),
       feed.subscribe("chatMessages", (c) => this.run(c, () => this.refreshMessages(c))),
+      feed.subscribe("sharedRepo", (c) =>
+        this.run(c, async () => {
+          await this.views.sharedRepos?.refreshRepos(c.ids);
+        }),
+      ),
       ...SETTINGS_KINDS.map((kind) =>
         feed.subscribe(kind, (c) =>
           this.run(c, async () => {
@@ -184,6 +193,7 @@ export class LibrarySync {
       }
     }
     if (settings) for (const kind of SETTINGS_KINDS) steps.push(settings(kind, null));
+    if (this.views.sharedRepos) steps.push(this.views.sharedRepos.refreshRepos(null));
     const results = await Promise.allSettled(steps);
     for (const r of results) {
       if (r.status === "rejected") void log.warn("Reloading a library list failed:", r.reason);

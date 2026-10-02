@@ -186,6 +186,10 @@ pub struct Workspace {
     storage: Storage,
     #[cfg(feature = "secrets")]
     secrets: Option<Arc<dyn SecretStore>>,
+    /// The files this session's syncs have named (phase 5e, `*` (6)): each
+    /// is named at most once.
+    #[cfg(all(feature = "git", feature = "storage"))]
+    pub(crate) notices: Mutex<seaquel_workspace::shared::NoticeMemory>,
 }
 
 impl Workspace {
@@ -207,6 +211,8 @@ impl Workspace {
             storage,
             #[cfg(feature = "secrets")]
             secrets: spec.secrets,
+            #[cfg(all(feature = "git", feature = "storage"))]
+            notices: Mutex::default(),
         })
     }
 

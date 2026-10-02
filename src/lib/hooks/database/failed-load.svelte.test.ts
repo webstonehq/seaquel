@@ -26,9 +26,6 @@ vi.mock("$lib/storage", () => {
             if (/^(load|get)/.test(method)) {
               if (holdLoads) await holdLoads;
               if (failLoads) throw new Error("STORAGE_ERROR: upstream unavailable");
-              if (method === "loadAll" && name === "sharedRepos") {
-                return { repos: [], activeRepoId: null };
-              }
               return method === "load" || method === "get" ? null : [];
             }
             return undefined;
@@ -51,6 +48,7 @@ vi.mock("$lib/stores/license-nudge.svelte.js", () => ({
 const { WindowStateManager } = await import("./window-state.svelte.js");
 const { AIChatManager } = await import("./ai-chat-manager.svelte.js");
 const { SharedRepoManager } = await import("./shared-repo-manager.svelte.js");
+const { setShared, NoShared } = await import("./shared/index");
 const { setLibrary } = await import("./library/index");
 const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 
@@ -147,7 +145,6 @@ const REPLACING = [
   "appState.set",
   "ui.windowStateSave",
   "ui.windowActivate",
-  "sharedRepos.saveAll",
   "queryHistory.replaceAll",
 ];
 const replacingWrites = () => calls.filter((c) => REPLACING.includes(c));
@@ -200,13 +197,28 @@ describe("a failed load blocks the save that would replace it", () => {
     expect(replacingWrites()).toEqual(["ui.windowStateSave"]);
   });
 
-  it("shared repos: a failed load isn't saved back as none", async () => {
+  it("shared repos: a failed list leaves the repos shown, and nothing replaces the list", async () => {
+    // Phase 5e: the repo list is Core's (`shared.reposList`), written row by
+    // row; there's no replace-all save left to guard.
     const { state } = setup();
-    const repos = new SharedRepoManager(state);
-    expect(await repos.loadPersistedRepos()).toEqual({ repos: [], activeRepoId: null });
+    const shown = {
+      id: "repo-1",
+      name: "Team",
+      path: "/r",
+      remoteUrl: "",
+      branch: "main",
+      lastSyncAt: null,
+      syncStatus: "synced" as const,
+    };
+    state.sharedRepos = [shown];
+    setShared(new NoShared());
+    try {
+      await new SharedRepoManager(state).loadRepos();
+    } finally {
+      setShared(null);
+    }
 
-    await repos.persistRepos();
-
+    expect(state.sharedRepos).toEqual([shown]);
     expect(replacingWrites()).toEqual([]);
   });
 

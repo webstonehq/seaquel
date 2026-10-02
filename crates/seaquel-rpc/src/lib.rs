@@ -3,7 +3,8 @@
 //! - The workspace RPC ([`Request`], [`Response`], [`dispatch_workspace`]):
 //!   metadata storage, the library (connections, projects, labels, saved
 //!   queries, dashboards, workflows, chats), settings, each window's view
-//!   state (`ui`), secrets and the `db` group (connect, queries, engine
+//!   state (`ui`), shared projects and imports (`shared`, `imports`;
+//!   desktop only), secrets and the `db` group (connect, queries, engine
 //!   calls on the workspace's own connections), served as the `core_call`
 //!   Tauri command and `POST /rpc`. See the `workspace`, `library`,
 //!   `settings`, `ui` and `db` modules.
@@ -33,9 +34,11 @@
 
 mod db;
 mod git;
+mod imports;
 mod library;
 mod license;
 mod settings;
+mod shared;
 mod ssh;
 mod ui;
 mod workspace;
@@ -46,6 +49,7 @@ pub use db::{
 #[cfg(feature = "git")]
 pub use git::dispatch_git;
 pub use git::{GitRequest, GitResponse};
+pub use imports::{ImportsRequest, ImportsResponse};
 pub use library::{LibraryRequest, LibraryResponse};
 #[cfg(feature = "license-desktop")]
 pub use license::dispatch_license;
@@ -53,6 +57,7 @@ pub use license::{DesktopLicenseRequest, DesktopLicenseResponse, LicenseResponse
 /// The window or tab a call came from, which [`dispatch_workspace`] takes.
 pub use seaquel_core::WriteOrigin;
 pub use settings::{SettingsRequest, SettingsResponse};
+pub use shared::{SharedRequest, SharedResponse};
 pub use ssh::{dispatch_ssh, SshRequest, SshResponse, TunnelConfig, TunnelInfo};
 pub use ui::{UiRequest, UiResponse};
 #[cfg(feature = "secrets")]

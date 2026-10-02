@@ -8,6 +8,7 @@
 	import { toast } from "svelte-sonner";
 	import { errorToast } from "$lib/utils/toast";
 	import { Connections, TabNav, SchemaTab, QueriesTab, DashboardsTab } from "./sidebar/manage/index.js";
+	import { templatePath, type ShareResource } from "./sidebar/manage/share-link.js";
 
 	interface Props {
 		version?: string;
@@ -31,41 +32,30 @@
 		}
 	});
 
-	const copyShareLink = async (resource: { repoId?: string; filePath?: string; name?: string; folder?: string }, resourceType: "query" | "dashboard" | "connection" = "query") => {
-		const repoId = resource.repoId ?? db.state.activeRepoId;
-		if (!repoId) {
-			errorToast("No repository configured");
+	/**
+	 * A deep link to a shared row's file. The path is Core's: a query's or
+	 * dashboard's stored `sharedPath`, a connection's template path inside
+	 * its `sharedConnectionId` (`<repoId>:<path>`). The repo is the active
+	 * project's own (Decision 42), never another project's.
+	 */
+	const copyShareLink = async (resource: ShareResource, resourceType: "query" | "dashboard" | "connection" = "query") => {
+		const repo = db.sharedRepos.repoForProject(db.state.activeProjectId);
+		if (!repo) {
+			errorToast(m.share_link_no_repo());
 			return;
 		}
-		const repo = db.state.sharedRepos.find((r) => r.id === repoId);
-		if (!repo || !repo.remoteUrl) {
-			errorToast("This repository has no remote URL configured");
+		if (!repo.remoteUrl) {
+			errorToast(m.share_link_no_remote());
 			return;
 		}
-		let filePath = resource.filePath;
-		if (!filePath && resource.name) {
-			const { nameToFilename } = await import("$lib/services/config-file-parser");
-			const project = db.state.activeProject;
-			const projectDir = project ? nameToFilename(project.name) : "";
-			if (resourceType === "dashboard") {
-				const { dashboardNameToFilename } = await import("$lib/services/dashboard-file-parser");
-				const filename = dashboardNameToFilename(resource.name);
-				filePath = `.seaquel/projects/${projectDir}/dashboards/${filename}`;
-			} else {
-				const { queryNameToFilename } = await import("$lib/services/query-file-parser");
-				const filename = queryNameToFilename(resource.name);
-				const folder = resource.folder || "";
-				const relPath = folder ? `${folder}/${filename}` : filename;
-				filePath = `.seaquel/projects/${projectDir}/queries/${relPath}`;
-			}
-		}
+		const filePath = resourceType === "connection" ? templatePath(resource.sharedConnectionId) : resource.sharedPath;
 		if (!filePath) {
-			errorToast("Cannot generate share link");
+			errorToast(m.share_link_not_written());
 			return;
 		}
 		const url = buildDeepLinkUrl(repo.remoteUrl, repo.branch, filePath);
 		await navigator.clipboard.writeText(url);
-		toast.success("Link copied to clipboard");
+		toast.success(m.share_link_copied());
 	};
 </script>
 

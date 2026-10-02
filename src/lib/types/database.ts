@@ -88,6 +88,12 @@ export interface DatabaseConnection {
   labelIds: string[];
   /** If created from a shared connection template, its ID */
   sharedConnectionId?: string;
+  /**
+   * Where a linked connection came from (Core's, read only): `exported`
+   * (shared from this project) or `imported` (a template the repo brought).
+   * Absent when not known; a linked connection without it came from the repo.
+   */
+  sharedOrigin?: "exported" | "imported";
   /** Whether this connection is excluded from Git sharing (local-only) */
   isLocalOnly?: boolean;
   /** Whether to share schema with AI for this connection (undefined = use global default) */

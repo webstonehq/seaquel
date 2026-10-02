@@ -54,10 +54,16 @@ compile_error!(
 mod changes;
 #[cfg(feature = "workspace")]
 mod edits;
+#[cfg(feature = "imports")]
+mod imports;
 #[cfg(feature = "storage")]
 mod library;
+#[cfg(feature = "storage")]
+mod projection;
 #[cfg(feature = "workspace")]
 mod run;
+#[cfg(all(feature = "git", feature = "storage"))]
+mod shared;
 #[cfg(feature = "storage")]
 mod state;
 #[cfg(feature = "storage")]
@@ -121,9 +127,35 @@ pub use seaquel_workspace::run::RunLimits;
 /// [`CoreBuilder::state_limits`].
 pub use seaquel_workspace::state::StateLimits;
 
-/// Git for shared projects (`seaquel-git`).
+/// Git for shared projects (`seaquel-git`), and the per-repo lock.
 #[cfg(feature = "git")]
 pub mod git;
+
+/// The shared projection (phase 5e): link, unlink, scan, import projects,
+/// sync, the repo list, and git calls under the repo lock.
+#[cfg(all(feature = "git", feature = "storage"))]
+pub use shared::{
+    ImportedProjects, PreviewProject, PreviewTemplate, ProjectFailure, RepoPatch, RepoPreview,
+    SkippedDir, SkippedProject, SyncReport, SyncTarget, UnlinkPreview, UnlinkReport, FILE_CHANGED,
+    FILE_ERROR, PROJECT_ALREADY_LINKED, PROJECT_NOT_LINKED, REPO_CONFLICTED, REPO_IN_USE,
+    REPO_NOT_FOUND,
+};
+
+/// Imports from TablePlus and DBeaver (phase 5e, Decision 47).
+#[cfg(feature = "imports")]
+pub use imports::{ImportKeyOutcome, ImportOutcome, ImportPaths, IMPORT_SOURCE_UNREADABLE};
+
+/// Whether this Core may read and write the user's files: shared repos and
+/// other tools' connection files (phase 5e, Decision 31). There is no
+/// default: a Core built without [`CoreBuilder::local_files`] answers
+/// `NOT_SUPPORTED` to every `shared` and `imports` call and publishes
+/// nothing from the library calls, whatever features Cargo unified. The
+/// desktop and the CLI pass [`LocalFiles::Allowed`]; the web server passes
+/// nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalFiles {
+    Allowed,
+}
 
 /// Licensing (`seaquel-license`): the desktop activation client and the web
 /// server's license gate.
@@ -248,6 +280,23 @@ pub struct Core {
     /// editor's runs (`Workspace::run`/`page`) are `NOT_SUPPORTED`.
     #[cfg_attr(not(feature = "workspace"), allow(dead_code))]
     executor: Option<Arc<dyn Executor>>,
+    /// [`CoreBuilder::local_files`]; `None` refuses the user's files.
+    local_files: Option<LocalFiles>,
+    /// One async mutex per repo (phase 5e, Decision 38), by its
+    /// canonical path: sync, publish, pull, commit and conflict resolution
+    /// take it.
+    #[cfg(feature = "git")]
+    repo_locks: Mutex<HashMap<std::path::PathBuf, Arc<futures::lock::Mutex<()>>>>,
+    /// Tests only: fails or holds a file write by path.
+    #[cfg(feature = "git")]
+    file_hook: Option<seaquel_git::tree::WriteHook>,
+    /// Tests only: runs after a sync's optimistic plan, before its write.
+    #[cfg(feature = "git")]
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
+    sync_plan_hook: Option<SyncPlanHook>,
+    /// Where other tools' files are ([`CoreBuilder::import_paths`]).
+    #[cfg(feature = "imports")]
+    import_paths: Option<ImportPaths>,
 }
 
 /// How much one workspace may open ([`CoreBuilder::connection_limits`]).
@@ -332,9 +381,61 @@ pub struct CoreBuilder {
     library_limits: LibraryLimits,
     state_limits: StateLimits,
     executor: Option<Arc<dyn Executor>>,
+    local_files: Option<LocalFiles>,
+    #[cfg(feature = "git")]
+    file_hook: Option<seaquel_git::tree::WriteHook>,
+    #[cfg(feature = "git")]
+    sync_plan_hook: Option<SyncPlanHook>,
+    #[cfg(feature = "imports")]
+    import_paths: Option<ImportPaths>,
 }
 
+/// Tests only ([`CoreBuilder::sync_plan_hook`]).
+pub type SyncPlanHook = Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
+
 impl CoreBuilder {
+    /// Tests only: `hook` runs after a sync planned outside the write lock,
+    /// before it takes the lock to check and write the plan (the race test
+    /// edits a row there).
+    #[cfg(feature = "git")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sync_plan_hook(mut self, hook: SyncPlanHook) -> Self {
+        self.sync_plan_hook = Some(hook);
+        self
+    }
+
+    /// Lets this Core read and write the user's files (see [`LocalFiles`]).
+    /// The desktop and the CLI only.
+    #[must_use]
+    pub fn local_files(mut self, local_files: LocalFiles) -> Self {
+        self.local_files = Some(local_files);
+        self
+    }
+
+    /// Where the imports look for TablePlus's and DBeaver's files
+    /// ([`ImportPaths::from_env`] on the desktop; a temp home in tests).
+    /// Without it, an import of the default location answers `found:
+    /// false`.
+    #[cfg(feature = "imports")]
+    #[must_use]
+    pub fn import_paths(mut self, paths: ImportPaths) -> Self {
+        self.import_paths = Some(paths);
+        self
+    }
+
+    /// Tests only: `hook` runs before every file write of the shared
+    /// projection, with the absolute path; an `Err` fails that write as an
+    /// I/O error would (the projection replay's failing paths). It may
+    /// block, which holds the write (the lock-order tests).
+    #[cfg(feature = "git")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn file_write_hook(mut self, hook: seaquel_git::tree::WriteHook) -> Self {
+        self.file_hook = Some(hook);
+        self
+    }
+
     pub fn engine(mut self, engine: Arc<dyn Engine>) -> Self {
         self.engines.register(engine);
         self
@@ -423,6 +524,15 @@ impl CoreBuilder {
             next_stream: AtomicU64::new(0),
             #[cfg(feature = "ssh")]
             tunnels: ssh::TunnelManager::new(self.ssh),
+            local_files: self.local_files,
+            #[cfg(feature = "git")]
+            repo_locks: Mutex::default(),
+            #[cfg(feature = "git")]
+            file_hook: self.file_hook,
+            #[cfg(feature = "git")]
+            sync_plan_hook: self.sync_plan_hook,
+            #[cfg(feature = "imports")]
+            import_paths: self.import_paths,
         }
     }
 }
@@ -688,6 +798,24 @@ impl Core {
     fn open_options(&self) -> OpenOptions {
         OpenOptions {
             max_pool_size: self.limits.max_pool_size,
+        }
+    }
+
+    /// [`CoreBuilder::local_files`]: `None` when this Core may not touch
+    /// the user's files.
+    pub fn local_files(&self) -> Option<LocalFiles> {
+        self.local_files
+    }
+
+    /// `NOT_SUPPORTED` unless this Core may touch the user's files.
+    #[cfg(any(feature = "git", feature = "imports"))]
+    pub(crate) fn require_local_files(&self) -> Result<(), CoreError> {
+        match self.local_files {
+            Some(LocalFiles::Allowed) => Ok(()),
+            None => Err(CoreError::new(
+                "NOT_SUPPORTED",
+                "Shared projects and imports aren't available here.",
+            )),
         }
     }
 

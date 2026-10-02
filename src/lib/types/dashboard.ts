@@ -71,6 +71,8 @@ export interface Dashboard {
   shared: boolean;
   /** Optional description (used in shared .json file) */
   description?: string;
+  /** A shared dashboard's file, relative to the repo (Core's link; read only). */
+  sharedPath?: string;
 }
 
 /**

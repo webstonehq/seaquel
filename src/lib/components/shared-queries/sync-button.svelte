@@ -13,6 +13,7 @@
 	import Loader2Icon from "@lucide/svelte/icons/loader-2";
 	import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 	import { m } from "$lib/paraglide/messages.js";
+	import { pullFailureText } from "./pull-error";
 
 	interface Props {
 		repoId: string;
@@ -33,15 +34,18 @@
 
 	let showCommitDialog = $state(false);
 	let commitMessage = $state("");
+	/** "Sync all" with uncommitted changes: commit first, then pull and push (Decision 38). */
+	let syncAfterCommit = $state(false);
 
 	async function handlePull() {
 		if (!repo) return;
 		try {
-			await db.sharedRepos.pullRepo(repoId);
-			toast.success(m.shared_repo_updated());
+			// A pull that left conflicts opens the conflict dialog instead.
+			if ((await db.sharedRepos.pullRepo(repoId)) === "updated") {
+				toast.success(m.shared_repo_updated());
+			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			errorToast(m.shared_pull_failed({ message }));
+			errorToast(pullFailureText(error, (message) => m.shared_pull_failed({ message })));
 		}
 	}
 
@@ -58,35 +62,49 @@
 
 	async function handleSync() {
 		if (!repo) return;
+		// A pull refuses to overwrite uncommitted changes: commit them first.
+		if (hasUncommitted) {
+			openCommitDialog(true);
+			return;
+		}
+		await pullThenPush();
+	}
+
+	async function pullThenPush() {
 		try {
-			// Pull first, then push if needed
-			await db.sharedRepos.pullRepo(repoId);
+			// Pull first, then push if needed; conflicts stop here (the
+			// conflict dialog is open).
+			if ((await db.sharedRepos.pullRepo(repoId)) === "conflicted") return;
 			if (needsPush) {
 				await db.sharedRepos.pushRepo(repoId);
 			}
 			toast.success(m.shared_repo_synced());
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			errorToast(m.shared_sync_failed({ message }));
+			errorToast(pullFailureText(error, (message) => m.shared_sync_failed({ message })));
 		}
 	}
 
-	function openCommitDialog() {
+	function openCommitDialog(thenSync = false) {
 		commitMessage = "";
+		syncAfterCommit = thenSync;
 		showCommitDialog = true;
 	}
 
 	async function handleCommit() {
 		if (!repo || !commitMessage.trim()) return;
 		const message = commitMessage.trim();
+		const thenSync = syncAfterCommit;
 		showCommitDialog = false;
+		syncAfterCommit = false;
 		try {
 			await db.sharedRepos.commitChanges(repoId, message);
 			toast.success(m.shared_changes_committed());
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
 			errorToast(m.shared_commit_failed({ message: msg }));
+			return;
 		}
+		if (thenSync) await pullThenPush();
 	}
 
 	async function handleRefresh() {
@@ -140,7 +158,7 @@
 			</DropdownMenu.Item>
 			{#if hasUncommitted}
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item onclick={openCommitDialog} disabled={isSyncing}>
+				<DropdownMenu.Item onclick={() => openCommitDialog()} disabled={isSyncing}>
 					<GitCommitIcon class="size-4 me-2" />
 					{m.shared_commit_changes()}
 					<span class="ms-auto text-xs text-muted-foreground">{syncState?.pendingChanges}</span>

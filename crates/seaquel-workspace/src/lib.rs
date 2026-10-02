@@ -7,13 +7,17 @@
 //! Phase 5 moves the GUI's services here: [`run`] plans the editor's runs
 //! (phase 5b), and [`edits`] the grid's edits and the data tab's query
 //! (phase 5c), and [`library`] the saved connections, projects, labels and
-//! saved queries Core writes (phase 5d). Interfaces reach it only through
+//! saved queries Core writes (phase 5d), and [`shared`] the `.seaquel`
+//! files of shared projects and their sync (phase 5e). Interfaces reach it only through
 //! Core's `workspace` feature (`seaquel_core::domain`), and it may not name
 //! an engine crate (`scripts/check-crate-deps.mjs`).
 
 pub mod connection_string;
 pub mod connections;
 pub mod edits;
+pub mod imports;
 pub mod library;
 pub mod run;
+pub mod shared;
+pub mod shared_api;
 pub mod state;

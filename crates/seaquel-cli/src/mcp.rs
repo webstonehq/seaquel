@@ -158,13 +158,26 @@ fn startup_error(e: CoreError) -> String {
     format!("{}: {}", e.code, e.message)
 }
 
+/// The CLI's Core, as the desktop app builds its own: every engine, the
+/// user's files (phase 5e, Decision 31) and the import paths. No command
+/// uses the shared projection or the imports yet (Q26); the read-only
+/// storage refuses their writes.
+fn core_builder(import_paths: Option<seaquel_core::ImportPaths>) -> seaquel_core::CoreBuilder {
+    let builder = seaquel_core::with_default_plugins()
+        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
+        .executor(Arc::new(seaquel_runtime::TokioExecutor))
+        .local_files(seaquel_core::LocalFiles::Allowed);
+    match import_paths {
+        Some(paths) => builder.import_paths(paths),
+        None => builder,
+    }
+}
+
 async fn serve(args: McpArgs) -> Result<(), String> {
     let dir = data_dir(APP_IDENTIFIER).map_err(|e| startup_error(e.into()))?;
     // The MCP server connects to the user's own saved connections, as the
     // desktop app would.
-    let mut builder = seaquel_core::with_default_plugins()
-        .connect_policy(seaquel_core::ConnectPolicy::Unrestricted)
-        .executor(Arc::new(seaquel_runtime::TokioExecutor));
+    let mut builder = core_builder(seaquel_core::ImportPaths::from_env());
     if let Some(path) = test_hook(TEST_KNOWN_HOSTS_ENV) {
         builder = builder.ssh_known_hosts(path);
     }
@@ -265,6 +278,14 @@ async fn shutdown_signal() -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Phase 5e: the CLI's Core may read the user's files, as the
+    /// desktop's does, and its imports read the home it's given.
+    #[test]
+    fn the_cli_core_may_read_local_files() {
+        let core = core_builder(Some(seaquel_core::ImportPaths::new("/nowhere"))).build();
+        assert_eq!(core.local_files(), Some(seaquel_core::LocalFiles::Allowed));
+    }
 
     /// The levels, as `LevelFilter`s (the CLI doesn't depend on `tracing`).
     struct Level;

@@ -7,7 +7,7 @@ use super::codec::{
     begin, bit, flag, insert_sql, json, json_text, opt_text, select_sql, text, upsert_sql, Result,
     SqliteQuery,
 };
-use super::IdName;
+use super::{IdName, RowLink, SharedLink};
 use crate::{Reader, Storage, WriteTx};
 
 const TABLE: &str = "saved_queries";
@@ -27,6 +27,25 @@ const COLUMNS: [&str; 13] = [
     "updated_at",
 ];
 
+/// [`COLUMNS`] and the link path (migration `0004`), which the reads carry
+/// and only [`set_link`] writes.
+const READ_COLUMNS: [&str; 14] = [
+    "id",
+    "project_id",
+    "name",
+    "query",
+    "parameters",
+    "starred",
+    "shared",
+    "description",
+    "database_type",
+    "tags",
+    "folder",
+    "created_at",
+    "updated_at",
+    "shared_path",
+];
+
 fn map_row(row: &SqliteRow) -> Result<PersistedSavedQuery> {
     Ok(PersistedSavedQuery {
         id: text(row, "id")?,
@@ -42,14 +61,26 @@ fn map_row(row: &SqliteRow) -> Result<PersistedSavedQuery> {
         folder: opt_text(row, "folder")?,
         created_at: text(row, "created_at")?,
         updated_at: text(row, "updated_at")?,
+        shared_path: opt_text(row, "shared_path")?,
     })
 }
 
 /// A project's saved queries, in rowid order.
 pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<PersistedSavedQuery>> {
-    let rows = sqlx::query(&select_sql(TABLE, &COLUMNS, "project_id = ?"))
+    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
         .bind(project_id)
         .fetch_all(st.pool())
+        .await?;
+    rows.iter().map(map_row).collect()
+}
+
+/// A project's saved queries, in rowid order, read through `r` (inside a
+/// write, the transaction): the rows a shared project's sync plans over.
+pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<PersistedSavedQuery>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
+        .bind(project_id)
+        .fetch_all(&mut *conn)
         .await?;
     rows.iter().map(map_row).collect()
 }
@@ -57,7 +88,7 @@ pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<Persi
 /// One saved query, as [`load_by_project`] gives it, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedSavedQuery>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
+    let row = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -91,8 +122,9 @@ pub async fn insert(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<()> {
     super::set_name_key(conn, TABLE, &q.id, &q.name).await
 }
 
-/// Writes every field of an existing saved query but `project_id` and
-/// `created_at`: a saved query never moves, and keeps when it was made.
+/// Writes every field of an existing saved query but `project_id`,
+/// `created_at` and its link: a saved query never moves, keeps when it was
+/// made, and its link changes only through [`set_link`].
 /// `false` when there's no saved query with that id.
 pub async fn update(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<bool> {
     let conn = tx.conn();
@@ -184,6 +216,63 @@ pub async fn with_name_key_in_folder(
         .fetch_all(&mut *conn)
         .await?;
     Ok(super::matching_key(rows, key))
+}
+
+/// [`set_link`]'s statement: by primary key.
+pub const SET_LINK: &str = "UPDATE saved_queries SET shared_path = ?1, shared_base = ?2, \
+     shared_file_id = ?3 WHERE id = ?4";
+
+/// Stores a saved query's [`SharedLink`] (all three columns; `None`
+/// clears one), and nothing else. `false` when there's no saved query with
+/// that id.
+pub async fn set_link(tx: &mut WriteTx, id: &str, link: &SharedLink) -> Result<bool> {
+    super::set_link(tx.conn(), SET_LINK, id, link).await
+}
+
+/// [`link`]'s query: by primary key.
+pub const LINK: &str =
+    "SELECT shared_path, shared_base, shared_file_id FROM saved_queries WHERE id = ?1";
+
+/// One saved query's [`SharedLink`], or `None` when there's no such row.
+pub async fn link(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<SharedLink>> {
+    let mut conn = r.into().conn().await?;
+    super::link_of(&mut conn, LINK, id).await
+}
+
+/// [`links`]' query: `idx_saved_queries_project` (`?1` the project).
+pub const LINKS: &str = "SELECT id, shared_path, shared_base, shared_file_id \
+     FROM saved_queries WHERE project_id = ?1 ORDER BY rowid";
+
+/// The link of every saved query in a project, shared or not, in rowid
+/// order.
+pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query_as(LINKS)
+        .bind(project_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(super::row_links(rows))
+}
+
+/// [`by_shared_path`]'s query: one search of
+/// `idx_saved_queries_shared_path` (`?1` the project, `?2` the path).
+pub const BY_SHARED_PATH: &str = "SELECT id FROM saved_queries \
+     WHERE project_id = ?1 AND shared_path = ?2 AND id IS NOT NULL ORDER BY rowid";
+
+/// The ids of a project's saved queries whose file is `path`, compared
+/// exactly, in rowid order. Usually one; nothing stops a hand-edited file
+/// from holding two.
+pub async fn by_shared_path(
+    r: impl Into<Reader<'_>>,
+    project_id: &str,
+    path: &str,
+) -> Result<Vec<String>> {
+    let mut conn = r.into().conn().await?;
+    Ok(sqlx::query_scalar(BY_SHARED_PATH)
+        .bind(project_id)
+        .bind(path)
+        .fetch_all(&mut *conn)
+        .await?)
 }
 
 /// How many saved queries the file holds, in every project.

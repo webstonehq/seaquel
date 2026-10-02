@@ -18,6 +18,10 @@ storage = ["dep:seaquel-storage"]
 secrets = ["dep:seaquel-secrets"]
 ssh = ["dep:seaquel-ssh"]
 git = ["dep:seaquel-git"]
+# Phase 5e: reading TablePlus's and DBeaver's connection files
+# (`Workspace::import_candidates`, `import_create`). src-tauri and
+# seaquel-cli enable it; seaquel-server doesn't.
+imports = ["storage", "dep:plist", "dep:dirs", "dep:tokio"]
 license-desktop = ["dep:seaquel-license", "seaquel-license/desktop"]
 license-server = ["dep:seaquel-license", "seaquel-license/server"]
 # `Workspace::connect`/`test` and the editor's runs (`Workspace::run`/`page`).
@@ -49,6 +53,14 @@ seaquel-git = { path = "../seaquel-git", optional = true }
 seaquel-license = { path = "../seaquel-license", optional = true }
 seaquel-workspace = { path = "../seaquel-workspace" }
 async-stream = { workspace = true }
+dirs = { workspace = true, optional = true }
+# `imports` reads and decodes the other tool's file on a blocking thread
+# (native only; the feature never builds for wasm32).
+tokio = { version = "1", features = ["rt"], optional = true }
+# The event stream (`plist::stream`) bounds a TablePlus plist's nesting and
+# size before it is built; it sits behind this feature, so the version is
+# pinned to the minor release it was written against.
+plist = { version = "~1.10.1", optional = true, features = ["enable_unstable_features_that_may_break_with_minor_version_bumps"] }
 futures = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
@@ -63,7 +75,10 @@ uuid = { workspace = true, features = ["js"] }
 # Turns on the workspace features for this crate's own tests
 # (tests/workspace.rs, tests/connect.rs), so `cargo test -p seaquel-core`
 # runs them.
-seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace"] }
+seaquel-core = { path = ".", default-features = false, features = ["storage", "secrets", "ssh", "workspace", "git", "imports"] }
+# tests/shared.rs: points libgit2's config search paths at an empty dir, so
+# no test reads the user's git config.
+git2 = { workspace = true }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 # `TokioExecutor` for tests/run_live.rs.

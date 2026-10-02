@@ -6,4 +6,11 @@ import type { PersistedQueryParameter } from "./PersistedQueryParameter";
  * JSON: absent when NULL or unparseable, `null` when the column holds
  * `null`. `starred` and `shared` always load.
  */
-export type PersistedSavedQuery = { id: string, name: string, query: string, projectId: string, createdAt: string, updatedAt: string, parameters?: Array<PersistedQueryParameter> | null, starred?: boolean, shared?: boolean, description?: string, databaseType?: string, tags?: Array<string> | null, folder?: string, };
+export type PersistedSavedQuery = { id: string, name: string, query: string, projectId: string, createdAt: string, updatedAt: string, parameters?: Array<PersistedQueryParameter> | null, starred?: boolean, shared?: boolean, description?: string, databaseType?: string, tags?: Array<string> | null, folder?: string, 
+/**
+ * The repo-relative path of its shared file (`saved_queries.shared_path`,
+ * migration `0004`), once Core has synced or written it. Read only:
+ * storage writes it through `saved_queries::set_link`, never from this
+ * field, so a library write never moves a link.
+ */
+sharedPath?: string, };

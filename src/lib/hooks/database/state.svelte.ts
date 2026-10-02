@@ -1,3 +1,4 @@
+import type { SkipReason } from "$lib/types/generated/SkipReason";
 import type {
   DatabaseConnection,
   SchemaTable,
@@ -17,13 +18,9 @@ import type {
   StarterTab,
   SettingsTab,
   SharedQueryRepo,
-  SharedQuery,
   SyncState,
   DashboardTab,
   Dashboard,
-  SharedProject,
-  SharedConnection,
-  SharedDashboard,
   ActiveViewType,
   QueryVersion,
   DashboardVersion,
@@ -33,7 +30,6 @@ import type {
   PendingChange,
 } from "$lib/types";
 import type { PaneLayout } from "$lib/types";
-import type { ConnectionLabel } from "$lib/types/project";
 import type { SavedWorkflowSummary } from "$lib/types/workflow";
 import type { EventsUnavailableReason } from "$lib/core/client";
 import { RowSeqs } from "./library/seqs";
@@ -152,25 +148,18 @@ export class DatabaseState {
   queryVersionsByProject = $state<Record<string, QueryVersion[]>>({});
   dashboardVersionsByProject = $state<Record<string, DashboardVersion[]>>({});
 
-  // === SHARED QUERY LIBRARY STATE ===
+  // === SHARED PROJECTS (phase 5e: Core owns the projection) ===
+  /** The repos as Core lists them (`shared.reposList`). */
   sharedRepos = $state<SharedQueryRepo[]>([]);
-  activeRepoId = $state<string | null>(null);
-  /** Internal scan cache: raw .sql file contents from git repos. Used for reconciliation only. */
-  sharedQueriesByRepo = $state<Record<string, SharedQuery[]>>({});
-  sharedDashboardsByRepo = $state<Record<string, SharedDashboard[]>>({});
+  /** Each repo's git status, as the sync button shows it (memory only). */
   syncStateByRepo = $state<Record<string, SyncState>>({});
-
-  // === PROJECT GIT SYNC STATE ===
-  /** Git sync state per project (for projects with gitRepoPath) */
-  projectGitSyncState = $state<Record<string, SyncState>>({});
-
-  // === SHARED CONFIG STATE (from .seaquel/ directories) ===
-  /** Repo-wide shared labels from labels.yaml, keyed by repo ID */
-  sharedLabelsByRepo = $state<Record<string, ConnectionLabel[]>>({});
-  /** Shared projects from .seaquel/projects/, keyed by repo ID */
-  sharedProjectsByRepo = $state<Record<string, SharedProject[]>>({});
-  /** Shared connections keyed by shared project ID */
-  sharedConnectionsByProject = $state<Record<string, SharedConnection[]>>({});
+  /**
+   * Projects the last sync skipped whole (past the scan's file count or
+   * size, probe fix 7), by project id: shown on the project's sync status.
+   */
+  sharedSyncSkipped = $state<Record<string, SkipReason>>({});
+  /** The conflict dialog: the repo whose conflicted files it resolves, while open. */
+  sharedConflict = $state<{ repoId: string; files: string[] } | null>(null);
 
   // === AI STATE ===
   aiChatsByConnection = $state<Record<string, AIChat[]>>({});
@@ -634,28 +623,10 @@ export class DatabaseState {
 
   // === PROJECT GIT DERIVED VALUES ===
 
-  // Derived: sync state for active project's git directory
-  activeProjectSyncState = $derived(
-    this.activeProjectId ? (this.projectGitSyncState[this.activeProjectId] ?? null) : null,
-  );
-
   // Derived: whether active project has a git directory configured
   activeProjectHasGit = $derived(!!this.activeProject?.gitRepoPath);
 
-  // === SHARED QUERY LIBRARY DERIVED VALUES ===
-
-  // Derived: active shared query repo object
-  activeRepo = $derived(this.sharedRepos.find((r) => r.id === this.activeRepoId) || null);
-
-  // Derived: shared dashboards for active repo
-  activeRepoDashboards = $derived(
-    this.activeRepoId ? (this.sharedDashboardsByRepo[this.activeRepoId] ?? []) : [],
-  );
-
-  // Derived: sync state for active repo
-  activeRepoSyncState = $derived(
-    this.activeRepoId ? (this.syncStateByRepo[this.activeRepoId] ?? null) : null,
-  );
+  // === SHARED PROJECT DERIVED VALUES ===
 
   // Derived: all shared queries across all projects (for search)
   allSharedQueries = $derived(
@@ -670,27 +641,6 @@ export class DatabaseState {
       .flat()
       .filter((d) => d.shared),
   );
-
-  // === SHARED CONFIG DERIVED VALUES ===
-
-  // Derived: shared labels for active repo
-  activeRepoSharedLabels = $derived(
-    this.activeRepoId ? (this.sharedLabelsByRepo[this.activeRepoId] ?? []) : [],
-  );
-
-  // Derived: shared projects for active repo
-  activeRepoSharedProjects = $derived(
-    this.activeRepoId ? (this.sharedProjectsByRepo[this.activeRepoId] ?? []) : [],
-  );
-
-  // Derived: all shared projects across all repos
-  allSharedProjects = $derived(Object.values(this.sharedProjectsByRepo).flat());
-
-  // Derived: all shared connections across all projects
-  allSharedConnections = $derived(Object.values(this.sharedConnectionsByProject).flat());
-
-  // Derived: all shared labels across all repos
-  allSharedLabels = $derived(Object.values(this.sharedLabelsByRepo).flat());
 
   // === AI DERIVED VALUES ===
 

@@ -105,6 +105,7 @@ async function openPage() {
     origin: () => "this-tab",
     seqs: state.librarySeqs,
   });
+  const sharedRepos = { refreshRepos: vi.fn(async (_ids: readonly string[] | null) => {}) };
   const sync = new LibrarySync(state, feed, {
     connections,
     projects,
@@ -112,12 +113,13 @@ async function openPage() {
     history: restoration,
     projectsViewState: projects,
     windowId: () => "this-tab",
+    sharedRepos,
   });
   sync.start();
   await projects.initialize();
   await connections.initializePersistedConnections();
   sync.markLoaded();
-  return { ...channel, state, projects, connections, savedQueries, provider, sync };
+  return { ...channel, state, projects, connections, savedQueries, provider, sync, sharedRepos };
 }
 
 type Page = Awaited<ReturnType<typeof openPage>>;
@@ -160,6 +162,20 @@ afterEach(() => {
 });
 
 describe("other windows' changes", () => {
+  it("another window's repo write refreshes the status here", async () => {
+    const page = await openPage();
+    page.emit({
+      type: "storageChanged",
+      kind: "sharedRepo",
+      scope: null,
+      ids: ["repo-1"],
+      origin: "other-tab",
+      seq: library.seq(),
+    });
+    await settle();
+    expect(page.sharedRepos.refreshRepos).toHaveBeenCalledWith(["repo-1"]);
+  });
+
   it("another tab's saved query appears without a reload", async () => {
     const page = await openPage();
     expect(page.state.queriesByProject.p1).toEqual([]);

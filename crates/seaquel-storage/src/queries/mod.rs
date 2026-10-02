@@ -20,6 +20,103 @@ pub struct IdName {
     pub name: String,
 }
 
+/// Where a shared row's file is and what it last synced (migration
+/// `0004_shared_links.sql`, Decision 33 of the 5e plan). `None` is "not
+/// known": the row's file is the slug path of its name, and there is no
+/// base. Storage stores and reads these as given; what they mean is Core's.
+///
+/// - `path`: the repo-relative path of the row's file. For a connection it
+///   is `shared_connection_id` (`<repoId>:<path>`), where older releases
+///   keep a template's link.
+/// - `base`: the hash of the content both sides had at the last sync.
+/// - `file_id`: the `id` written into the file (Q22).
+///
+/// Its `Debug` says only which parts are set: a path holds project and
+/// query names.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct SharedLink {
+    pub path: Option<String>,
+    pub base: Option<String>,
+    pub file_id: Option<String>,
+}
+
+impl std::fmt::Debug for SharedLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedLink")
+            .field("path", &self.path.is_some())
+            .field("base", &self.base.is_some())
+            .field("file_id", &self.file_id.is_some())
+            .finish()
+    }
+}
+
+/// One row's id and its [`SharedLink`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowLink {
+    pub id: String,
+    pub link: SharedLink,
+}
+
+/// Reads `(id, link path, base, file id)` rows into [`RowLink`]s, skipping
+/// rows with no id (a hand-edited file).
+pub(crate) type LinkRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+pub(crate) fn row_links(rows: Vec<LinkRow>) -> Vec<RowLink> {
+    rows.into_iter()
+        .filter_map(|(id, path, base, file_id)| {
+            Some(RowLink {
+                id: id?,
+                link: SharedLink {
+                    path,
+                    base,
+                    file_id,
+                },
+            })
+        })
+        .collect()
+}
+
+/// Runs a `SET_LINK` statement (`?1` path, `?2` base, `?3` file id, `?4`
+/// the row's id). Whether a row had that id.
+pub(crate) async fn set_link(
+    conn: &mut sqlx::SqliteConnection,
+    sql: &str,
+    id: &str,
+    link: &SharedLink,
+) -> codec::Result<bool> {
+    let done = sqlx::query(sql)
+        .bind(&link.path)
+        .bind(&link.base)
+        .bind(&link.file_id)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// One row's [`SharedLink`] (`sql` selects `path, base, file_id` by `?1`
+/// the id), or `None` when there's no such row.
+pub(crate) async fn link_of(
+    conn: &mut sqlx::SqliteConnection,
+    sql: &str,
+    id: &str,
+) -> codec::Result<Option<SharedLink>> {
+    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(sql)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(row.map(|(path, base, file_id)| SharedLink {
+        path,
+        base,
+        file_id,
+    }))
+}
+
 /// Stores `name`'s key in the `name_key` column of `table`'s row `id`
 /// (migration `0001_name_keys.sql`), after the write that stored the name.
 /// A separate statement, so the stale-key trigger, which NULLs the key when

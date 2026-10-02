@@ -2,7 +2,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import { m } from "$lib/paraglide/messages.js";
 	import { onboardingStore, type UserBackground } from "$lib/stores/onboarding.svelte.js";
-	import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
+	import { dbeaverImportStore } from "$lib/stores/connection-import.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { migrationTracks, getMigrationTrack } from "$lib/config/migration-tracks.js";
 	import DatabaseIcon from "@lucide/svelte/icons/database";
@@ -34,7 +34,9 @@
 
 		// Show DBeaver import dialog when user clicks DBeaver card
 		if (background === "dbeaver") {
-			await dbeaverImportStore.checkAndShowDialog(db.state.projectConnections);
+			if (db.state.activeProjectId) {
+				await dbeaverImportStore.checkAndShowDialog(db.state.activeProjectId);
+			}
 		}
 	};
 

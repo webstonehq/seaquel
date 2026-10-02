@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
 	import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-	import { dbeaverImportStore } from "$lib/stores/dbeaver-import.svelte.js";
-	import { tablePlusImportStore } from "$lib/stores/tableplus-import.svelte.js";
+	import { dbeaverImportStore, tablePlusImportStore } from "$lib/stores/connection-import.svelte.js";
+	import { importSharedProjectsFrom } from "$lib/services/shared-project-import";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { m } from "$lib/paraglide/messages.js";
 	import { isTauri } from "$lib/utils/environment";
@@ -12,9 +12,6 @@
 	import DatabaseIcon from "@lucide/svelte/icons/database";
 	import PlugIcon from "@lucide/svelte/icons/plug";
 	import LoaderIcon from "@lucide/svelte/icons/loader";
-	import { sharedProjectImportStore } from "$lib/stores/shared-project-import.svelte.js";
-	import ImportSharedProjectDialog from "../import-shared-project-dialog.svelte";
-	import { toast } from "svelte-sonner";
 	import { showErrorUnlessShown } from "$lib/errors";
 
 	const db = useDatabase();
@@ -32,11 +29,11 @@
 	);
 
 	const handleImportDbeaver = async () => {
-		await dbeaverImportStore.checkAndShowDialog(db.state.projectConnections);
+		if (db.state.activeProjectId) await dbeaverImportStore.checkAndShowDialog(db.state.activeProjectId);
 	};
 
 	const handleImportTablePlus = async () => {
-		await tablePlusImportStore.checkAndShowDialog(db.state.projectConnections);
+		if (db.state.activeProjectId) await tablePlusImportStore.checkAndShowDialog(db.state.activeProjectId);
 	};
 
 	const handleImportFromRepo = async () => {
@@ -50,17 +47,7 @@
 			});
 			if (!selected) return;
 
-			const projects = await db.sharedRepos.scanForSharedProjects(selected as string);
-			if (projects.length === 0) {
-				toast.info(m.shared_import_none_found());
-				return;
-			}
-			if (projects.length === 1) {
-				await db.projects.importFromGitRepo(selected as string, projects);
-				toast.success(m.shared_import_success({ count: 1 }));
-				return;
-			}
-			sharedProjectImportStore.openWithResults(selected as string, projects);
+			await importSharedProjectsFrom(db, selected as string);
 		} catch (error) {
 			showErrorUnlessShown(error);
 		}
@@ -170,4 +157,4 @@
 	</div>
 </div>
 
-<ImportSharedProjectDialog />
+

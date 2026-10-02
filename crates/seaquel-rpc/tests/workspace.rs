@@ -235,17 +235,8 @@ async fn json_columns_keep_their_bytes() {
         format!(r#"{{"method":"storage","result":{{"method":"licenseLoad","result":{odd}}}}}"#)
     );
 
-    // A JSON row (a shared repo, stored as the JSON given).
-    let repo = r#"{"id":"r1","port":2.2e1,"name":"b","enabled":true,"a":{"z":-0.0}}"#;
-    let body = format!(
-        r#"{{"method":"storage","params":{{"method":"sharedReposSaveAll","params":{{"repos":[{repo}],"activeRepoId":null}}}}}}"#
-    );
-    env.call_text(&body).await.unwrap();
-    let text = env
-        .call_text(r#"{"method":"storage","params":{"method":"sharedReposLoadAll"}}"#)
-        .await
-        .unwrap();
-    assert!(text.contains(repo), "{text}");
+    // A JSON row (a shared repo) keeps its bytes too: `shared.reposList`
+    // in tests/shared.rs (phase 5e retired `sharedReposSaveAll`).
 
     // A JSON body in the settings group (phase 5d-2): Core rewrites only
     // the top level of an onboarding patch, and keeps each value's bytes.

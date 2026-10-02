@@ -8,12 +8,14 @@
  * a create, only the changed fields on an edit, the secrets in the Core
  * call on desktop and never on web.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectRequest, ProviderRegistry } from "$lib/providers";
 import type { DatabaseConnection } from "$lib/types";
 import type { WindowStateManager } from "./window-state.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
+import type { ImportKeyOutcome } from "$lib/types/generated/ImportKeyOutcome";
+import type { ChangeSeq } from "./library/types";
 
 const env = vi.hoisted(() => ({ web: false }));
 vi.mock("$lib/utils/environment", () => ({
@@ -79,6 +81,8 @@ const { VaultCancelledError } = await import("$lib/services/vault/vault-state.sv
 const { setLibrary } = await import("./library/index");
 const { RecordingLibrary } = await import("./library/recording-library");
 const { LibraryCallError } = await import("./library/types");
+const { setImports } = await import("./shared/index");
+const { m } = await import("$lib/paraglide/messages.js");
 
 const connect = vi.fn(async (_request: ConnectRequest): Promise<string> => "pc-new");
 const test = vi.fn(async (_request: ConnectRequest): Promise<void> => {});
@@ -846,70 +850,90 @@ describe("markDisconnected", () => {
 });
 
 describe("importConnections", () => {
-  const draft = (overrides: Record<string, unknown> = {}) =>
-    ({
-      name: "Imported",
-      type: "postgres",
-      host: "db",
-      port: 5432,
-      databaseName: "app",
-      username: "me",
-      ...overrides,
-    }) as Parameters<InstanceType<typeof ConnectionManager>["importConnections"]>[0][number];
+  /**
+   * Core imports (phase 5e, Decision 47): it reads the file again, checks
+   * duplicates inside its transaction, stores the new connections local-only
+   * and appends them to the order. The page sends the ticked keys and shows
+   * what Core stored.
+   */
+  function recordingImports(
+    answer: () => Promise<{ value: { results: ImportKeyOutcome[] }; seq: ChangeSeq }>,
+  ) {
+    const calls: unknown[][] = [];
+    setImports({
+      candidates: async () => ({ found: false }),
+      create: async (...args) => {
+        calls.push(args);
+        return answer();
+      },
+    });
+    return calls;
+  }
+  const chosen = [
+    { key: "id:1", name: "App" },
+    { key: "id:2", name: "Reports" },
+  ];
 
-  it("two TablePlus connections on one host and port both import", async () => {
+  afterEach(() => setImports(null));
+
+  it("sends the ticked keys once and shows what Core stored, at the end of the order", async () => {
     const { manager, state } = setup();
-    state.activeProjectId = "p1";
-    const result = await manager.importConnections([
-      draft({ databaseName: "app", sslMode: "require" }),
-      draft({ databaseName: "reports" }),
+    library.seedConnection("conn-10", { projectId: "p1", name: "App" });
+    library.seedConnection("conn-11", { projectId: "p1", name: "Reports" });
+    library.sidebars.set("p1", ["conn-10", "conn-11"]);
+    library.n += 1;
+    const calls = recordingImports(async () => ({
+      value: {
+        results: [
+          { key: "id:1", status: "imported", id: "conn-10" },
+          { key: "id:2", status: "imported", id: "conn-11" },
+        ],
+      },
+      seq: library.seq(),
+    }));
+
+    const result = await manager.importConnections("tableplus", "p1", chosen);
+
+    expect(calls).toEqual([["tableplus", "p1", ["id:1", "id:2"]]]);
+    expect(result).toEqual({ imported: 2, skipped: 0, failures: [] });
+    expect(state.connections.map((c) => c.id)).toEqual(["conn-10", "conn-11"]);
+    expect(state.connectionOrderByProject.p1).toEqual(["conn-10", "conn-11"]);
+    expect(library.callsOf("createConnection")).toEqual([]);
+  });
+
+  it("a connection the project already has is skipped, not failed", async () => {
+    const { manager } = setup();
+    recordingImports(async () => ({
+      value: {
+        results: [
+          { key: "id:1", status: "duplicate", duplicateOf: "conn-1" },
+          { key: "id:2", status: "notFound" },
+        ],
+      },
+      seq: library.seq(),
+    }));
+
+    const result = await manager.importConnections("dbeaver", "p1", chosen);
+
+    expect(result.skipped).toBe(1);
+    expect(result.failures).toEqual([{ name: "Reports", reason: m.import_failure_not_found() }]);
+  });
+
+  it("a refused call fails every chosen connection with its reason", async () => {
+    const { manager, state } = setup();
+    recordingImports(async () => {
+      throw Object.assign(new Error("INVALID_ARGUMENT: key id:2 can't be imported"), {
+        code: "INVALID_ARGUMENT",
+      });
+    });
+
+    const result = await manager.importConnections("tableplus", "p1", chosen);
+
+    expect(result.imported).toBe(0);
+    expect(result.failures).toEqual([
+      { name: "App", reason: "key id:2 can't be imported" },
+      { name: "Reports", reason: "key id:2 can't be imported" },
     ]);
-    expect(result).toEqual({ imported: 2, skipped: 0, failed: 0, failures: [] });
-    const ids = state.connections.map((c) => c.id);
-    expect(ids).toEqual(["conn-1", "conn-2"]);
-    expect(state.connectionOrderByProject.p1).toEqual(ids);
-    expect(state.connections[0]).toMatchObject({ projectId: "p1", sslMode: "require" });
-    // Core picks a free name for a taken one; the page does no folding.
-    for (const [draft] of library.callsOf("createConnection")) {
-      expect(draft).toMatchObject({ renameIfTaken: true, isLocalOnly: true, connected: false });
-    }
-  });
-
-  it("two DBeaver connections on one host and port with different users both import", async () => {
-    const { manager, state } = setup();
-    state.activeProjectId = "p1";
-    const result = await manager.importConnections([
-      draft({ username: "me" }),
-      draft({ username: "reader" }),
-    ]);
-    expect(result.imported).toBe(2);
-    expect(state.connections).toHaveLength(2);
-  });
-
-  it("skips a connection the project already has", async () => {
-    const { manager, state } = setup();
-    state.activeProjectId = "p1";
-    state.connections = [{ ...saved, host: "db", username: "me", databaseName: "app" }];
-    const result = await manager.importConnections([draft(), draft({ databaseName: "new" })]);
-    expect(result).toEqual({ imported: 1, skipped: 1, failed: 0, failures: [] });
-    expect(library.callsOf("createConnection")).toHaveLength(1);
-  });
-
-  it("an imported connection is local-only, like one made in the wizard", async () => {
-    const { manager, state } = setup();
-    state.activeProjectId = "p1";
-    await manager.importConnections([draft()]);
-    expect(state.connections[0].isLocalOnly).toBe(true);
-    expect(library.callsOf("createConnection")[0][0]).toMatchObject({ isLocalOnly: true });
-  });
-
-  it("imports create through Core and report failures", async () => {
-    const { manager, state } = setup();
-    state.activeProjectId = "p1";
-    library.failures.set("createConnection", { error: new Error("STORAGE_ERROR: full") });
-    const result = await manager.importConnections([draft(), draft({ databaseName: "b" })]);
-    expect(result).toEqual({ imported: 1, skipped: 0, failed: 1, failures: ["Imported"] });
-    expect(state.connections.map((c) => c.databaseName)).toEqual(["b"]);
-    expect(state.connectionOrderByProject.p1).toHaveLength(1);
+    expect(state.connections).toEqual([]);
   });
 });

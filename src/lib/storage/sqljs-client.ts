@@ -9,13 +9,7 @@
  */
 
 import type { StorageClient } from "./client";
-import {
-  licenseRepo,
-  queryHistoryRepo,
-  sharedReposRepo,
-  userCredentialsRepo,
-  vaultStateRepo,
-} from "./repository";
+import { licenseRepo, queryHistoryRepo, userCredentialsRepo, vaultStateRepo } from "./repository";
 import { CURRENT_STORAGE_VERSION, initializeSchema } from "./schema";
 import type { SqliteDatabase } from "./sqlite-types";
 
@@ -42,7 +36,6 @@ function bind<R extends object>(repo: R, db: SqliteDatabase): Bound<R> {
 export function createSqljsStorageClient(db: SqliteDatabase): StorageClient {
   return {
     queryHistory: bind(queryHistoryRepo, db),
-    sharedRepos: bind(sharedReposRepo, db),
     license: bind(licenseRepo, db),
     vaultState: bind(vaultStateRepo, db),
     userCredentials: bind(userCredentialsRepo, db),

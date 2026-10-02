@@ -43,12 +43,14 @@ use seaquel_workspace::library::{
 use seaquel_workspace::run::iso_timestamp;
 
 use crate::changes::WriteOrigin;
+use crate::projection::Publish;
 use crate::workspace::SAVED_CONNECTION_NOT_FOUND;
 use crate::{Core, CoreError, Seqd, StoredKind, Workspace};
+use seaquel_workspace::shared::Kind;
 
 type Result<T> = std::result::Result<T, CoreError>;
 
-fn now(core: &Core) -> Result<String> {
+pub(crate) fn now(core: &Core) -> Result<String> {
     let executor = core.executor.as_ref().ok_or_else(|| {
         CoreError::new(
             "NOT_SUPPORTED",
@@ -248,7 +250,7 @@ async fn patched_connection_checks(
 
 /// `ENGINE_NOT_AVAILABLE` for a type this Core has no engine for (the web
 /// server's SQLite and DuckDB; Decision 7).
-fn check_engine(core: &Core, ty: &str) -> Result<()> {
+pub(crate) fn check_engine(core: &Core, ty: &str) -> Result<()> {
     if core.engine_ids().contains(&lib::engine_of(ty)) {
         Ok(())
     } else {
@@ -369,7 +371,11 @@ impl Workspace {
     pub async fn list_connections(&self) -> Result<Seqd<Vec<PersistedConnection>>> {
         let seq = self.change_seq();
         let value = connections::load_all(self.storage()).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save a new connection (`connectionCreate`) with a Core id, and its
@@ -409,14 +415,8 @@ impl Workspace {
         let written = async {
             let mut tx = self.storage().write().await?;
             let ticket = self.take_seq();
-            let count = connections::count(&mut tx).await?;
-            check_count(count, limits.max_connections, "max_connections")?;
-            let mut src = Src::Tx(&mut tx);
-            new_connection_checks(&mut src, &mut row, draft.rename_if_taken, &limits).await?;
-            connections::insert(&mut tx, &row).await?;
-            let stored = connections::get(&mut tx, &id)
-                .await?
-                .ok_or_else(connection_not_found)?;
+            let stored =
+                insert_connection_in(&mut tx, &mut row, draft.rename_if_taken, &limits).await?;
             tx.commit().await?;
             Ok::<_, CoreError>((stored, ticket))
         }
@@ -430,7 +430,11 @@ impl Workspace {
                     Some(vec![id]),
                     origin,
                 );
-                Ok(Seqd { value: stored, seq })
+                Ok(Seqd {
+                    value: stored,
+                    seq,
+                    projection: None,
+                })
             }
             Err(e) => {
                 if !sets.is_empty() {
@@ -488,27 +492,31 @@ impl Workspace {
             self.set_secrets(id, &sets, Undo::Restore).await?;
         }
 
+        // Phase 5e, Decision 37: making a shared connection local-only
+        // deletes its template first (keeping the bytes), then writes the
+        // row; a failed row write puts the file back.
+        let unsharing = patch.is_local_only == Some(true);
+        let pending = if unsharing {
+            self.unpublish_begin(core, Kind::Connection, id, true)
+                .await?
+        } else {
+            None
+        };
         let written = async {
             let mut tx = self.storage().write().await?;
             let ticket = self.take_seq();
-            let before = connections::get(&mut tx, id)
-                .await?
-                .ok_or_else(connection_not_found)?;
-            let mut row = before.clone();
-            lib::apply_connection_patch(&mut row, &patch, &now);
-            lib::check_secret_flags(&secrets, &row)?;
-            let mut src = Src::Tx(&mut tx);
-            patched_connection_checks(&mut src, &before, &row, &patch).await?;
-            if !connections::update(&mut tx, &row).await? {
-                return Err(connection_not_found());
-            }
-            let stored = connections::get(&mut tx, id)
-                .await?
-                .ok_or_else(connection_not_found)?;
+            let (before, stored) =
+                update_connection_in(&mut tx, id, &patch, &now, &secrets).await?;
             tx.commit().await?;
             Ok::<_, CoreError>((before, stored, ticket))
         }
         .await;
+        let unpublished = if unsharing {
+            self.unpublish_end(core, origin, pending, written.is_ok())
+                .await
+        } else {
+            None
+        };
         let (before, stored, ticket) = match written {
             Ok(done) => done,
             Err(e) => {
@@ -538,7 +546,39 @@ impl Workspace {
         if !gone.is_empty() {
             self.delete_secrets(id, &gone).await;
         }
-        Ok(Seqd { value: stored, seq })
+        let projection = if unsharing {
+            unpublished
+        } else if stored.shared_connection_id.is_some() || patch.is_local_only == Some(false) {
+            // Decision 53: only a connection linked to its template, or one
+            // the user shares now, reaches the repo.
+            let renamed = name_key(&before.name) != name_key(&stored.name);
+            let shared_now = patch.is_local_only == Some(false);
+            self.publish_row(
+                core,
+                origin,
+                &stored.project_id,
+                Publish::Connection {
+                    id,
+                    renamed,
+                    shared_now,
+                },
+            )
+            .await
+        } else {
+            None
+        };
+        // A publish may have stored or cleared the template's link since.
+        let mut stored = stored;
+        if projection.is_some() {
+            if let Ok(Some(link)) = connections::link(self.storage(), id).await {
+                stored.shared_connection_id = link.path;
+            }
+        }
+        Ok(Seqd {
+            value: stored,
+            seq,
+            projection,
+        })
     }
 
     /// Remove a saved connection (`connectionRemove`). Its history, chats
@@ -553,14 +593,27 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.connectionRemove", connection_id = id; "Remove a connection");
         lib::check_id(id, "connection id", &core.library_limits())?;
-        let mut tx = self.storage().write().await?;
-        let ticket = self.take_seq();
-        let row = connections::get(&mut tx, id)
-            .await?
-            .ok_or_else(connection_not_found)?;
-        connections::delete(&mut tx, id).await?;
-        user_credentials::remove_all_for_key_in(&mut tx, id).await?;
-        tx.commit().await?;
+        // Decision 37: a shared connection's template goes first, its bytes
+        // kept until the row is gone.
+        let pending = self
+            .unpublish_begin(core, Kind::Connection, id, false)
+            .await?;
+        let written = async {
+            let mut tx = self.storage().write().await?;
+            let ticket = self.take_seq();
+            let row = connections::get(&mut tx, id)
+                .await?
+                .ok_or_else(connection_not_found)?;
+            connections::delete(&mut tx, id).await?;
+            user_credentials::remove_all_for_key_in(&mut tx, id).await?;
+            tx.commit().await?;
+            Ok::<_, CoreError>((row, ticket))
+        }
+        .await;
+        let projection = self
+            .unpublish_end(core, origin, pending, written.is_ok())
+            .await;
+        let (row, ticket) = written?;
         let seq = self.announce(
             ticket,
             StoredKind::Connection,
@@ -569,8 +622,97 @@ impl Workspace {
             origin,
         );
         self.delete_secrets(id, &CONNECTION_SECRETS).await;
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection,
+        })
     }
+}
+
+/// The project's connection order, or (with no `project_state` row) its
+/// connections in id order, as the TypeScript's first append saw it
+/// (phase 5e: a template's or an import's connection is appended to it).
+#[cfg(any(feature = "git", feature = "imports"))]
+pub(crate) async fn connection_order_in(tx: &mut WriteTx, project_id: &str) -> Result<Vec<String>> {
+    if let Some(raw) = seaquel_storage::project_state::sidebar(&mut *tx, project_id).await? {
+        return Ok(seaquel_workspace::state::read_connection_order(Some(&raw)));
+    }
+    let mut ids = connections::ids_in_project(&mut *tx, project_id).await?;
+    ids.sort();
+    Ok(ids)
+}
+
+/// A shared-project import's new project inside `tx` (phase 5e, Decision
+/// 40): the count limit, its name (the first free `"<name> (n)"`), linked
+/// to `repo_path`. The stored row.
+#[cfg(feature = "git")]
+pub(crate) async fn insert_linked_project_in(
+    tx: &mut WriteTx,
+    name: &str,
+    repo_path: &str,
+    now: &str,
+    limits: &LibraryLimits,
+) -> Result<PersistedProject> {
+    let draft = ProjectDraft {
+        name: name.to_string(),
+        description: None,
+        rename_if_taken: true,
+    };
+    lib::check_project_draft(&draft, limits)?;
+    let count = projects::count(&mut *tx).await?;
+    check_count(count, limits.max_projects, "max_projects")?;
+    let name = Names::Projects
+        .resolve(&mut Src::Tx(&mut *tx), name, true, None)
+        .await?;
+    let mut row = lib::project_from_draft(new_id(PROJECT_ID_PREFIX), &draft, name, now);
+    row.git_repo_path = Some(repo_path.to_string());
+    projects::insert(&mut *tx, &row).await?;
+    Ok(row)
+}
+
+/// A new connection's write inside `tx`: the count limit, its project,
+/// labels and name (renamed for an import or a template, `rename`), then the
+/// row. The stored row.
+pub(crate) async fn insert_connection_in(
+    tx: &mut WriteTx,
+    row: &mut PersistedConnection,
+    rename: bool,
+    limits: &LibraryLimits,
+) -> Result<PersistedConnection> {
+    let count = connections::count(&mut *tx).await?;
+    check_count(count, limits.max_connections, "max_connections")?;
+    let mut src = Src::Tx(&mut *tx);
+    new_connection_checks(&mut src, row, rename, limits).await?;
+    connections::insert(&mut *tx, row).await?;
+    connections::get(&mut *tx, &row.id)
+        .await?
+        .ok_or_else(connection_not_found)
+}
+
+/// A connection patch inside `tx`: the row before and as stored.
+pub(crate) async fn update_connection_in(
+    tx: &mut WriteTx,
+    id: &str,
+    patch: &ConnectionPatch,
+    now: &str,
+    secrets: &SecretChanges,
+) -> Result<(PersistedConnection, PersistedConnection)> {
+    let before = connections::get(&mut *tx, id)
+        .await?
+        .ok_or_else(connection_not_found)?;
+    let mut row = before.clone();
+    lib::apply_connection_patch(&mut row, patch, now);
+    lib::check_secret_flags(secrets, &row)?;
+    let mut src = Src::Tx(&mut *tx);
+    patched_connection_checks(&mut src, &before, &row, patch).await?;
+    if !connections::update(&mut *tx, &row).await? {
+        return Err(connection_not_found());
+    }
+    let stored = connections::get(&mut *tx, id)
+        .await?
+        .ok_or_else(connection_not_found)?;
+    Ok((before, stored))
 }
 
 // ── Projects ──
@@ -579,7 +721,11 @@ impl Workspace {
     pub async fn list_projects(&self) -> Result<Seqd<Vec<PersistedProject>>> {
         let seq = self.change_seq();
         let value = projects::load_all(self.storage()).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save a new project (`projectCreate`).
@@ -610,7 +756,11 @@ impl Workspace {
         projects::insert(&mut tx, &row).await?;
         tx.commit().await?;
         let seq = self.announce(ticket, StoredKind::Project, None, Some(vec![id]), origin);
-        Ok(Seqd { value: row, seq })
+        Ok(Seqd {
+            value: row,
+            seq,
+            projection: None,
+        })
     }
 
     /// Make the default project on a file with no project
@@ -648,7 +798,11 @@ impl Workspace {
             self.change_seq()
         };
         let value = projects::load_all(self.storage()).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Change a project (`projectUpdate`); `updatedAt` becomes now.
@@ -670,11 +824,20 @@ impl Workspace {
             .await?
             .ok_or_else(project_not_found)?;
         let before = row.name.clone();
+        let linked_before = row.git_repo_path.is_some();
         lib::apply_project_patch(&mut row, &patch, &now);
         if patch.name.is_some() && name_key(&row.name) != name_key(&before) {
             Names::Projects
                 .resolve(&mut Src::Tx(&mut tx), &row.name, false, Some(id))
                 .await?;
+        }
+        // Phase 5e, Q25: a linked project's directory is stored before a
+        // rename, so the slug of the new name never moves it (a NULL
+        // directory is the slug of the name, Decision 33).
+        let renamed = row.name != before;
+        if renamed && linked_before && projects::shared_dir(&mut tx, id).await?.is_none() {
+            let dir = seaquel_workspace::shared::names::legacy_stem(&before);
+            projects::set_shared_dir(&mut tx, id, Some(&dir)).await?;
         }
         projects::update(&mut tx, &row).await?;
         tx.commit().await?;
@@ -685,7 +848,17 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: row, seq })
+        // Q25: `project.yaml`'s name follows; the directory stays.
+        let projection = if renamed && row.git_repo_path.is_some() {
+            self.publish_row(core, origin, id, Publish::Project).await
+        } else {
+            None
+        };
+        Ok(Seqd {
+            value: row,
+            seq,
+            projection,
+        })
     }
 
     /// Remove a project and everything in it (`projectRemove`, Decision 9),
@@ -731,6 +904,7 @@ impl Workspace {
         Ok(Seqd {
             value: ProjectRemoved { connection_ids },
             seq,
+            projection: None,
         })
     }
 }
@@ -779,7 +953,11 @@ impl Workspace {
             Some(vec![label.id.clone()]),
             origin,
         );
-        Ok(Seqd { value: label, seq })
+        Ok(Seqd {
+            value: label,
+            seq,
+            projection: None,
+        })
     }
 
     /// Rename or recolour a custom label (`labelUpdate`).
@@ -829,7 +1007,11 @@ impl Workspace {
             Some(vec![label_id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: label, seq })
+        Ok(Seqd {
+            value: label,
+            seq,
+            projection: None,
+        })
     }
 
     /// Remove a custom label (`labelRemove`), and take it off every
@@ -866,6 +1048,7 @@ impl Workspace {
         Ok(Seqd {
             value: LabelRemoved { connection_ids },
             seq,
+            projection: None,
         })
     }
 }
@@ -888,7 +1071,11 @@ impl Workspace {
         lib::check_id(project_id, "project id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = saved_queries::load_by_project(self.storage(), project_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Every version of a project's saved queries. The id is size-checked
@@ -901,7 +1088,11 @@ impl Workspace {
         lib::check_id(project_id, "project id", &core.library_limits())?;
         let seq = self.change_seq();
         let value = query_versions::load_by_project(self.storage(), project_id).await?;
-        Ok(Seqd { value, seq })
+        Ok(Seqd {
+            value,
+            seq,
+            projection: None,
+        })
     }
 
     /// Save a new saved query (`savedQueryCreate`).
@@ -920,30 +1111,32 @@ impl Workspace {
         lib::check_saved_query(&row, &limits)?;
         let mut tx = self.storage().write().await?;
         let ticket = self.take_seq();
-        let count = saved_queries::count(&mut tx).await?;
-        check_count(count, limits.max_saved_queries, "max_saved_queries")?;
-        if projects::get(&mut tx, &row.project_id).await?.is_none() {
-            return Err(project_not_found());
-        }
-        Names::SavedQueries {
-            project_id: &row.project_id,
-            folder: row.folder.as_deref(),
-        }
-        .resolve(&mut Src::Tx(&mut tx), &row.name, false, None)
-        .await?;
-        saved_queries::insert(&mut tx, &row).await?;
-        let stored = saved_queries::get(&mut tx, &id)
-            .await?
-            .ok_or_else(saved_query_not_found)?;
+        self.check_shared_folder(core, &mut tx, &row).await?;
+        let stored = insert_saved_query_in(&mut tx, &row, &limits).await?;
         tx.commit().await?;
         let seq = self.announce(
             ticket,
             StoredKind::SavedQuery,
             Some(stored.project_id.clone()),
-            Some(vec![id]),
+            Some(vec![id.clone()]),
             origin,
         );
-        Ok(Seqd { value: stored, seq })
+        let mut out = Seqd::new(stored, seq);
+        if out.value.shared {
+            out.projection = self
+                .publish_row(
+                    core,
+                    origin,
+                    &out.value.project_id.clone(),
+                    Publish::Query {
+                        id: &id,
+                        renamed: false,
+                    },
+                )
+                .await;
+            self.refresh_query_path(&mut out).await;
+        }
+        Ok(out)
     }
 
     /// Change a saved query (`savedQueryUpdate`, Decision 11). A changed
@@ -962,69 +1155,61 @@ impl Workspace {
         lib::check_id(id, "saved query id", &limits)?;
         lib::check_saved_query_patch(&patch, &limits)?;
         let now = now(core)?;
-        let mut tx = self.storage().write().await?;
-        let ticket = self.take_seq();
-        let mut row = saved_queries::get(&mut tx, id)
-            .await?
-            .ok_or_else(saved_query_not_found)?;
-        let change = lib::apply_saved_query_patch(&mut row, &patch, &now);
-        if change.renamed {
-            Names::SavedQueries {
-                project_id: &row.project_id,
-                folder: row.folder.as_deref(),
-            }
-            .resolve(&mut Src::Tx(&mut tx), &row.name, false, Some(id))
-            .await?;
-        }
-        if !saved_queries::update(&mut tx, &row).await? {
-            return Err(saved_query_not_found());
-        }
-        let mut version = None;
-        let mut pruned_version_ids = Vec::new();
-        if let Some(previous) = &change.previous_text {
-            let v = query_versions::append_keyframe(
-                &mut tx,
-                &new_id(QUERY_VERSION_ID_PREFIX),
-                id,
-                previous,
-                &now,
-            )
-            .await?;
-            let limit = app_state::get(&mut tx, QUERY_VERSION_LIMIT_KEY).await?;
-            let keep = lib::parse_version_limit(limit.as_deref());
-            let metas: Vec<VersionMeta> = query_versions::list_meta(&mut tx, id)
+        // Phase 5e, Decision 37: unsharing deletes the file first (keeping
+        // its bytes), then writes the row; a failed write puts it back.
+        let unsharing = patch.shared == Some(false);
+        let pending = if unsharing {
+            self.unpublish_begin(core, Kind::SavedQuery, id, true)
                 .await?
-                .into_iter()
-                .map(|m| VersionMeta {
-                    id: m.id,
-                    version: m.version,
-                    keyframe: m.keyframe,
-                    bytes: m.bytes,
+        } else {
+            None
+        };
+        let written = async {
+            let mut tx = self.storage().write().await?;
+            let ticket = self.take_seq();
+            let (updated, renamed) =
+                update_saved_query_in(&mut tx, id, &patch, &now, &limits, |row| {
+                    self.shared_folder_ok(core, row)
                 })
-                .collect();
-            pruned_version_ids = lib::version_prune(&metas, keep, limits.max_version_bytes);
-            query_versions::delete_ids(&mut tx, id, &pruned_version_ids).await?;
-            version = Some(v);
+                .await?;
+            tx.commit().await?;
+            Ok::<_, CoreError>((updated, renamed, ticket))
         }
-        let stored = saved_queries::get(&mut tx, id)
-            .await?
-            .ok_or_else(saved_query_not_found)?;
-        tx.commit().await?;
+        .await;
+        let unpublished = if unsharing {
+            self.unpublish_end(core, origin, pending, written.is_ok())
+                .await
+        } else {
+            None
+        };
+        let (updated, renamed, ticket) = written?;
         let seq = self.announce(
             ticket,
             StoredKind::SavedQuery,
-            Some(stored.project_id.clone()),
+            Some(updated.query.project_id.clone()),
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd {
-            value: SavedQueryUpdated {
-                query: stored,
-                version,
-                pruned_version_ids,
-            },
-            seq,
-        })
+        let mut out = Seqd::new(updated, seq);
+        out.projection = if unsharing {
+            unpublished
+        } else if out.value.query.shared || out.value.query.shared_path.is_some() {
+            self.publish_row(
+                core,
+                origin,
+                &out.value.query.project_id.clone(),
+                Publish::Query { id, renamed },
+            )
+            .await
+        } else {
+            None
+        };
+        if out.projection.is_some() {
+            if let Ok(Some(link)) = saved_queries::link(self.storage(), id).await {
+                out.value.query.shared_path = link.path;
+            }
+        }
+        Ok(out)
     }
 
     /// Remove a saved query (`savedQueryRemove`); its versions cascade.
@@ -1036,13 +1221,26 @@ impl Workspace {
     ) -> Result<Seqd<()>> {
         debug!(activity = "library.savedQueryRemove", saved_query_id = id; "Remove a saved query");
         lib::check_id(id, "saved query id", &core.library_limits())?;
-        let mut tx = self.storage().write().await?;
-        let ticket = self.take_seq();
-        let row = saved_queries::get(&mut tx, id)
-            .await?
-            .ok_or_else(saved_query_not_found)?;
-        saved_queries::delete(&mut tx, id).await?;
-        tx.commit().await?;
+        // Decision 37: a shared query's file goes first, its bytes kept
+        // until the row is gone.
+        let pending = self
+            .unpublish_begin(core, Kind::SavedQuery, id, false)
+            .await?;
+        let written = async {
+            let mut tx = self.storage().write().await?;
+            let ticket = self.take_seq();
+            let row = saved_queries::get(&mut tx, id)
+                .await?
+                .ok_or_else(saved_query_not_found)?;
+            saved_queries::delete(&mut tx, id).await?;
+            tx.commit().await?;
+            Ok::<_, CoreError>((row, ticket))
+        }
+        .await;
+        let projection = self
+            .unpublish_end(core, origin, pending, written.is_ok())
+            .await;
+        let (row, ticket) = written?;
         let seq = self.announce(
             ticket,
             StoredKind::SavedQuery,
@@ -1050,6 +1248,154 @@ impl Workspace {
             Some(vec![id.to_string()]),
             origin,
         );
-        Ok(Seqd { value: (), seq })
+        Ok(Seqd {
+            value: (),
+            seq,
+            projection,
+        })
     }
+
+    /// The stored link's path on a just-published query's answer.
+    async fn refresh_query_path(&self, out: &mut Seqd<PersistedSavedQuery>) {
+        if out.projection.is_some() {
+            if let Ok(Some(link)) = saved_queries::link(self.storage(), &out.value.id).await {
+                out.value.shared_path = link.path;
+            }
+        }
+    }
+
+    /// Decision 32 (Task 4b, M3): a shared query in a linked project must
+    /// have a folder that can be a path in the repo, so a publish never
+    /// meets one it refuses. Checked inside the write, before the commit;
+    /// only where the projection runs (`LocalFiles`).
+    async fn check_shared_folder(
+        &self,
+        core: &Core,
+        tx: &mut WriteTx,
+        row: &PersistedSavedQuery,
+    ) -> Result<()> {
+        if !row.shared || core.local_files().is_none() {
+            return Ok(());
+        }
+        let linked = projects::get(&mut *tx, &row.project_id)
+            .await?
+            .is_some_and(|p| p.git_repo_path.is_some());
+        if linked {
+            self.shared_folder_ok(core, row)?;
+        }
+        Ok(())
+    }
+
+    /// The folder rule alone (see [`Workspace::check_shared_folder`]),
+    /// without the project read: `update_saved_query_in` asks it only for a
+    /// shared row and reads the project itself.
+    fn shared_folder_ok(&self, core: &Core, row: &PersistedSavedQuery) -> Result<()> {
+        if !row.shared || core.local_files().is_none() {
+            return Ok(());
+        }
+        let folder = row.folder.as_deref().unwrap_or("");
+        seaquel_workspace::shared::names::check_folder(folder).map_err(|_| {
+            CoreError::from(LibraryError::invalid(
+                "The query's folder can't be a path in the repository.",
+            ))
+        })
+    }
+}
+
+/// A new saved query's write inside `tx`: the count limit, its project and
+/// its name in its folder, then the row. The stored row.
+pub(crate) async fn insert_saved_query_in(
+    tx: &mut WriteTx,
+    row: &PersistedSavedQuery,
+    limits: &LibraryLimits,
+) -> Result<PersistedSavedQuery> {
+    let count = saved_queries::count(&mut *tx).await?;
+    check_count(count, limits.max_saved_queries, "max_saved_queries")?;
+    if projects::get(&mut *tx, &row.project_id).await?.is_none() {
+        return Err(project_not_found());
+    }
+    Names::SavedQueries {
+        project_id: &row.project_id,
+        folder: row.folder.as_deref(),
+    }
+    .resolve(&mut Src::Tx(&mut *tx), &row.name, false, None)
+    .await?;
+    saved_queries::insert(&mut *tx, row).await?;
+    saved_queries::get(&mut *tx, &row.id)
+        .await?
+        .ok_or_else(saved_query_not_found)
+}
+
+/// A saved query patch inside `tx` (Decision 11): a changed text appends a
+/// keyframe of the previous text and prunes. `check` runs on the patched
+/// row before it's written (the shared folder rule). The answer and whether
+/// the name or folder changed.
+pub(crate) async fn update_saved_query_in(
+    tx: &mut WriteTx,
+    id: &str,
+    patch: &SavedQueryPatch,
+    now: &str,
+    limits: &LibraryLimits,
+    check: impl Fn(&PersistedSavedQuery) -> Result<()>,
+) -> Result<(SavedQueryUpdated, bool)> {
+    let mut row = saved_queries::get(&mut *tx, id)
+        .await?
+        .ok_or_else(saved_query_not_found)?;
+    let change = lib::apply_saved_query_patch(&mut row, patch, now);
+    if change.renamed {
+        Names::SavedQueries {
+            project_id: &row.project_id,
+            folder: row.folder.as_deref(),
+        }
+        .resolve(&mut Src::Tx(&mut *tx), &row.name, false, Some(id))
+        .await?;
+    }
+    if row.shared
+        && projects::get(&mut *tx, &row.project_id)
+            .await?
+            .is_some_and(|p| p.git_repo_path.is_some())
+    {
+        check(&row)?;
+    }
+    if !saved_queries::update(&mut *tx, &row).await? {
+        return Err(saved_query_not_found());
+    }
+    let mut version = None;
+    let mut pruned_version_ids = Vec::new();
+    if let Some(previous) = &change.previous_text {
+        let v = query_versions::append_keyframe(
+            &mut *tx,
+            &new_id(QUERY_VERSION_ID_PREFIX),
+            id,
+            previous,
+            now,
+        )
+        .await?;
+        let limit = app_state::get(&mut *tx, QUERY_VERSION_LIMIT_KEY).await?;
+        let keep = lib::parse_version_limit(limit.as_deref());
+        let metas: Vec<VersionMeta> = query_versions::list_meta(&mut *tx, id)
+            .await?
+            .into_iter()
+            .map(|m| VersionMeta {
+                id: m.id,
+                version: m.version,
+                keyframe: m.keyframe,
+                bytes: m.bytes,
+            })
+            .collect();
+        pruned_version_ids = lib::version_prune(&metas, keep, limits.max_version_bytes);
+        query_versions::delete_ids(&mut *tx, id, &pruned_version_ids).await?;
+        version = Some(v);
+    }
+    let stored = saved_queries::get(&mut *tx, id)
+        .await?
+        .ok_or_else(saved_query_not_found)?;
+    Ok((
+        SavedQueryUpdated {
+            query: stored,
+            version,
+            pruned_version_ids,
+        },
+        change.renamed,
+    ))
 }

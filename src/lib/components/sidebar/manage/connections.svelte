@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isSharedConnection, type ShareResource } from "./share-link.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
 	import { showErrorUnlessShown } from "$lib/errors";
 	import { dndzone } from "svelte-dnd-action";
@@ -30,7 +31,7 @@
 	import LinkIcon from "@lucide/svelte/icons/link";
 
 	interface Props {
-		oncopyShareLink: (resource: { repoId?: string; filePath?: string; name?: string; folder?: string; id?: string }, resourceType: "connection") => Promise<void>;
+		oncopyShareLink: (resource: ShareResource, resourceType: "connection") => Promise<void>;
 	}
 
 	let { oncopyShareLink }: Props = $props();
@@ -225,12 +226,12 @@
 														class="shrink-0 cursor-pointer"
 														onclick={(e) => { e.stopPropagation(); void db.connections.toggleLocalOnly(connection.id).catch(showErrorUnlessShown); }}
 													>
-														<GitBranchIcon class={["size-3!", connection.isLocalOnly ? "text-muted-foreground/40" : "text-green-500"]} />
+														<GitBranchIcon class={["size-3!", isSharedConnection(connection) ? "text-green-500" : "text-muted-foreground/40"]} />
 													</button>
 												{/snippet}
 											</Tooltip.Trigger>
 											<Tooltip.Content>
-												{connection.isLocalOnly ? m.connection_share() : m.connection_mark_local_only()}
+												{isSharedConnection(connection) ? m.connection_mark_local_only() : m.connection_share()}
 											</Tooltip.Content>
 										</Tooltip.Root>
 										{/if}
@@ -300,13 +301,11 @@
 									{m.sidebar_connection_labels()}
 								</ContextMenu.Item>
 								{#if connection.sharedConnectionId}
-									{@const sharedConn = db.state.allSharedConnections.find((c) => c.id === connection.sharedConnectionId)}
-									{#if sharedConn}
-										<ContextMenu.Item onclick={() => oncopyShareLink(sharedConn, "connection")}>
-											<LinkIcon class="size-4 me-2" />
-											{m.share_connection()}
-										</ContextMenu.Item>
-									{/if}
+									<!-- A linked connection's template path is in its link (Core's). -->
+									<ContextMenu.Item onclick={() => oncopyShareLink(connection, "connection")}>
+										<LinkIcon class="size-4 me-2" />
+										{m.share_connection()}
+									</ContextMenu.Item>
 								{/if}
 								{#if !(isDemo() && connection.id === "demo-connection")}
 									<ContextMenu.Separator />

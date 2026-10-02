@@ -25,6 +25,14 @@ time = { workspace = true }
 url = "2"
 percent-encoding = "2"
 ts-rs = { workspace = true, optional = true }
+# `imports`: JavaScript's `String(n)` for the numbers TablePlus and DBeaver
+# hand over where the TypeScript took text.
+ryu-js = { workspace = true }
+# `shared`: the content hash (Decision 34), the file names' NFC and
+# general categories (Q21). All three are pure and build for wasm32.
+sha2 = "0.10"
+unicode-normalization = "0.1.25"
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
 
 [dev-dependencies]
 futures = { workspace = true }
@@ -35,3 +43,5 @@ seaquel-engine-mysql = { path = "../seaquel-engine-mysql" }
 seaquel-engine-sqlite = { path = "../seaquel-engine-sqlite" }
 seaquel-engine-mssql = { path = "../seaquel-engine-mssql" }
 seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb" }
+# tests/imports_plan.rs decodes the TablePlus XML plists, as Core does.
+plist = "1"

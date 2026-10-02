@@ -80,7 +80,7 @@ Two replays read these files, and each compares its own fields. A field neither 
 - **Rows, library tables:** `projects`, `project_labels`, `connections`, `connection_labels`, `saved_queries` and `query_versions`, whole, after every step.
 - **Rows, what hangs off them:** `query_history`, `ai_chats`, `ai_messages`, `dashboards`, `dashboard_versions` and `saved_canvases` by their ids, after every step (they change only through a removal's cascade here). `project_state` and `tabs` only as "no row of a removed project remains": the TS writes them from its own debounced project save, which Core doesn't do. `app_state` isn't compared.
 - **`secretStore`**, whole, after every step. `secretCalls` aren't compared: today a save with a flag off deletes entries that can't exist, and Core doesn't have to.
-- **`files` and `view`** aren't compared: the git projection and the view stay in TypeScript.
+- **`files` and `view`** aren't compared: the view stays in TypeScript, and since phase 5e the git projection is Core's own, pinned by `../shared` (`seaquel-core/tests/shared.rs`). The 11 cases built on the TypeScript projection's calls (`setGitRepoPath`, `importFromGitRepo`, `importSharedConnections`, `importSingleSharedConnection`, `importConnections`) are no longer replayed in TypeScript.
 
 ### The TypeScript replay (Task 6's vitest over `TsLibrary`, the demo's)
 

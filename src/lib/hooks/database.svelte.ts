@@ -31,8 +31,7 @@ import { DashboardManager } from "./database/dashboard-manager.svelte.js";
 import { WorkflowState } from "./database/workflow-state.svelte.js";
 import { WorkflowManager } from "./database/workflow-manager.svelte.js";
 import { SharedRepoManager } from "./database/shared-repo-manager.svelte.js";
-import { SharedQueryManager } from "./database/shared-query-manager.svelte.js";
-import { SharedDashboardManager } from "./database/shared-dashboard-manager.svelte.js";
+import { setProjectionHooks } from "./database/shared/projection.js";
 import { AIChatManager } from "./database/ai-chat-manager.svelte.js";
 import { PaneManager } from "./database/pane-manager.svelte.js";
 import { PendingChangesManager } from "./database/pending-changes.svelte.js";
@@ -42,7 +41,7 @@ import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 import { storageGate } from "$lib/storage/storage-gate.svelte";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte";
 import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
-import { isDemo } from "$lib/utils/environment";
+import { isDemo, isTauri } from "$lib/utils/environment";
 import { getCoreClient } from "$lib/core";
 import { pageOrigin } from "$lib/core/origin";
 import { windowId } from "$lib/core/window-id";
@@ -98,8 +97,6 @@ class UseDatabase {
   readonly settingsTabs: SettingsTabManager;
   readonly createTableTabs: CreateTableTabManager;
   readonly dataTabs: DataTabManager;
-  readonly sharedQueries: SharedQueryManager;
-  readonly sharedDashboards: SharedDashboardManager;
   readonly aiChats: AIChatManager;
   readonly panes: PaneManager;
   readonly pendingChanges: PendingChangesManager;
@@ -133,12 +130,8 @@ class UseDatabase {
     this.tabs = new TabOrderingManager(this.state, scheduleProjectPersistence, this.panes);
     this._stateRestoration = new StateRestorationManager(this.state);
 
-    // Project and label management. The git reconcile stores dashboards
-    // through the dashboard manager (made below).
-    this.projects = new ProjectManager(this.state, this.windowState, this._stateRestoration, {
-      storeReconciled: (projectId, before, after) =>
-        this.dashboards.storeReconciled(projectId, before, after),
-    });
+    // Project and label management.
+    this.projects = new ProjectManager(this.state, this.windowState, this._stateRestoration);
     this.labels = new LabelManager(this.state);
 
     // AI chats
@@ -306,21 +299,10 @@ class UseDatabase {
       refreshDataTabs: (connectionId) => this.dataTabs.refreshAllForConnection(connectionId),
     });
 
-    // Shared query library
+    // Shared projects (phase 5e): Core keeps the files; this shows the repos,
+    // git status and each sync's outcome.
     this.sharedRepos = new SharedRepoManager(this.state);
-    this.sharedQueries = new SharedQueryManager(this.state, this.sharedRepos);
-    this.sharedDashboards = new SharedDashboardManager(this.state, this.sharedRepos);
     this.queryTabs.setSavedQueryRename((id, name) => this.savedQueries.renameQuery(id, name));
-
-    // Wire up file projection: managers delegate file I/O to shared managers
-    this.savedQueries.setFileProjection({
-      writeQueryFile: (query) => this.sharedQueries.writeQueryFile(query),
-      deleteQueryFile: (query) => this.sharedQueries.deleteQueryFile(query),
-    });
-    this.dashboards.setFileProjection({
-      writeDashboardFile: (dashboard) => this.sharedDashboards.writeDashboardFile(dashboard),
-      deleteDashboardFile: (dashboard) => this.sharedDashboards.deleteDashboardFile(dashboard),
-    });
 
     // Connections (depends on other managers)
     this.connections = new ConnectionManager(
@@ -341,18 +323,19 @@ class UseDatabase {
     );
 
     // Set up cross-manager callbacks
-    this.projects.setRemoveConnectionCallback(
-      async (connectionId: string, options?: { skipUnshare?: boolean }) => {
-        await this.connections.remove(connectionId, options);
-      },
-    );
-
     this.projects.setSharedRepoManager(this.sharedRepos);
-    this.projects.setSharedQueryManager(this.sharedQueries);
-    this.projects.setSharedDashboardManager(this.sharedDashboards);
     this.projects.setStarterTabManager(this.starterTabs);
     this.projects.setConnectionManager(this.connections);
-    this.connections.setSharedRepoManager(this.sharedRepos);
+
+    // A sync's (and a publish's) row writes carry this page's origin, which
+    // the change feed skips: the page reads the project's rows itself.
+    this.sharedRepos.setViews({
+      refreshProjectRows: (projectId) => this.refreshProjectRows(projectId),
+    });
+    setProjectionHooks({
+      rowsChanged: (projectId) => this.sharedRepos.refreshAfterProjection(projectId),
+      filesChanged: (projectId) => this.sharedRepos.refreshProjectStatus(projectId),
+    });
 
     // Other windows' and tabs' library changes (phase 5d-1). The demo has
     // no Core and one page.
@@ -377,6 +360,8 @@ class UseDatabase {
           refreshMessages: (chatId) => this.aiChats.refreshMessages(chatId),
         },
         settings: applyStoredChange,
+        // Desktop only: web has no shared projects.
+        sharedRepos: isTauri() ? this.sharedRepos : undefined,
       });
     }
 
@@ -477,36 +462,43 @@ class UseDatabase {
   }
 
   /**
-   * Initialize shared query repositories from persisted state.
+   * Shared projects at startup (desktop only: web and the demo have none):
+   * the repo list from Core, each repo's git status, and the active
+   * project synced with its files when it's linked (Decision 35).
    */
   private async initializeSharedRepos(): Promise<void> {
+    if (!isTauri()) return;
     try {
-      const { repos, activeRepoId } = await this.sharedRepos.loadPersistedRepos();
-
-      // Convert persisted repos to runtime form
-      const { deserializeRepo } = await import("$lib/types/shared-queries");
-      this.state.sharedRepos = repos.map(deserializeRepo);
-      this.state.activeRepoId = activeRepoId;
-
-      // Load queries and refresh status for each repo in parallel
+      await this.sharedRepos.loadRepos();
       await Promise.all(
-        this.state.sharedRepos.map(async (repo) => {
-          await this.sharedRepos.loadQueriesFromRepo(repo.id);
-          await this.sharedRepos.refreshRepoStatus(repo.id);
-        }),
+        this.state.sharedRepos.map((repo) => this.sharedRepos.refreshRepoStatus(repo.id)),
       );
-
-      // Reconcile git files with local state for the active project
-      if (this.state.activeProjectId && this.state.activeRepoId) {
-        await this.projects.reconcileGitState(this.state.activeProjectId);
-      }
-
-      // Start background refresh if there are repos
+      const active = this.state.activeProjectId;
+      if (active) await this.sharedRepos.syncProject(active);
       if (this.state.sharedRepos.length > 0) {
         this.sharedRepos.startBackgroundRefresh();
       }
     } catch (error) {
-      console.error("Failed to initialize shared repos:", error);
+      void log.error("Failed to initialize shared repos:", error);
+    }
+  }
+
+  /**
+   * Read a project's rows again after a sync or a publish's sync changed
+   * them: its saved queries and dashboards (when loaded), the connections,
+   * and the project with its connection order.
+   */
+  private async refreshProjectRows(projectId: string): Promise<void> {
+    const steps = await Promise.allSettled([
+      this.savedQueries.refreshFromLibrary(projectId, null),
+      this.dashboards.refreshFromLibrary(projectId, null),
+      this.connections.refreshFromLibrary(null, { remote: false }),
+      this.projects.refreshFromLibrary([projectId]),
+    ]);
+    for (const step of steps) {
+      if (step.status === "rejected") {
+        void log.warn("Reading a project's rows again failed:", step.reason);
+      }
     }
   }
 
@@ -526,14 +518,12 @@ class UseDatabase {
 
   /**
    * Save every pending write now: the window's view state (the projects
-   * with a pending save, the active one first), the shared repos, and the
-   * messages of a chat whose turn is still streaming (its turn's end, which
+   * with a pending save, the active one first), and the messages of a chat whose turn is still streaming (its turn's end, which
    * saves it, never comes on a closing page). The desktop awaits it before
    * its window closes.
    */
   async flush(): Promise<void> {
     await this.windowState.flush();
-    await this.sharedRepos.flushPersistence();
     await this.flushStreamingChat();
   }
 
@@ -549,7 +539,6 @@ class UseDatabase {
    */
   saveOnPageHide(): void {
     this.windowState.saveOnPageHide();
-    void this.sharedRepos.flushPersistence();
     void this.flushStreamingChat();
   }
 
@@ -564,6 +553,7 @@ class UseDatabase {
     this.stopCoreEvents = null;
     this.librarySync?.stop();
     this.sharedRepos.stopBackgroundRefresh();
+    setProjectionHooks(null);
     this.dashboards.stopAllAutoRefresh();
     void this.flush();
   }

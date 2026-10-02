@@ -88,10 +88,20 @@ pub async fn migrated_shape(rel: &str) -> Vec<String> {
 /// Columns the numbered migrations add, which the frozen data fixtures
 /// (recorded at the baseline) don't list.
 pub const MIGRATION_COLUMNS: &[(&str, &str)] = &[
+    ("connections", "shared_origin"),
     ("connections", "name_key"),
     ("projects", "name_key"),
     ("saved_queries", "name_key"),
     ("dashboards", "name_key"),
+    ("projects", "shared_dir"),
+    ("saved_queries", "shared_path"),
+    ("saved_queries", "shared_base"),
+    ("saved_queries", "shared_file_id"),
+    ("dashboards", "shared_path"),
+    ("dashboards", "shared_base"),
+    ("dashboards", "shared_file_id"),
+    ("connections", "shared_base"),
+    ("connections", "shared_file_id"),
 ];
 
 /// A file's schema as sorted lines, one per fact, so two schemas compare

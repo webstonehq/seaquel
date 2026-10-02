@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use common::{core, core_with, dump, insert_rows, web_core, TestStore};
+use common::{core, core_with, drop_link_columns, dump, insert_rows, web_core, TestStore};
 use seaquel_core::domain::library::{
     ConnectionDraft, ConnectionPatch, LabelDraft, LabelPatch, ProjectDraft, ProjectPatch,
     SavedQueryDraft, SavedQueryPatch, SecretChanges,
@@ -241,6 +241,7 @@ async fn snapshot(st: &Storage, store: &TestStore) -> Snapshot {
     let mut tables = BTreeMap::new();
     for (table, order) in TABLES {
         let mut rows = dump(st, table, order).await;
+        drop_link_columns(table, &mut rows);
         // The fixtures were recorded before migration `0001_name_keys`
         // added `name_key` (phase 5d-1 probe fix). Each stored key must be
         // its row's; then the column leaves the comparison.

@@ -9,6 +9,7 @@ import type { WindowStateManager } from "./window-state.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
 import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine";
+import { errorCode } from "$lib/core/client";
 import {
   getCoreClient,
   withHostKeyPrompt,
@@ -28,9 +29,9 @@ import {
 import { getKeyringService } from "$lib/services/keyring";
 import { VaultCancelledError, getVault } from "$lib/services/vault/vault-state.svelte";
 import { SvelteSet } from "svelte/reactivity";
-import type { SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import { log } from "$lib/utils/logger";
-import { isAlreadySaved } from "$lib/services/connection-import";
+import { getImports, type ImportSource } from "./shared/index.js";
+import { reportProjection } from "./shared/projection.js";
 import {
   NEW,
   getLibrary,
@@ -55,6 +56,7 @@ import {
   bumpRevisions,
   libraryNameOf,
   patchConnection,
+  refreshConnectionOrder,
   storeConnectionOrder,
   storedFieldsDiffer,
 } from "./library/view.js";
@@ -71,11 +73,18 @@ export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "lab
   createIfMissing?: boolean;
 };
 
-/** A connection read from another tool (TablePlus, DBeaver), to save without connecting. */
-export type ImportedConnection = Pick<
-  DatabaseConnection,
-  "name" | "type" | "host" | "port" | "databaseName" | "username" | "sslMode" | "sshTunnel"
->;
+/** A candidate the import dialog ticked: Core's key, and its name to say a failure. */
+export interface ImportChoice {
+  key: string;
+  name: string;
+}
+
+/** What an import did: how many were saved and skipped, and each failure's reason. */
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  failures: { name: string; reason: string }[];
+}
 
 /** Whether `add` would store a secret for `connection`: the vault must be unlocked first on web. */
 function hasSecretsToSave(connection: ConnectionInput): boolean {
@@ -256,12 +265,6 @@ export class ConnectionManager {
   private pendingCount = 0;
   /** Whether the saved connections were read at startup. */
   loaded = false;
-
-  private sharedRepos: SharedRepoManager | null = null;
-
-  setSharedRepoManager(manager: SharedRepoManager): void {
-    this.sharedRepos = manager;
-  }
 
   constructor(
     private state: DatabaseState,
@@ -588,51 +591,53 @@ export class ConnectionManager {
   }
 
   /**
-   * Save connections read from another tool into the active project,
-   * without connecting (no passwords come with them). One the project
-   * already has (same type, host, port, database and user) is skipped. Each
-   * draft carries `renameIfTaken`, so Core stores a taken name as the first
-   * free "<name> (2)" (Decision 13). Each saved one is listed like `add`'s:
-   * in memory with its maps and at the end of the project's order. Failed
-   * ones are counted and named.
+   * Import connections from another tool (Decision 47): Core reads the file
+   * again, imports the candidates `chosen` names into `projectId` in one
+   * transaction (local-only, a taken name as the first free "<name> (2)",
+   * the duplicate check inside it) and appends them to the project's order.
+   * The page then reads the new connections and the order. A candidate
+   * that matches a saved connection is skipped; one no longer in the file,
+   * or a refused call, is a failure with its reason.
    */
-  async importConnections(drafts: readonly ImportedConnection[]): Promise<{
-    imported: number;
-    skipped: number;
-    failed: number;
-    failures: string[];
-  }> {
-    const projectId = this.state.activeProjectId || DEFAULT_PROJECT_ID;
-    const result = { imported: 0, skipped: 0, failed: 0, failures: [] as string[] };
-    for (const draft of drafts) {
-      const existing = this.state.connections.filter((c) => c.projectId === projectId);
-      if (isAlreadySaved(draft, existing)) {
-        result.skipped++;
-        continue;
-      }
-      try {
-        const { value, seq } = await this.state.librarySeqs.write([rowKey("connection", NEW)], () =>
-          getLibrary().createConnection({
-            ...connectionDraft({ ...draft, password: "" }, projectId),
-            connected: false,
-            // Local-only, like a connection made in the wizard: an import
-            // from another tool isn't meant for the project's shared repo.
-            isLocalOnly: true,
-            renameIfTaken: true,
-          }),
-        );
-        const saved = this.applyOwn(value, seq);
-        this.stateRestoration.initializeConnectionMaps(saved.id);
-        this.appendToOrder(projectId, saved.id);
+  async importConnections(
+    source: ImportSource,
+    projectId: string,
+    chosen: readonly ImportChoice[],
+  ): Promise<ImportResult> {
+    const result: ImportResult = { imported: 0, skipped: 0, failures: [] };
+    if (chosen.length === 0) return result;
+    const names = new Map(chosen.map((c) => [c.key, c.name]));
+    let outcomes;
+    try {
+      ({
+        value: { results: outcomes },
+      } = await getImports().create(
+        source,
+        projectId,
+        chosen.map((c) => c.key),
+      ));
+    } catch (error) {
+      void log.warn(`Importing ${source} connections failed (${errorCode(error) ?? "unknown"})`);
+      const reason = extractErrorMessage(this.failed(error));
+      result.failures = chosen.map((c) => ({ name: c.name, reason }));
+      return result;
+    }
+    const imported: string[] = [];
+    for (const outcome of outcomes) {
+      const name = names.get(outcome.key) ?? outcome.key;
+      if (outcome.status === "imported" && outcome.id) {
+        imported.push(outcome.id);
         result.imported++;
-      } catch (error) {
-        void log.warn(`Importing a ${draft.type} connection failed:`, error);
-        result.failed++;
-        result.failures.push(draft.name);
+      } else if (outcome.status === "duplicate") {
+        result.skipped++;
+      } else {
+        result.failures.push({ name, reason: m.import_failure_not_found() });
       }
     }
-    // The order is shared by the project's windows: stored at once.
-    if (result.imported > 0) await storeConnectionOrder(this.state, projectId);
+    if (imported.length > 0) {
+      await this.refreshFromLibrary(imported, { remote: false });
+      await refreshConnectionOrder(this.state, projectId);
+    }
     return result;
   }
 
@@ -755,16 +760,15 @@ export class ConnectionManager {
     // is shown, and failing the connect for it would be wrong.
     const patch: ConnectionPatch = { ...changed, connected: true };
     try {
-      const { value, seq } = await this.state.librarySeqs.write(
-        [rowKey("connection", connectionId)],
-        () =>
-          getLibrary().updateConnection(
-            connectionId,
-            patch,
-            input && isTauri() ? newSecrets(input) : undefined,
-          ),
+      const answer = await this.state.librarySeqs.write([rowKey("connection", connectionId)], () =>
+        getLibrary().updateConnection(
+          connectionId,
+          patch,
+          input && isTauri() ? newSecrets(input) : undefined,
+        ),
       );
-      this.applyOwn(value, seq);
+      this.applyOwn(answer.value, answer.seq);
+      reportProjection(answer, existingConnection.projectId);
       if (input && isWeb()) await this.saveVaultSecrets(connectionId, input, existingConnection);
     } catch (error) {
       void log.warn(`Saving reconnected ${connectionId} failed:`, error);
@@ -802,33 +806,30 @@ export class ConnectionManager {
     if (!existingConnection) {
       throw new Error(`Connection with id ${connectionId} not found`);
     }
-    const oldName = existingConnection.name;
     const patch = connectionPatch(baseline ?? fieldsOf(existingConnection), connection);
     const secrets = isTauri() ? newSecrets(connection) : undefined;
 
-    let updatedConnection: DatabaseConnection;
     if (isEmptyPatch(patch) && !secrets) {
-      updatedConnection = { ...existingConnection, password: connection.password };
+      const updatedConnection = { ...existingConnection, password: connection.password };
       this.state.connections = this.state.connections.map((c) =>
         c.id === connectionId ? updatedConnection : c,
       );
     } else {
       try {
-        const { value, seq } = await this.state.librarySeqs.write(
+        const answer = await this.state.librarySeqs.write(
           [rowKey("connection", connectionId)],
           () => getLibrary().updateConnection(connectionId, patch, secrets),
         );
-        updatedConnection = this.applyOwn(value, seq, { password: connection.password });
+        const updatedConnection = this.applyOwn(answer.value, answer.seq, {
+          password: connection.password,
+        });
+        // A linked connection's template follows (Core publishes it).
+        reportProjection(answer, updatedConnection.projectId);
       } catch (error) {
         throw this.failed(error);
       }
     }
     if (isWeb()) await this.saveVaultSecrets(connectionId, connection, existingConnection);
-
-    // Update the shared YAML file if the connection is shared
-    if (!updatedConnection.isLocalOnly && this.sharedRepos) {
-      await this.sharedRepos.updateSharedConnection(oldName, updatedConnection);
-    }
   }
 
   /**
@@ -861,7 +862,7 @@ export class ConnectionManager {
    * history, chats and labels cascade) and its secrets (Decision 9); a
    * failed delete throws, worded for the user, and the connection stays.
    */
-  async remove(id: string, { skipUnshare = false } = {}): Promise<void> {
+  async remove(id: string): Promise<void> {
     void log.info(`Removing connection: ${id}`);
     // Prevent deletion of demo connection in demo mode
     if (isDemo() && id === "demo-connection") {
@@ -870,12 +871,13 @@ export class ConnectionManager {
 
     const connection = this.state.connections.find((c) => c.id === id);
 
+    let answer;
     try {
-      const { seq } = await this.state.librarySeqs.write([rowKey("connection", id)], () =>
+      answer = await this.state.librarySeqs.write([rowKey("connection", id)], () =>
         getLibrary().removeConnection(id),
       );
       // A tombstone: an older list can't bring it back.
-      this.state.librarySeqs.note(rowKey("connection", id), seq);
+      this.state.librarySeqs.note(rowKey("connection", id), answer.seq);
     } catch (error) {
       throw this.failed(error);
     }
@@ -892,14 +894,8 @@ export class ConnectionManager {
       // connection made active if it was.
       this.forget(connection);
     }
-
-    // Remove the YAML file from the git directory if the connection is shared
-    // Skip unsharing when removing as part of project deletion — the user is only
-    // removing the project from their local Seaquel instance, not from the git repo.
-    // Last, so a failure here (it throws) finds the connection already gone.
-    if (!skipUnshare && connection && !connection.isLocalOnly && this.sharedRepos) {
-      await this.sharedRepos.unshareConnection(connection);
-    }
+    // A linked connection's template went first (Core, Decision 37).
+    reportProjection(answer, connection?.projectId, { removal: true });
   }
 
   /**
@@ -1117,25 +1113,17 @@ export class ConnectionManager {
   }
 
   /**
-   * Toggle a connection's local-only flag.
-   * When switching to shared: exports connection to git.
-   * When switching to local-only: removes connection from git.
+   * The shared switch: a connection is shared when it has a template link
+   * (Decision 53), whatever its stored local-only flag says. Sharing sends
+   * `isLocalOnly: false`, on which Core writes its template and links it;
+   * unsharing sends `true`, which takes the template out. One click either
+   * way; the outcome is said.
    */
   async toggleLocalOnly(connectionId: string): Promise<void> {
     const connection = this.state.connections.find((c) => c.id === connectionId);
     if (!connection) return;
-
     // Store the change, then show it (a refusal throws, worded for the user)
-    const updated = await this.patch(connectionId, { isLocalOnly: !connection.isLocalOnly });
-
-    // Write or remove the connection YAML in the shared repo
-    if (this.sharedRepos) {
-      if (updated.isLocalOnly) {
-        await this.sharedRepos.unshareConnection(updated);
-      } else {
-        await this.sharedRepos.shareConnection(updated);
-      }
-    }
+    await this.patch(connectionId, { isLocalOnly: !!connection.sharedConnectionId });
   }
 
   /**

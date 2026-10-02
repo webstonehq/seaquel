@@ -207,6 +207,31 @@ pub struct ChangeSeq {
 pub struct Seqd<T> {
     pub value: T,
     pub seq: ChangeSeq,
+    /// Phase 5e, Decision 36: what a library write did to its row's file
+    /// in a shared project (desktop only). Absent when nothing was
+    /// published: no link, a row that isn't shared, nothing that changes
+    /// the file, or a Core without `LocalFiles`. A `failed` write leaves
+    /// the row stored; the next sync writes the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(
+            optional,
+            type = "{ status: \"written\" | \"deleted\" | \"failed\", code?: string, message?: string }"
+        )
+    )]
+    pub projection: Option<crate::shared::PublishOutcome>,
+}
+
+impl<T> Seqd<T> {
+    /// A result with no projection outcome.
+    pub fn new(value: T, seq: ChangeSeq) -> Self {
+        Self {
+            value,
+            seq,
+            projection: None,
+        }
+    }
 }
 
 /// What a `StorageChanged` event is about (Decision 16).
@@ -243,6 +268,10 @@ pub enum StoredKind {
     Onboarding,
     Tutorial,
     ImportState,
+    /// Phase 5e (Decision 44): the shared repo list, and the files a sync
+    /// or a publish wrote (ids: the repo id), so each window refreshes that
+    /// repo's git status.
+    SharedRepo,
 }
 
 impl StoredKind {
@@ -265,6 +294,7 @@ impl StoredKind {
             StoredKind::Onboarding => "onboarding",
             StoredKind::Tutorial => "tutorial",
             StoredKind::ImportState => "importState",
+            StoredKind::SharedRepo => "sharedRepo",
         }
     }
 }
@@ -922,6 +952,7 @@ pub fn connection_from_draft(id: String, d: &ConnectionDraft, now: &str) -> Pers
         ai_share_data: d.ai_share_data,
         active_ai_provider_id: d.active_ai_provider_id.clone(),
         active_ai_model: d.active_ai_model.clone(),
+        shared_origin: None,
     }
 }
 
@@ -1450,6 +1481,8 @@ pub fn saved_query_from_draft(id: String, d: &SavedQueryDraft, now: &str) -> Per
         database_type: d.database_type.clone(),
         tags: d.tags.as_ref().and_then(json_of),
         folder: d.folder.clone(),
+        // A link is set by the sync, never by a draft.
+        shared_path: None,
     }
 }
 

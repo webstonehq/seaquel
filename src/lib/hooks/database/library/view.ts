@@ -2,6 +2,7 @@
  * Small helpers the view models share when they apply library rows.
  */
 import type { DatabaseConnection } from "$lib/types";
+import { reportProjection } from "../shared/projection.js";
 import { log } from "$lib/utils/logger";
 import { errorToast } from "$lib/utils/toast";
 import { m } from "$lib/paraglide/messages.js";
@@ -97,10 +98,13 @@ export async function patchConnection(
   patch: ConnectionPatch,
 ): Promise<DatabaseConnection> {
   try {
-    const { value, seq } = await state.librarySeqs.write([rowKey("connection", id)], () =>
+    const answer = await state.librarySeqs.write([rowKey("connection", id)], () =>
       getLibrary().updateConnection(id, patch),
     );
-    return applyConnectionRow(state, value, seq);
+    const connection = applyConnectionRow(state, answer.value, answer.seq);
+    // Turning local-only on takes a linked connection's template out.
+    reportProjection(answer, connection.projectId, { removal: patch.isLocalOnly === true });
+    return connection;
   } catch (error) {
     throw libraryError(error, (other) => libraryNameOf(state, other));
   }

@@ -102,6 +102,8 @@ export interface SyncState {
   behindBy: number;
   /** List of files in conflict */
   conflictFiles: string[];
+  /** The last status read failed: the counts above may be stale. */
+  statusUnreadable?: boolean;
 }
 
 /**
@@ -166,6 +168,10 @@ export interface ConflictContent {
   ours: string;
   /** Their (remote) content */
   theirs: string;
+  /** Our side deleted the file (a modify/delete conflict). */
+  oursDeleted?: boolean;
+  /** Their side deleted the file (a modify/delete conflict). */
+  theirsDeleted?: boolean;
 }
 
 /**

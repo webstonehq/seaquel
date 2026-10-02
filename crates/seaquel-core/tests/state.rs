@@ -17,7 +17,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use common::{
-    dump, fx_with, insert_rows, state_core, web_state_limits, Fx, TestStore, TickClock, T0,
+    drop_link_columns, dump, fx_with, insert_rows, state_core, web_state_limits, Fx, TestStore,
+    TickClock, T0,
 };
 use futures::StreamExt;
 use seaquel_core::domain::library::name_key;
@@ -293,6 +294,7 @@ async fn snapshot(st: &Storage, store: &TestStore) -> Snapshot {
     let mut tables = BTreeMap::new();
     for (table, order) in COMPARED {
         let mut rows = dump(st, table, order).await;
+        drop_link_columns(table, &mut rows);
         if table == "dashboards" {
             // Migration `0002` added `name_key`: each must be its row's.
             for row in &mut rows {

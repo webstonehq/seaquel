@@ -98,7 +98,7 @@ secrets left in pre-5a connection strings to the keychain and strips them,
 once. The web bounds library calls (`LibraryLimits`) and each socket's
 event queue. The demo keeps the TypeScript behind a `LibraryService` seam.
 Its measured cost is in "Phase 5d-1 cost" below.
-Phase 5d-2: implemented, manual checks pending (see
+Phase 5d-2: implemented, manual checks passed (see
 2026-10-04-rust-core-phase-5d-plan.md). Dashboards and their versions,
 saved workflows, AI chats and messages, the settings (app-state keys, AI
 settings with desktop API keys, themes, onboarding, tutorial progress,
@@ -115,6 +115,21 @@ history, shared repos, the license and the vault. The demo keeps the
 TypeScript behind the `SettingsService` and `UiService` seams. Its measured
 cost, and 5d's as a whole, are in "Phase 5d-2 cost" and "Phase 5d cost"
 below.
+Phase 5e: implemented, manual checks pending (see
+2026-10-05-rust-core-phase-5e-plan.md). Phase 5 is done. On desktop, the
+`.seaquel` projection of shared projects runs in Core: linking, unlinking
+and importing projects, the repo list, and a sync in both directions that
+tells a local change from a teammate's by the content both sides had at
+the last sync (migrations `0004` and `0005` store each row's file, that
+hash and a file id). A library call that changes a shared row writes its
+file under a per-repo lock that pull, commit and conflict resolution also
+take; a pull no longer overwrites uncommitted changes, a conflicted repo
+isn't synced, and the file I/O refuses symlinks and paths outside
+`.seaquel`. The TablePlus and DBeaver readers and the import moved into
+Core too. Both new groups need `LocalFiles`, which only the desktop and the
+CLI grant, and the main window lost the `fs` permissions only the
+projection used. The demo and web have neither. Its measured cost is in
+"Phase 5e cost" below.
 
 ## Problem
 
@@ -528,6 +543,37 @@ As built in phase 5d-2 (details in that plan's Decisions 19–27):
   dashboard version's widget count beside the body, so the lists scale with
   row counts; one body is read on demand.
 
+As built in phase 5e (details in that plan's Decisions 29–53):
+
+- **No `SharedRepoService` object.** The projection is `Workspace::shared_*`
+  in Core's `shared.rs`. Every decision (the five file formats, file names,
+  hashes, pairing, the sync and publish plans) is pure, in
+  `seaquel-workspace::shared`, and the file I/O is `seaquel-git`'s `tree`,
+  which is already desktop-only. Clone, push, credentials and conflict
+  resolution stay in `seaquel-git` as phase 3 built them, now under Core's
+  per-repo lock.
+- **`LocalFiles`, a policy with no default.** Like `ConnectPolicy`, a Core
+  built without it refuses every `shared` and `imports` call whatever
+  features Cargo unified. Only the desktop and the CLI pass it.
+- **Links are columns, not files.** `0004` stores each shared row's file
+  path, the hash both sides had at the last sync and the file's id, and a
+  project's directory; `0005` whether a linked connection was shared from
+  here or came from a template. NULL means the old rule, so older releases
+  and older rows need no data step.
+- **The repo list is patched in place.** Its JSON rows are rewritten field
+  by field with every other byte kept, as 5d-2 does with `aiSettings`;
+  `sharedReposLoadAll`/`SaveAll` left the storage group, which now holds
+  query history, the license and the web vault.
+- **Events:** a `sharedRepo` kind for repo list writes and files written,
+  so each window refreshes that repo's git status. A sync's row writes
+  emit the row kinds with the caller's origin, so the calling page reads
+  its own rows back.
+- **The import readers left `src-tauri`** (`read_dbeaver_config`,
+  `read_tableplus_config` and the `plist` dependency), as the interface
+  table planned. The CLI's Core can read and import but has no command yet;
+  `seaquel conn import` waits for phase 7 and writable storage there, and
+  `data_version` polling with it.
+
 ### Secrets
 
 `SecretStore` has two implementations:
@@ -909,11 +955,14 @@ that's fine.
   `seaquel-core`.
 - `hooks/database/*` shrinks to view models over `CoreClient`.
 - This is the largest phase. Do it one manager at a time.
-- (As built so far: 5a connections, 5b query execution and history, 5c
-  edits, pending changes, the data tab and workflows, 5d-1 the library
+- (As built: 5a connections, 5b query execution and history, 5c edits,
+  pending changes, the data tab and workflows, 5d-1 the library
   (connections, projects, labels, saved queries and versions) and
   `StorageChanged`, 5d-2 tabs per window, workflows, settings, dashboards
-  and chats, with connection overrides retired.)
+  and chats, with connection overrides retired, and 5e the shared-repo
+  projection and the TablePlus and DBeaver imports. Phase 5 is done: on
+  desktop and web nothing the GUIs store or project is decided in
+  TypeScript. The demo keeps its TypeScript twins until phase 8.)
 
 **Phase 6: `seaquel-ai`**
 - LLM calls move out of the webview into Rust.
@@ -3090,6 +3139,173 @@ re-survey (and 5d-1's own estimate of 6–9 h for the first slice).
   passes; plan a probe with production-sized files for any list or
   collection; count build and test time as its own line (the live-suite
   wait is gone since the Developer Tools change).
+
+## Phase 5e cost
+
+Source: `2026-10-05-phase-5e-effort.md` and the phase 5e plan's notes,
+plus line counts measured against `8b05e55`; 5e is uncommitted on top of
+it. Times are agent wall time as logged, review and probe fixes included,
+but not the plan, the review passes themselves or the owner's answers.
+Tasks 1–3 and 4a/4b overlapped, and from Task 4 on roughly half of each
+row was builds and waiting for the shared target's lock.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes and added scope | Logged |
+|---|---|---|---|---|
+| 1. TS fixes now, the safe fast-forward | 0.35–0.5 h | ~0.55 h | ~0.3 h (two rounds) | ~0.85 h |
+| 2. Fixtures: formats, projection, imports | 0.6–0.9 h | ~0.5 h | ~1.2 h (two rounds and the Q30 re-recording) | ~1.7 h |
+| 3. Storage: `0004`, repo writes, links | 0.4–0.6 h | ~0.9 h | ~0.15 h | ~1.05 h |
+| 4a. Domain: imports | 0.25–0.35 h | ~1.15 h wall (~0.5 h work) | ~0.4 h | ~1.55 h |
+| 4b. Domain: formats, names, the planner | 0.8–1.1 h | ~2.1 h | ~1.85 h (two rounds and a follow-up) | ~3.95 h |
+| 5. Core and `tree`: sync, publish, link, imports | 1.3–1.7 h | ~4.5 h | ~3.8 h (two rounds) | ~8.3 h |
+| 6. RPC, the desktop, git under the lock | 1.0–1.6 h wall | ~2.5 h | ~0.6 h | ~3.1 h |
+| 7. GUI, dialogs, the TS projection out | 1.8–2.4 h | ~1.1 h | ~2.0 h (two rounds, with Q31's `0005` and Q32) | ~3.1 h |
+| 8. Probe | 0.5–0.8 h | ~0.65 h | ~3.5 h (the fixes and their review) | ~4.15 h |
+| 9. Docs, measure, checks, the live run | 1.5–2.3 h wall | ~0.4 h | — | ~0.4 h |
+| Review fixes (the plan's row) | 4.2–6.4 h | | | |
+| Probe fixes (the plan's row) | 2–3.5 h | | | |
+| Owner answers and old repos (the plan's row) | 0.3–0.7 h | | | |
+| **Total** | **~15–22.8 h** | **~14.35 h** | **~13.8 h** | **~28.2 h** |
+
+**The slice ran about 50% over** "expect about 18.8 h", and about 5.4 h
+past the top of its range. Almost all of the overrun is in Tasks 4b and 5:
+~12.25 h logged against first passes estimated at 2.1–2.8 h.
+
+- **First passes ran over** (~14.35 h against 8.5–12.25 h), in two
+  tasks. Task 4b's planner had to take on the library's own checks (a
+  file the library would refuse must change nothing), a rule for names
+  another row holds, and indexed pairing for 20,000 files. Task 5's
+  replay ran every recorded case against real repos, with a teammate
+  clone for each pull, real conflicts and real symlinks. Both spent about
+  half their time in builds. The GUI (Task 7) came in under its estimate,
+  because by then Core answered everything the page used to work out.
+- **Review fixes were ~10.1 h, about 72% of first passes**, above the
+  4.2–6.4 h budget and above 5d's 64–70%. Task 5's two rounds (~3.8 h)
+  dominate: stack depth, events lost when a file task failed, removals
+  whose file couldn't be deleted, repo paths compared by spelling, and an
+  import that could leave half a project.
+- **Owner answers cost little time but moved expectations.** Q27–Q32
+  arrived during reviews; Q30 reversed the first link's export a second
+  time, and Q31 needed a second migration because dev databases had
+  already applied the first.
+- **Probe fixes were ~3.5 h**, at the top of their budget. As in 5d, the
+  probe's large repo found what the fixtures couldn't: a sync holding
+  storage's write lock for over a second.
+- **The live run was short.** The full workspace run with every live
+  engine took about 5 minutes, against about 70 at 5d-2's checkpoint,
+  and the rest of the check list a few more, since every step but one
+  found its build already done. The checkpoint's one failure was a build
+  break no CI job covers (the CLI built on its own).
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production (with the two migrations) | ~11,870 | ~400 |
+| Rust, tests (test files and inline `#[cfg(test)]`) | ~15,220 | ~20 |
+| Fixtures (153 format, 52 projection and 28 import cases, 14 plists) | ~57,580 | 0 |
+| TypeScript/Svelte/JS, production | ~2,400 | ~4,470 |
+| TypeScript/JS, tests | ~1,300 | ~950 |
+| Generated TS types | ~335 | ~15 |
+
+Measured as for 5d: `git diff -U0` against `8b05e55` plus the untracked
+files, leaving out `Cargo.lock`, `Cargo.toml` files, the docs, READMEs
+outside the fixtures and the message files; inline test modules counted
+from their `#[cfg(test)]` line. The recorder in `docs/plans/artifacts`
+(5,258 lines) isn't counted.
+
+Where the production Rust went: `seaquel-workspace` ~5,110 (`shared/`:
+the formats, a JavaScript-compatible JSON reader and writer, the line
+YAML, names, the planner; `imports`; `shared_api`), Core ~4,230
+(`shared.rs` ~2,750, `imports.rs` ~400, the library and state writes
+split into in-transaction helpers, the publish hooks), `seaquel-git`
+~1,150 (`tree.rs` and the safe pull), `seaquel-storage` ~710 (two
+migrations, link reads and writes, the repo list's splice),
+`seaquel-rpc` ~580 (the `shared` and `imports` groups, git under the
+lock), and ~85 in `src-tauri`, `seaquel-types` and the CLI. **The
+TypeScript shrank by about 2,070 lines in production**: the projection
+managers, three file parsers, the YAML helper, two import mappers and
+their stores and dialogs went, `SharedRepoManager` from 1,164 to 539
+lines and `ProjectManager` from 1,386 to 1,004, while the new seams,
+three dialogs and the notice wording are about 2,000. 5e added nothing
+to the demo's TypeScript twin.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's
+notes; a judgment call where one fix covers several. The bracketed number
+is how many were older than phase 5e. The survey found 25 before any code
+(dashboard edits undone, a pull overwriting edits, conflict markers
+stored as query text, writes into another project's repo, symlinks
+followed, …), all older; they aren't in the table. Neither are the ~20
+fixture expectations Task 2's two reviews corrected.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| TypeScript fixes (Task 1) | 2 [2] | 7 | — |
+| Fixtures and recording | 3 [3] | 1 [1] | — |
+| Formats and the planner | 2 | 16 | 1 |
+| Imports | 2 [1] | 3 | — |
+| Storage | — | 2 | — |
+| Core: sync, publish, link, locks | 1 | 20 | 6 |
+| Git | — | 1 | 2 [1] |
+| GUI | 2 [2] | 10 | — |
+| **Total** | **12 [8]** | **60 [1]** | **9 [1]** |
+
+The review column includes the review of the probe fixes. The
+implementer column includes the checkpoint's build break.
+
+The serious ones:
+
+- **Unlinking deleted the user's own connections and their passwords**
+  (Task 7 review). Task 5's unlink removed every connection linked to the
+  project's templates, including the ones the user had shared from here,
+  so a relink lost them. Q31 and `0005` keep them.
+- **Resolving a conflict could write outside the repo** (probe-fix
+  review). `resolve_conflict` wrote `../outside/q.sql` before libgit2
+  refused to stage it. It now accepts only a path the index holds as
+  conflicted, with no symlink on the way.
+- **A publish could overwrite a teammate's change** (Task 4b review). A
+  write now names the hash it expects on disk; a different file stops it,
+  the project syncs and the answer is `FILE_CHANGED`. The probe-fix
+  review found the same shape in relink adoption, which took the user's
+  values over a teammate's newer template.
+- **A large sync held every library write** (the probe): about 1.3 s per
+  100 MiB project in a release build, 15 s in debug. Planning now happens
+  before the write lock.
+- **Library calls overflowed a 2 MiB stack** (Task 5 review) once a
+  publish could fall back to a sync, and a JSON file nested 100,000 deep
+  aborted the whole process (Task 4b re-review).
+- **A 2026.9.2 file read differently from how 2026.9.2 read it** (the
+  probe): a double-quoted value holding `\` and `: ` came back with a
+  newline, which made a duplicate row. Quoting is now per file.
+- **A ticked local-only connection was never shared** (Task 7 re-review),
+  since the planner rightly skips local-only rows and the link never
+  cleared the flag; and a relink wrote a second copy of every template
+  (the probe).
+
+### What was harder than expected
+
+- **The three-way rule's edges.** The table in Decision 34 ended at
+  thirteen rows, most of them added in review: rows with a path and no base, names another row
+  holds, a teammate's rename meeting a local edit, files the library
+  would refuse, skipped files that must never read as deletions.
+- **File systems.** Case-insensitive renames, NFC and NFD names, symlinks
+  at any level, canonical repo paths for the lock, atomic writes that keep
+  the mode, and a FIFO that would hang a read.
+- **Older releases as teammates.** 2026.9.2's reader and writer had to be
+  ported exactly into the tests to know what survives a round trip, and
+  the probe still found a case the port had wrong.
+- **Stack depth** in async code once a call can recurse through publish,
+  sync and row writes.
+- **Build wall time.** From Task 4 on, about half of every row was builds
+  and the shared target's lock.
+
+What went to plan: Task 1 shipped the worst fixes in TypeScript first;
+the fixtures (the Core replay passed every step once its git setup
+worked); the GUI's switch to the seams; and Decision 49's capability
+trim, which the plan had listed as the first cut.
 
 ## Risks
 

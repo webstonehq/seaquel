@@ -82,11 +82,11 @@ pub use connection_string::{
     is_legacy_built_string, legacy_built_string, split_connection_string_secret,
     strip_connection_string_password, strip_connection_string_secrets, SecretSplit, StringFields,
 };
-/// The typed queries, one module per table group (see `queries/mod.rs`).
-pub use queries::IdName;
 pub use queries::{
     ai_chats, app_state, connection_overrides, connections, dashboard_versions, dashboards,
     import_state, license, onboarding, project_labels, project_state, projects, query_history,
     query_versions, saved_canvases, saved_queries, shared_repos, themes, tutorial,
     user_credentials, vault_state, window_state, windows,
 };
+/// The typed queries, one module per table group (see `queries/mod.rs`).
+pub use queries::{IdName, RowLink, SharedLink};

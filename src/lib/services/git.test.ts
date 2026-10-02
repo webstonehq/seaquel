@@ -51,6 +51,14 @@ describe("git service over core_call", () => {
     );
   });
 
+  it("keeps a side that deleted the file by sending delete, not an empty text", async () => {
+    reply("resolveConflict", null);
+    await git.resolveConflict("/r", "q.sql", null);
+    expect(sentText()).toBe(
+      '{"method":"git","params":{"method":"resolveConflict","params":{"path":"/r","filePath":"q.sql","resolution":"","delete":true}}}',
+    );
+  });
+
   it("maps credentials to the snake_case wire shape and leaves them out when unset", async () => {
     reply("pull", WIRE_SYNC);
     reply("clone", null);

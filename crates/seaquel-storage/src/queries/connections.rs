@@ -8,7 +8,7 @@ use super::codec::{
     begin, bit, flag, json, number, opt_bit, opt_flag, opt_text, select_sql, text,
     truthy_json_text, upsert_sql, Result,
 };
-use super::IdName;
+use super::{IdName, RowLink, SharedLink};
 use crate::{
     split_connection_string_secret, strip_connection_string_password,
     strip_connection_string_secrets, Reader, Storage, WriteTx,
@@ -38,6 +38,39 @@ const COLUMNS: [&str; 21] = [
     "active_ai_provider_id",
     "active_ai_model",
 ];
+
+/// [`COLUMNS`] and the link's origin (migration `0005`), which the reads
+/// carry and no write of a whole row names: only [`set_origin`] and
+/// [`set_link`] write it.
+const READ_COLUMNS: [&str; 22] = [
+    "id",
+    "project_id",
+    "name",
+    "type",
+    "host",
+    "port",
+    "database_name",
+    "username",
+    "ssl_mode",
+    "connection_string",
+    "last_connected",
+    "ssh_tunnel",
+    "save_password",
+    "save_ssh_password",
+    "save_ssh_key_passphrase",
+    "is_local_only",
+    "shared_connection_id",
+    "ai_share_schema",
+    "ai_share_data",
+    "active_ai_provider_id",
+    "active_ai_model",
+    "shared_origin",
+];
+
+/// A linked connection this project shared (`connections.shared_origin`).
+pub const ORIGIN_EXPORTED: &str = "exported";
+/// A linked connection a sync made from a teammate's template.
+pub const ORIGIN_IMPORTED: &str = "imported";
 
 /// The label ids of one connection, in the order of `connection_labels`'
 /// primary key.
@@ -76,6 +109,7 @@ fn map_row(row: &SqliteRow, id: String, label_ids: Vec<String>) -> Result<Persis
         ai_share_data: opt_flag(row, "ai_share_data")?,
         active_ai_provider_id: opt_text(row, "active_ai_provider_id")?,
         active_ai_model: opt_text(row, "active_ai_model")?,
+        shared_origin: opt_text(row, "shared_origin")?,
     })
 }
 
@@ -83,7 +117,7 @@ fn map_row(row: &SqliteRow, id: String, label_ids: Vec<String>) -> Result<Persis
 /// in the order of `connection_labels`' primary key, not the order they were
 /// saved in.
 pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnection>> {
-    let rows = sqlx::query(&select_sql(TABLE, &COLUMNS, ""))
+    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, ""))
         .fetch_all(st.pool())
         .await?;
     let mut conn = st.pool().acquire().await?;
@@ -99,7 +133,7 @@ pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnection>> {
 /// One connection, as [`load_all`] gives it, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedConnection>> {
     let mut conn = r.into().conn().await?;
-    let Some(row) = sqlx::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
+    let Some(row) = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?
@@ -309,6 +343,95 @@ pub(crate) async fn ids_of_project(
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows.into_iter().filter_map(|(id,)| id).collect())
+}
+
+/// [`set_link`]'s statement: by primary key. A connection's link path is
+/// its `shared_connection_id`.
+pub const SET_LINK: &str = "UPDATE connections SET shared_connection_id = ?1, \
+     shared_base = ?2, shared_file_id = ?3, \
+     shared_origin = CASE WHEN ?1 IS NULL THEN NULL ELSE shared_origin END WHERE id = ?4";
+
+/// Stores a connection's [`SharedLink`], and nothing else: `path` goes to
+/// `shared_connection_id` as given (`<repoId>:<path>`, the form older
+/// releases match an imported template by), `base` and `file_id` to the
+/// columns of migration `0004`. `None` clears one; clearing `path` (the
+/// link) clears the origin too (migration `0005`). `false` when there's no
+/// connection with that id.
+pub async fn set_link(tx: &mut WriteTx, id: &str, link: &SharedLink) -> Result<bool> {
+    super::set_link(tx.conn(), SET_LINK, id, link).await
+}
+
+/// [`set_origin`]'s statement: by primary key.
+pub const SET_ORIGIN: &str = "UPDATE connections SET shared_origin = ?1 WHERE id = ?2";
+
+/// Records where a linked connection came from ([`ORIGIN_EXPORTED`] or
+/// [`ORIGIN_IMPORTED`]; `None` clears it). `false` when there's no
+/// connection with that id.
+pub async fn set_origin(tx: &mut WriteTx, id: &str, origin: Option<&str>) -> Result<bool> {
+    let done = sqlx::query(SET_ORIGIN)
+        .bind(origin)
+        .bind(id)
+        .execute(tx.conn())
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Where a linked connection came from, or `None` (not known, no link, or
+/// no such row).
+pub async fn origin(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<String>> {
+    let mut conn = r.into().conn().await?;
+    let v: Option<Option<String>> =
+        sqlx::query_scalar("SELECT shared_origin FROM connections WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(v.flatten())
+}
+
+/// [`link`]'s query: by primary key.
+pub const LINK: &str =
+    "SELECT shared_connection_id, shared_base, shared_file_id FROM connections WHERE id = ?1";
+
+/// One connection's [`SharedLink`] (`path` is `shared_connection_id`), or
+/// `None` when there's no such row.
+pub async fn link(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<SharedLink>> {
+    let mut conn = r.into().conn().await?;
+    super::link_of(&mut conn, LINK, id).await
+}
+
+/// A project's connections with their label ids, in rowid order, read
+/// through `r` (inside a write, the transaction).
+pub async fn list_in_project(
+    r: impl Into<Reader<'_>>,
+    project_id: &str,
+) -> Result<Vec<PersistedConnection>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
+        .bind(project_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let id = text(row, "id")?;
+        let labels = label_ids(&mut conn, &id).await?;
+        out.push(map_row(row, id, labels)?);
+    }
+    Ok(out)
+}
+
+/// [`links`]' query: `idx_connections_project` (`?1` the project).
+pub const LINKS: &str = "SELECT id, shared_connection_id, shared_base, shared_file_id \
+     FROM connections WHERE project_id = ?1 ORDER BY rowid";
+
+/// The link of every connection in a project, local-only or not, in rowid
+/// order; `path` is `shared_connection_id`.
+pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
+    let mut conn = r.into().conn().await?;
+    let rows = sqlx::query_as(LINKS)
+        .bind(project_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(super::row_links(rows))
 }
 
 /// How many connections the file holds.

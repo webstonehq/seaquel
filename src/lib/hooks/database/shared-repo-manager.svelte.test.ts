@@ -6,8 +6,6 @@ vi.mock("$lib/services/git", () => ({
   getRepoStatus: vi.fn(),
   pushRepo: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-fs", () => ({}));
-vi.mock("@tauri-apps/api/path", () => ({ join: vi.fn() }));
 vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));

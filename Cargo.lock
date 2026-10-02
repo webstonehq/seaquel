@@ -6002,7 +6002,6 @@ dependencies = [
  "image",
  "log",
  "opener",
- "plist",
  "reqwest 0.12.28",
  "seaquel-core",
  "seaquel-rpc",
@@ -6050,8 +6049,11 @@ name = "seaquel-core"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "dirs",
  "futures",
+ "git2",
  "log",
+ "plist",
  "seaquel-core",
  "seaquel-engine",
  "seaquel-engine-duckdb",
@@ -6198,8 +6200,10 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "git2",
+ "libc",
  "log",
  "seaquel-types",
+ "seaquel-workspace",
  "serde_json",
  "tempfile",
  "tokio",
@@ -6405,6 +6409,8 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "percent-encoding",
+ "plist",
+ "ryu-js",
  "seaquel-engine",
  "seaquel-engine-duckdb",
  "seaquel-engine-mssql",
@@ -6415,8 +6421,11 @@ dependencies = [
  "seaquel-types",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "time",
  "ts-rs",
+ "unicode-normalization",
+ "unicode-properties",
  "url",
 ]
 

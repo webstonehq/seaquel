@@ -19,10 +19,12 @@
 //! dashboard, chat, theme, onboarding, tutorial, import-state and
 //! connection-override methods (35 in all): the `library`, `settings` and
 //! `ui` groups replaced them (the overrides are retired, Q13), and naming
-//! one is an unknown method (`INVALID_ARGUMENT`). What stays in the storage
-//! group is the query history, shared repos, the license record and the
-//! web vault. Every write, in any group, emits one `StorageChanged` event
-//! after it committed, carrying the caller's [`WriteOrigin`].
+//! one is an unknown method (`INVALID_ARGUMENT`). Phase 5e retired
+//! `sharedReposLoadAll` and `sharedReposSaveAll` the same way: the `shared`
+//! group's repo calls replaced them. What stays in the storage group is the
+//! query history, the license record and the web vault. Every write, in
+//! any group, emits one `StorageChanged` event after it committed,
+//! carrying the caller's [`WriteOrigin`].
 //!
 //! **`method` must come before `params`** at both levels. JSON columns in
 //! the storage rows are `serde_json::RawValue`s, which only deserialize when
@@ -35,18 +37,18 @@
 //!
 //! Every variant exists in every build, so the generated TypeScript doesn't
 //! depend on features. A group whose Core feature is off (`storage`,
-//! `secrets`) answers `NOT_SUPPORTED`. [`dispatch_workspace`], the web
-//! server's entry point, refuses SSH, git and licensing whatever the
-//! features; the desktop routes those groups to `dispatch_ssh`,
-//! `dispatch_git` and `dispatch_license`.
+//! `secrets`, `git`, `imports`) answers `NOT_SUPPORTED`.
+//! [`dispatch_workspace`], the web server's entry point, refuses SSH, git
+//! and licensing whatever the features, and the `shared` and `imports`
+//! groups on a Core built without `LocalFiles` (phase 5e, Decision 31);
+//! the desktop routes the first three to `dispatch_ssh`, `dispatch_git`
+//! and `dispatch_license`.
 
 use std::fmt;
 
 use log::debug;
 use seaquel_core::{Core, CoreError, Workspace, WriteOrigin};
-use seaquel_types::storage::{
-    PersistedCredential, PersistedQueryHistoryItem, PersistedVaultState, SharedReposState,
-};
+use seaquel_types::storage::{PersistedCredential, PersistedQueryHistoryItem, PersistedVaultState};
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -149,6 +151,8 @@ pub enum Request {
     Library(crate::library::LibraryRequest),
     Settings(crate::settings::SettingsRequest),
     Ui(crate::ui::UiRequest),
+    Shared(crate::shared::SharedRequest),
+    Imports(crate::imports::ImportsRequest),
     Secret(SecretRequest),
     License(crate::license::DesktopLicenseRequest),
     Git(crate::git::GitRequest),
@@ -172,6 +176,8 @@ pub enum Response {
     Library(crate::library::LibraryResponse),
     Settings(crate::settings::SettingsResponse),
     Ui(crate::ui::UiResponse),
+    Shared(crate::shared::SharedResponse),
+    Imports(crate::imports::ImportsResponse),
     Secret(SecretResponse),
     License(crate::license::DesktopLicenseResponse),
     Git(crate::git::GitResponse),
@@ -181,13 +187,15 @@ pub enum Response {
 
 impl Request {
     /// The group's wire name: `storage`, `library`, `settings`, `ui`,
-    /// `secret`, `license`, `git`, `ssh` or `db`.
+    /// `shared`, `imports`, `secret`, `license`, `git`, `ssh` or `db`.
     pub fn group(&self) -> &'static str {
         match self {
             Request::Storage(_) => "storage",
             Request::Library(_) => "library",
             Request::Settings(_) => "settings",
             Request::Ui(_) => "ui",
+            Request::Shared(_) => "shared",
+            Request::Imports(_) => "imports",
             Request::Secret(_) => "secret",
             Request::License(_) => "license",
             Request::Git(_) => "git",
@@ -205,6 +213,8 @@ impl Request {
             Request::Library(r) => r.method(),
             Request::Settings(r) => r.method(),
             Request::Ui(r) => r.method(),
+            Request::Shared(r) => r.method(),
+            Request::Imports(r) => r.method(),
             Request::Secret(r) => r.method(),
             Request::License(r) => r.method(),
             Request::Git(r) => r.method(),
@@ -279,14 +289,6 @@ storage_methods! {
         -> [()],
     QueryHistoryRemoveByConnection = "queryHistoryRemoveByConnection"
         [{ connection_id: String }] -> [()],
-
-    // shared_repos
-    SharedReposLoadAll = "sharedReposLoadAll" [] -> [SharedReposState],
-    SharedReposSaveAll = "sharedReposSaveAll" [{
-        #[cfg_attr(feature = "ts", ts(as = "Vec<seaquel_types::storage::PersistedSharedQueryRepo>"))]
-        repos: Vec<Box<RawValue>>,
-        active_repo_id: Option<String>
-    }] -> [()],
 
     // user_credentials
     UserCredentialsLoad = "userCredentialsLoad" [{ scope: String, key: String }]
@@ -491,13 +493,32 @@ pub async fn dispatch_workspace(
     logged(group, method, async {
         match req {
             Request::Storage(r) => storage(ws, r, &origin).await.map(Response::Storage),
-            Request::Library(r) => crate::library::library(core, ws, r, &origin)
+            // Boxed (phase 5e re-review R1): a library call may publish a
+            // shared file and sync, which makes its future deep; inlined
+            // here, it crowds a 2 MiB worker in a debug build.
+            Request::Library(r) => Box::pin(crate::library::library(core, ws, r, &origin))
                 .await
                 .map(Response::Library),
             Request::Settings(r) => crate::settings::settings(core, ws, r, &origin)
                 .await
                 .map(Response::Settings),
             Request::Ui(r) => crate::ui::ui(core, ws, r, &origin).await.map(Response::Ui),
+            // Desktop only (phase 5e, Decision 31): the user's repos and
+            // other tools' files, refused on a Core without `LocalFiles`
+            // (the web server's) whatever the features. Boxed like the
+            // library: a sync's future is deep.
+            Request::Shared(r) => {
+                require_local_files(core, "Shared projects")?;
+                Box::pin(crate::shared::shared(core, ws, r, &origin))
+                    .await
+                    .map(Response::Shared)
+            }
+            Request::Imports(r) => {
+                require_local_files(core, "Imports")?;
+                Box::pin(crate::imports::imports(core, ws, r, &origin))
+                    .await
+                    .map(Response::Imports)
+            }
             Request::Secret(r) => secret(secrets_of(ws), r).await.map(Response::Secret),
             // The desktop serves this group with `dispatch_license`; a web
             // workspace has no activation client.
@@ -525,6 +546,14 @@ pub async fn dispatch_secret(
 ) -> Result<SecretResponse, RpcError> {
     let method = req.method();
     logged("secret", method, secret(store, req)).await
+}
+
+/// `NOT_SUPPORTED` unless `core` may touch the user's files.
+fn require_local_files(core: &Core, what: &str) -> Result<(), RpcError> {
+    match core.local_files() {
+        Some(seaquel_core::LocalFiles::Allowed) => Ok(()),
+        None => Err(RpcError::not_supported(what)),
+    }
 }
 
 /// Log a call's group and method, and its error code if it fails.
@@ -600,12 +629,10 @@ fn storage_change(req: &StorageRequest) -> Option<Change> {
         // Reads.
         Q::LicenseLoad
         | Q::QueryHistoryLoadByConnection { .. }
-        | Q::SharedReposLoadAll
         | Q::UserCredentialsLoad { .. }
         | Q::VaultStateLoad => None,
         // Writes.
         Q::LicenseSave { .. } | Q::VaultStateSave { .. } | Q::VaultStateReset => all(),
-        Q::SharedReposSaveAll { .. } => all(),
         Q::QueryHistoryAppend { item } => Some((
             History,
             Some(item.connection_id.clone()),
@@ -647,14 +674,6 @@ async fn storage_call(
         }
         Q::QueryHistoryRemoveByConnection { connection_id } => R::QueryHistoryRemoveByConnection(
             query_history::remove_by_connection(st, &connection_id).await?,
-        ),
-
-        Q::SharedReposLoadAll => R::SharedReposLoadAll(shared_repos::load_all(st).await?),
-        Q::SharedReposSaveAll {
-            repos,
-            active_repo_id,
-        } => R::SharedReposSaveAll(
-            shared_repos::save_all(st, &repos, active_repo_id.as_deref()).await?,
         ),
 
         Q::UserCredentialsLoad { scope, key } => {

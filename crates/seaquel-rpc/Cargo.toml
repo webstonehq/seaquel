@@ -22,6 +22,12 @@ ssh = ["seaquel-core/ssh"]
 # `workspace`) leaves it off, and then all four answer NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
 # `ConnectPolicy`, not this feature.
 workspace = ["seaquel-core/workspace"]
+# Phase 5e: the `imports` group (`Workspace::import_candidates`/
+# `import_create`, Core's `imports`). The `shared` group needs `git` and
+# `storage`. Either answers NOT_SUPPORTED without its features, and
+# `dispatch_workspace` refuses both on a Core without `LocalFiles`
+# whatever the features.
+imports = ["storage", "seaquel-core/imports"]
 
 [dependencies]
 seaquel-core = { path = "../seaquel-core", default-features = false }
@@ -36,7 +42,7 @@ ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Turns on both workspace groups for this crate's own tests.
-seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace"] }
+seaquel-rpc = { path = ".", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports"] }
 # Real engines for tests/db.rs: SQLite in temp files, Postgres when
 # SEAQUEL_TEST_POSTGRES is set.
 seaquel-core = { path = "../seaquel-core", default-features = false, features = ["engine-sqlite", "engine-postgres"] }

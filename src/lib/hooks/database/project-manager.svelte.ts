@@ -1,27 +1,14 @@
-import type {
-  Dashboard,
-  Project,
-  ConnectionLabel,
-  DatabaseConnection,
-  Query,
-  SharedProject,
-  SharedConnection,
-} from "$lib/types";
+import type { Project, ConnectionLabel, DatabaseConnection } from "$lib/types";
 import { DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME } from "$lib/types";
 import type { DatabaseState } from "./state.svelte.js";
 import type { WindowStateManager } from "./window-state.svelte.js";
-import type { DashboardManager } from "./dashboard-manager.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
-import { SEAQUEL_DIR, type SharedRepoManager } from "./shared-repo-manager.svelte.js";
-import type { SharedQueryManager } from "./shared-query-manager.svelte.js";
-import type { SharedDashboardManager } from "./shared-dashboard-manager.svelte.js";
+import type { SharedRepoManager } from "./shared-repo-manager.svelte.js";
 import type { StarterTabManager } from "./starter-tabs.svelte.js";
-import { isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
 import { toast } from "svelte-sonner";
 import { m } from "$lib/paraglide/messages.js";
 import type { ConnectionManager } from "./connection-manager.svelte.js";
-import { connectionDraft } from "./connection-manager.svelte.js";
 import {
   NEW,
   getLibrary,
@@ -30,35 +17,17 @@ import {
   type ProjectPatch,
   type WireProject,
 } from "./library/index.js";
-import {
-  projectFromWire,
-  savedQueryFromWire,
-  savedQueryPatch,
-  workflowSummaryFromWire,
-} from "./library/convert.js";
+import { projectFromWire, workflowSummaryFromWire } from "./library/convert.js";
 import { LAST_PROJECT } from "./library/types.js";
-import { libraryError, libraryErrorMessage } from "./library/messages.js";
-import {
-  applyConnectionRow,
-  bumpRevisions,
-  libraryNameOf,
-  refreshConnectionOrder,
-  refreshQueryVersions,
-  storeConnectionOrder,
-} from "./library/view.js";
+import { libraryError } from "./library/messages.js";
+import { bumpRevisions, libraryNameOf, refreshConnectionOrder } from "./library/view.js";
 import { errorToast } from "$lib/utils/toast";
 import { errorCode } from "$lib/core/client";
-import { mkdir, rename as renameFs, exists, writeTextFile } from "@tauri-apps/plugin-fs";
-import { join } from "@tauri-apps/api/path";
-import { nameToFilename, serializeProjectFile } from "$lib/services/config-file-parser";
+import { getShared, type UnlinkReport } from "./shared/index.js";
+import { reportProjection } from "./shared/projection.js";
+import { failureText, sharedError } from "./shared/notices.js";
 import type { PersistedWorkflowTab } from "$lib/types/persisted";
 import type { PersistedProjectState } from "$lib/types/project";
-import { toPersistedDashboard } from "./dashboard-serialize.js";
-
-/** A dashboard as stored, for telling which ones a change touched. */
-function storedForm(dashboard: Dashboard): string {
-  return JSON.stringify(toPersistedDashboard(dashboard));
-}
 
 /** Legacy persisted state from before canvas→workflow rename */
 export interface LegacyPersistedProjectState extends PersistedProjectState {
@@ -71,13 +40,8 @@ export interface LegacyPersistedProjectState extends PersistedProjectState {
  * Projects group connections and provide organization.
  */
 export class ProjectManager {
-  private removeConnection:
-    | ((connectionId: string, options?: { skipUnshare?: boolean }) => Promise<void>)
-    | null = null;
   private starterTabManager: StarterTabManager | null = null;
   private sharedRepos: SharedRepoManager | null = null;
-  private sharedQueryManager: SharedQueryManager | null = null;
-  private sharedDashboardManager: SharedDashboardManager | null = null;
   private connectionManager: ConnectionManager | null = null;
 
   /** Told when a project is deleted (its tabs' runs are cancelled) and when the active one changes. */
@@ -91,8 +55,6 @@ export class ProjectManager {
     private state: DatabaseState,
     private windowState: WindowStateManager,
     private stateRestoration: StateRestorationManager,
-    /** The reconcile's dashboard saves (Core calls, phase 5d-2). */
-    private dashboardStore?: Pick<DashboardManager, "storeReconciled">,
   ) {
     // A stale save with nothing changed here reads the window's state again.
     windowState.setReloader((projectId) => this.reloadViewState(projectId));
@@ -113,32 +75,6 @@ export class ProjectManager {
    */
   setSharedRepoManager(manager: SharedRepoManager): void {
     this.sharedRepos = manager;
-  }
-
-  /**
-   * Set the shared query manager reference.
-   * Called by the main database class after SharedQueryManager is created.
-   */
-  setSharedQueryManager(manager: SharedQueryManager): void {
-    this.sharedQueryManager = manager;
-  }
-
-  /**
-   * Set the shared dashboard manager reference.
-   * Called by the main database class after SharedDashboardManager is created.
-   */
-  setSharedDashboardManager(manager: SharedDashboardManager): void {
-    this.sharedDashboardManager = manager;
-  }
-
-  /**
-   * Set the callback for removing connections.
-   * This is called by the main database class after ConnectionManager is created.
-   */
-  setRemoveConnectionCallback(
-    callback: (connectionId: string, options?: { skipUnshare?: boolean }) => Promise<void>,
-  ): void {
-    this.removeConnection = callback;
   }
 
   /**
@@ -329,213 +265,121 @@ export class ProjectManager {
 
   /**
    * Update an existing project: only the fields `updates` has are sent
-   * (`undefined` clears a description or git path). A refusal throws,
-   * worded for the user, and changes nothing. A shared project's directory
-   * in its repo follows a rename, after the rename is stored.
+   * (`undefined` clears a description). A refusal throws, worded for the
+   * user, and changes nothing. A linked project's `project.yaml` follows a
+   * rename (Core publishes it; its directory stays, Q25), and a failed
+   * write is said.
    */
-  async update(
-    id: string,
-    updates: Partial<Pick<Project, "name" | "description" | "gitRepoPath">>,
-  ): Promise<void> {
-    const project = this.state.projects.find((p) => p.id === id);
+  async update(id: string, updates: Partial<Pick<Project, "name" | "description">>): Promise<void> {
     const patch: ProjectPatch = {};
     if ("name" in updates && updates.name !== undefined) patch.name = updates.name;
     if ("description" in updates) patch.description = updates.description ?? null;
-    if ("gitRepoPath" in updates) patch.gitRepoPath = updates.gitRepoPath ?? null;
 
     try {
-      const { value, seq } = await this.state.librarySeqs.write([rowKey("project", id)], () =>
+      const answer = await this.state.librarySeqs.write([rowKey("project", id)], () =>
         getLibrary().updateProject(id, patch),
       );
-      this.applyOwnProject(value, seq);
+      this.applyOwnProject(answer.value, answer.seq);
+      reportProjection(answer, id);
     } catch (error) {
       throw libraryError(error, this.nameOf);
-    }
-
-    // Rename git repo project directory and update project.yaml if the name changed
-    if (updates.name && project && project.name !== updates.name && project.gitRepoPath) {
-      const repo = this.state.sharedRepos.find((r) => r.path === project.gitRepoPath);
-      if (repo) {
-        try {
-          const oldDirName = nameToFilename(project.name);
-          const newDirName = nameToFilename(updates.name);
-          const projectsDir = await join(repo.path, SEAQUEL_DIR, "projects");
-          const oldDir = await join(projectsDir, oldDirName);
-
-          if (await exists(oldDir)) {
-            // Rename directory if the filename changed
-            const targetDir =
-              oldDirName !== newDirName ? await join(projectsDir, newDirName) : oldDir;
-            if (oldDirName !== newDirName) {
-              await renameFs(oldDir, targetDir);
-            }
-
-            // Update name in project.yaml
-            const projectYamlPath = await join(targetDir, "project.yaml");
-            if (await exists(projectYamlPath)) {
-              const yaml = serializeProjectFile({
-                id: `${repo.id}:${SEAQUEL_DIR}/projects/${newDirName}`,
-                repoId: repo.id,
-                name: updates.name,
-                description: updates.description ?? project.description,
-                dirName: newDirName,
-                connections: [],
-              });
-              await writeTextFile(projectYamlPath, yaml);
-            }
-
-            // Reload shared state so in-memory paths reflect the renamed directory
-            if (this.sharedRepos) {
-              await this.sharedRepos.loadQueriesFromRepo(repo.id);
-            }
-
-            // Tab queryIds are stable SQLite IDs — no path updates needed on rename
-          }
-        } catch {
-          // Directory may not exist yet
-        }
-      }
     }
   }
 
   /**
-   * Set the git repo path for a project and trigger scanning.
-   * When set for the first time, auto-links the project to the repo.
+   * Link a project to the repo at `path` (Decision 40): Core registers the
+   * repo, picks the project's directory, exports the connections `share`
+   * names as templates (the link dialog's ticked ones, Q30) and syncs. The
+   * page then reads the project and the repo list again and shows the
+   * sync's outcome. A refusal throws, worded for the user.
    */
-  async setGitRepoPath(projectId: string, path: string | undefined): Promise<void> {
-    const project = this.state.projects.find((p) => p.id === projectId);
-    if (!project) return;
-
-    const hadGitPath = !!project.gitRepoPath;
-    const oldGitRepoPath = project.gitRepoPath;
-
-    // Update the project
-    await this.update(projectId, { gitRepoPath: path });
-
-    if (path && this.sharedRepos) {
-      // Create .seaquel directory structure while dialog scope is active
-      try {
-        const dirName = nameToFilename(project.name);
-        const projectDir = await join(path, SEAQUEL_DIR, "projects", dirName);
-        await mkdir(await join(projectDir, "connections"), { recursive: true });
-        await mkdir(await join(projectDir, "queries"), { recursive: true });
-        await mkdir(await join(projectDir, "dashboards"), { recursive: true });
-      } catch {
-        // Directory may already exist
-      }
-
-      // Check if a SharedQueryRepo entry already exists for this path
-      const existingRepo = this.state.sharedRepos.find((r) => r.path === path);
-
-      let activeRepoId: string;
-
-      if (existingRepo) {
-        activeRepoId = existingRepo.id;
-        // Reuse existing repo - set as active when this project is active
-        if (this.state.activeProjectId === projectId) {
-          this.state.activeRepoId = existingRepo.id;
-        }
-        // Reload queries/configs
-        await this.sharedRepos.loadQueriesFromRepo(existingRepo.id);
-      } else {
-        // Register the path as a new repo (without cloning)
-        activeRepoId = await this.sharedRepos.initRepo(project.name, path);
-
-        // Set as active when this project is active
-        if (this.state.activeProjectId === projectId) {
-          this.state.activeRepoId = activeRepoId;
-        }
-
-        // Load existing queries and shared configs from the repo
-        await this.sharedRepos.loadQueriesFromRepo(activeRepoId);
-      }
-
-      // Auto-detect remote URL from the git repo
-      const linkedRepo = this.state.sharedRepos.find((r) => r.path === path);
-      if (linkedRepo && !linkedRepo.remoteUrl && isTauri()) {
-        try {
-          const { getRemoteUrl } = await import("$lib/services/git");
-          const remoteUrl = await getRemoteUrl(path);
-          if (remoteUrl) {
-            await this.sharedRepos.setRemoteUrl(linkedRepo.id, remoteUrl);
-          }
-        } catch {
-          // No remote configured — that's fine
-        }
-      }
-
-      // If first-time setup, export existing non-local-only connections to git
-      if (!hadGitPath) {
-        const projectConnections = this.state.connections.filter(
-          (c) => c.projectId === projectId && !c.isLocalOnly,
-        );
-        if (projectConnections.length > 0) {
-          const activeRepo = this.state.sharedRepos.find((r) => r.path === path);
-          if (activeRepo) {
-            await this.sharedRepos.exportProject(
-              activeRepo.id,
-              project.name,
-              projectConnections,
-              {},
-            );
-          }
-        }
-      }
-    } else if (!path) {
-      // Clearing git path - clean up shared state for the old repo
-      const oldRepo = oldGitRepoPath
-        ? this.state.sharedRepos.find((r) => r.path === oldGitRepoPath)
-        : null;
-
-      if (oldRepo) {
-        // Remove local connections that were imported from this repo's shared connections
-        const repoId = oldRepo.id;
-        const sharedProjects = this.state.sharedProjectsByRepo[repoId] ?? [];
-        const sharedConnectionIds = new Set(
-          sharedProjects.flatMap((sp) =>
-            (this.state.sharedConnectionsByProject[sp.id] ?? []).map((sc) => sc.id),
-          ),
-        );
-        if (sharedConnectionIds.size > 0) {
-          const importedConnections = this.state.connections.filter(
-            (c) =>
-              c.projectId === projectId &&
-              c.sharedConnectionId &&
-              sharedConnectionIds.has(c.sharedConnectionId),
-          );
-          for (const conn of importedConnections) {
-            await this.removeStoredConnection(conn.id);
-          }
-          // Out of the project's connection order too, stored at once.
-          const removed = new Set(importedConnections.map((c) => c.id));
-          const order = this.state.connectionOrderByProject[projectId] ?? [];
-          if (order.some((id) => removed.has(id))) {
-            this.state.connectionOrderByProject = {
-              ...this.state.connectionOrderByProject,
-              [projectId]: order.filter((id) => !removed.has(id)),
-            };
-            await storeConnectionOrder(this.state, projectId);
-          }
-          this.state.connections = this.state.connections.filter(
-            (c) =>
-              !(
-                c.projectId === projectId &&
-                c.sharedConnectionId &&
-                sharedConnectionIds.has(c.sharedConnectionId)
-              ),
-          );
-        }
-
-        // Remove the repo and all its shared state (queries, configs, etc.)
-        if (this.sharedRepos) {
-          this.sharedRepos.removeRepo(repoId);
-        }
-      }
-
-      if (this.state.activeProjectId === projectId) {
-        this.state.activeRepoId = null;
-      }
+  async linkProject(projectId: string, path: string, share: string[]): Promise<void> {
+    let report;
+    try {
+      ({ value: report } = await getShared().linkProject(projectId, path, share));
+    } catch (error) {
+      throw sharedError(error);
     }
+    await this.refreshFromLibrary([projectId]);
+    await this.sharedRepos?.loadRepos();
+    const repo = this.sharedRepos?.repoForProject(projectId);
+    if (repo && this.sharedRepos) {
+      await this.sharedRepos.showReport(repo, [projectId], report);
+      await this.sharedRepos.refreshRepoStatus(repo.id);
+    }
+    // The first linked repo starts the status refresh too, not only startup.
+    this.sharedRepos?.ensureBackgroundRefresh();
+  }
+
+  /**
+   * The connections of `projectId` an unlink would remove if the user
+   * confirms (Q31): Core answers the list (`shared.unlinkPreview`), so the
+   * dialog and the unlink apply one rule (the project's repo and directory,
+   * links not shared from here).
+   */
+  async importedConnectionsOf(projectId: string): Promise<DatabaseConnection[]> {
+    let ids: string[];
+    try {
+      ({ importedConnectionIds: ids } = await getShared().unlinkPreview(projectId));
+    } catch (error) {
+      throw sharedError(error);
+    }
+    const wanted = new Set(ids);
+    return this.state.connections.filter((c) => wanted.has(c.id));
+  }
+
+  /**
+   * Unlink a project (Decision 40 with Q31). The user's own connections
+   * stay, unlinked and local-only, with their passwords. The ones the repo
+   * brought are listed through `ask` first: `"remove"` removes them,
+   * `"keep"` keeps them like the others, and `null` (cancel) changes
+   * nothing. With none, nothing is asked. True when the project was
+   * unlinked. A refusal throws, worded for the user.
+   */
+  async unlinkWithConfirmation(
+    projectId: string,
+    ask: (
+      projectName: string,
+      imported: readonly DatabaseConnection[],
+    ) => Promise<"remove" | "keep" | null>,
+  ): Promise<boolean> {
+    const imported = await this.importedConnectionsOf(projectId);
+    let removeImported = false;
+    if (imported.length > 0) {
+      const name = this.state.projects.find((p) => p.id === projectId)?.name ?? "";
+      const choice = await ask(name, imported);
+      if (choice === null) return false;
+      removeImported = choice === "remove";
+    }
+    await this.unlinkProject(projectId, removeImported);
+    return true;
+  }
+
+  /**
+   * Unlink a project (Decision 40 with Q31): Core keeps the user's own
+   * connections (unlinked, local-only, their secrets kept), removes the
+   * ones the repo brought when `removeImported` (else keeps them like the
+   * others), clears the links and forgets the repo when no project uses
+   * it. The page drops the removed connections and reads the kept ones
+   * and the project again. A refusal throws, worded for the user.
+   */
+  async unlinkProject(projectId: string, removeImported: boolean): Promise<UnlinkReport> {
+    let report: UnlinkReport;
+    try {
+      ({ value: report } = await getShared().unlinkProject(projectId, removeImported));
+    } catch (error) {
+      throw sharedError(error);
+    }
+    for (const id of report.removedConnectionIds) {
+      const connection = this.state.connections.find((c) => c.id === id);
+      if (connection) this.connectionManager?.forgetRemoved(connection, false);
+    }
+    if (report.keptConnectionIds.length > 0) {
+      await this.connectionManager?.refreshFromLibrary(report.keptConnectionIds, { remote: false });
+    }
+    await this.refreshFromLibrary([projectId]);
+    await this.sharedRepos?.loadRepos();
+    return report;
   }
 
   /**
@@ -598,17 +442,9 @@ export class ProjectManager {
       // writes with it for older releases).
       await this.windowState.activate(id);
       await this.loadProjectState(id, { dataLoaded });
-
-      // Auto-link repo when project has gitRepoPath
-      const project = this.state.projects.find((p) => p.id === id);
-      if (project?.gitRepoPath && this.sharedRepos) {
-        const repo = this.state.sharedRepos.find((r) => r.path === project.gitRepoPath);
-        if (repo) {
-          this.state.activeRepoId = repo.id;
-          await this.reconcileGitState(id);
-        }
-      }
     }
+    // A linked project is synced with its files (Decision 35).
+    if (id) await this.sharedRepos?.syncProject(id);
   }
 
   /**
@@ -726,252 +562,34 @@ export class ProjectManager {
   }
 
   /**
-   * Import shared projects from a git repo folder.
-   * Creates local projects, links them to the repo, and imports their connections.
+   * Import the repo's project directories `dirs` (Decision 40): Core makes
+   * one project each (a taken name becomes the first free "<name> (2)"),
+   * linked to `path` with that directory, and syncs it, which imports that
+   * directory's templates. Each directory is imported whole or not at all;
+   * one that failed is said. The first new project is made active. Returns
+   * the new projects' ids.
    */
-  async importFromGitRepo(repoPath: string, selectedProjects: SharedProject[]): Promise<string[]> {
-    const createdIds: string[] = [];
-
-    for (const sharedProject of selectedProjects) {
-      // A taken name becomes the first free "<name> (2)": Core picks it
-      // (Decision 13).
-      const project = await this.add(sharedProject.name, undefined, { renameIfTaken: true });
-      createdIds.push(project.id);
-
-      // Link to git repo (registers repo, loads configs, exports existing connections)
-      await this.setGitRepoPath(project.id, repoPath);
-
-      // Import shared connections as local entries
-      await this.importSharedConnections(project.id);
-
-      // Reconcile git queries and dashboards into local state
-      await this.reconcileGitState(project.id);
+  async importProjects(path: string, dirs: string[]): Promise<string[]> {
+    let projectIds: string[];
+    let failures;
+    try {
+      ({
+        value: { projectIds, failures },
+      } = await getShared().importProjects(path, dirs));
+    } catch (error) {
+      throw sharedError(error);
     }
-
-    // Switch to first created project
-    if (createdIds.length > 0) {
-      await this.setActive(createdIds[0]);
-    }
-
-    return createdIds;
+    await this.refreshFromLibrary(projectIds);
+    await this.sharedRepos?.loadRepos();
+    await this.connectionManager?.refreshFromLibrary(null, { remote: false });
+    for (const failure of failures ?? []) errorToast(failureText(this.state, failure));
+    if (projectIds.length > 0) this.sharedRepos?.ensureBackgroundRefresh();
+    const first = projectIds[0];
+    if (first !== undefined) await this.setActive(first);
+    return projectIds;
   }
 
   // === PRIVATE METHODS ===
-
-  /**
-   * Reconcile git .sql and .json files with local saved queries and dashboards.
-   * Called after git repo is linked and queries/dashboards are scanned.
-   */
-  async reconcileGitState(projectId: string): Promise<void> {
-    // Reconcile queries
-    if (this.sharedQueryManager) {
-      const queries = this.state.queriesByProject[projectId] ?? [];
-      const reconciled = this.sharedQueryManager.reconcileWithGitFiles(projectId, queries);
-      if (reconciled !== queries) await this.storeReconciledQueries(projectId, queries, reconciled);
-    }
-
-    // Reconcile dashboards
-    if (this.sharedDashboardManager) {
-      const dashboards = this.state.dashboardsByProject[projectId] ?? [];
-      const reconciled = this.sharedDashboardManager.reconcileWithGitFiles(projectId, dashboards);
-      if (reconciled !== dashboards) {
-        // Only what the reconcile changed, compared in stored form; each is
-        // shown as Core stores it (a new file's placeholder never is).
-        const before = new Map(dashboards.map((d) => [d.id, storedForm(d)]));
-        await this.dashboardStore?.storeReconciled(
-          projectId,
-          dashboards,
-          reconciled.filter((d) => before.get(d.id) !== storedForm(d)),
-        );
-      }
-    }
-  }
-
-  /**
-   * Store what the reconcile changed, one call per query: a new `.sql`
-   * file is a new saved query (Core's id), a changed one a patch of the
-   * fields that differ. Each result is shown as it lands; a failed one is
-   * logged and the rest go on.
-   */
-  private async storeReconciledQueries(
-    projectId: string,
-    before: readonly Query[],
-    after: readonly Query[],
-  ): Promise<void> {
-    const library = getLibrary();
-    const seqs = this.state.librarySeqs;
-    const byId = new Map(before.map((q) => [q.id, q]));
-    const show = (query: Query) => {
-      const list = this.state.queriesByProject[projectId] ?? [];
-      this.state.queriesByProject = {
-        ...this.state.queriesByProject,
-        [projectId]: list.some((q) => q.id === query.id)
-          ? list.map((q) => (q.id === query.id ? query : q))
-          : [...list, query],
-      };
-    };
-    let versionsChanged = false;
-    for (const query of after) {
-      const old = byId.get(query.id);
-      try {
-        if (!old) {
-          const { value, seq } = await seqs.write([rowKey("savedQuery", NEW)], () =>
-            library.createSavedQuery({
-              projectId,
-              name: query.name,
-              query: query.query,
-              ...(query.parameters ? { parameters: query.parameters } : {}),
-              ...(query.description ? { description: query.description } : {}),
-              ...(query.databaseType ? { databaseType: query.databaseType } : {}),
-              ...(query.tags ? { tags: query.tags } : {}),
-              ...(query.folder ? { folder: query.folder } : {}),
-              shared: query.shared,
-            }),
-          );
-          seqs.note(rowKey("savedQuery", value.id), seq);
-          show(savedQueryFromWire(value));
-        } else if (old !== query) {
-          const patch = savedQueryPatch(old, query);
-          if (Object.keys(patch).length === 0) continue;
-          const { value, seq } = await seqs.write([rowKey("savedQuery", query.id)], () =>
-            library.updateSavedQuery(query.id, patch),
-          );
-          seqs.note(rowKey("savedQuery", query.id), seq);
-          show(savedQueryFromWire(value.query));
-          if (value.version || value.prunedVersionIds.length > 0) versionsChanged = true;
-        }
-      } catch (error) {
-        // A shared file whose name another saved query already has, say.
-        // Renaming it would part it from its file, so it's said, not fixed.
-        void log.warn(`Storing a reconciled shared query failed:`, error);
-        errorToast(
-          m.shared_query_reconcile_failed({
-            name: query.name,
-            message: libraryErrorMessage(error, this.nameOf),
-          }),
-        );
-      }
-    }
-    // The versions the updates appended, read whole.
-    if (versionsChanged) await refreshQueryVersions(this.state, projectId);
-  }
-
-  /**
-   * Import shared connections from the linked repo as local DatabaseConnection entries.
-   * Skips connections that are already imported (matched by sharedConnectionId).
-   * Called explicitly (e.g. on project settings save), not automatically on folder selection.
-   */
-  async importSharedConnections(projectId: string): Promise<void> {
-    const project = this.state.projects.find((p) => p.id === projectId);
-    if (!project?.gitRepoPath) return;
-
-    const repo = this.state.sharedRepos.find((r) => r.path === project.gitRepoPath);
-    if (!repo) return;
-
-    const repoId = repo.id;
-    const sharedProjects = this.state.sharedProjectsByRepo[repoId] ?? [];
-
-    for (const sharedProject of sharedProjects) {
-      const sharedConnections = this.state.sharedConnectionsByProject[sharedProject.id] ?? [];
-
-      for (const sharedConn of sharedConnections) {
-        // Check if already imported
-        const alreadyImported = this.state.connections.some(
-          (c) => c.sharedConnectionId === sharedConn.id,
-        );
-        if (alreadyImported) continue;
-
-        await this.addImportedConnection(sharedConn, projectId);
-      }
-    }
-  }
-
-  /**
-   * Import a single shared connection template into a specific project.
-   * Used by deep links to import individual connections.
-   */
-  async importSingleSharedConnection(
-    sharedConn: SharedConnection,
-    projectId: string,
-  ): Promise<void> {
-    const alreadyImported = this.state.connections.some(
-      (c) => c.sharedConnectionId === sharedConn.id,
-    );
-    if (alreadyImported) return;
-
-    await this.addImportedConnection(sharedConn, projectId);
-  }
-
-  /**
-   * Store a connection made from a shared template (Core's id; a taken name
-   * becomes "<name> (2)"), then list it like a new one: in memory with its
-   * maps, at the end of its project's order. A refusal throws, worded for
-   * the user, and adds nothing.
-   */
-  private async addImportedConnection(
-    sharedConn: SharedConnection,
-    projectId: string,
-  ): Promise<void> {
-    const draft = {
-      ...connectionDraft(
-        {
-          name: sharedConn.name,
-          type: sharedConn.type,
-          host: sharedConn.host,
-          port: sharedConn.port,
-          databaseName: sharedConn.databaseName,
-          username: "",
-          sslMode: sharedConn.sslMode,
-          sharedConnectionId: sharedConn.id,
-          sshTunnel: sharedConn.sshTunnel
-            ? {
-                enabled: true,
-                host: sharedConn.sshTunnel.host,
-                port: sharedConn.sshTunnel.port,
-                username: "",
-                authMethod: "key",
-              }
-            : undefined,
-          // Shared templates belong to the repo: not local-only.
-          isLocalOnly: false,
-        },
-        projectId,
-      ),
-      connected: false,
-      renameIfTaken: true,
-    };
-    let connection: DatabaseConnection;
-    try {
-      const { value, seq } = await this.state.librarySeqs.write([rowKey("connection", NEW)], () =>
-        getLibrary().createConnection(draft),
-      );
-      connection = applyConnectionRow(this.state, value, seq);
-    } catch (error) {
-      throw libraryError(error, this.nameOf);
-    }
-    this.stateRestoration.initializeConnectionMaps(connection.id);
-    const order = this.state.connectionOrderByProject[connection.projectId] ?? [];
-    if (!order.includes(connection.id)) {
-      this.state.connectionOrderByProject = {
-        ...this.state.connectionOrderByProject,
-        [connection.projectId]: [...order, connection.id],
-      };
-      // The order is shared by the project's windows: stored at once.
-      await storeConnectionOrder(this.state, connection.projectId);
-    }
-  }
-
-  /** Delete a stored connection (the ones a cleared git path imported). */
-  private async removeStoredConnection(id: string): Promise<void> {
-    try {
-      const { seq } = await this.state.librarySeqs.write([rowKey("connection", id)], () =>
-        getLibrary().removeConnection(id),
-      );
-      this.state.librarySeqs.note(rowKey("connection", id), seq);
-    } catch (error) {
-      throw libraryError(error, this.nameOf);
-    }
-  }
 
   /** The in-memory stand-in project when the projects couldn't be read. */
   private createDefaultProject(): Project {

@@ -1359,6 +1359,8 @@ pub fn dashboard_from_draft(id: String, d: &DashboardDraft, now: &str) -> Persis
         description: d.description.clone(),
         created_at: now.to_string(),
         updated_at: now.to_string(),
+        // A link is set by the sync, never by a draft.
+        shared_path: None,
     }
 }
 
