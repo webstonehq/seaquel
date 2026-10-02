@@ -2,11 +2,10 @@
  * The seam between the editor's view model (`QueryExecutionManager`) and
  * whatever runs its SQL (phase 5b, Decision 13).
  *
- * - `CoreQueryRunner` (desktop and web): `db.run` and `db.page` in Core.
- * - `TsQueryRunner` (the demo): the TypeScript runner the GUI used before
- *   5b, over DuckDB-WASM, until phase 8 runs Core in the browser.
+ * `CoreQueryRunner` (every build; the demo's Core runs in the page since
+ * phase 8): `db.run` and `db.page` in Core.
  *
- * Both yield the generated `RunEvent`s, in Core's order and cell wire
+ * It yields the generated `RunEvent`s, in Core's order and cell wire
  * format (`$lib/values`: rows and bind values tagged, decoded by the view
  * model), and end with exactly one `done` or `error`. Aborting `signal`
  * cancels the run and ends the iterator with an `error` whose code is

@@ -14,6 +14,7 @@ members = [
     "crates/seaquel-rpc",
     "crates/seaquel-sql",
     "crates/seaquel-wasm",
+    "crates/seaquel-browser",
     "crates/seaquel-server",
     "crates/seaquel-storage",
     "crates/seaquel-secrets",
@@ -32,7 +33,11 @@ async-trait = "0.1"
 async-stream = "0.3"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip`: every float parses back to the bits it was written
+# from. The default parser can be one ULP off near the top of the range
+# (phase 8 Task 5: FLOAT's maximum, read and bound back, didn't equal
+# itself). Cargo unifies the feature into every build that has serde_json.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 tokio = { version = "1", features = ["sync", "net", "io-util"] }
 tokio-util = { version = "0.7", features = ["compat"] }

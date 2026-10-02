@@ -14,7 +14,7 @@
     import type { ThemeColors } from "$lib/types/theme";
     import { toast } from "svelte-sonner";
     import { errorToast } from "$lib/utils/toast";
-    import { showErrorUnlessShown } from "$lib/errors";
+    import { extractErrorMessage, showErrorUnlessShown } from "$lib/errors";
     import { m } from "$lib/paraglide/messages.js";
     import { onMount } from "svelte";
     import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
@@ -69,6 +69,40 @@
         page.url.pathname === "/login" || page.url.pathname === "/signup",
     );
 
+    /**
+     * The demo's start (phase 8, Decision 19): its Core opened before the
+     * app rendered (`src/routes/+layout.ts`); this shows Core's notices
+     * once and connects and seeds the demo database. The branch is on the
+     * build-time constant, so desktop and web bundles don't contain it.
+     */
+    const startDemoPage =
+        import.meta.env.VITE_BUILD_TARGET === "demo"
+            ? async () => {
+                  const { demoCore } = await import("$lib/demo/core");
+                  const opened = demoCore();
+                  // The root layout shows why Core didn't open.
+                  if (!opened) return;
+                  for (const notice of opened.notices) {
+                      toast.warning(
+                          notice.code === "STORAGE_CORRUPT"
+                              ? m.demo_notice_storage_corrupt()
+                              : m.demo_notice_storage_unavailable(),
+                      );
+                  }
+                  try {
+                      const { startDemo } = await import("$lib/demo/init");
+                      const { getProvider } = await import("$lib/providers");
+                      await startDemo(db, opened.core, await getProvider());
+                      toast.success("Demo database loaded with sample data");
+                  } catch (error) {
+                      console.error("[Demo] Failed to initialize:", error);
+                      errorToast(
+                          `Failed to initialize demo database: ${extractErrorMessage(error)}`,
+                      );
+                  }
+              }
+            : null;
+
     // Initialize stores on mount
     onMount(async () => {
         // Web-mode auth gate: every non-auth page requires a session. If
@@ -112,26 +146,7 @@
             ]);
         } else {
             await Promise.all(commonInit);
-            if (!isDemo()) return;
-            // Browser demo: initialize DuckDB with sample data
-            try {
-                const { initializeDemo } = await import("$lib/demo/init");
-                const { createDemoDashboard } = await import("$lib/demo/sample-dashboard");
-                const providerConnectionId = await initializeDemo();
-                if (providerConnectionId) {
-                    // Persisted connections must be loaded first, so a saved
-                    // demo connection (and its labels) is updated, not duplicated.
-                    await db.whenReady();
-                    await db.connections.addDemoConnection(
-                        providerConnectionId,
-                    );
-                    await createDemoDashboard(db);
-                    toast.success("Demo database loaded with sample data");
-                }
-            } catch (error) {
-                console.error("[Demo] Failed to initialize:", error);
-                errorToast("Failed to initialize demo database");
-            }
+            await startDemoPage?.();
         }
     });
 
@@ -142,11 +157,19 @@
         }
     });
 
+    /** Web and the demo save on `pagehide` instead of `beforeunload`. */
+    function savesOnPageHide() {
+        return isWeb() || isDemo();
+    }
+
     function handleBeforeUnload() {
-        // The web app saves on `pagehide` instead (below), where the active
-        // project's pending save can leave with `keepalive`; flushing here
-        // first would send it through the queue, which the unload cuts off.
-        if (isWeb()) return;
+        // Web and the demo save on `pagehide` instead (below), where the
+        // active project's pending save leaves outside the write queue: as a
+        // `keepalive` request on web, into the view-state journal in the demo
+        // (Chromium runs no task between `beforeunload` and `pagehide`, so a
+        // save queued here would miss the snapshot; Task 7 probe, item 1).
+        // Flushing here first would put it on the queue instead.
+        if (savesOnPageHide()) return;
         // Browsers don't await async unload work, so this is best-effort. On
         // desktop the onCloseRequested handler below does the reliable flush.
         void db.flush();
@@ -154,7 +177,7 @@
     }
 
     function handlePageHide() {
-        if (!isWeb()) return;
+        if (!savesOnPageHide()) return;
         db.saveOnPageHide();
         void themeStore.flush();
     }

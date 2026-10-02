@@ -10,7 +10,8 @@
 //! `0003`), one past the table's highest on every write, so it is the last
 //! write committed even when two land in one millisecond (5d-2 Task 7).
 
-use sqlx::Row;
+use crate::db;
+use crate::db::Row;
 
 use super::codec::{encode_error, Result};
 use crate::{Reader, WriteTx};
@@ -37,7 +38,7 @@ fn lossy(bytes: Option<Vec<u8>>) -> Option<String> {
 /// One window, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, window_id: &str) -> Result<Option<WindowRow>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT CAST(active_project_id AS BLOB), CAST(updated_at AS BLOB) \
          FROM windows WHERE window_id = ?",
     )
@@ -57,7 +58,7 @@ pub async fn get(r: impl Into<Reader<'_>>, window_id: &str) -> Result<Option<Win
 /// Marks the window used at `now`, adding its row if it has none. Its
 /// active project is kept.
 pub async fn touch(tx: &mut WriteTx, window_id: &str, now: &str) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO windows (window_id, active_project_id, updated_at, write_seq) \
          VALUES (?, NULL, ?, (SELECT COALESCE(MAX(write_seq), 0) + 1 FROM windows)) \
          ON CONFLICT(window_id) DO UPDATE SET \
@@ -78,7 +79,7 @@ pub async fn set_active_project(
     project_id: &str,
     now: &str,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO windows (window_id, active_project_id, updated_at, write_seq) \
          VALUES (?, ?, ?, (SELECT COALESCE(MAX(write_seq), 0) + 1 FROM windows)) \
          ON CONFLICT(window_id) DO UPDATE SET \
@@ -106,7 +107,7 @@ pub const MOST_RECENT_ACTIVE: &str = "\
 /// (Decision 22): the most recently used window that has one, or `None`.
 pub async fn most_recent_active(r: impl Into<Reader<'_>>) -> Result<Option<WindowRow>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(MOST_RECENT_ACTIVE)
+    let row = db::query(MOST_RECENT_ACTIVE)
         .fetch_optional(&mut *conn)
         .await?;
     let Some(row) = row else {
@@ -160,7 +161,7 @@ pub async fn prune(
 ) -> Result<u64> {
     let spare = spare_json(spare)?;
     let conn = tx.conn();
-    let mut deleted = sqlx::query(PRUNE_UNUSED)
+    let mut deleted = db::query(PRUNE_UNUSED)
         .bind(unused_before)
         .bind(&spare)
         .bind(i64::from(PRUNE_BATCH))
@@ -168,7 +169,7 @@ pub async fn prune(
         .await?
         .rows_affected();
     if let Some(max) = max_windows {
-        deleted += sqlx::query(PRUNE_OVER_COUNT)
+        deleted += db::query(PRUNE_OVER_COUNT)
             .bind(i64::from(max))
             .bind(&spare)
             .bind(i64::from(PRUNE_BATCH))

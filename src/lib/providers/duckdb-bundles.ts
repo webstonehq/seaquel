@@ -29,6 +29,29 @@ export async function duckdbBundles(
   return loadLocal ? loadLocal() : jsDelivr();
 }
 
+/**
+ * The blob worker's script: DuckDB-WASM's worker loaded by `importScripts`,
+ * after the worker's console is silenced. DuckDB-WASM 1.32's worker logs
+ * every request that fails with `console.log`, a statement's SQL and values
+ * included, whatever logger the page passes (`VoidLogger` only quiets the
+ * page side), and it has no setting for that (Task 7 probe, item 8). Its
+ * errors still reach the page as rejected requests; only the worker's own
+ * console output goes.
+ *
+ * `warn` and `error` are silenced too, on purpose: in the 1.32 worker they
+ * print what a query named (`"FAIL WITH: …"` and file errors with the file
+ * name; "HEAD request … failed", "fall back to full HTTP read for: <url>"
+ * and "Buffering missing file: <name>" with the URL or path a query passed
+ * to `read_csv` and friends, a token in its query string included), and its
+ * emscripten log hook sends DuckDB's own C++ messages there.
+ */
+export function duckdbWorkerScript(mainWorkerUrl: string): string {
+  return [
+    `for (const level of ["log", "info", "debug", "trace", "warn", "error"]) self.console[level] = () => {};`,
+    `importScripts(${JSON.stringify(mainWorkerUrl)});`,
+  ].join("\n");
+}
+
 /** An absolute URL, since `importScripts` in a blob worker has no base. */
 export function absoluteUrl(url: string, base: string = globalThis.location?.href ?? ""): string {
   return new URL(url, base || undefined).href;

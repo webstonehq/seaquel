@@ -17,9 +17,9 @@ license-desktop = ["seaquel-core/license-desktop"]
 git = ["seaquel-core/git"]
 ssh = ["seaquel-core/ssh"]
 # `db.connect`/`db.test` (`Workspace::connect`) and `db.run`/`db.page`
-# (`Workspace::run`/`page`), through Core's `workspace`. Every native
-# interface turns it on; the browser build (Core's `browser`, which refuses
-# `workspace`) leaves it off, and then all four answer NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
+# (`Workspace::run`/`page`), through Core's `workspace`. Every interface
+# turns it on, the browser module (phase 8) too; without it all four answer
+# NOT_SUPPORTED. Whether a Core with it may connect, and to what, is Core's
 # `ConnectPolicy`, not this feature.
 workspace = ["seaquel-core/workspace"]
 # Phase 5e: the `imports` group (`Workspace::import_candidates`/

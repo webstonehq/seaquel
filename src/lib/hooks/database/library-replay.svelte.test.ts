@@ -2,8 +2,10 @@
  * The library fixtures replayed through the view models (phase 5d-1, the
  * fixtures README's "TypeScript replay"): every case's `op` with its `args`
  * runs through the real managers, wired as `UseDatabase` wires them, over
- * the demo's `TsLibrary` on an in-memory sql.js file, with the recorder's
- * stubs (providers, engine client) and clock.
+ * `CoreLibrary` over Core in the browser module (the demo's Core, phase 8)
+ * on an in-memory file, with the recorder's stubs (providers, engine
+ * client) and clock. The case's seed is written into Core's file and Core
+ * reopens on it; the rows are read from Core's snapshot.
  *
  * After every step it compares `outcome.ok`, what the window shows (`view`), and the rows as the
  * Rust replay does (the library tables whole, the cascade tables by id, no
@@ -11,11 +13,17 @@
  * place of the recorded ones. `view` isn't compared for a step whose
  * `changes.json` entry replaces rows. Secrets aren't compared: the demo has
  * no keychain, and nothing here sends one (this isn't desktop).
+ * Core runs in the page here as the demo runs it: no limits, no secret
+ * store (as on web, where `SecretChanges` are `NOT_SUPPORTED`).
  *
  * Not replayed:
  * - `add/keychain-failure` step 0: it injects a keychain failure, and the
  *   demo has no keychain.
  * - `add/web-vault-cancelled`: a web case (its `library` is `null`).
+ * - The `OTHER_ENGINES` cases (another engine's fields, strings, secrets or
+ *   tunnel) past their first step on another engine than DuckDB, which Core
+ *   in the page refuses (checked as that refusal). The engine-independent
+ *   cases recorded on Postgres replay whole as DuckDB (`AS_DUCKDB`).
  * - Phase 5e moved the shared projection and the imports to Core: the
  *   cases built on `RETIRED_OPS` (linking a git path, importing shared
  *   projects or templates, the TablePlus/DBeaver import) aren't replayed
@@ -23,12 +31,10 @@
  *   the recorded file calls (`files`) aren't compared: Core writes the files
  *   inside the library calls.
  *
- * The injected "Broken" import fails its `connectionCreate`, the demo's
- * equivalent of the recorder's failed storage save.
  */
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { StorageClient } from "$lib/storage/client";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
 
 const rec = vi.hoisted(() => ({
   storage: null as unknown,
@@ -46,7 +52,6 @@ vi.mock("$lib/services/keyring", () => ({
 }));
 vi.mock("$lib/engine", () => ({
   getEngineClient: () => ({ schemaTables: async () => [] }),
-  TsEngineClient: class {},
 }));
 vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
   sshHostKeyPromptStore: { prompt: async () => true },
@@ -74,7 +79,6 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
 }));
 
-const { createSqljsStorageClient } = await import("$lib/storage/sqljs-client");
 const { WindowStateManager } = await import("./window-state.svelte.js");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
@@ -82,8 +86,7 @@ const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { LabelManager } = await import("./label-manager.svelte.js");
 const { ConnectionManager } = await import("./connection-manager.svelte.js");
-const { TsLibrary } = await import("./library/ts-library");
-const { setLibrary } = await import("./library/index");
+const { CoreLibrary, setLibrary } = await import("./library/index");
 const {
   FILES,
   LIBRARY_TABLES,
@@ -94,14 +97,14 @@ const {
   load,
   loadChanges,
   matches,
-  openCaseDb,
+  openCaseCore,
   snapshot,
   substituteValue,
 } = await import("./library/fixture-support");
 
 type Json = unknown;
 type Obj = Record<string, Json>;
-type Db = Awaited<ReturnType<typeof openCaseDb>>;
+type Db = import("./library/fixture-support").Db;
 type Outcome = { ok: true; value: Json } | { ok: false; code: string; takenBy?: string };
 
 /**
@@ -115,8 +118,62 @@ type Outcome = { ok: true; value: Json } | { ok: false; code: string; takenBy?: 
  */
 const SKIPPED = new Set(["add/keychain-failure#0", "local-only/toggle-off-and-on#1"]);
 
-/** Steps replayed once the `RETIRED_OPS` cases are left out (145 before phase 5e). */
-const STEPS_REPLAYED = 133;
+/**
+ * Steps replayed once the `RETIRED_OPS` cases are left out (145 before
+ * phase 5e), less the `OTHER_ENGINES` cases' steps (133 through the twin).
+ */
+const STEPS_REPLAYED = 119;
+
+/**
+ * Cases whose step (the number) adds a connection of another engine than DuckDB,
+ * or changes one's type to another. Core in the page registers only the
+ * DuckDB engine (phase 8, Decision 13), and Core's library refuses a type
+ * it wasn't built with (`ENGINE_NOT_AVAILABLE`, the rule web applies to
+ * SQLite and DuckDB). So that step is checked as a refusal that writes
+ * nothing, and the case stops there. The Rust replay
+ * (`seaquel-core/tests/library.rs`) replays them whole with every engine.
+ */
+const OTHER_ENGINES: Record<string, number> = {
+  // Engine, SSH or secret cases: what they check is the other engine's own
+  // fields, strings, secrets or tunnel.
+  "add/postgres-fields": 0,
+  "add/mysql-fields": 0,
+  "add/mariadb-fields": 0,
+  "add/mssql-fields": 0,
+  "add/sqlite-fields": 0,
+  "add/postgres-string-with-password": 0,
+  "add/mysql-string-with-password": 0,
+  "add/mssql-key-value-string": 0,
+  "add/save-password": 0,
+  "add/password-not-saved": 0,
+  "add/ssh-password-auth": 0,
+  "add/ssh-key-auth": 0,
+  "add/ssh-flags-without-secrets": 0,
+  // Its only step changes the seeded connection's type to MySQL.
+  "update/type": 0,
+};
+
+/**
+ * Cases that don't depend on the engine (labels and AI flags, the project,
+ * duplicate names, a create then update then remove): replayed whole with
+ * the recorded `postgres` read as `duckdb` everywhere in the case and its
+ * `changes.json` entry (args, seed, rows and view), since Core in the page
+ * has only DuckDB.
+ */
+const AS_DUCKDB = new Set([
+  "add/labels-and-ai-flags",
+  "add/other-project",
+  "add/duplicate-name-other-project",
+  "add-then-update-then-remove",
+  // Its seed only; the step's change to MySQL is still refused (above).
+  "update/type",
+]);
+
+/** `value` with every `"postgres"` read as `"duckdb"`. */
+function asDuckdb<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value).replaceAll('"postgres"', '"duckdb"')) as T;
+}
 
 /** The ops whose work moved to Core in phase 5e (see the header). */
 const RETIRED_OPS = new Set([
@@ -155,7 +212,8 @@ function sortedLabels(v: Json): Json {
 }
 
 const FIXED = new Date("2030-01-01T00:00:00.000Z");
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
 
 beforeAll(async () => {
   const store = new Map<string, string>();
@@ -166,7 +224,7 @@ beforeAll(async () => {
   });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
@@ -464,25 +522,27 @@ function viewMatches(expected: Json, actual: Json, bound: Map<string, string>): 
 
 // ---------------------------------------------------------------- the replay
 
-describe("the library fixtures through the view models", () => {
-  it("the demo library replays the fixture cases", async () => {
+describe.skipIf(missing)("the library fixtures through the view models", () => {
+  it("Core in the page replays the fixture cases", async () => {
     const changes = loadChanges();
     const failures: string[] = [];
     const exemptSeen = new Set<string>();
+    const otherEngines = new Set<string>();
     let cases = 0;
     let steps = 0;
     for (const file of FILES) {
-      for (const c of load(file)) {
+      for (const recorded of load(file)) {
+        const c = AS_DUCKDB.has(recorded.name as string) ? asDuckdb(recorded) : recorded;
         if (c.target === "web") continue; // add/web-vault-cancelled: see the header
         if ((c.steps as Obj[]).some((s) => RETIRED_OPS.has(s.op as string))) continue;
         cases++;
         const name = c.name as string;
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: FIXED });
         try {
-          const db = await openCaseDb(SQL, c);
-          const lib = new TsLibrary(db);
-          setLibrary(lib);
-          rec.storage = createSqljsStorageClient(db) as StorageClient;
+          const db = await openCaseCore(module!, c);
+          const storage = db.storage();
+          setLibrary(new CoreLibrary(() => storage));
+          rec.storage = storage as unknown as StorageClient;
           const steps0 = c.steps as Obj[];
           const load0 = steps0[0]?.op !== "projects.initialize";
           const t = await openPage(load0);
@@ -494,6 +554,24 @@ describe("the library fixtures through the view models", () => {
           let known = new Set(madeIds(new Set(), await snapshot(db)));
           for (const [i, step] of steps0.entries()) {
             if (SKIPPED.has(`${name}#${i}`)) continue;
+            if (OTHER_ENGINES[name] === i) {
+              otherEngines.add(name);
+              const before = JSON.stringify(await snapshot(db));
+              let code: string | null = null;
+              try {
+                await runOp(t, step.op as string, step.args, { ...cx, step });
+              } catch (e) {
+                code = (e as { code?: string }).code ?? "ERROR";
+              }
+              await settle();
+              if (code !== "ENGINE_NOT_AVAILABLE") {
+                failures.push(`${name} step ${i}: expected ENGINE_NOT_AVAILABLE, got ${code}`);
+              }
+              if (JSON.stringify(await snapshot(db)) !== before) {
+                failures.push(`${name} step ${i}: the refused step wrote rows`);
+              }
+              break;
+            }
             steps++;
             cx.step = step;
             let outcome: Outcome;
@@ -512,7 +590,8 @@ describe("the library fixtures through the view models", () => {
             for (const made of cx.created) {
               if (!known.has(made) && !fresh.includes(made)) fresh.push(made);
             }
-            const entry = changeEntry(changes, name, i);
+            const recordedEntry = changeEntry(changes, name, i);
+            const entry = AS_DUCKDB.has(name) ? asDuckdb(recordedEntry) : recordedEntry;
             const expOutcome = (entry?.outcome as Obj | undefined) ?? (step.outcome as Obj);
             const expected = {
               outcome: expOutcome,
@@ -564,11 +643,14 @@ describe("the library fixtures through the view models", () => {
       failures,
       `${failures.length} of ${steps} steps differ:\n\n${failures.join("\n\n")}`,
     ).toEqual([]);
+    expect([...otherEngines].sort(), "every other-engine case was checked").toEqual(
+      Object.keys(OTHER_ENGINES).sort(),
+    );
     expect([...exemptSeen].sort(), "every exemption names a replayed step").toEqual(
       [...EXEMPT].sort(),
     );
     // 115 before phase 5e; the 11 cases built on `RETIRED_OPS` moved to Core.
     expect(cases).toBeGreaterThanOrEqual(104);
-    expect(steps).toBeGreaterThanOrEqual(STEPS_REPLAYED);
+    expect(steps).toBe(STEPS_REPLAYED);
   }, 300_000);
 });

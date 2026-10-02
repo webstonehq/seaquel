@@ -8,10 +8,11 @@
 //! times for `meta` (migration `0003`), which `workflowsList` answers
 //! instead of the bodies ([`list_meta`], phase 5d-2 Task 7).
 
+use crate::db;
+use crate::db::Row;
 use seaquel_types::storage::PersistedWorkflowMeta;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sqlx::Row;
 
 use super::codec::{stored_json, Result};
 use crate::{Reader, WriteTx};
@@ -97,7 +98,7 @@ pub async fn list_meta(
     project_id: &str,
 ) -> Result<Vec<PersistedWorkflowMeta>> {
     let mut conn = r.into().conn().await?;
-    let rows: Vec<MetaRow> = sqlx::query_as(&list_meta_sql())
+    let rows: Vec<MetaRow> = db::query_as(&list_meta_sql())
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -127,7 +128,7 @@ pub async fn list_meta(
 /// without the rows that don't read (see [`WorkflowRow`]).
 pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
-    let rows: Vec<(Option<Vec<u8>>,)> = sqlx::query_as(LIST)
+    let rows: Vec<(Option<Vec<u8>>,)> = db::query_as(LIST)
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -140,7 +141,7 @@ pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Box<
 /// One saved workflow, or `None` when there's no row with that id.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<WorkflowRow>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT id, project_id, CAST(data AS BLOB) AS data FROM saved_canvases WHERE id = ?",
     )
     .bind(id)
@@ -167,7 +168,7 @@ fn lossy(bytes: Option<Vec<u8>>) -> String {
 /// key: `saved_canvases.id` is global) rather than overwriting.
 pub async fn insert(tx: &mut WriteTx, id: &str, project_id: &str, data: &str) -> Result<()> {
     let conn = tx.conn();
-    sqlx::query("INSERT INTO saved_canvases (id, project_id, data) VALUES (?, ?, ?)")
+    db::query("INSERT INTO saved_canvases (id, project_id, data) VALUES (?, ?, ?)")
         .bind(id)
         .bind(project_id)
         .bind(data)
@@ -178,8 +179,8 @@ pub async fn insert(tx: &mut WriteTx, id: &str, project_id: &str, data: &str) ->
 
 /// Writes the row's `meta` from its data, in a statement of its own (as
 /// `0001`'s name keys are), so `saved_canvases_meta_stale` never clears it.
-async fn set_meta(conn: &mut sqlx::SqliteConnection, id: &str) -> Result<()> {
-    sqlx::query(&format!(
+async fn set_meta(conn: &mut db::SqliteConnection, id: &str) -> Result<()> {
+    db::query(&format!(
         "UPDATE saved_canvases SET meta = COALESCE({META_OF_DATA}, '{UNREADABLE}') WHERE id = ?"
     ))
     .bind(id)
@@ -192,7 +193,7 @@ async fn set_meta(conn: &mut sqlx::SqliteConnection, id: &str) -> Result<()> {
 /// project. `false` when there's no row with that id.
 pub async fn update(tx: &mut WriteTx, id: &str, data: &str) -> Result<bool> {
     let conn = tx.conn();
-    let done = sqlx::query("UPDATE saved_canvases SET data = ? WHERE id = ?")
+    let done = db::query("UPDATE saved_canvases SET data = ? WHERE id = ?")
         .bind(data)
         .bind(id)
         .execute(&mut *conn)
@@ -206,7 +207,7 @@ pub async fn update(tx: &mut WriteTx, id: &str, data: &str) -> Result<bool> {
 
 /// Deletes one saved workflow. `false` when there was none.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
-    let done = sqlx::query("DELETE FROM saved_canvases WHERE id = ?")
+    let done = db::query("DELETE FROM saved_canvases WHERE id = ?")
         .bind(id)
         .execute(tx.conn())
         .await?;
@@ -217,7 +218,7 @@ pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
 /// that don't read included.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM saved_canvases")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM saved_canvases")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)

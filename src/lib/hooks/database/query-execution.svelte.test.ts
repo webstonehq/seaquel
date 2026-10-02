@@ -4,8 +4,8 @@
  * pending changes, history cache and confirmation follow. The tab state is
  * real `$state`, so a write that skipped the proxy wouldn't show.
  *
- * The TypeScript runner behind the demo has its own tests
- * (`query-runner/ts-runner.test.ts`, and the fixture replay).
+ * Core's run itself is pinned by its replay (`seaquel-core/tests/run.rs`)
+ * and, in the demo's page, by `src/lib/demo/duckdb-on-core.test.ts`.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SchemaTable, StatementResult } from "$lib/types";

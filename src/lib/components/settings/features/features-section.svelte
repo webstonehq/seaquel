@@ -2,6 +2,7 @@
 	import { m } from "$lib/paraglide/messages.js";
 	import { Switch } from "$lib/components/ui/switch";
 	import { aiSettingsStore } from "$lib/stores/ai-settings.svelte.js";
+	import { isFeatureEnabled } from "$lib/features";
 	import { onboardingStore } from "$lib/stores/onboarding.svelte.js";
 	import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte.js";
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
@@ -33,18 +34,20 @@
 </script>
 
 <div class="space-y-4" data-section="ai-feature">
-	<div class="flex items-center justify-between">
-		<div>
-			<p class="text-sm font-medium">{m.settings_ai_feature()}</p>
-			<p class="text-xs text-muted-foreground">
-				{m.settings_ai_feature_enabled_description()}
-			</p>
+	{#if isFeatureEnabled("aiAssistant")}
+		<div class="flex items-center justify-between">
+			<div>
+				<p class="text-sm font-medium">{m.settings_ai_feature()}</p>
+				<p class="text-xs text-muted-foreground">
+					{m.settings_ai_feature_enabled_description()}
+				</p>
+			</div>
+			<Switch
+				checked={aiSettingsStore.settings.enabled}
+				onCheckedChange={handleAIToggle}
+			/>
 		</div>
-		<Switch
-			checked={aiSettingsStore.settings.enabled}
-			onCheckedChange={handleAIToggle}
-		/>
-	</div>
+	{/if}
 	<div class="flex items-center justify-between">
 		<div>
 			<p class="text-sm font-medium">{m.settings_learn()}</p>

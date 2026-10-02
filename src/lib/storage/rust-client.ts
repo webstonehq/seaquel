@@ -27,6 +27,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { ORIGIN_HEADER } from "$lib/core/origin";
+import { wellFormedJson } from "$lib/core/well-formed";
 import { windowId, windowIdReady } from "$lib/core/window-id";
 import type { PersistedConnection } from "$lib/hooks/database/types";
 import type { CoreRequest } from "$lib/types/generated/CoreRequest";
@@ -47,9 +48,10 @@ import type { UiResponse } from "$lib/types/generated/UiResponse";
 import type { SecretResponse } from "$lib/types/generated/SecretResponse";
 import type { StorageRequest } from "$lib/types/generated/StorageRequest";
 import type { StorageResponse } from "$lib/types/generated/StorageResponse";
-import { isTauri } from "$lib/utils/environment";
+import { isDemo, isTauri } from "$lib/utils/environment";
 import { log } from "$lib/utils/logger";
 import type { StorageClient } from "./client";
+import { writeViewStateJournal } from "./view-state-journal";
 
 // -------- Transport --------
 
@@ -149,13 +151,36 @@ export const httpCoreTransport: CoreTransport = async (body) => {
  */
 export const KEEPALIVE_MAX_BYTES = 60 * 1024;
 
-/** Picked per call, so tests and late environment detection see the current mode. */
-const defaultTransport: CoreTransport = (body) =>
-  isTauri() ? tauriCoreTransport(body) : httpCoreTransport(body);
+/**
+ * The demo's in-page transport (phase 8), set by `useBrowserCore`
+ * (`$lib/core/browser`) once Core is open in the page. This file never
+ * imports the browser module, so desktop and web bundles don't contain it.
+ */
+let browserTransport: CoreTransport | null = null;
 
-/** The request as bytes. `method` is built first, so it's serialized first. */
+/** Sets (or, with `null`, clears) the demo's in-page transport. */
+export function setBrowserCoreTransport(next: CoreTransport | null): void {
+  browserTransport = next;
+}
+
+/** Picked per call, so tests and late environment detection see the current mode. */
+const defaultTransport: CoreTransport = (body) => {
+  if (import.meta.env.VITE_BUILD_TARGET === "demo" && browserTransport) {
+    return browserTransport(body);
+  }
+  return isTauri() ? tauriCoreTransport(body) : httpCoreTransport(body);
+};
+
+/**
+ * The request as bytes, every string in it well-formed (a lone surrogate,
+ * which Core's JSON reader refuses, becomes U+FFFD: a grid edit, a name or a
+ * tab's text the user typed). `method` is built first, so it's serialized
+ * first; `wellFormedJson` keeps key order.
+ */
 export function encodeCoreRequest(request: CoreRequest): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(JSON.stringify(request)) as Uint8Array<ArrayBuffer>;
+  return new TextEncoder().encode(
+    JSON.stringify(wellFormedJson(request)),
+  ) as Uint8Array<ArrayBuffer>;
 }
 
 async function send(transport: CoreTransport, request: CoreRequest): Promise<CoreResponse> {
@@ -592,15 +617,17 @@ export class RustStorageClient implements StorageClient {
   }
 
   /**
-   * Sends a `windowStateSave` as a `keepalive` request (web only), for
-   * `pagehide`: outside the write queue, `rev` orders it against queued
-   * saves. False when nothing was sent (desktop, or over the size cap).
+   * Sends a `windowStateSave` for `pagehide`, outside the write queue
+   * (`rev` orders it against queued saves): on web a `keepalive` request; in
+   * the demo, where Core runs in the page and its file can't be stored once
+   * the page is going away, the view-state journal, written synchronously
+   * and replayed on the next start (`$lib/storage/view-state-journal`).
+   * False when nothing was sent (desktop, or over the size cap).
    */
   saveWindowStateKeepalive(params: UiParams<"windowStateSave">): boolean {
-    return sendKeepaliveRequest(
-      { method: "ui", params: { method: "windowStateSave", params } },
-      "ui windowStateSave",
-    );
+    const request: CoreRequest = { method: "ui", params: { method: "windowStateSave", params } };
+    if (isDemo()) return writeViewStateJournal(request);
+    return sendKeepaliveRequest(request, "ui windowStateSave");
   }
 
   /** One `shared` call (phase 5e, desktop only); writes share the write queue. */

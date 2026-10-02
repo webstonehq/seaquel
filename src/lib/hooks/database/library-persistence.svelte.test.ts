@@ -1,16 +1,17 @@
 /**
- * The library against a real metadata database: the demo's `TsLibrary`
- * over sql.js, which keeps Core's rules (phase 5d-1), with the view models
- * on top. Two sets of managers on one database stand in for two web tabs.
+ * The library against a real metadata database: Core's library and `ui`
+ * group in the browser module (phase 8, the demo's Core), with the view
+ * models on top. Two sets of managers on one database stand in for two web tabs.
  * - Every library change is one targeted call, written at once: no
  *   project save deletes another tab's saved query or undoes its label.
  * - Removing a custom label strips it from the connections that had it.
  * - Dashboards (stars, the version limit, failures) go through the library
  *   too since phase 5d-2: Core numbers and prunes their versions.
  */
-import initSqlJs from "sql.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageClient } from "$lib/storage/client";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
 
 const storage = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("$lib/storage", () => ({ getStorage: () => storage.client }));
@@ -30,23 +31,18 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
 }));
 
-const { bootstrapSqljsDatabase, createSqljsStorageClient } =
-  await import("$lib/storage/sqljs-client");
-const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
-const { projectsRepo } = await import("$lib/storage/repository");
 const { WindowStateManager } = await import("./window-state.svelte.js");
-const { TsUi } = await import("./library/ts-ui");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { SavedQueryManager } = await import("./saved-queries.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
 const { ConnectionManager } = await import("./connection-manager.svelte.js");
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
-const { TsLibrary } = await import("./library/ts-library");
-const { setLibrary, LibraryCallError } = await import("./library/index");
+const { CoreLibrary, CoreUi, setLibrary, LibraryCallError } = await import("./library/index");
 const { setShared, NoShared } = await import("./shared/index");
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
 
 beforeAll(async () => {
   const store = new Map<string, string>();
@@ -55,35 +51,39 @@ beforeAll(async () => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   });
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => vi.unstubAllGlobals());
 afterEach(() => setLibrary(null));
 
 let client: StorageClient;
-let library: InstanceType<typeof TsLibrary>;
-let database: InstanceType<typeof WebSqliteDatabase>;
+let library: InstanceType<typeof CoreLibrary>;
+let database: ModuleCore;
 
 beforeEach(async () => {
   toasts.length = 0;
-  const db = new WebSqliteDatabase(new SQL.Database());
-  database = db;
-  await bootstrapSqljsDatabase(db);
-  client = createSqljsStorageClient(db);
+  if (!module) return;
+  database = await openModuleCore(module);
+  const rust = database.storage();
+  client = rust;
   storage.client = client;
-  library = new TsLibrary(db);
+  library = new CoreLibrary(() => rust);
   setLibrary(library);
   const now = new Date().toISOString();
   for (const id of ["p1", "p2"]) {
-    await projectsRepo.save(db, { id, name: id, createdAt: now, updatedAt: now, customLabels: [] });
+    await database.execute(
+      "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      [id, id, now, now],
+    );
   }
 });
 
 /** One window or web tab: its own in-memory state over the shared database. */
 async function openTab(projectId = "p1", windowId = `win-${crypto.randomUUID()}`) {
   const state = new DatabaseState();
-  const ui = new TsUi(database, { origin: () => windowId });
+  const uiClient = database.storage(windowId);
+  const ui = new CoreUi(() => uiClient);
   const windowState = new WindowStateManager(state, { ui: () => ui, windowId: () => windowId });
   const restoration = new StateRestorationManager(state);
   const projects = new ProjectManager(state, windowState, restoration);
@@ -116,7 +116,10 @@ async function openTab(projectId = "p1", windowId = `win-${crypto.randomUUID()}`
 const storedQueryNames = async (projectId = "p1") =>
   (await library.listSavedQueries(projectId)).value.map((q) => q.name).sort();
 
-/** A stored connection in `projectId`, made through the library. */
+/**
+ * A stored connection in `projectId`, made through the library. DuckDB:
+ * the demo's Core has only that engine and refuses any other type.
+ */
 async function storedConnection(
   projectId: string,
   name: string,
@@ -125,17 +128,17 @@ async function storedConnection(
   const { value } = await library.createConnection({
     projectId,
     name,
-    type: "postgres",
-    host: "localhost",
-    port: 5432,
-    databaseName: "app",
-    username: "me",
+    type: "duckdb",
+    host: "",
+    port: 0,
+    databaseName: ":memory:",
+    username: "",
     ...extra,
   });
   return value.id;
 }
 
-describe("two tabs on one database", () => {
+describe.skipIf(missing)("two tabs on one database", () => {
   it("a saved query is written at once", async () => {
     const a = await openTab();
     await a.savedQueries.saveQuery("mine", "SELECT 1");
@@ -182,7 +185,7 @@ describe("two tabs on one database", () => {
   });
 });
 
-describe("saved query versions", () => {
+describe.skipIf(missing)("saved query versions", () => {
   it("a changed text adds a keyframe of the previous text; an unchanged one adds none", async () => {
     const tab = await openTab();
     tab.state.queryTabsByProject = { p1: [{ id: "t1", name: "Q", query: "" } as never] };
@@ -206,9 +209,7 @@ describe("saved query versions", () => {
     const { default: DiffMatchPatch } = await import("diff-match-patch");
     const dmp = new DiffMatchPatch();
     const diff = dmp.patch_toText(dmp.patch_make("SELECT a", "SELECT b"));
-    await (
-      library as unknown as { db: { execute(s: string, p: unknown[]): Promise<void> } }
-    ).db.execute(
+    await database.execute(
       "INSERT INTO query_versions (id, saved_query_id, version, snapshot, diff, created_at) VALUES (?, ?, 2, NULL, ?, ?)",
       ["ver-old", id, diff, new Date().toISOString()],
     );
@@ -224,7 +225,7 @@ describe("saved query versions", () => {
   });
 });
 
-describe("custom labels", () => {
+describe.skipIf(missing)("custom labels", () => {
   it("removing a custom label strips it from the connections that had it", async () => {
     const tab = await openTab();
     const label = await tab.projects.addCustomLabel("p1", { name: "Mine", color: "#ff0000" });
@@ -240,7 +241,7 @@ describe("custom labels", () => {
   });
 });
 
-describe("dashboards", () => {
+describe.skipIf(missing)("dashboards", () => {
   function dashboards(state: InstanceType<typeof DatabaseState>) {
     return new DashboardManager(
       state,
@@ -323,7 +324,7 @@ describe("dashboards", () => {
  * 5d-2 Task 7 probe fix: `dashboardVersionsList` answers no snapshots, so
  * the history lists versions without them and reads one when it's picked.
  */
-describe("dashboard version history", () => {
+describe.skipIf(missing)("dashboard version history", () => {
   const widget = (id: string) => ({
     id,
     title: id,
@@ -400,7 +401,7 @@ describe("dashboard version history", () => {
   });
 });
 
-describe("shared saved queries", () => {
+describe.skipIf(missing)("shared saved queries", () => {
   // Core writes, moves and deletes a shared query's file inside the library
   // call (phase 5e, Decision 36); the GUI's side is `shared-gui.svelte.test.ts`.
   it("renaming a shared query is one library call", async () => {
@@ -413,7 +414,7 @@ describe("shared saved queries", () => {
   });
 });
 
-describe("project removal", () => {
+describe.skipIf(missing)("project removal", () => {
   it("removes the project and its connections in one call, and forgets them", async () => {
     const tab = await openTab();
     await storedConnection("p2", "c1");
@@ -448,7 +449,7 @@ describe("project removal", () => {
   });
 });
 
-describe("unlinking a project", () => {
+describe.skipIf(missing)("unlinking a project", () => {
   it("takes the connections Core removed out of the page and the project's order", async () => {
     const tab = await openTab();
     const kept = await storedConnection("p1", "Kept");

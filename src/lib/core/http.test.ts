@@ -414,6 +414,38 @@ describe("HttpCoreClient.call", () => {
   });
 });
 
+describe("HttpCoreClient.call with a lone surrogate (Task 7 probe, item 7)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends every string well-formed, keys included", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ method: "db", result: { method: "execute", result: null } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await client().call({
+      method: "db",
+      params: {
+        method: "execute",
+        params: {
+          connectionId: "c\ud800",
+          sql: "UPDATE t SET v = 'a\ud800b'",
+          params: [{ ["k\udc00"]: "x" }],
+        },
+      },
+    } as never);
+    const sent = new TextDecoder().decode(fetchMock.mock.calls[0][1].body as Uint8Array);
+    expect(sent).not.toMatch(/\\ud[89a-f]/i);
+    expect(JSON.parse(sent).params.params).toEqual({
+      connectionId: "c\ufffd",
+      sql: "UPDATE t SET v = 'a\ufffdb'",
+      params: [{ ["k\ufffd"]: "x" }],
+    });
+  });
+});
+
 describe("HttpCoreClient.stream of a run (phase 5b)", () => {
   function runRequest(streamId: string, text = "SELECT 1"): RunRequest {
     return {

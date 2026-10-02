@@ -6,10 +6,9 @@
  * the `db` argument. Rows are the app's own `Persisted*` types; the Rust
  * client maps the generated wire types onto them (`rust-client.ts`).
  *
- * - Desktop and web: `RustStorageClient`, which sends one typed call per
- *   method to `seaquel-storage` (`core_call` / `POST /api/rpc`).
- * - Demo: `SqljsStorageClient`, the TypeScript repositories over sql.js,
- *   until phase 8.
+ * `RustStorageClient` sends one typed call per method to `seaquel-storage`
+ * (`core_call` on desktop, `POST /api/rpc` on web, the in-page module in
+ * the demo).
  */
 
 import type { PersistedQueryHistoryItem } from "$lib/types";

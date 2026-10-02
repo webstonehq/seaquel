@@ -1200,6 +1200,136 @@ fn substitute_duckdb(sql: &str, values: &Values<'_>) -> Result<Substituted, Subs
     })
 }
 
+// --- Bound values as DuckDB literals ------------------------------------------
+
+/// A bound value as a self-contained DuckDB literal (phase 8, Decision 9): the
+/// browser's DuckDB-WASM can't bind a `bigint`, so its driver writes every
+/// bound `?` as one of these. Each form holds its value exactly and types it
+/// as the native driver's bind does:
+///
+/// - `NULL`, `TRUE`, `FALSE`;
+/// - an integer as its digits, a negative one in parentheses (`(-5)`);
+/// - a float as `CAST('<shortest round-trip text>' AS DOUBLE)`, NaN and
+///   ±infinity as `'nan'`, `'inf'`, `'-inf'`;
+/// - a decimal of plain digits (at most 38 significant, scale at most 38) as
+///   `CAST('<digits>' AS DECIMAL(w, s))`, with the native driver's width and
+///   scale; any other decimal text (39 digits, `1e5`, `NaN`) as a string,
+///   which DuckDB casts to the other side's type, as the native text bind;
+/// - text as a standard string (`'…'`, `'` doubled; `\` is just a
+///   character there), a NUL as `chr(0)` between parts, since DuckDB-WASM
+///   cuts its SQL at a NUL;
+/// - bytes as `from_hex('…')`;
+/// - JSON as `CAST('<its text>' AS JSON)`;
+/// - an array as a list literal of its elements' literals.
+///
+/// The literal is self-delimited (a string, a parenthesized or bracketed
+/// expression, a keyword or a number); the caller still spaces it off its
+/// neighbours. Never fails today; the `Result` keeps room for a kind that
+/// can't be written.
+pub fn duckdb_bind_literal(value: &Value) -> Result<String, SubstitutionError> {
+    let mut out = String::new();
+    write_duckdb_literal(&mut out, value);
+    Ok(out)
+}
+
+fn write_duckdb_literal(out: &mut String, value: &Value) {
+    match value {
+        Value::Null => out.push_str("NULL"),
+        Value::Bool(true) => out.push_str("TRUE"),
+        Value::Bool(false) => out.push_str("FALSE"),
+        Value::Int(i) if *i < 0 => out.push_str(&format!("({i})")),
+        Value::Int(i) => out.push_str(&i.to_string()),
+        Value::Float(f) => {
+            let text = if f.is_nan() {
+                "nan".to_string()
+            } else if f.is_infinite() {
+                (if *f > 0.0 { "inf" } else { "-inf" }).to_string()
+            } else {
+                // Rust's shortest text that reads back as the same f64.
+                format!("{f:?}")
+            };
+            out.push_str(&format!("CAST('{text}' AS DOUBLE)"));
+        }
+        Value::Decimal(s) => match duckdb_decimal(s) {
+            Some((text, width, scale)) => {
+                out.push_str(&format!("CAST('{text}' AS DECIMAL({width}, {scale}))"));
+            }
+            None => write_duckdb_text(out, s),
+        },
+        Value::Text(s) => write_duckdb_text(out, s),
+        Value::Bytes(b) => {
+            out.push_str("from_hex('");
+            for byte in b {
+                out.push_str(&format!("{byte:02X}"));
+            }
+            out.push_str("')");
+        }
+        Value::Json(j) => {
+            // serde_json escapes control characters, NUL included.
+            out.push_str(&format!(
+                "CAST('{}' AS JSON)",
+                j.to_string().replace('\'', "''")
+            ));
+        }
+        Value::Array(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_duckdb_literal(out, item);
+            }
+            out.push(']');
+        }
+    }
+}
+
+/// `'…'` with `'` doubled; with a NUL, the parts joined by `chr(0)` in
+/// parentheses.
+fn write_duckdb_text(out: &mut String, s: &str) {
+    let quoted = |part: &str| format!("'{}'", part.replace('\'', "''"));
+    if s.contains('\0') {
+        let parts: Vec<String> = s.split('\0').map(quoted).collect();
+        out.push_str(&format!("({})", parts.join(" || chr(0) || ")));
+    } else {
+        out.push_str(&quoted(s));
+    }
+}
+
+/// Plain decimal digits (`-12.50`, `.5`, `+007`) as normalized text and the
+/// DECIMAL width and scale the native driver binds them with: the
+/// significant digits, at least one more than the scale (DuckDB prints
+/// DECIMAL(2, 2) as `-.05`). `None` past 38 significant digits or a scale
+/// of 38, and for anything that isn't plain digits.
+fn duckdb_decimal(s: &str) -> Option<(String, usize, usize)> {
+    let (negative, digits) = match s.as_bytes().first()? {
+        b'-' => (true, &s[1..]),
+        b'+' => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
+    let all_digits = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
+    if int.len() + frac.len() == 0 || !all_digits(int) || !all_digits(frac) {
+        return None;
+    }
+    let significant = format!("{int}{frac}");
+    let significant = significant.trim_start_matches('0').len();
+    let scale = frac.len();
+    if significant > 38 || scale > 38 {
+        return None;
+    }
+    let width = significant.max(scale + 1).min(38);
+    let int = int.trim_start_matches('0');
+    let int = if int.is_empty() { "0" } else { int };
+    let sign = if negative { "-" } else { "" };
+    let text = if frac.is_empty() {
+        format!("{sign}{int}")
+    } else {
+        format!("{sign}{int}.{frac}")
+    };
+    Some((text, width, scale))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

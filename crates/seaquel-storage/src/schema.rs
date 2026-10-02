@@ -13,9 +13,10 @@
 //! the missing tables first makes that file upgrade to the same structure as
 //! one that went through v2026.4.5, and changes nothing for any other file.
 
+use crate::db;
 use std::collections::HashSet;
 
-use sqlx::{Row, SqliteConnection};
+use crate::db::{Row, SqliteConnection};
 
 /// The storage version a file has once the baseline has run. `schema_version`
 /// keeps one row per version a file reached; the highest is the current one.
@@ -528,7 +529,7 @@ const COLUMN_UPGRADES: &[ColumnUpgrade] = &[
 /// 4. run every `DDL_STATEMENTS` entry again (`IF NOT EXISTS`), which adds
 ///    the indexes that depend on step 3;
 /// 5. insert the version row.
-pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
+pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), db::Error> {
     // 1. Missing tables first, so no column add targets a table that doesn't
     //    exist yet. Indexes on those tables come with them; indexes on
     //    existing tables wait for step 4, since they may name a column that
@@ -536,7 +537,7 @@ pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
     let existing = table_names(conn).await?;
     for ddl in DDL_STATEMENTS {
         if !existing.contains(ddl.table) {
-            sqlx::query(ddl.sql).execute(&mut *conn).await?;
+            db::query(ddl.sql).execute(&mut *conn).await?;
         }
     }
 
@@ -562,7 +563,7 @@ pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
     };
     for upgrade in COLUMN_UPGRADES {
         if !columns(upgrade.table).contains(upgrade.column) {
-            sqlx::query(upgrade.sql).execute(&mut *conn).await?;
+            db::query(upgrade.sql).execute(&mut *conn).await?;
         }
     }
 
@@ -625,11 +626,11 @@ pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
 
     // 5. The version row. A fresh file gets its first row here; an older one
     //    (beta.1 wrote 1 and 3) gets 4 on top of what it has.
-    let latest: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+    let latest: Option<i64> = db::query_scalar("SELECT MAX(version) FROM schema_version")
         .fetch_one(&mut *conn)
         .await?;
     if latest.is_none_or(|v| v < CURRENT_STORAGE_VERSION) {
-        sqlx::query("INSERT INTO schema_version (version) VALUES (?)")
+        db::query("INSERT INTO schema_version (version) VALUES (?)")
             .bind(CURRENT_STORAGE_VERSION)
             .execute(&mut *conn)
             .await?;
@@ -653,7 +654,7 @@ pub async fn baseline(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
 ///    row's `active_view` is `canvas`;
 /// 4. every index of `DDL_STATEMENTS` exists (the tables already do);
 /// 5. the highest `schema_version` is at least [`CURRENT_STORAGE_VERSION`].
-pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error> {
+pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, db::Error> {
     // 1.
     let tables = table_names(conn).await?;
     if DDL_STATEMENTS.iter().any(|d| !tables.contains(d.table)) {
@@ -686,7 +687,7 @@ pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error
     {
         return Ok(false);
     }
-    let canvas: bool = sqlx::query_scalar(
+    let canvas: bool = db::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM project_state WHERE active_view = 'canvas')",
     )
     .fetch_one(&mut *conn)
@@ -696,7 +697,7 @@ pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error
     }
     // 4.
     let indexes: HashSet<String> =
-        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type = 'index'")
+        db::query_scalar("SELECT name FROM sqlite_master WHERE type = 'index'")
             .fetch_all(&mut *conn)
             .await?
             .into_iter()
@@ -709,7 +710,7 @@ pub async fn is_current(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error
         return Ok(false);
     }
     // 5.
-    let latest: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+    let latest: Option<i64> = db::query_scalar("SELECT MAX(version) FROM schema_version")
         .fetch_one(&mut *conn)
         .await?;
     Ok(latest.is_some_and(|v| v >= CURRENT_STORAGE_VERSION))
@@ -723,12 +724,12 @@ fn index_name(sql: &str) -> Option<&str> {
         .next()
 }
 
-async fn execute(conn: &mut SqliteConnection, sql: &'static str) -> Result<(), sqlx::Error> {
-    sqlx::query(sql).execute(conn).await.map(drop)
+async fn execute(conn: &mut SqliteConnection, sql: &'static str) -> Result<(), db::Error> {
+    db::query(sql).execute(conn).await.map(drop)
 }
 
-async fn table_names(conn: &mut SqliteConnection) -> Result<HashSet<String>, sqlx::Error> {
-    let rows = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table'")
+async fn table_names(conn: &mut SqliteConnection) -> Result<HashSet<String>, db::Error> {
+    let rows = db::query("SELECT name FROM sqlite_master WHERE type = 'table'")
         .fetch_all(&mut *conn)
         .await?;
     rows.iter().map(|r| r.try_get::<String, _>(0)).collect()
@@ -739,8 +740,8 @@ async fn table_names(conn: &mut SqliteConnection) -> Result<HashSet<String>, sql
 async fn column_names(
     conn: &mut SqliteConnection,
     table: &str,
-) -> Result<HashSet<String>, sqlx::Error> {
-    let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
+) -> Result<HashSet<String>, db::Error> {
+    let rows = db::query(&format!("PRAGMA table_info({table})"))
         .fetch_all(&mut *conn)
         .await?;
     rows.iter()

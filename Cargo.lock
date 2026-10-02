@@ -332,6 +332,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-ipc"
+version = "58.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29a908a11fcfb3fb2f6730f4ac15e367bc644e419155e96238f68cf3adde572b"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-data",
+ "arrow-schema",
+ "arrow-select",
+ "flatbuffers",
+]
+
+[[package]]
 name = "arrow-ord"
 version = "58.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2150,6 +2164,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
+name = "flatbuffers"
+version = "25.12.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35f6839d7b3b98adde531effaf34f0c2badc6f4735d26fe74709d8e513a96ef3"
+dependencies = [
+ "bitflags 2.13.2",
+ "rustc_version",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2734,6 +2758,15 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.1.5",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "foldhash 0.2.0",
 ]
 
 [[package]]
@@ -3773,6 +3806,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minicov"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+dependencies = [
+ "cc",
+ "walkdir",
+]
+
+[[package]]
 name = "minisign-verify"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3951,6 +3994,15 @@ name = "normpath"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b11ce00d2594068e8a27c9146fdc5cf9f3ac38eb42c7cd34d05fea618873ac9f"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -4300,6 +4352,12 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "opaque-debug"
@@ -5487,6 +5545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsqlite-vfs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
+dependencies = [
+ "hashbrown 0.16.1",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "russh"
 version = "0.48.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6027,6 +6095,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "seaquel-browser"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "log",
+ "seaquel-core",
+ "seaquel-engine-duckdb",
+ "seaquel-rpc",
+ "seaquel-runtime",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "seaquel-cli"
 version = "0.1.0"
 dependencies = [
@@ -6096,9 +6181,14 @@ dependencies = [
 name = "seaquel-engine-duckdb"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-ipc",
+ "arrow-schema",
  "async-stream",
  "duckdb",
  "futures",
+ "js-sys",
  "log",
  "seaquel-engine",
  "seaquel-engine-testkit",
@@ -6108,6 +6198,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -6365,18 +6457,26 @@ name = "seaquel-storage"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "futures",
+ "js-sys",
+ "libsqlite3-sys",
  "log",
  "percent-encoding",
  "seaquel-runtime",
+ "seaquel-storage",
  "seaquel-types",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "sqlite-wasm-rs",
  "sqlx",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "url",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -6906,6 +7006,18 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sqlite-wasm-rs"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc3efc0da82635d7e1ced0053bbbfa8c7ab9645d0bf36ceb4f7127bb85315d75"
+dependencies = [
+ "cc",
+ "js-sys",
+ "rsqlite-vfs",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -8764,6 +8876,45 @@ checksum = "81941cd78d0c92026c33e5e01312845a4cb1e9af3407f9134b100dd03144103e"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.78"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45863ef0bef521c12124eb39d9a38513c47db75f22e503c06beacd40afeb35db"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.78"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c89dcab8b516b6b603baca9d550b7282d68fcc7f367e3956cff7ebf406a3f12"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.128"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f37b4f992cebe528ef34964ae69681ac0fe7080071e7298e46008f9d380302af"
 
 [[package]]
 name = "wasm-streams"

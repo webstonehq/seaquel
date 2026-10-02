@@ -7,17 +7,16 @@
  *   byte layout Rust needs) and answers with the recorded result in its wire
  *   form. So this covers the client's encoding and its mapping to the app's
  *   types (`lastConnected` as a `Date`, workflows through `toStorable`).
- * - `SqljsStorageClient` (the demo) runs every case for real on sql.js, and
- *   its stored rows must match the recorded ones too.
+ * - The demo's client (phase 8: `RustStorageClient` over Core in the page,
+ *   the browser module's test build) runs every case it still has a call in
+ *   for real, and its stored rows must match the recorded ones too. Rows the
+ *   retired calls made are seeded as plain SQL.
  *
- * Both give the recorded results, so they agree. The `demoDiffers` cases
- * agree as well now that `web-sqlite.ts` keeps foreign keys on after each
- * export.
+ * Both give the recorded results, so they agree.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PersistedQueryHistoryItem } from "$lib/types";
 import { fromStorable, toStorable } from "$lib/values";
@@ -29,26 +28,12 @@ import {
   type CoreTransport,
   type StorageMethod,
 } from "./rust-client";
-import { bootstrapSqljsDatabase, createSqljsStorageClient } from "./sqljs-client";
 import { CoreSettings } from "$lib/hooks/database/library/core-settings";
-import {
-  aiChatsRepo,
-  appStateRepo,
-  connectionOverridesRepo,
-  connectionsRepo,
-  dashboardVersionsRepo,
-  dashboardsRepo,
-  importStateRepo,
-  onboardingRepo,
-  projectStateRepo,
-  projectsRepo,
-  queryVersionsRepo,
-  savedQueriesRepo,
-  sharedReposRepo,
-  themeRepo,
-  tutorialRepo,
-} from "./repository";
-import { WebSqliteDatabase } from "./web-sqlite";
+import { CoreLibrary } from "$lib/hooks/database/library/core-library";
+import { openBrowserCore } from "$lib/core/browser";
+import type { SnapshotStore } from "$lib/core/browser/snapshot-store";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { noDuckDb, openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
 
 // -------- Fixtures --------
 
@@ -87,7 +72,7 @@ const isCall = (s: Step): s is CallStep => "call" in s;
  * Calls the frozen fixtures make that the app's clients no longer have.
  * `queryHistoryRepo.replaceAll` went in phase 5b (history is appended, never
  * replaced); Rust keeps the function for `repos.rs`. Here the Rust client
- * skips it, and the demo's database gets its rows by plain SQL, so the loads
+ * skips it, and the module's file gets its rows by plain SQL, so the loads
  * and rows after it are still checked.
  */
 const RETIRED = new Set(["queryHistoryRepo.replaceAll"]);
@@ -95,9 +80,8 @@ const RETIRED = new Set(["queryHistoryRepo.replaceAll"]);
 /**
  * The storage group's library methods, which phase 5d-1 retired: Core's
  * `library` group replaced them, and neither client has them any more. The
- * Rust client's replay checks that; the demo's replay still runs them as
- * recorded on the sql.js repositories (the frozen fixtures pin those), so
- * the rows the other calls read and write are the same.
+ * Rust client's replay checks that; the module's replay seeds the rows the
+ * live calls need (`seedRetired`), and `repos.rs` replays the rest natively.
  */
 const LIBRARY_RETIRED = new Set([
   "projectsRepo.loadAll",
@@ -124,14 +108,9 @@ const LIBRARY_RETIRED = new Set([
 /**
  * The repositories whose storage methods phase 5d-2 retired: the `library`,
  * `settings` and `ui` groups replaced them (Task 6b moved the GUI), and
- * connection overrides were retired (Q13). They are gone from both clients;
- * the demo's replay runs them through the repositories, which stay for the
- * frozen fixtures.
- */
-/**
- * Phase 5e retired the shared repos' storage methods too (the `shared`
- * group's repo calls replaced them): gone from both clients, and the demo's
- * replay runs them on the sql.js repository, which stays for the fixture.
+ * connection overrides were retired (Q13). Phase 5e retired the shared
+ * repos' storage methods too (the `shared` group's repo calls replaced
+ * them). They are gone from both clients; `repos.rs` replays them natively.
  */
 const STATE_RETIRED_REPOS = new Set([
   "sharedRepos",
@@ -146,8 +125,8 @@ const STATE_RETIRED_REPOS = new Set([
   "aiChats",
 ]);
 
-/** What `replaceAll` did, as plain SQL, for the demo's replay. */
-async function seedHistory(db: WebSqliteDatabase, step: CallStep): Promise<void> {
+/** What `replaceAll` did, as plain SQL, for the module's replay. */
+async function seedHistory(core: ModuleCore, step: CallStep): Promise<void> {
   const [connectionId, items] = step.args as [string, PersistedQueryHistoryItem[]];
   const cols = [
     "id",
@@ -180,7 +159,17 @@ async function seedHistory(db: WebSqliteDatabase, step: CallStep): Promise<void>
       ],
     })),
   ];
-  const run = db.transaction(statements);
+  // One transaction, as `replaceAll` was: a failure leaves nothing.
+  const run = (async () => {
+    await core.execute("BEGIN");
+    try {
+      for (const { sql, params } of statements) await core.execute(sql, params);
+    } catch (error) {
+      await core.execute("ROLLBACK");
+      throw error;
+    }
+    await core.execute("COMMIT");
+  })();
   if (step.error) await expect(run, step.call).rejects.toThrow();
   else await run;
 }
@@ -346,34 +335,6 @@ function expectRetired(client: StorageClient, step: CallStep): void {
   expect(repo in client, step.call).toBe(false);
 }
 
-/** The demo's retired library repositories, bound to `db`, for the replay. */
-function libraryRepos(db: WebSqliteDatabase): Record<string, unknown> {
-  const bind = (repo: object) =>
-    Object.fromEntries(
-      Object.entries(repo).map(([name, fn]) => [
-        name,
-        (...args: unknown[]) => (fn as (...a: unknown[]) => unknown).call(repo, db, ...args),
-      ]),
-    );
-  return {
-    projects: bind(projectsRepo),
-    connections: bind(connectionsRepo),
-    savedQueries: bind(savedQueriesRepo),
-    queryVersions: bind(queryVersionsRepo),
-    projectState: bind(projectStateRepo),
-    appState: bind(appStateRepo),
-    connectionOverrides: bind(connectionOverridesRepo),
-    themes: bind(themeRepo),
-    onboarding: bind(onboardingRepo),
-    tutorial: bind(tutorialRepo),
-    importState: bind(importStateRepo),
-    dashboards: bind(dashboardsRepo),
-    dashboardVersions: bind(dashboardVersionsRepo),
-    aiChats: bind(aiChatsRepo),
-    sharedRepos: bind(sharedReposRepo),
-  };
-}
-
 async function runCall(client: object, step: CallStep): Promise<void> {
   const { repo, method } = splitCall(step.call);
   const fn = (
@@ -395,7 +356,7 @@ async function runCall(client: object, step: CallStep): Promise<void> {
   }
 }
 
-async function tableRows(db: WebSqliteDatabase, table: string, columns: string[]) {
+async function tableRows(db: ModuleCore, table: string, columns: string[]) {
   const order = columns.map((_, i) => i + 1).join(", ");
   const cols = columns.map((c) => `"${c}"`).join(", ");
   const types = columns.map((c, i) => `typeof("${c}") AS "t${i}"`).join(", ");
@@ -411,7 +372,8 @@ async function tableRows(db: WebSqliteDatabase, table: string, columns: string[]
 
 // -------- Tests --------
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
 const savedTz = process.env.TZ;
 
 beforeAll(async () => {
@@ -423,7 +385,7 @@ beforeAll(async () => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   });
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
@@ -443,12 +405,6 @@ function historyItem(id: string) {
     connectionLabelsSnapshot: [],
     connectionNameSnapshot: "Demo Database",
   };
-}
-
-async function freshSqljs() {
-  const db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
-  return { db, client: createSqljsStorageClient(db) };
 }
 
 describe("fixtures", () => {
@@ -484,119 +440,172 @@ describe("RustStorageClient replays the fixtures", () => {
   }
 });
 
-describe("SqljsStorageClient (the demo) matches the fixtures", () => {
-  for (const c of cases) {
-    it(c.name, async () => {
-      const { db, client } = await freshSqljs();
-      const library = libraryRepos(db);
-      for (const step of c.steps) {
-        if (isCall(step) && RETIRED.has(step.call)) await seedHistory(db, step);
-        else if (
-          isCall(step) &&
-          (LIBRARY_RETIRED.has(step.call) || STATE_RETIRED_REPOS.has(splitCall(step.call).repo))
-        )
-          await runCall(library, step);
-        else if (isCall(step)) await runCall(client, step);
-        else await db.execute(step.sql, step.params);
-      }
-      for (const [table, expected] of Object.entries(c.rows ?? {})) {
-        expect(await tableRows(db, table, expected.columns), table).toEqual(expected);
-      }
-    });
+/**
+ * A retired call the module's replay sets rows up with, as plain SQL: the
+ * client has no such method any more, and Core's own calls for them are
+ * other groups' (`repos.rs` pins the storage functions natively).
+ */
+async function seedRetired(core: ModuleCore, step: CallStep): Promise<void> {
+  if (step.call === "queryHistoryRepo.replaceAll") return seedHistory(core, step);
+  const [row] = step.args as [Record<string, unknown>];
+  if (step.call === "projectsRepo.save") {
+    await core.execute(
+      "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      [row.id, row.name, row.createdAt, row.updatedAt],
+    );
+    return;
   }
+  if (step.call === "connectionsRepo.save") {
+    await core.execute(
+      `INSERT INTO connections (id, project_id, name, type, host, port, database_name, username)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.id,
+        row.projectId,
+        row.name,
+        row.type,
+        row.host,
+        row.port,
+        row.databaseName,
+        row.username,
+      ],
+    );
+    return;
+  }
+  throw new Error(`no seed for ${step.call}`);
+}
 
-  it("keeps the demo connection's history and AI chats across a reload", async () => {
-    const { db, client } = await freshSqljs();
-    await projectsRepo.save(db, {
-      id: "default-seaquel",
-      name: "Seaquel",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      customLabels: [],
+/** The steps the storage client still serves (the rest set rows up). */
+const isLive = (s: Step): s is CallStep =>
+  isCall(s) &&
+  !RETIRED.has(s.call) &&
+  !LIBRARY_RETIRED.has(s.call) &&
+  !STATE_RETIRED_REPOS.has(splitCall(s.call).repo);
+
+/**
+ * The cases with a call the client still makes. The others only call
+ * retired repositories, which no client has: `repos.rs` replays them on
+ * the storage functions natively, and the browser's executor under them is
+ * pinned by `seaquel-storage`'s wasm tests.
+ */
+const liveCases = cases.filter((c) => c.steps.some(isLive));
+
+describe.skipIf(missing)(
+  "RustStorageClient over the browser module (the demo) matches the fixtures",
+  () => {
+    it("replays every case the client still has a call in", () => {
+      expect(liveCases.length).toBe(12);
     });
-    // Without its row, the history and chat writes fail the foreign key.
-    await expect(client.queryHistory.append(historyItem("h0"))).rejects.toThrow(/FOREIGN KEY/);
-    // What `addDemoConnection` saves, twice, as two page loads would.
-    for (let i = 0; i < 2; i++) {
-      await connectionsRepo.save(db, {
-        id: "demo-connection",
-        projectId: "default-seaquel",
-        name: "Demo Database",
-        type: "duckdb",
-        host: "browser",
-        port: 0,
-        databaseName: "demo",
-        username: "",
-        labelIds: ["prod"],
-        lastConnected: new Date("2026-01-02T00:00:00.000Z"),
+
+    for (const c of liveCases) {
+      it(c.name, async () => {
+        const core = await openModuleCore(module!);
+        const client = core.storage();
+        for (const step of c.steps) {
+          if (isLive(step)) await runCall(client, step);
+          else if (isCall(step)) await seedRetired(core, step);
+          else await core.execute(step.sql, step.params);
+        }
+        for (const [table, expected] of Object.entries(c.rows ?? {})) {
+          expect(await tableRows(core, table, expected.columns), table).toEqual(expected);
+        }
       });
     }
-    await client.queryHistory.append(historyItem("h1"));
-    await aiChatsRepo.saveChat(db, {
-      id: "chat-1",
-      connectionId: "demo-connection",
-      title: "Chat",
-      createdAt: "2026-01-02T00:00:00.000Z",
-      updatedAt: "2026-01-02T00:00:00.000Z",
+
+    /** The page's own path: `openBrowserCore` over a snapshot store, as `useBrowserCore` calls it. */
+    async function openPage(store: MemoryStore) {
+      const opened = await openBrowserCore({
+        module: module!,
+        bridge: noDuckDb(),
+        store,
+        localStorage: null,
+        window: null,
+        document: null,
+      });
+      const client = new RustStorageClient(
+        async (body) => JSON.parse(await opened.core.call(body)) as unknown,
+      );
+      return { opened, client };
+    }
+
+    it("keeps the demo connection's history and AI chats across a reload", async () => {
+      const store = new MemoryStore();
+      const first = await openPage(store);
+      // Without its row, the history write fails the foreign key.
+      await expect(first.client.queryHistory.append(historyItem("h0"))).rejects.toThrow(
+        /FOREIGN KEY/,
+      );
+      // What the demo's start stores, twice, as two page loads would.
+      await first.opened.core.ensureDemoConnection();
+      await first.opened.core.ensureDemoConnection();
+      await first.client.queryHistory.append(historyItem("h1"));
+      const library = new CoreLibrary(() => first.client);
+      const chat = (await library.createChat({ connectionId: "demo-connection", title: "Chat" }))
+        .value;
+      first.opened.core.flushNow();
+      await vi.waitFor(() => expect(store.saves).toBeGreaterThan(0));
+      await store.settled();
+      first.opened.close();
+
+      // Reload: a new page opens what the demo stored.
+      const again = await openPage(store);
+      const reloaded = new CoreLibrary(() => again.client);
+      expect((await reloaded.listConnections()).value.map((c) => c.id)).toEqual([
+        "demo-connection",
+      ]);
+      expect(
+        (await again.client.queryHistory.loadByConnection("demo-connection")).map((h) => h.id),
+      ).toEqual(["h1"]);
+      expect((await reloaded.listChats("demo-connection")).value.map((x) => x.id)).toEqual([
+        chat.id,
+      ]);
+      again.opened.close();
     });
 
-    // Reload: open what the demo persisted to localStorage.
-    const stored = localStorage.getItem("seaquel_db");
-    expect(stored).toBeTruthy();
-    const bytes = Uint8Array.from(atob(stored!), (ch) => ch.charCodeAt(0));
-    const reloaded = new WebSqliteDatabase(new SQL.Database(bytes));
-    await bootstrapSqljsDatabase(reloaded);
-    const again = createSqljsStorageClient(reloaded);
-    expect((await connectionsRepo.loadAll(reloaded)).map((c) => c.id)).toEqual(["demo-connection"]);
-    expect((await again.queryHistory.loadByConnection("demo-connection")).map((h) => h.id)).toEqual(
-      ["h1"],
-    );
-    expect(
-      (await aiChatsRepo.loadByConnection(reloaded, "demo-connection")).map((c) => c.id),
-    ).toEqual(["chat-1"]);
-  });
+    it("keeps foreign keys on after a write", async () => {
+      const core = await openModuleCore(module!);
+      const client = core.storage();
+      await client.license.save({}); // a write
+      await expect(client.queryHistory.append(historyItem("h0"))).rejects.toThrow(/FOREIGN KEY/);
+    });
+  },
+);
 
-  it("keeps foreign keys on after a write", async () => {
-    const { db, client } = await freshSqljs();
-    await client.license.save({}); // a write, so an export
-    await expect(
-      connectionsRepo.save(db, {
-        id: "c",
-        projectId: "missing",
-        name: "c",
-        type: "sqlite",
-        host: "",
-        port: 0,
-        databaseName: "",
-        username: "",
-        labelIds: [],
-      }),
-    ).rejects.toThrow(/FOREIGN KEY/);
-  });
-});
+/** A snapshot store in memory, saving in call order as IndexedDB does. */
+class MemoryStore implements SnapshotStore {
+  private file: Uint8Array | null = null;
+  private chain: Promise<void> = Promise.resolve();
+  saves = 0;
+  async load() {
+    return this.file;
+  }
+  save(bytes: Uint8Array) {
+    this.chain = this.chain.then(() => {
+      this.file = bytes;
+      this.saves += 1;
+    });
+    return this.chain;
+  }
+  async moveAside() {
+    this.file = null;
+  }
+  settled() {
+    return this.chain;
+  }
+}
 
-describe("SqljsStorageClient (the demo) history", () => {
+describe.skipIf(missing)("RustStorageClient over the browser module (the demo) history", () => {
   async function withConnection() {
-    const fresh = await freshSqljs();
-    await projectsRepo.save(fresh.db, {
-      id: "p",
-      name: "P",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      customLabels: [],
-    });
-    await connectionsRepo.save(fresh.db, {
-      id: "demo-connection",
-      projectId: "p",
-      name: "Demo Database",
-      type: "duckdb",
-      host: "browser",
-      port: 0,
-      databaseName: "demo",
-      username: "",
-      labelIds: [],
-    });
-    return fresh;
+    const core = await openModuleCore(module!);
+    await core.execute(
+      "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p', 'P', ?, ?)",
+      ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"],
+    );
+    await core.execute(
+      `INSERT INTO connections (id, project_id, name, type, host, port, database_name, username)
+       VALUES ('demo-connection', 'p', 'Demo Database', 'duckdb', 'browser', 0, 'demo', '')`,
+    );
+    return { core, client: core.storage() };
   }
   const at = (n: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
 
@@ -653,11 +662,6 @@ describe("SqljsStorageClient (the demo) history", () => {
     expect(
       (await client.queryHistory.loadByConnection("demo-connection")).map((h) => h.favorite),
     ).toEqual([false]);
-  });
-
-  it("has no whole-list replace", () => {
-    const client = createSqljsStorageClient({} as never);
-    expect("replaceAll" in client.queryHistory).toBe(false);
   });
 });
 

@@ -31,9 +31,14 @@ license-server = ["dep:seaquel-license", "seaquel-license/server"]
 workspace = []
 # The TypeScript bindings of the domain's wire types (`seaquel-rpc/ts`).
 ts = ["seaquel-workspace/ts"]
-# The wasm32 build for the browser (phase 8's Core in the web page): no
-# engines and no infrastructure, only what builds for wasm32-unknown-unknown.
-# CI checks it with --no-default-features --features seaquel-core/browser.
+# The wasm32 build for the browser (phase 8's Core in the web page). It
+# admits `storage` (the metadata file in memory) and `workspace`, and refuses
+# every engine (`engine-duckdb` is the native driver; the page's module
+# registers the browser driver itself) and the other infrastructure
+# features, `imports` included (a `compile_error!` in lib.rs). It also turns
+# on `Workspace::ensure_demo_connection`. CI checks it with
+# --no-default-features --features seaquel-core/browser,seaquel-core/storage,
+# seaquel-core/workspace.
 browser = []
 
 [dependencies]

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useDatabase } from "$lib/hooks/database.svelte.js";
-	import { getEngineClient, usesRustEngine } from "$lib/engine";
+	import { getEngineClient } from "$lib/engine";
 	import { log } from "$lib/utils/logger";
 	import { latestDebounced } from "$lib/utils/latest-debounced";
 	import { m } from "$lib/paraglide/messages.js";
@@ -42,11 +42,8 @@
 	const connectionId = $derived(connection?.id);
 	const connectionType = $derived(connection?.type);
 	const providerConnectionId = $derived(connection?.providerConnectionId);
-	// Rust-engine dialects need a live connection even for pure SQL generation;
-	// the demo's TypeScript DuckDB adapter works offline.
-	const needsConnection = $derived(
-		!!connectionType && usesRustEngine({ type: connectionType }) && !providerConnectionId,
-	);
+	// The dialect is Core's: even pure SQL generation needs a live connection.
+	const needsConnection = $derived(!!connectionType && !providerConnectionId);
 
 	/** A client for the tab's connection; it reads the live provider id on every call. */
 	function engineClient() {

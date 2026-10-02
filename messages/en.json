@@ -1280,5 +1280,9 @@
   "shared_sync_status_skipped": "Skipped",
   "shared_sync_status_skipped_tooltip": "Too many files or too large to sync: nothing in this project was read or written. Reduce its folder to sync it again.",
   "shared_import_dir_already_linked": "a project here is already linked to this folder",
-  "shared_import_skipped_dirs": "The project folder {dirs} can't be imported: {reason}."
+  "shared_import_skipped_dirs": "The project folder {dirs} can't be imported: {reason}.",
+  "demo_notice_storage_unavailable": "This browser isn't letting the demo keep its data, so nothing you do here is kept after you close the page.",
+  "demo_notice_storage_corrupt": "The demo's saved data couldn't be opened, so it started fresh. The old copy was set aside.",
+  "unsupported_build_title": "This build runs inside the Seaquel app",
+  "unsupported_build_message": "This build runs inside the Seaquel app. For the browser demo run `npm run dev:demo`."
 }

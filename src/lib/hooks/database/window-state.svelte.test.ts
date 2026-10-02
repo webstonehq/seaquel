@@ -1,7 +1,7 @@
 /**
  * A window's view state (phase 5d-2, Decision 22), against a real metadata
- * database: the demo's `TsUi` and `TsLibrary` over sql.js, which keep
- * Core's `ui` and library rules, with the view models on top. Each window
+ * database: Core's `ui` group and library in the browser module (phase 8,
+ * the demo's Core), with the view models on top. Each window
  * (a desktop window or a web tab) is its own set of managers under its own
  * window id, on one database.
  *
@@ -13,9 +13,10 @@
  *   older one still queued, and a stale answer moves the counter past it.
  * - The connection order and the saved workflows aren't view state.
  */
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedProjectState } from "$lib/types";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
 
 const storage = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("$lib/storage", () => ({ getStorage: () => storage.client }));
@@ -31,10 +32,6 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
 }));
 
-const { bootstrapSqljsDatabase, createSqljsStorageClient } =
-  await import("$lib/storage/sqljs-client");
-const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
-const { projectsRepo, projectStateRepo } = await import("$lib/storage/repository");
 const { WindowStateManager } = await import("./window-state.svelte.js");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
@@ -43,17 +40,16 @@ const { ConnectionManager } = await import("./connection-manager.svelte.js");
 const { StarterTabManager } = await import("./starter-tabs.svelte.js");
 const { TabOrderingManager } = await import("./tab-ordering.svelte.js");
 const { PaneManager } = await import("./pane-manager.svelte.js");
-const { TsLibrary } = await import("./library/ts-library");
-const { TsUi } = await import("./library/ts-ui");
-const { setLibrary } = await import("./library/index");
+const { CoreLibrary, CoreUi, setLibrary } = await import("./library/index");
 import type { LibraryService } from "./library/types";
 const { LibraryCallError } = await import("./library/types");
 const { resetLoadGuardToast } = await import("$lib/storage/load-guard");
 import type { UiService, ViewState } from "./library/types";
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
-let db: InstanceType<typeof WebSqliteDatabase>;
-let library: InstanceType<typeof TsLibrary>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
+let db: ModuleCore;
+let library: InstanceType<typeof CoreLibrary>;
 
 beforeAll(async () => {
   const store = new Map<string, string>();
@@ -62,7 +58,7 @@ beforeAll(async () => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   });
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
@@ -73,16 +69,51 @@ afterAll(() => {
 beforeEach(async () => {
   toasts.length = 0;
   resetLoadGuardToast();
-  db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
-  storage.client = createSqljsStorageClient(db);
-  library = new TsLibrary(db);
+  if (!module) return;
+  db = await openModuleCore(module);
+  const client = db.storage();
+  storage.client = client;
+  library = new CoreLibrary(() => client);
   setLibrary(library);
   const now = new Date().toISOString();
   for (const id of ["p1", "p2"]) {
-    await projectsRepo.save(db, { id, name: id, createdAt: now, updatedAt: now, customLabels: [] });
+    await db.execute(
+      "INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      [id, id, now, now],
+    );
   }
 });
+
+/** A window's `ui` calls through Core, under its own window id (its origin). */
+function coreUi(windowId: string) {
+  const client = db.storage(windowId);
+  return new CoreUi(() => client);
+}
+
+/**
+ * Today's rows (`project_state` and its query tabs), as a release before
+ * 5d-2 left them: what a window's first load copies.
+ */
+async function saveLegacy(state: PersistedProjectState): Promise<void> {
+  await db.execute(
+    `INSERT INTO project_state (project_id, active_view, active_connection_id, active_query_tab_id, tab_order, connection_order)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      state.projectId,
+      state.activeView ?? "query",
+      state.activeConnectionId,
+      state.activeQueryTabId,
+      JSON.stringify(state.tabOrder ?? []),
+      JSON.stringify(state.connectionOrder ?? []),
+    ],
+  );
+  for (const tab of state.queryTabs) {
+    await db.execute(
+      "INSERT INTO tabs (id, project_id, tab_type, name, query) VALUES (?, ?, 'query', ?, ?)",
+      [tab.id, state.projectId, tab.name, tab.query],
+    );
+  }
+}
 
 /** A window's `ui` calls, recorded, with saves that can be held. */
 class WindowUi implements UiService {
@@ -95,9 +126,9 @@ class WindowUi implements UiService {
   failSaves: Error | null = null;
   /** A load throws this instead. */
   failLoads: Error | null = null;
-  readonly inner: InstanceType<typeof TsUi>;
+  readonly inner: InstanceType<typeof CoreUi>;
   constructor(readonly windowId: string) {
-    this.inner = new TsUi(db, { origin: () => windowId });
+    this.inner = coreUi(windowId);
   }
   windowGet(windowId: string) {
     this.calls.push({ method: "windowGet" });
@@ -206,7 +237,7 @@ function legacyState(tabs: string[]): PersistedProjectState {
   };
 }
 
-describe("each window keeps its own view state", () => {
+describe.skipIf(missing)("each window keeps its own view state", () => {
   it("a tab's layout isn't moved by another tab", async () => {
     const a = await openWindow("win-a");
     const b = await openWindow("win-b");
@@ -263,7 +294,7 @@ describe("each window keeps its own view state", () => {
   });
 
   it("the first window after the upgrade gets today's tabs", async () => {
-    await projectStateRepo.save(db, legacyState(["today-1", "today-2"]));
+    await saveLegacy(legacyState(["today-1", "today-2"]));
     const ui = new WindowUi("main");
     const w = await openWindow("main", { ui });
     expect(tabIds(w)).toEqual(["today-1", "today-2"]);
@@ -285,7 +316,7 @@ describe("each window keeps its own view state", () => {
   });
 
   it("a call naming another window's id is refused", async () => {
-    const ui = new TsUi(db, { origin: () => "win-a" });
+    const ui = coreUi("win-a");
     const state = legacyState(["x"]) as ViewState;
     await expect(ui.windowStateSave("win-b", "p1", 1, state)).rejects.toMatchObject({
       code: "INVALID_ARGUMENT",
@@ -370,7 +401,7 @@ describe("each window keeps its own view state", () => {
   });
 });
 
-describe("the window's active project", () => {
+describe.skipIf(missing)("the window's active project", () => {
   it("switching records it for the window and as lastActiveProjectId", async () => {
     const a = await openWindow("win-a");
     await a.projects.setActive("p2");
@@ -393,7 +424,7 @@ describe("the window's active project", () => {
   });
 });
 
-describe("no view-state save before its load answers", () => {
+describe.skipIf(missing)("no view-state save before its load answers", () => {
   it("the startup case", async () => {
     const ui = new WindowUi("win-a");
     let release!: () => void;
@@ -406,7 +437,7 @@ describe("no view-state save before its load answers", () => {
     await w.windowState.saveNow("p1");
     expect(ui.saves()).toEqual([]);
 
-    await projectStateRepo.save(db, legacyState(["stored"]));
+    await saveLegacy(legacyState(["stored"]));
     release();
     await starting;
     expect(tabIds(w)).toEqual(["stored"]);
@@ -416,7 +447,7 @@ describe("no view-state save before its load answers", () => {
   });
 
   it("the switch case", async () => {
-    await projectStateRepo.save(db, { ...legacyState(["stored-p2"]), projectId: "p2" });
+    await saveLegacy({ ...legacyState(["stored-p2"]), projectId: "p2" });
     // The window switches to p2 with a slow load.
     const ui = new WindowUi("win-a");
     const w = await openWindow("win-a", { ui });
@@ -464,7 +495,7 @@ describe("no view-state save before its load answers", () => {
   });
 });
 
-describe("rev", () => {
+describe.skipIf(missing)("rev", () => {
   it("counts on from the rev the load answered", async () => {
     const a = await openWindow("win-a");
     openTabs(a, ["a1"]);
@@ -507,7 +538,7 @@ describe("rev", () => {
     // This page loaded its window's state; another page of the same window
     // (the tab after a reload, whose old page's save came late) saved on.
     const page = await openWindow("win-a");
-    const other = new TsUi(db, { origin: () => "win-a" });
+    const other = coreUi("win-a");
     const view = legacyState(["from-the-other-page"]) as ViewState;
     for (let rev = 1; rev <= 5; rev++) await other.windowStateSave("win-a", "p1", rev, view);
 
@@ -537,9 +568,9 @@ function holding(method: string, until: Promise<void>): LibraryService {
   }) as LibraryService;
 }
 
-describe("review fixes", () => {
+describe.skipIf(missing)("review fixes", () => {
   it("I1: no save between the load's answer and the restore (switch)", async () => {
-    await projectStateRepo.save(db, { ...legacyState(["stored-p2"]), projectId: "p2" });
+    await saveLegacy({ ...legacyState(["stored-p2"]), projectId: "p2" });
     const w = await openWindow("win-a");
     let release!: () => void;
     setLibrary(holding("listWorkflows", new Promise((r) => (release = r))));
@@ -564,7 +595,7 @@ describe("review fixes", () => {
   });
 
   it("I1: no save between the load's answer and the restore (startup)", async () => {
-    await projectStateRepo.save(db, legacyState(["stored"]));
+    await saveLegacy(legacyState(["stored"]));
     const w = await openWindow("win-a", { start: false });
     let release!: () => void;
     setLibrary(holding("getProjectSidebar", new Promise((r) => (release = r))));
@@ -599,7 +630,7 @@ describe("review fixes", () => {
 
   it("M4: flush saves again after a stale answer, a bounded number of times", async () => {
     const w = await openWindow("win-a");
-    const other = new TsUi(db, { origin: () => "win-a" });
+    const other = coreUi("win-a");
     await other.windowStateSave("win-a", "p1", 5, legacyState(["other"]) as ViewState);
     openTabs(w, ["mine"]);
     w.windowState.scheduleProject("p1");
@@ -621,11 +652,11 @@ describe("review fixes", () => {
   });
 
   it("M5: a stale save with nothing changed reloads instead of overwriting", async () => {
-    await projectStateRepo.save(db, legacyState(["loaded"]));
+    await saveLegacy(legacyState(["loaded"]));
     const page = await openWindow("win-a");
     const loadedRev = (await storedState("win-a"))!.rev;
     // The old page's keepalive lands after this page's load.
-    const old = new TsUi(db, { origin: () => "win-a" });
+    const old = coreUi("win-a");
     await old.windowStateSave("win-a", "p1", loadedRev + 1, legacyState(["newest"]) as ViewState);
 
     // This page saves without having changed anything (a switch, say).
@@ -641,7 +672,7 @@ describe("review fixes", () => {
     // Another window creates a connection and opens a data tab on it in p2.
     const fresh = (await library.createConnection({ ...connectionDraft("Fresh"), projectId: "p2" }))
       .value.id;
-    const other = new TsUi(db, { origin: () => "win-other" });
+    const other = coreUi("win-other");
     await other.windowStateSave("win-other", "p2", 1, {
       ...legacyState([]),
       projectId: "p2",
@@ -657,12 +688,12 @@ describe("review fixes", () => {
   });
 });
 
-describe("re-review follow-ups", () => {
+describe.skipIf(missing)("re-review follow-ups", () => {
   it("N1: a stale-triggered reload whose load fails leaves the tabs and keeps saving", async () => {
-    await projectStateRepo.save(db, legacyState(["loaded"]));
+    await saveLegacy(legacyState(["loaded"]));
     const page = await openWindow("win-a");
     const rev = (await storedState("win-a"))!.rev;
-    const old = new TsUi(db, { origin: () => "win-a" });
+    const old = coreUi("win-a");
     await old.windowStateSave("win-a", "p1", rev + 1, legacyState(["newest"]) as ViewState);
     page.ui.failLoads = new Error("STORAGE_ERROR: upstream unavailable");
 
@@ -684,11 +715,11 @@ describe("re-review follow-ups", () => {
   });
 
   it("N2: a stale answer to the save before a switch doesn't reload the old project", async () => {
-    await projectStateRepo.save(db, legacyState(["loaded"]));
-    await projectStateRepo.save(db, { ...legacyState(["p2-tab"]), projectId: "p2" });
+    await saveLegacy(legacyState(["loaded"]));
+    await saveLegacy({ ...legacyState(["p2-tab"]), projectId: "p2" });
     const page = await openWindow("win-a");
     const rev = (await storedState("win-a"))!.rev;
-    const old = new TsUi(db, { origin: () => "win-a" });
+    const old = coreUi("win-a");
     await old.windowStateSave("win-a", "p1", rev + 1, legacyState(["newest"]) as ViewState);
 
     await page.projects.setActive("p2");
@@ -703,7 +734,7 @@ describe("re-review follow-ups", () => {
   });
 });
 
-describe("a save refused for a web limit", () => {
+describe.skipIf(missing)("a save refused for a web limit", () => {
   it("is shown once per project and limit, and saving goes on", async () => {
     const w = await openWindow("win-a");
     await w.projects.setActive("p2");
@@ -735,19 +766,20 @@ describe("a save refused for a web limit", () => {
   });
 });
 
+/** A DuckDB row: the demo's Core has only the DuckDB engine, so it refuses any other type. */
 function connectionDraft(name: string) {
   return {
     projectId: "p1",
     name,
-    type: "postgres" as const,
-    host: "localhost",
-    port: 5432,
-    databaseName: "app",
-    username: "me",
+    type: "duckdb" as const,
+    host: "",
+    port: 0,
+    databaseName: ":memory:",
+    username: "",
   };
 }
 
-describe("5d-2 Task 7 probe fixes", () => {
+describe.skipIf(missing)("5d-2 Task 7 probe fixes", () => {
   /**
    * A `ui` whose saves refuse a lone surrogate as Core's JSON reader does
    * (`JSON.stringify` writes one as a `\udXXX` escape, and only a lone one).

@@ -4,7 +4,9 @@
     "src-tauri/patches",
     "src/lib/components/ui",
     "src/lib/types/generated",
-    "src/lib/wasm/pkg"
+    "src/lib/wasm/pkg",
+    "src/lib/wasm/browser-pkg",
+    "src/lib/wasm/browser-test-pkg"
   ],
   "options": {
     "typeAware": true

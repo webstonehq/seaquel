@@ -1,5 +1,6 @@
 //! `vaultStateRepo`: `vault_state`, the web vault's one row.
 
+use crate::db;
 use seaquel_types::storage::PersistedVaultState;
 
 use super::codec::{begin, decode_error, parse_json, text, Result};
@@ -8,7 +9,7 @@ use crate::Storage;
 /// The vault's row, or `None` before one is set up. Fails when
 /// `kdf_params` isn't JSON (the TypeScript used a bare `JSON.parse`).
 pub async fn load(st: &Storage) -> Result<Option<PersistedVaultState>> {
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT salt, kdf_params, verifier, verifier_nonce, created_at FROM vault_state WHERE id = 1",
     )
     .fetch_optional(st.pool())
@@ -28,7 +29,7 @@ pub async fn load(st: &Storage) -> Result<Option<PersistedVaultState>> {
 }
 
 pub async fn save(st: &Storage, s: &PersistedVaultState) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT OR REPLACE INTO vault_state (id, salt, kdf_params, verifier, verifier_nonce, created_at) \
          VALUES (1, ?, ?, ?, ?, ?)",
     )
@@ -46,10 +47,10 @@ pub async fn save(st: &Storage, s: &PersistedVaultState) -> Result<()> {
 /// transaction: they're only meaningful together.
 pub async fn reset(st: &Storage) -> Result<()> {
     let mut tx = begin(st).await?;
-    sqlx::query("DELETE FROM vault_state")
+    db::query("DELETE FROM vault_state")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM user_credentials")
+    db::query("DELETE FROM user_credentials")
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;

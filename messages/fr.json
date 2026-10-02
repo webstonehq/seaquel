@@ -1280,5 +1280,9 @@
   "shared_sync_status_skipped": "Ignoré",
   "shared_sync_status_skipped_tooltip": "Trop de fichiers ou trop volumineux pour être synchronisé : rien n'a été lu ni écrit dans ce projet. Réduisez son dossier pour le synchroniser à nouveau.",
   "shared_import_dir_already_linked": "un projet ici est déjà lié à ce dossier",
-  "shared_import_skipped_dirs": "Le dossier de projet {dirs} ne peut pas être importé : {reason}."
+  "shared_import_skipped_dirs": "Le dossier de projet {dirs} ne peut pas être importé : {reason}.",
+  "demo_notice_storage_unavailable": "Ce navigateur ne permet pas à la démo de conserver ses données. Rien de ce que vous faites ici ne sera donc conservé après la fermeture de la page.",
+  "demo_notice_storage_corrupt": "Les données enregistrées de la démo n'ont pas pu être ouvertes, elle a donc redémarré à vide. L'ancienne copie a été mise de côté.",
+  "unsupported_build_title": "Ce build s'exécute à l'intérieur de l'application Seaquel",
+  "unsupported_build_message": "Ce build s'exécute à l'intérieur de l'application Seaquel. Pour la démo dans le navigateur, exécutez `npm run dev:demo`."
 }

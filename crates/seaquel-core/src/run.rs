@@ -64,7 +64,11 @@ pub(crate) fn elapsed_ms(start: Duration, end: Duration) -> f64 {
 
 /// What one statement came to, for the run's history row.
 struct Outcome {
+    // Read only when the run writes history, which needs `storage`
+    // (a `workspace` build without it records nothing).
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
     elapsed_ms: f64,
+    #[cfg_attr(not(feature = "storage"), allow(dead_code))]
     row_count: u64,
     /// A utility statement that returned no rows: history prefers any other.
     hidden_utility: bool,

@@ -1,8 +1,9 @@
 //! `projectsRepo`: `projects` and their `project_labels`.
 
+use crate::db;
+use crate::db::SqliteRow;
+use db::SqliteConnection;
 use seaquel_types::storage::{ConnectionLabel, PersistedProject};
-use sqlx::sqlite::SqliteRow;
-use sqlx::SqliteConnection;
 
 use super::codec::{begin, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
 use super::{connections, project_labels};
@@ -36,7 +37,7 @@ fn map_row(
 
 /// Every project with its labels, in rowid order.
 pub async fn load_all(st: &Storage) -> Result<Vec<PersistedProject>> {
-    let rows = sqlx::query(&select_sql(TABLE, &COLUMNS, ""))
+    let rows = db::query(&select_sql(TABLE, &COLUMNS, ""))
         .fetch_all(st.pool())
         .await?;
     let mut conn = st.pool().acquire().await?;
@@ -52,7 +53,7 @@ pub async fn load_all(st: &Storage) -> Result<Vec<PersistedProject>> {
 /// One project with its labels, as [`load_all`] gives it, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedProject>> {
     let mut conn = r.into().conn().await?;
-    let Some(row) = sqlx::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
+    let Some(row) = db::query(&select_sql(TABLE, &COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?
@@ -82,7 +83,7 @@ pub async fn save_all(st: &Storage, projects: &[PersistedProject]) -> Result<()>
 }
 
 async fn save_one(conn: &mut SqliteConnection, p: &PersistedProject) -> Result<()> {
-    sqlx::query(&upsert_sql(TABLE, &COLUMNS, "id"))
+    db::query(&upsert_sql(TABLE, &COLUMNS, "id"))
         .bind(&p.id)
         .bind(&p.name)
         .bind(&p.description)
@@ -121,7 +122,7 @@ pub async fn insert_if_missing(tx: &mut WriteTx, p: &PersistedProject) -> Result
 }
 
 async fn insert_row(conn: &mut SqliteConnection, p: &PersistedProject, tail: &str) -> Result<bool> {
-    let done = sqlx::query(&format!("{}{tail}", insert_sql(TABLE, &COLUMNS)))
+    let done = db::query(&format!("{}{tail}", insert_sql(TABLE, &COLUMNS)))
         .bind(&p.id)
         .bind(&p.name)
         .bind(&p.description)
@@ -138,7 +139,7 @@ async fn insert_row(conn: &mut SqliteConnection, p: &PersistedProject, tail: &st
 /// alone. `false` when there's no project with that id.
 pub async fn update(tx: &mut WriteTx, p: &PersistedProject) -> Result<bool> {
     let conn = tx.conn();
-    let done = sqlx::query(
+    let done = db::query(
         "UPDATE projects SET name = ?, description = ?, updated_at = ?, git_repo_path = ? \
          WHERE id = ?",
     )
@@ -169,7 +170,7 @@ pub async fn update(tx: &mut WriteTx, p: &PersistedProject) -> Result<bool> {
 /// (nothing is written).
 pub async fn delete_with_orphans(tx: &mut WriteTx, id: &str) -> Result<Option<Vec<String>>> {
     let conn = tx.conn();
-    let exists: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM projects WHERE id = ?")
+    let exists: Option<(i64,)> = db::query_as("SELECT 1 FROM projects WHERE id = ?")
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -178,12 +179,12 @@ pub async fn delete_with_orphans(tx: &mut WriteTx, id: &str) -> Result<Option<Ve
     }
     let connection_ids = connections::ids_of_project(conn, id).await?;
     for table in ["saved_queries", "dashboards", "saved_canvases"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE project_id = ?"))
+        db::query(&format!("DELETE FROM {table} WHERE project_id = ?"))
             .bind(id)
             .execute(&mut *conn)
             .await?;
     }
-    sqlx::query("DELETE FROM projects WHERE id = ?")
+    db::query("DELETE FROM projects WHERE id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
@@ -194,7 +195,7 @@ pub async fn delete_with_orphans(tx: &mut WriteTx, id: &str) -> Result<Option<Ve
 pub async fn names(r: impl Into<Reader<'_>>) -> Result<Vec<super::IdName>> {
     let mut conn = r.into().conn().await?;
     let rows: Vec<(Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT id, name FROM projects ORDER BY rowid")
+        db::query_as("SELECT id, name FROM projects ORDER BY rowid")
             .fetch_all(&mut *conn)
             .await?;
     Ok(rows
@@ -218,7 +219,7 @@ pub const NAME_KEY_LOOKUP: &str = "\
 /// (see `connections::with_name_key`).
 pub async fn with_name_key(r: impl Into<Reader<'_>>, key: &str) -> Result<Vec<super::IdName>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(NAME_KEY_LOOKUP)
+    let rows = db::query_as(NAME_KEY_LOOKUP)
         .bind(key)
         .fetch_all(&mut *conn)
         .await?;
@@ -232,7 +233,7 @@ pub const SET_SHARED_DIR: &str = "UPDATE projects SET shared_dir = ?1 WHERE id =
 /// (migration `0004`; `None` clears it), and nothing else, so a rename
 /// never moves it (Q25). `false` when there's no project with that id.
 pub async fn set_shared_dir(tx: &mut WriteTx, id: &str, dir: Option<&str>) -> Result<bool> {
-    let done = sqlx::query(SET_SHARED_DIR)
+    let done = db::query(SET_SHARED_DIR)
         .bind(dir)
         .bind(id)
         .execute(tx.conn())
@@ -245,7 +246,7 @@ pub async fn set_shared_dir(tx: &mut WriteTx, id: &str, dir: Option<&str>) -> Re
 pub async fn shared_dir(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<String>> {
     let mut conn = r.into().conn().await?;
     let dir: Option<Option<String>> =
-        sqlx::query_scalar("SELECT shared_dir FROM projects WHERE id = ?")
+        db::query_scalar("SELECT shared_dir FROM projects WHERE id = ?")
             .bind(id)
             .fetch_optional(&mut *conn)
             .await?;
@@ -256,7 +257,7 @@ pub async fn shared_dir(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<Str
 /// compared exactly), in rowid order. Few rows, so a scan.
 pub async fn ids_with_repo_path(r: impl Into<Reader<'_>>, path: &str) -> Result<Vec<String>> {
     let mut conn = r.into().conn().await?;
-    Ok(sqlx::query_scalar(
+    Ok(db::query_scalar(
         "SELECT id FROM projects WHERE git_repo_path = ? AND id IS NOT NULL ORDER BY rowid",
     )
     .bind(path)
@@ -267,7 +268,7 @@ pub async fn ids_with_repo_path(r: impl Into<Reader<'_>>, path: &str) -> Result<
 /// How many projects the file holds.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM projects")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)
@@ -278,7 +279,7 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 /// v2026.4.5-beta.1, whose `saved_queries` and `dashboards` have no foreign
 /// key).
 pub async fn remove(st: &Storage, project_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM projects WHERE id = ?")
+    db::query("DELETE FROM projects WHERE id = ?")
         .bind(project_id)
         .execute(st.pool())
         .await?;

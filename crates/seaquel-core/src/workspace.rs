@@ -16,9 +16,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "secrets")]
-use std::sync::Arc;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::channel::mpsc;
 
@@ -82,6 +80,16 @@ impl WorkspaceSpec {
     #[must_use]
     pub fn with_storage_options(mut self, options: StorageOptions) -> Self {
         self.storage_options = options;
+        self
+    }
+
+    /// The browser's open (phase 8 Decision 4): the metadata file in memory,
+    /// starting from `image` (the snapshot the page kept), or empty. The
+    /// data dir and file name then only name the file in errors.
+    #[cfg(all(feature = "storage", target_arch = "wasm32"))]
+    #[must_use]
+    pub fn with_image(mut self, image: Option<Vec<u8>>) -> Self {
+        self.storage_options = StorageOptions::in_memory(image);
         self
     }
 
@@ -193,11 +201,26 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub(crate) async fn open(spec: WorkspaceSpec) -> Result<Self, CoreError> {
+    /// Opens the spec's storage. With an `executor` (Core's), storage's
+    /// write turn waits on its clock (phase 8 Decision 5): the page's timer
+    /// in the browser, tokio's natively.
+    pub(crate) async fn open(
+        spec: WorkspaceSpec,
+        executor: Option<&Arc<dyn seaquel_runtime::Executor>>,
+    ) -> Result<Self, CoreError> {
         #[cfg(feature = "storage")]
-        let storage = Storage::open(spec.data_dir.join(&spec.storage_file), spec.storage_options)
-            .await
-            .map_err(CoreError::from)?;
+        let storage = {
+            let storage =
+                Storage::open(spec.data_dir.join(&spec.storage_file), spec.storage_options)
+                    .await
+                    .map_err(CoreError::from)?;
+            match executor {
+                Some(executor) => storage.with_executor(Arc::clone(executor)),
+                None => storage,
+            }
+        };
+        #[cfg(not(feature = "storage"))]
+        let _ = executor;
         let id = WorkspaceId::random();
         Ok(Self {
             id,

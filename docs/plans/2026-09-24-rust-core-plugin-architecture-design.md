@@ -115,7 +115,7 @@ history, shared repos, the license and the vault. The demo keeps the
 TypeScript behind the `SettingsService` and `UiService` seams. Its measured
 cost, and 5d's as a whole, are in "Phase 5d-2 cost" and "Phase 5d cost"
 below.
-Phase 5e: implemented, manual checks pending (see
+Phase 5e: implemented, manual checks passed (see
 2026-10-05-rust-core-phase-5e-plan.md). Phase 5 is done. On desktop, the
 `.seaquel` projection of shared projects runs in Core: linking, unlinking
 and importing projects, the repo list, and a sync in both directions that
@@ -130,6 +130,19 @@ Core too. Both new groups need `LocalFiles`, which only the desktop and the
 CLI grant, and the main window lost the `fs` permissions only the
 projection used. The demo and web have neither. Its measured cost is in
 "Phase 5e cost" below.
+Phase 8: implemented, manual checks pending (see
+2026-10-06-rust-core-phase-8-plan.md). The demo runs Seaquel Core in the
+page. `seaquel-browser`, a second WebAssembly module next to the editor's,
+builds Core with `storage` and `workspace` and the DuckDB engine's new
+`browser` driver, which drives DuckDB-WASM through a bridge object and
+decodes its Arrow IPC bytes with the native driver's decoder.
+`seaquel-storage` runs its one set of queries on two executors: sqlx
+natively, unchanged, and SQLite compiled to wasm32 (`sqlite-wasm-rs`) in
+memory, whose file the page keeps in IndexedDB as a snapshot. A page trap
+restarts Core from the last snapshot. The demo's TypeScript twins, the
+sql.js storage and `duckdb.ts` are deleted (about 7,800 production lines),
+and the old `localStorage` file is deleted unread. The tutorial keeps its
+own DuckDB-WASM. Its measured cost is in "Phase 8 cost" below.
 
 ## Problem
 
@@ -841,6 +854,55 @@ Svelte GUI ──CoreClient (in-page transport)──▶ seaquel-browser (WASM)
   native engine. These are Cargo features, off in `seaquel-browser`. AI works
   if the user brings a key: `LlmProvider` uses `reqwest`'s WASM fetch backend.
 
+As built in phase 8 (details in that plan's Decisions 1–24 and task notes):
+
+- **One crate per engine still holds.** There is no
+  `seaquel-engine-duckdb-wasm`: `seaquel-engine-duckdb` has a `native`
+  feature (duckdb-rs, the default) and a `browser` feature. Both drivers
+  share `dialect.rs`, `introspect.rs` and `decode.rs`, which now reads
+  arrow-rs arrays rather than duckdb-rs types. DuckDB-WASM hands Rust Arrow
+  IPC bytes; JavaScript never converts a cell. It binds no `bigint`, so the
+  browser driver writes every bind as a typed literal with `seaquel-sql`'s
+  DuckDB writer. DuckDB-WASM 1.32 is DuckDB 1.4.3, behind the native 1.5;
+  JSON, BIT, TIMETZ, TIME_NS, GEOMETRY and ENUM differ, each pinned by the
+  live suite.
+- **No `StorageBackend` trait.** `seaquel-storage` keeps one set of queries
+  over a `db` module picked by `target_arch`: a re-export of sqlx natively,
+  so desktop and web storage didn't change, and on wasm32 a hand-written
+  wrapper over `sqlite-wasm-rs`'s C API with sqlx's API shape, one
+  connection in memory. rusqlite couldn't be used (it and sqlx both link
+  `sqlite3` at different `libsqlite3-sys` versions, which Cargo refuses on
+  any target), and neither could a bridge to sql.js without leaving storage
+  in JavaScript. Migrations are recorded exactly as sqlx records them, so a
+  browser file and a desktop file are interchangeable.
+- **Persistence:** the whole file is serialized after every call that
+  committed and stored in IndexedDB (one save in flight, the newest wins,
+  and a save at `pagehide`). Not OPFS: that would have moved Core into a
+  worker. Two tabs each load the file at open and the last writer wins. A
+  `localStorage` journal carries the last view-state change across an
+  unload, because Chromium runs no task between `beforeunload` and
+  `pagehide`.
+- **The transport** is `browserCoreClient` plus `RustStorageClient`'s third
+  transport, over the same `CoreRequest`/`CoreEvent` JSON as the other two.
+  Nothing calls into the module from a callback it is running. A Rust panic
+  traps the instance; the transport re-instantiates it, reopens from the
+  last stored snapshot and reconnects, with a cap of three restarts a
+  minute.
+- **Core's `browser` feature admits `storage` and `workspace`** and still
+  refuses the native engines, secrets, SSH, git, licensing and imports.
+  Core, its storage and the module have no tokio runtime, threads or file
+  system on wasm32 and take time only from `WasmExecutor`; tokio's `sync`
+  types come in through `seaquel-engine`'s `CancellationToken` (about 6 KB).
+- **The demo's connection is Core's** (`Workspace::ensure_demo_connection`),
+  and the sample data stays TypeScript content seeded through `db.execute`.
+- **No AI in the demo** for now: no key can be kept or sent there, so the
+  assistant is off until phase 6.
+- **The tutorial stayed on its TypeScript `DuckDBProvider`**, with its own
+  DuckDB-WASM instance apart from the demo's.
+- **Size:** the module is 1,481 KB brotli (6.26 MB raw), under its
+  2,000,000-byte budget, which the build enforces; the editor module stays
+  separate.
+
 ### Constraints this puts on Core from phase 0
 
 Retrofitting WASM support into an async codebase later is painful, so these
@@ -978,6 +1040,10 @@ that's fine.
 - Unpin the demo. `npm run demo:update` in the website repo builds it the same
   way as before, with the WASM bundle included.
 - This can start any time after phase 5, in parallel with phases 6 and 7.
+- (As built: no `seaquel-engine-duckdb-wasm`; the DuckDB crate got a
+  `browser` driver instead, and storage got a second executor rather than a
+  backend trait. See "As built in phase 8" under "The demo: Core in the
+  browser". It ran before phases 6 and 7.)
 
 ## Phase 1 cost
 
@@ -3307,6 +3373,144 @@ the fixtures (the Core replay passed every step once its git setup
 worked); the GUI's switch to the seams; and Decision 49's capability
 trim, which the plan had listed as the first cut.
 
+## Phase 8 cost
+
+Source: `2026-10-06-phase-8-effort.md` and the phase 8 plan's notes, plus
+line counts measured against `8d73887` (Phase 5e); phase 8 is uncommitted
+on top of it. Times are agent wall time as logged, review and probe fixes
+included, but not the plan, the spikes, the review passes themselves or
+the owner's answers. Tasks 1–4 overlapped, Task 6's test moves ran in three
+parallel agents, and about a third of most rows was builds and test runs on
+the shared target.
+
+### Time per task
+
+| Task | Estimate | First pass | Fixes | Logged |
+|---|---|---|---|---|
+| 1. Reload fixes, the baseline recorder | 0.4–0.6 h | ~0.65 h | ~0.2 h | ~0.85 h |
+| 2. Storage: the `db` facade, the wasm32 executor, the migrator | 2.5–3.5 h | ~2.3 h | ~0.4 h | ~2.7 h |
+| 3. Core: `browser` with `storage`/`workspace`, the write turn, the demo connection | 1–1.5 h | ~0.7 h | (in Task 5) | ~0.7 h |
+| 4. The DuckDB browser driver | 2.5–3.5 h | ~0.85 h | ~0.35 h | ~1.2 h |
+| 5. `seaquel-browser`, the build, the transport, the Node harness | 2.2–3.1 h | ~0.85 h | ~0.7 h (two rounds) | ~1.55 h |
+| 6. The demo on Core, replays moved, twins deleted | 2–3 h | ~0.5 h | ~0.4 h | ~0.9 h |
+| 7. Probe | 0.6–1 h | ~1.6 h | ~1.65 h (the fixes and their review) | ~3.25 h |
+| 8. Docs, both checkpoints, the dry run | 0.8–1.3 h | ~0.75 h + Checkpoint 8a ~0.25 h | — | ~1.0 h |
+| Review fixes (the plan's row) | 7.8–11.3 h | | | |
+| Probe fixes (the plan's row) | 2–3.5 h | | | |
+| **Total** | **~21.8–32.5 h** (expect ~27.5 h) | **~8.5 h** | **~3.7 h** | **~12.2 h** |
+
+**The phase came in at about 44% of its expectation**, and 9.6 h under
+the bottom of its range. Calendar time from the first task to the last was
+about 7.3 h.
+
+- **First passes ran at about half their estimates** (~8.5 h against
+  12–17.5 h). The spikes had answered every open question with running
+  code before the plan was written: sqlx can't run in the browser, SQLite
+  and Core with `workspace` can, DuckDB-WASM can cancel and hands out
+  Arrow bytes that Rust decodes. So the storage port was mechanical (319
+  call sites changed path), Core needed two clippy fixes, and the DuckDB
+  driver reused the decoder phase 2 had paid for. Only the probe ran over
+  (1.6 h against 0.6–1 h): three browsers, a 50 MB file and a ten-minute
+  hang on a large editor paste.
+- **Review fixes were ~2.05 h, about 28% of first passes**, against the
+  ~70% that 5d and 5e ran at. The reviews still found real bugs (a stream
+  deadlock, a restart losing a save in flight, the tutorial sharing the
+  demo's catalog), but each was local; none reopened a design.
+- **Probe fixes were ~1.65 h**, under their 2–3.5 h budget, and as in 5d
+  and 5e the probe found what only shows in a real browser: Chromium's
+  unload order, WebKit's stacks and IndexedDB at close, a killed worker,
+  Firefox with storage blocked.
+- **Both checkpoints found nothing to fix.** Each live run with every
+  engine took about 5 minutes.
+
+### Lines
+
+| | Added | Removed |
+|---|---|---|
+| Rust, production | ~4,490 | ~520 |
+| Rust, tests (test files and inline `#[cfg(test)]`) | ~2,930 | 0 |
+| Fixtures (the demo baseline, `cells.json`; plus three binary SQLite files) | ~3,240 | 0 |
+| TypeScript/Svelte/JS, production | ~2,910 | ~8,880 |
+| TypeScript/JS, tests | ~4,660 | ~3,770 |
+| Generated TS types | 0 | 0 |
+
+Measured as for 5e: `git diff -U0` against `8d73887` plus the untracked
+files, leaving out `Cargo.lock`, `Cargo.toml` files, the docs, READMEs
+outside the fixtures, the message files and a stray `script.sql`; inline
+test modules counted from their `#[cfg(test)]` line; files under
+`testing/` counted as tests. The storage facade's path changes count on
+both sides. The recorder in `docs/plans/artifacts` isn't counted.
+
+Where the production Rust went: `seaquel-engine-duckdb` ~1,770 (the
+browser driver, bridge, IPC reader and literal binds; the decoder made
+generic), `seaquel-storage` ~1,660 (the in-memory executor and its FFI,
+the in-memory open, the migrator, the write turn on the executor),
+`seaquel-browser` ~715, Core ~220 (`demo.rs`, `with_image`, the
+`compile_error!` list) and `seaquel-sql` ~130 (`duckdb_bind_literal`).
+**The TypeScript shrank by about 5,970 production lines**: the twins, the
+sql.js storage, `src/lib/db/` and most of `DuckDBProvider` went (7,819
+lines in 37 files), while the transport, the demo's start, the bridge and
+the probe fixes added about 2,900.
+
+### Bugs found
+
+By who found them first, counted from the effort log and the plan's
+notes; a judgment call where one fix covers several. The bracketed number
+is how many were older than phase 8. The survey's eight (bugs 1–8) aren't
+in the table.
+
+| Area | Implementer | Review | Probe |
+|---|---|---|---|
+| The demo's reload and the baseline (Task 1) | 1 [1] | 2 | — |
+| Storage's in-memory executor | 1 [1] | 3 | — |
+| Core in the browser | — | — | — |
+| The DuckDB browser driver and its bridge | 4 | 4 | 1 |
+| The module and the transport | 3 [1] | 6 | 2 |
+| The demo on Core and the GUI | 1 | 3 [1] | 5 [4] |
+| **Total** | **10 [3]** | **18 [1]** | **8 [4]** |
+
+The review column includes the review of the probe fixes. Bugs 1 and 2
+(Task 1's fixes) are survey bugs; the implementer's older finds are the
+history lost on every reload, sqlx's loop on a NUL in SQL (avoided in the
+wrapper) and the JSON wire's float rounding.
+
+The serious ones:
+
+- **Chromium lost the last view-state change on close or reload** (the
+  probe): nothing runs between `beforeunload` and `pagehide` there, so the
+  queued save never reached the snapshot. A `localStorage` journal now
+  carries it.
+- **A dead DuckDB worker hung every query** (the probe), and the first fix
+  declared the worker dead on one late ping until a reload (its review).
+- **The tutorial shared the demo's DuckDB catalog** (Task 6 review): Learn's
+  tables showed in the demo connection, and either could drop the other's.
+- **A restart could lose a save in flight**, a panic during open hung the
+  page, and a stuck save could hold a restart (Task 5's two reviews).
+- **A stream held its connection after its final batch** (Task 4 review),
+  so a consumer that stopped at `is_final` blocked every later call.
+- **A drop during execution sent no cancel** (Task 4's live suite): the
+  guard was armed only once the header arrived.
+- **The JSON wire changed the last bit of some floats on every interface**
+  (Task 5), fixed with `float_roundtrip`.
+
+### What was harder than expected
+
+- **DuckDB-WASM's protocol.** A pending query sends its schema alone and no
+  end marker, no ENUM dictionary, and prepared parameters as JSON; a NUL
+  silently cuts a statement; a killed worker answers nothing at all. Each
+  needed a workaround the spikes hadn't shown.
+- **Re-instantiating a module whose glue holds closures.** The editor
+  module's trick didn't carry over; the glue needed generation stamps, and
+  WebKit needed an identity check because its stacks name no module.
+- **Unload in three browsers.** Chromium's task order at unload and
+  WebKit's IndexedDB at close behave differently, and only a real browser
+  shows it.
+
+What went to plan: the storage facade (desktop and web storage passed the
+live suite and every frozen fixture unchanged), Core's `browser` build,
+the size budget, and the deletion of about 7,800 lines of twins once every
+replay passed through the module.
+
 ## Risks
 
 - **Port size.** About 5k lines of dialect code and 14k lines of state
@@ -3322,9 +3526,27 @@ trim, which the plan had listed as the first cut.
   `duckdb.ts` for the demo instead, so the demo still gets new features, at
   the cost of maintaining one TS dialect next to the Rust one until phase 8.
   DuckDB bugs fixed in Rust are listed as demo follow-ups in the phase 2 plan.
+  (Closed in phase 8: the demo runs Core and `duckdb.ts` is gone. What
+  remains is DuckDB itself: the demo's DuckDB-WASM 1.32 is DuckDB 1.4.3,
+  behind the native 1.5, and the type differences the browser driver's
+  tests pin stay until DuckDB-WASM ships a 1.5 build.)
 - **WASM size and startup.** Core, sqlparser-rs and SQLite compiled to WASM,
   plus DuckDB-WASM, is a heavy page. Budget it in phase 8 and use `wasm-opt`
-  and lazy loading of the AI and dashboard modules if needed.
+  and lazy loading of the AI and dashboard modules if needed. (Phase 8: the
+  module is 1,481 KB brotli, 76% of a 2,000,000-byte budget the build
+  enforces; `wasm-opt` made it larger, so it's skipped. A cold load serves
+  about 23 MB from the demo's own host against 17.5 MB before, yet reaches
+  the seeded demo 40–200 ms sooner than the TypeScript demo in each of
+  Chromium, Firefox and WebKit, since Core opens without waiting for
+  DuckDB-WASM. Merging the editor module into it would save about 480 KB
+  brotli; not done.)
+- **Browser storage.** The demo keeps its metadata as one SQLite file in
+  memory, saved whole to IndexedDB after each call that committed. A crash
+  between a commit and its save loses that change; two tabs each start from
+  the file as it was when they opened, and the last to write wins; WebKit can
+  drop a save still running when a tab closes. A 50 MB file serializes in
+  4–5 ms and saves in 49–153 ms. OPFS in a worker would fix the first two at
+  the cost of moving Core off the main thread.
 - **Keychain compatibility.**
   - Entries written by `tauri-plugin-keyring` must be readable by the `keyring`
     crate under the same service and account names. Check this before phase 3.
@@ -3352,6 +3574,9 @@ decisions 9 and 12–16 above.
 Two choices are left to the spikes and don't block the plan:
 
 - The browser storage backend: rusqlite on `sqlite-wasm-rs`, or a bridge to
-  sql.js. This is decided in phase 8.
+  sql.js. Settled in phase 8: neither. rusqlite can't share a workspace with
+  sqlx (both link `sqlite3`), so storage calls `sqlite-wasm-rs`'s C API
+  through its own wrapper, under the same queries as sqlx (see "As built in
+  phase 8").
 - The keychain access group setup on macOS. Settled in phase 4: no access
   group; the CLI accepts one prompt per item (see "Terminal binaries").

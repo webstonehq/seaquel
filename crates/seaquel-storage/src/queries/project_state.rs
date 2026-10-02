@@ -14,17 +14,18 @@
 //! by the project's windows ([`sidebar`], [`set_connection_order`]).
 //! [`save`] and [`remove`] stay for their frozen fixtures.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::{
     PersistedCreateTableTab, PersistedDashboardTab, PersistedDataTab, PersistedErdTab,
     PersistedExplainTab, PersistedProjectState, PersistedQueryTab, PersistedSchemaTab,
     PersistedStarterTab, PersistedStatisticsTab, PersistedWorkflowTab,
 };
 use serde_json::value::RawValue;
-use sqlx::sqlite::SqliteRow;
 
 use std::collections::HashSet;
 
-use sqlx::SqliteConnection;
+use db::SqliteConnection;
 
 use super::codec::{
     begin, bind_json_id, encode_error, flag, is_null, json, json_or, opt_text, parse_json, text,
@@ -86,7 +87,7 @@ pub async fn load(
     project_id: &str,
 ) -> Result<Option<PersistedProjectState>> {
     let mut conn = r.into().conn().await?;
-    let Some(state) = sqlx::query("SELECT * FROM project_state WHERE project_id = ?")
+    let Some(state) = db::query("SELECT * FROM project_state WHERE project_id = ?")
         .bind(project_id)
         .fetch_optional(&mut *conn)
         .await?
@@ -94,14 +95,14 @@ pub async fn load(
         return Ok(None);
     };
 
-    let tabs = sqlx::query("SELECT * FROM tabs WHERE project_id = ?")
+    let tabs = db::query("SELECT * FROM tabs WHERE project_id = ?")
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
     let tabs = tabs.iter().map(tab).collect::<Result<Vec<_>>>()?;
 
     let canvases: Vec<(Option<String>,)> =
-        sqlx::query_as("SELECT data FROM saved_canvases WHERE project_id = ?")
+        db::query_as("SELECT data FROM saved_canvases WHERE project_id = ?")
             .bind(project_id)
             .fetch_all(&mut *conn)
             .await?;
@@ -236,7 +237,7 @@ pub async fn save(st: &Storage, s: &PersistedProjectState) -> Result<()> {
     let pid = &s.project_id;
     let mut tx = begin(st).await?;
 
-    sqlx::query(
+    db::query(
         "INSERT OR REPLACE INTO project_state \
          (project_id, active_view, active_connection_id, active_query_tab_id, active_schema_tab_id, \
           active_explain_tab_id, active_erd_tab_id, active_statistics_tab_id, active_workflow_tab_id, \
@@ -267,19 +268,19 @@ pub async fn save(st: &Storage, s: &PersistedProjectState) -> Result<()> {
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM tabs WHERE project_id = ?")
+    db::query("DELETE FROM tabs WHERE project_id = ?")
         .bind(pid)
         .execute(&mut *tx)
         .await?;
     insert_tabs(&mut tx, s, false).await?;
 
-    sqlx::query("DELETE FROM saved_canvases WHERE project_id = ?")
+    db::query("DELETE FROM saved_canvases WHERE project_id = ?")
         .bind(pid)
         .execute(&mut *tx)
         .await?;
     for workflow in &s.saved_workflows {
         let insert =
-            sqlx::query("INSERT INTO saved_canvases (id, project_id, data) VALUES (?, ?, ?)");
+            db::query("INSERT INTO saved_canvases (id, project_id, data) VALUES (?, ?, ?)");
         // `workflow.id ?? "workflow-" + crypto.randomUUID()`
         let random = format!("workflow-{}", uuid::Uuid::new_v4());
         let insert = bind_json_id(insert, workflow, Some(random))?;
@@ -300,7 +301,7 @@ pub async fn save(st: &Storage, s: &PersistedProjectState) -> Result<()> {
 /// the sidebar looks, not what a window has open (Decision 22).
 pub async fn sidebar(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Option<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query("SELECT connection_order FROM project_state WHERE project_id = ?")
+    let row = db::query("SELECT connection_order FROM project_state WHERE project_id = ?")
         .bind(project_id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -317,7 +318,7 @@ pub async fn set_connection_order(
     connection_order: &[String],
 ) -> Result<()> {
     let order = serde_json::to_string(connection_order).map_err(|e| encode_error(e.to_string()))?;
-    sqlx::query(
+    db::query(
         "INSERT INTO project_state (project_id, connection_order) VALUES (?, ?) \
          ON CONFLICT(project_id) DO UPDATE SET connection_order = excluded.connection_order",
     )
@@ -344,7 +345,7 @@ pub async fn set_connection_order(
 /// extensions tabs have no column and aren't mirrored.
 pub async fn write_legacy_mirror(tx: &mut WriteTx, s: &PersistedProjectState) -> Result<u32> {
     let conn = tx.conn();
-    sqlx::query(
+    db::query(
         "INSERT INTO project_state \
          (project_id, active_view, active_connection_id, active_query_tab_id, active_schema_tab_id, \
           active_explain_tab_id, active_erd_tab_id, active_statistics_tab_id, active_workflow_tab_id, \
@@ -386,7 +387,7 @@ pub async fn write_legacy_mirror(tx: &mut WriteTx, s: &PersistedProjectState) ->
     .bind(&s.active_data_tab_id)
     .execute(&mut *conn)
     .await?;
-    sqlx::query("DELETE FROM tabs WHERE project_id = ?")
+    db::query("DELETE FROM tabs WHERE project_id = ?")
         .bind(&s.project_id)
         .execute(&mut *conn)
         .await?;
@@ -420,7 +421,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, query, saved_query_id) \
              VALUES (?, ?, 'query', ?, ?, ?)",
         )
@@ -437,7 +438,7 @@ async fn insert_tabs(
             continue;
         }
         // connection_id matters: restore drops schema tabs that don't have one.
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, table_name, schema_name, connection_id) \
              VALUES (?, ?, 'schema', ?, ?, ?, ?)",
         )
@@ -454,7 +455,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, source_query) \
              VALUES (?, ?, 'explain', ?, ?)",
         )
@@ -469,7 +470,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, connection_id) \
              VALUES (?, ?, 'erd', ?, ?)",
         )
@@ -484,7 +485,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, connection_id) \
              VALUES (?, ?, 'statistics', ?, ?)",
         )
@@ -499,7 +500,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, connection_id) \
              VALUES (?, ?, 'canvas', ?, ?)",
         )
@@ -514,7 +515,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, starter_type, closable) \
              VALUES (?, ?, 'starter', ?, ?, ?)",
         )
@@ -530,7 +531,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, source_query) \
              VALUES (?, ?, 'dashboard', ?, ?)",
         )
@@ -545,7 +546,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, connection_id, source_query) \
              VALUES (?, ?, 'create_table', ?, ?, ?)",
         )
@@ -561,7 +562,7 @@ async fn insert_tabs(
         if !keep(&t.id) {
             continue;
         }
-        sqlx::query(
+        db::query(
             "INSERT INTO tabs (id, project_id, tab_type, name, connection_id, table_name, schema_name) \
              VALUES (?, ?, 'data', ?, ?, ?, ?)",
         )
@@ -582,7 +583,7 @@ async fn insert_tabs(
 pub async fn remove(st: &Storage, project_id: &str) -> Result<()> {
     let mut tx = begin(st).await?;
     for table in ["project_state", "tabs", "saved_canvases"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE project_id = ?"))
+        db::query(&format!("DELETE FROM {table} WHERE project_id = ?"))
             .bind(project_id)
             .execute(&mut *tx)
             .await?;

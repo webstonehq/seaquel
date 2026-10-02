@@ -11,6 +11,8 @@
 //! so Core can read, check and write inside one transaction. They change
 //! only what they name: no replace-all.
 
+use crate::db;
+
 pub(crate) mod codec;
 
 /// A row's id and name, for Core's duplicate-name check (`NAME_TAKEN`).
@@ -84,12 +86,12 @@ pub(crate) fn row_links(rows: Vec<LinkRow>) -> Vec<RowLink> {
 /// Runs a `SET_LINK` statement (`?1` path, `?2` base, `?3` file id, `?4`
 /// the row's id). Whether a row had that id.
 pub(crate) async fn set_link(
-    conn: &mut sqlx::SqliteConnection,
+    conn: &mut db::SqliteConnection,
     sql: &str,
     id: &str,
     link: &SharedLink,
 ) -> codec::Result<bool> {
-    let done = sqlx::query(sql)
+    let done = db::query(sql)
         .bind(&link.path)
         .bind(&link.base)
         .bind(&link.file_id)
@@ -102,11 +104,11 @@ pub(crate) async fn set_link(
 /// One row's [`SharedLink`] (`sql` selects `path, base, file_id` by `?1`
 /// the id), or `None` when there's no such row.
 pub(crate) async fn link_of(
-    conn: &mut sqlx::SqliteConnection,
+    conn: &mut db::SqliteConnection,
     sql: &str,
     id: &str,
 ) -> codec::Result<Option<SharedLink>> {
-    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(sql)
+    let row: Option<(Option<String>, Option<String>, Option<String>)> = db::query_as(sql)
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -122,12 +124,12 @@ pub(crate) async fn link_of(
 /// A separate statement, so the stale-key trigger, which NULLs the key when
 /// a rename keeps it (a case-only rename), can't leave it NULL.
 pub(crate) async fn set_name_key(
-    conn: &mut sqlx::SqliteConnection,
+    conn: &mut db::SqliteConnection,
     table: &str,
     id: &str,
     name: &str,
 ) -> codec::Result<()> {
-    sqlx::query(&format!("UPDATE {table} SET name_key = ? WHERE id = ?"))
+    db::query(&format!("UPDATE {table} SET name_key = ? WHERE id = ?"))
         .bind(seaquel_types::names::name_key(name))
         .bind(id)
         .execute(&mut *conn)

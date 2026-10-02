@@ -13,10 +13,11 @@
 //! transaction ([`append`]) and prunes from [`list_meta`] with
 //! [`delete_ids`], by `dashboard_version_limit` (Decision 21).
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::{
     DashboardVersionsPrune, PersistedDashboardVersion, PersistedDashboardVersionMeta,
 };
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{begin, insert_sql, number, opt_number, text, Result};
 use super::query_versions::VersionMeta;
@@ -62,15 +63,15 @@ pub fn list_meta_by_project_sql() -> String {
 /// A text column selected as bytes, read lossily: a hand-edited value that
 /// isn't UTF-8 never fails the list (5d-2 Task 7 review).
 fn lossy(row: &SqliteRow, col: &str) -> Result<String> {
-    let bytes: Option<Vec<u8>> = sqlx::Row::try_get_unchecked(row, col)?;
+    let bytes: Option<Vec<u8>> = db::Row::try_get_unchecked(row, col)?;
     Ok(bytes
         .map(|b| String::from_utf8_lossy(&b).into_owned())
         .unwrap_or_default())
 }
 
 fn map_meta(row: &SqliteRow) -> Result<PersistedDashboardVersionMeta> {
-    let widgets: Option<i64> = sqlx::Row::try_get(row, "widget_count").ok().flatten();
-    let bytes: i64 = sqlx::Row::try_get(row, "bytes")?;
+    let widgets: Option<i64> = db::Row::try_get(row, "widget_count").ok().flatten();
+    let bytes: i64 = db::Row::try_get(row, "bytes")?;
     Ok(PersistedDashboardVersionMeta {
         id: lossy(row, "id")?,
         dashboard_id: lossy(row, "dashboard_id")?,
@@ -91,7 +92,7 @@ pub async fn list_meta_by_project(
     project_id: &str,
 ) -> Result<Vec<PersistedDashboardVersionMeta>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(&list_meta_by_project_sql())
+    let rows = db::query(&list_meta_by_project_sql())
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -107,7 +108,7 @@ pub async fn get(
     id: &str,
 ) -> Result<Option<PersistedDashboardVersion>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT id, dashboard_id, version, snapshot, created_at FROM dashboard_versions \
          WHERE id = ? AND dashboard_id = ?",
     )
@@ -134,7 +135,7 @@ pub async fn load_by_dashboard(
     dashboard_id: &str,
 ) -> Result<Vec<PersistedDashboardVersion>> {
     let rows =
-        sqlx::query("SELECT * FROM dashboard_versions WHERE dashboard_id = ? ORDER BY version ASC")
+        db::query("SELECT * FROM dashboard_versions WHERE dashboard_id = ? ORDER BY version ASC")
             .bind(dashboard_id)
             .fetch_all(st.pool())
             .await?;
@@ -156,7 +157,7 @@ pub async fn list_by_project(
     project_id: &str,
 ) -> Result<Vec<PersistedDashboardVersion>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT dv.* FROM dashboard_versions dv \
          JOIN dashboards d ON d.id = dv.dashboard_id \
          WHERE d.project_id = ? \
@@ -170,7 +171,7 @@ pub async fn list_by_project(
 
 /// Inserts a version; (dashboard, version) is unique.
 pub async fn insert(st: &Storage, v: &PersistedDashboardVersion) -> Result<()> {
-    sqlx::query(&insert_sql("dashboard_versions", &COLUMNS))
+    db::query(&insert_sql("dashboard_versions", &COLUMNS))
         .bind(&v.id)
         .bind(&v.dashboard_id)
         .bind(v.version)
@@ -186,7 +187,7 @@ pub async fn insert(st: &Storage, v: &PersistedDashboardVersion) -> Result<()> {
 pub async fn prune(st: &Storage, p: &DashboardVersionsPrune) -> Result<()> {
     let mut tx = begin(st).await?;
     for id in &p.delete_ids {
-        sqlx::query("DELETE FROM dashboard_versions WHERE dashboard_id = ? AND id = ?")
+        db::query("DELETE FROM dashboard_versions WHERE dashboard_id = ? AND id = ?")
             .bind(&p.dashboard_id)
             .bind(id)
             .execute(&mut *tx)
@@ -211,7 +212,7 @@ pub async fn append(
 ) -> Result<PersistedDashboardVersionMeta> {
     let conn = tx.conn();
     let highest: Option<f64> = {
-        let row = sqlx::query(
+        let row = db::query(
             "SELECT MAX(version) AS highest FROM dashboard_versions WHERE dashboard_id = ?",
         )
         .bind(dashboard_id)
@@ -220,7 +221,7 @@ pub async fn append(
         opt_number(&row, "highest")?
     };
     let version = highest.map_or(1.0, |v| v.floor() + 1.0);
-    sqlx::query(&insert_sql("dashboard_versions", &COLUMNS))
+    db::query(&insert_sql("dashboard_versions", &COLUMNS))
         .bind(id)
         .bind(dashboard_id)
         .bind(version as i64)
@@ -228,7 +229,7 @@ pub async fn append(
         .bind(created_at)
         .execute(&mut *conn)
         .await?;
-    let row = sqlx::query(&format!(
+    let row = db::query(&format!(
         "UPDATE dashboard_versions SET widget_count = COALESCE({WIDGET_COUNT_OF_SNAPSHOT}, -1) \
          WHERE id = ?1 AND dashboard_id = ?2 \
          RETURNING CAST(id AS BLOB) AS id, CAST(dashboard_id AS BLOB) AS dashboard_id, version, \
@@ -248,7 +249,7 @@ pub async fn append(
 /// `query_versions::list_meta` gives, so one prune plans both.
 pub async fn list_meta(r: impl Into<Reader<'_>>, dashboard_id: &str) -> Result<Vec<VersionMeta>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT id, version, created_at, COALESCE(octet_length(snapshot), 0) AS bytes \
          FROM dashboard_versions WHERE dashboard_id = ? ORDER BY version ASC",
     )
@@ -257,7 +258,7 @@ pub async fn list_meta(r: impl Into<Reader<'_>>, dashboard_id: &str) -> Result<V
     .await?;
     rows.iter()
         .map(|row| {
-            let bytes: i64 = sqlx::Row::try_get(row, "bytes")?;
+            let bytes: i64 = db::Row::try_get(row, "bytes")?;
             Ok(VersionMeta {
                 id: text(row, "id")?,
                 version: number(row, "version")?,
@@ -275,7 +276,7 @@ pub async fn delete_ids(tx: &mut WriteTx, dashboard_id: &str, ids: &[String]) ->
     let conn = tx.conn();
     let mut deleted = 0;
     for id in ids {
-        deleted += sqlx::query("DELETE FROM dashboard_versions WHERE dashboard_id = ? AND id = ?")
+        deleted += db::query("DELETE FROM dashboard_versions WHERE dashboard_id = ? AND id = ?")
             .bind(dashboard_id)
             .bind(id)
             .execute(&mut *conn)

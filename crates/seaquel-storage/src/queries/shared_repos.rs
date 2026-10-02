@@ -9,6 +9,7 @@
 //! [`load_all`] and [`save_all`] stay only for the frozen
 //! `shared-repos.json` fixture.
 
+use crate::db;
 use std::collections::HashMap;
 
 use seaquel_types::storage::SharedReposState;
@@ -40,11 +41,11 @@ pub async fn save_all(
     active_repo_id: Option<&str>,
 ) -> Result<()> {
     let mut tx = begin(st).await?;
-    sqlx::query("DELETE FROM shared_repos")
+    db::query("DELETE FROM shared_repos")
         .execute(&mut *tx)
         .await?;
     for repo in repos {
-        let insert = sqlx::query("INSERT INTO shared_repos (id, data) VALUES (?, ?)");
+        let insert = db::query("INSERT INTO shared_repos (id, data) VALUES (?, ?)");
         let insert = bind_json_id(insert, repo, None)?;
         insert.bind(repo.get()).execute(&mut *tx).await?;
     }
@@ -58,7 +59,7 @@ pub async fn save_all(
 async fn rows(r: impl Into<Reader<'_>>) -> Result<Vec<(Option<String>, Option<Vec<u8>>)>> {
     let mut conn = r.into().conn().await?;
     Ok(
-        sqlx::query_as("SELECT id, CAST(data AS BLOB) FROM shared_repos ORDER BY rowid")
+        db::query_as("SELECT id, CAST(data AS BLOB) FROM shared_repos ORDER BY rowid")
             .fetch_all(&mut *conn)
             .await?,
     )
@@ -87,7 +88,7 @@ pub async fn list(r: impl Into<Reader<'_>>) -> Result<Vec<Box<RawValue>>> {
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
     let row: Option<(Option<Vec<u8>>,)> =
-        sqlx::query_as("SELECT CAST(data AS BLOB) FROM shared_repos WHERE id = ?")
+        db::query_as("SELECT CAST(data AS BLOB) FROM shared_repos WHERE id = ?")
             .bind(id)
             .fetch_optional(&mut *conn)
             .await?;
@@ -128,7 +129,7 @@ pub async fn insert(tx: &mut WriteTx, repo: &RawValue) -> Result<()> {
             "a shared repo must be an object with a string id",
         ));
     };
-    sqlx::query("INSERT INTO shared_repos (id, data) VALUES (?, ?)")
+    db::query("INSERT INTO shared_repos (id, data) VALUES (?, ?)")
         .bind(id)
         .bind(repo.get())
         .execute(tx.conn())
@@ -155,7 +156,7 @@ pub async fn update_json(tx: &mut WriteTx, id: &str, fields: &[(&str, &RawValue)
     }
     let conn = tx.conn();
     let row: Option<(Option<Vec<u8>>,)> =
-        sqlx::query_as("SELECT CAST(data AS BLOB) FROM shared_repos WHERE id = ?")
+        db::query_as("SELECT CAST(data AS BLOB) FROM shared_repos WHERE id = ?")
             .bind(id)
             .fetch_optional(&mut *conn)
             .await?;
@@ -168,7 +169,7 @@ pub async fn update_json(tx: &mut WriteTx, id: &str, fields: &[(&str, &RawValue)
     let patched = patch_object(&text, fields)
         .ok_or_else(|| decode_error("a stored shared repo isn't an object"))?;
     if patched != text {
-        sqlx::query("UPDATE shared_repos SET data = ? WHERE id = ?")
+        db::query("UPDATE shared_repos SET data = ? WHERE id = ?")
             .bind(&patched)
             .bind(id)
             .execute(&mut *conn)
@@ -179,7 +180,7 @@ pub async fn update_json(tx: &mut WriteTx, id: &str, fields: &[(&str, &RawValue)
 
 /// Deletes one repo. `false` when there was no such repo.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
-    let done = sqlx::query("DELETE FROM shared_repos WHERE id = ?")
+    let done = db::query("DELETE FROM shared_repos WHERE id = ?")
         .bind(id)
         .execute(tx.conn())
         .await?;

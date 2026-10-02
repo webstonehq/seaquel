@@ -3,14 +3,12 @@
  * `PendingChangesManager`, `DataTabManager`) and whatever builds and runs
  * their edits (phase 5c, Decision 16), like 5b's `QueryRunner`.
  *
- * - `CoreEditService` (desktop and web): `db.planEdits`, `db.applyChanges`,
- *   `db.tablePage` and `db.duckdbExtension` in Core, which reads the table's
- *   metadata, checks the key, builds the SQL with the connection's dialect
- *   and runs it.
- * - `TsEditService` (the demo): the TypeScript builders, apply loop and data
- *   tab query the GUI used before 5c, over DuckDB-WASM, until phase 8.
+ * `CoreEditService` (every build; the demo's Core runs in the page since
+ * phase 8): `db.planEdits`, `db.applyChanges`, `db.tablePage` and
+ * `db.duckdbExtension` in Core, which reads the table's metadata, checks the
+ * key, builds the SQL with the connection's dialect and runs it.
  *
- * Both take and return the generated wire types. Values in an `Edit` and a
+ * It takes and return the generated wire types. Values in an `Edit` and a
  * typed `Change` are in the cell wire format (`$lib/values` `encodeParam`,
  * see `./intents`), and so are a planned change's `params` and a table
  * page's rows. `plan`, `apply` and `duckdbExtension` reject with a

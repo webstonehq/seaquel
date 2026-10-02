@@ -276,3 +276,36 @@ fn sql_with_bindings_shape() {
         Some(vec![Value::Int(9007199254740993)])
     );
 }
+
+/// Every finite double survives the wire: the shortest text that prints it
+/// (what JavaScript's `JSON.stringify` and serde_json write) parses back to
+/// the same bits. serde_json's default float parser can be one ULP off near
+/// the top of the range, which made FLOAT's maximum not equal itself when
+/// bound back (phase 8 Task 5's engine suite); `float_roundtrip` is on.
+#[test]
+fn floats_cross_the_wire_bit_for_bit() {
+    let cases = [
+        3.4028234663852886e38_f64, // FLOAT's maximum, as DuckDB widens it
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        5e-324,
+        0.1,
+        1.7976931348623155e308,
+        -2.2250738585072014e-308,
+        9007199254740993.0,
+        1.0000000000000002,
+    ];
+    for f in cases {
+        let text = serde_json::to_string(&Value::Float(f)).unwrap();
+        let back: Value = serde_json::from_str(&text).unwrap();
+        match back {
+            Value::Float(g) => assert_eq!(
+                g.to_bits(),
+                f.to_bits(),
+                "{f:e} came back as {g:e} via {text}"
+            ),
+            Value::Int(i) => assert_eq!(i as f64, f, "{text}"),
+            other => panic!("{f:e} came back as {other:?}"),
+        }
+    }
+}

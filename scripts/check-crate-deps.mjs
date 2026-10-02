@@ -39,6 +39,16 @@ const CORE = new Set(["seaquel-core"]);
 const INTERFACES = new Set(["seaquel", "seaquel-server", "seaquel-mcp", "seaquel-cli"]);
 
 /**
+ * The browser demo's module (phase 8): an interface like the others, except
+ * that it builds Core with DuckDB's browser driver itself
+ * (`seaquel_engine_duckdb::browser_engine` over the page's DuckDB-WASM),
+ * since Core's `browser` feature registers no engine. That one engine crate
+ * is all it may name beyond an interface's crates.
+ */
+const BROWSER_INTERFACE = new Set(["seaquel-browser"]);
+const BROWSER_MAY_ALSO_USE = new Set(["seaquel-engine-duckdb"]);
+
+/**
  * Code shared by the interfaces (the wire types and dispatcher behind the
  * Tauri command and the server route). Like an interface it goes through
  * Core; unlike one it may also use the `Dialect` trait from seaquel-engine.
@@ -98,6 +108,7 @@ function classify(name) {
   if (WASM_GLUE.has(name)) return "wasm-glue";
   if (CORE.has(name)) return "core";
   if (INTERFACES.has(name)) return "interface";
+  if (BROWSER_INTERFACE.has(name)) return "browser-interface";
   if (INTERFACE_GLUE.has(name)) return "interface-glue";
   if (TESTKIT.has(name)) return "testkit";
   if (isEngine(name)) return "engine";
@@ -149,6 +160,21 @@ export function checkCrateDeps(packages) {
               `${pkg.name} -> ${dep}: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())`,
             );
           } else if (!INTERFACE_MAY_USE.has(dep)) {
+            errors.push(`${pkg.name} -> ${dep}: interfaces reach everything through seaquel-core`);
+          }
+        }
+        break;
+      case "browser-interface":
+        for (const dep of deps) {
+          if (DOMAIN_AND_INFRA.has(dep)) {
+            errors.push(
+              `${pkg.name} -> ${dep}: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())`,
+            );
+          } else if (isEngine(dep) && !BROWSER_MAY_ALSO_USE.has(dep)) {
+            errors.push(
+              `${pkg.name} -> ${dep}: the browser module may name only seaquel-engine-duckdb's browser driver; other engines go through seaquel-core`,
+            );
+          } else if (!INTERFACE_MAY_USE.has(dep) && !BROWSER_MAY_ALSO_USE.has(dep)) {
             errors.push(`${pkg.name} -> ${dep}: interfaces reach everything through seaquel-core`);
           }
         }

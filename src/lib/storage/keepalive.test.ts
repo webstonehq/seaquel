@@ -8,10 +8,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 let tauri = false;
+let demo = false;
 vi.mock("$lib/utils/environment", () => ({
   isTauri: () => tauri,
   isWeb: () => false,
-  isDemo: () => false,
+  isDemo: () => demo,
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -110,5 +111,45 @@ describe("saveWindowStateKeepalive", () => {
 
   it("the cap is under the browsers' 64 KiB keepalive budget", () => {
     expect(KEEPALIVE_MAX_BYTES).toBe(60 * 1024);
+  });
+});
+
+describe("the demo's page-hide save (Task 7 probe, item 1)", () => {
+  let localStorage: Map<string, string> & { getItem(k: string): string | null };
+  beforeEach(() => {
+    const map = new Map<string, string>();
+    localStorage = Object.assign(map, {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+    });
+    vi.stubGlobal("localStorage", localStorage);
+  });
+  afterEach(() => {
+    demo = false;
+    vi.unstubAllGlobals();
+  });
+
+  it("goes into the journal synchronously, with no request", () => {
+    demo = true;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const sent = new RustStorageClient(async () => {
+      throw new Error("no transport call either");
+    }).saveWindowStateKeepalive(save("SELECT 'last'"));
+    expect(sent).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const kept = JSON.parse(localStorage.getItem("seaquel.demo.pendingViewState")!);
+    expect(kept.params.method).toBe("windowStateSave");
+    expect(kept.params.params.state.queryTabs[0].query).toBe("SELECT 'last'");
+  });
+
+  it("isn't kept past the cap, so the usual flush carries it", () => {
+    demo = true;
+    const sent = new RustStorageClient(async () => null).saveWindowStateKeepalive(
+      save("x".repeat(KEEPALIVE_MAX_BYTES)),
+    );
+    expect(sent).toBe(false);
+    expect(localStorage.getItem("seaquel.demo.pendingViewState")).toBeNull();
   });
 });

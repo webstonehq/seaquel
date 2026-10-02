@@ -9,6 +9,7 @@ import {
   type AIProviderType,
 } from "$lib/types/ai";
 import { isTauri } from "$lib/utils/environment";
+import { isFeatureEnabled } from "$lib/features";
 import { log } from "$lib/utils/logger";
 import { onStoredChange } from "./settings-sync";
 import { m } from "$lib/paraglide/messages.js";
@@ -95,6 +96,16 @@ export class AISettingsStore {
 
   constructor() {
     onStoredChange("aiSettings", () => (this.loaded ? this.read() : undefined));
+  }
+
+  /**
+   * Whether the assistant is offered: this build has it (`aiAssistant`,
+   * off in the demo, Q7 A) and the user hasn't turned it off. The header's
+   * toggle, the command palette, the editor's inline prompt, the right
+   * panel and Settings' AI group all read this.
+   */
+  get available(): boolean {
+    return isFeatureEnabled("aiAssistant") && this.settings.enabled;
   }
 
   getProvider(id: string): AIProvider | null {

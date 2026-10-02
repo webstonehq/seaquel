@@ -39,6 +39,9 @@ e2e/test-databases/sqlite/*.sqlite-shm
 e2e/test-databases/sqlite/*.sqlite-wal
 # seaquel-wasm build output (npm run wasm:build)
 /src/lib/wasm/pkg/
+# seaquel-browser build output (build-wasm.mjs --module browser [--test-hooks])
+/src/lib/wasm/browser-pkg/
+/src/lib/wasm/browser-test-pkg/
 /src/lib/wasm/.pkg-tmp-*/
 # seaquel-cli sidecar, built by scripts/build-cli.mjs (npm run cli:build)
 /src-tauri/binaries/

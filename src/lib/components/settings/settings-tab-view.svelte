@@ -196,7 +196,7 @@
 	<Sidebar.Root collapsible="none" class="hidden md:flex border-r">
 		<Sidebar.Content>
 			{#each navGroups as group (group.id)}
-			{#if group.id !== "ai" || aiSettingsStore.settings.enabled}
+			{#if group.id !== "ai" || aiSettingsStore.available}
 				<Sidebar.Group>
 					<Sidebar.GroupLabel
 						class="gap-2 cursor-pointer hover:text-foreground transition-colors {isGroupActive(group.id) ? 'text-foreground' : ''}"
@@ -326,7 +326,7 @@
 				<FeaturesSection />
 			{/if}
 
-			{#if shouldShowSection("ai-provider")}
+			{#if aiSettingsStore.available && shouldShowSection("ai-provider")}
 				<AiProviderSection />
 			{/if}
 
@@ -334,7 +334,7 @@
 				<McpSection />
 			{/if}
 
-			{#if shouldShowSection("ai-privacy")}
+			{#if aiSettingsStore.available && shouldShowSection("ai-privacy")}
 				<AiPrivacySection />
 			{/if}
 		</div>

@@ -389,3 +389,17 @@ describe("TauriCoreClient.stream of a run (phase 5b)", () => {
     expect(sent.params.params.source.sql).toBe("SELECT '�'");
   });
 });
+
+describe("TauriCoreClient.call with a lone surrogate (Task 7 probe, item 7)", () => {
+  it("sends every string well-formed", async () => {
+    tauri.calls.length = 0;
+    await new TauriCoreClient().call({
+      method: "db",
+      params: { method: "cancel", params: { streamId: "s\ud800" } },
+    } as never);
+    const body = tauri.calls.find((c) => c.cmd === "core_call")!.args as Uint8Array;
+    const sent = new TextDecoder().decode(body);
+    expect(sent).not.toMatch(/\\ud[89a-f]/i);
+    expect(JSON.parse(sent).params.params.streamId).toBe("s\ufffd");
+  });
+});

@@ -6,8 +6,9 @@
 //! strips it from every connection separately ([`strip_from_connections`]),
 //! in the same transaction.
 
+use crate::db;
+use db::SqliteConnection;
 use seaquel_types::storage::ConnectionLabel;
-use sqlx::SqliteConnection;
 
 use super::codec::{bit, flag, text, Result};
 use crate::{Reader, WriteTx};
@@ -22,12 +23,11 @@ pub(crate) async fn of_project(
     conn: &mut SqliteConnection,
     project_id: &str,
 ) -> Result<Vec<ConnectionLabel>> {
-    let rows = sqlx::query(
-        "SELECT id, name, is_predefined, color FROM project_labels WHERE project_id = ?",
-    )
-    .bind(project_id)
-    .fetch_all(&mut *conn)
-    .await?;
+    let rows =
+        db::query("SELECT id, name, is_predefined, color FROM project_labels WHERE project_id = ?")
+            .bind(project_id)
+            .fetch_all(&mut *conn)
+            .await?;
     rows.iter()
         .map(|l| {
             Ok(ConnectionLabel {
@@ -51,7 +51,7 @@ pub(crate) async fn insert_row(
     project_id: &str,
     label: &ConnectionLabel,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT INTO project_labels (id, project_id, name, is_predefined, color) \
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -72,7 +72,7 @@ pub(crate) async fn replace_all(
     project_id: &str,
     labels: &[ConnectionLabel],
 ) -> Result<()> {
-    sqlx::query("DELETE FROM project_labels WHERE project_id = ?")
+    db::query("DELETE FROM project_labels WHERE project_id = ?")
         .bind(project_id)
         .execute(&mut *conn)
         .await?;
@@ -85,15 +85,14 @@ pub(crate) async fn replace_all(
 /// Renames and recolours one of the project's labels. `false` when the
 /// project has no label with that id (another project's is left alone).
 pub async fn update(tx: &mut WriteTx, project_id: &str, label: &ConnectionLabel) -> Result<bool> {
-    let done = sqlx::query(
-        "UPDATE project_labels SET name = ?, color = ? WHERE id = ? AND project_id = ?",
-    )
-    .bind(&label.name)
-    .bind(&label.color)
-    .bind(&label.id)
-    .bind(project_id)
-    .execute(tx.conn())
-    .await?;
+    let done =
+        db::query("UPDATE project_labels SET name = ?, color = ? WHERE id = ? AND project_id = ?")
+            .bind(&label.name)
+            .bind(&label.color)
+            .bind(&label.id)
+            .bind(project_id)
+            .execute(tx.conn())
+            .await?;
     Ok(done.rows_affected() > 0)
 }
 
@@ -101,7 +100,7 @@ pub async fn update(tx: &mut WriteTx, project_id: &str, label: &ConnectionLabel)
 /// label with that id. It doesn't touch connections: see
 /// [`strip_from_connections`].
 pub async fn delete(tx: &mut WriteTx, project_id: &str, label_id: &str) -> Result<bool> {
-    let done = sqlx::query("DELETE FROM project_labels WHERE id = ? AND project_id = ?")
+    let done = db::query("DELETE FROM project_labels WHERE id = ? AND project_id = ?")
         .bind(label_id)
         .bind(project_id)
         .execute(tx.conn())
@@ -115,7 +114,7 @@ pub async fn delete(tx: &mut WriteTx, project_id: &str, label_id: &str) -> Resul
 /// the removed label's rows go.
 pub async fn strip_from_connections(tx: &mut WriteTx, label_id: &str) -> Result<Vec<String>> {
     let conn = tx.conn();
-    let had: Vec<(String,)> = sqlx::query_as(
+    let had: Vec<(String,)> = db::query_as(
         "SELECT c.id FROM connections c \
          JOIN connection_labels l ON l.connection_id = c.id \
          WHERE l.label_id = ? ORDER BY c.rowid",
@@ -123,7 +122,7 @@ pub async fn strip_from_connections(tx: &mut WriteTx, label_id: &str) -> Result<
     .bind(label_id)
     .fetch_all(&mut *conn)
     .await?;
-    sqlx::query("DELETE FROM connection_labels WHERE label_id = ?")
+    db::query("DELETE FROM connection_labels WHERE label_id = ?")
         .bind(label_id)
         .execute(&mut *conn)
         .await?;

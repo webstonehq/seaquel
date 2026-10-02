@@ -1,5 +1,6 @@
 //! `onboardingRepo`: `onboarding_state`, one row holding JSON.
 
+use crate::db;
 use serde_json::value::RawValue;
 
 use super::codec::{load_singleton_json, parse_json, save_singleton_json, Result};
@@ -25,7 +26,7 @@ pub async fn save(st: &Storage, data: &RawValue) -> Result<()> {
 pub async fn get(r: impl Into<Reader<'_>>) -> Result<Option<Box<RawValue>>> {
     let mut conn = r.into().conn().await?;
     let row: Option<(Option<Vec<u8>>,)> =
-        sqlx::query_as("SELECT CAST(data AS BLOB) FROM onboarding_state WHERE id = 1")
+        db::query_as("SELECT CAST(data AS BLOB) FROM onboarding_state WHERE id = 1")
             .fetch_optional(&mut *conn)
             .await?;
     Ok(row
@@ -35,7 +36,7 @@ pub async fn get(r: impl Into<Reader<'_>>) -> Result<Option<Box<RawValue>>> {
 
 /// Stores `data` as the JSON given, inside a write transaction.
 pub async fn set(tx: &mut WriteTx, data: &RawValue) -> Result<()> {
-    sqlx::query("INSERT OR REPLACE INTO onboarding_state (id, data) VALUES (1, ?)")
+    db::query("INSERT OR REPLACE INTO onboarding_state (id, data) VALUES (1, ?)")
         .bind(data.get())
         .execute(tx.conn())
         .await?;

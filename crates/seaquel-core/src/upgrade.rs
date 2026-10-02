@@ -167,7 +167,7 @@ impl Workspace {
             return Ok(());
         }
         let started = executor.map(Executor::monotonic);
-        let bytes_before = file_bytes(st.path());
+        let bytes_before = file_bytes(st);
         let mut vacuumed = failed_vacuums.is_none();
         if vacuum {
             // The attempt is counted before it runs, so one that fails or
@@ -213,7 +213,7 @@ impl Workspace {
             (Some(start), Some(ex)) => ex.monotonic().saturating_sub(start).as_millis() as u64,
             _ => 0,
         };
-        info!(activity = "workspace.upgradeStringSecrets", vacuumed = vacuumed, checkpointed = checkpointed, duration_ms = ms, bytes_before = bytes_before, bytes_after = file_bytes(st.path()); "Scrubbed the file after stripping");
+        info!(activity = "workspace.upgradeStringSecrets", vacuumed = vacuumed, checkpointed = checkpointed, duration_ms = ms, bytes_before = bytes_before, bytes_after = file_bytes(st); "Scrubbed the file after stripping");
         Ok(())
     }
 
@@ -399,7 +399,9 @@ impl Workspace {
 }
 
 /// The metadata file's size and its WAL's, for the log (sizes only).
-fn file_bytes(path: &std::path::Path) -> u64 {
+#[cfg(not(target_arch = "wasm32"))]
+fn file_bytes(st: &seaquel_storage::Storage) -> u64 {
+    let path = st.path();
     let wal = path.with_file_name(format!(
         "{}-wal",
         path.file_name()
@@ -411,6 +413,15 @@ fn file_bytes(path: &std::path::Path) -> u64 {
         .filter_map(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .sum()
+}
+
+/// The browser's metadata file has no file system behind it (phase 8): its
+/// size is the in-memory database's, read through a snapshot. Only the
+/// scrub after a strip logs it, which a browser file made fresh never
+/// needs; 0 when the snapshot can't be taken.
+#[cfg(target_arch = "wasm32")]
+fn file_bytes(st: &seaquel_storage::Storage) -> u64 {
+    st.snapshot().map_or(0, |image| image.len() as u64)
 }
 
 /// What the keychain step did with one secret.

@@ -1,0 +1,37 @@
+[package]
+name = "seaquel-browser"
+version = "0.1.0"
+edition = "2021"
+description = "Seaquel Core in the web page: the browser demo's WebAssembly module (wasm-bindgen). Build it with scripts/build-wasm.mjs --module browser."
+
+# build.rs links the wasm32 cdylib with a 2 MiB stack, as seaquel-wasm does.
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Test-only exports: `__test_trap` (a panic on purpose, for the transport's
+# trap recovery) and the `__test_driver_*` calls that drive the browser
+# DuckDB driver without Core (dropped calls, misbehaving bridges). The test
+# module (`build-wasm.mjs --module browser --test-hooks`) has them; the demo's
+# module never does.
+test-hooks = []
+
+[dependencies]
+# Formats the console log lines (src/log.rs); pure, so its tests run natively.
+log = { workspace = true }
+
+# Everything else is wasm32 only, so a native `cargo test --workspace` builds
+# this crate empty and never unifies `seaquel-core/browser` into a native Core.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+seaquel-core = { path = "../seaquel-core", default-features = false, features = ["browser", "storage", "workspace"] }
+seaquel-rpc = { path = "../seaquel-rpc", features = ["storage", "workspace"] }
+seaquel-engine-duckdb = { path = "../seaquel-engine-duckdb", default-features = false, features = ["browser"] }
+seaquel-runtime = { path = "../seaquel-runtime" }
+futures = { workspace = true }
+js-sys = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"

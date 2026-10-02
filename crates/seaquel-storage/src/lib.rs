@@ -5,20 +5,33 @@
 //! Core's workspace, so no SQL for this database crosses from the UI.
 
 mod connection_string;
+#[cfg(not(target_arch = "wasm32"))]
 mod data_dir;
 mod data_steps;
+mod db;
 mod error;
+mod lock;
+#[cfg(any(target_arch = "wasm32", test))]
+mod migrations;
 mod open;
+#[cfg(target_arch = "wasm32")]
+mod open_mem;
 mod queries;
 pub mod schema;
 mod write;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use data_dir::{data_dir, DATA_DIR_ENV};
 pub use data_steps::DATA_STEPS_TABLE;
+/// The SQL layer's error and migration error: sqlx's on native targets,
+/// the in-memory executor's (same variants, codes and messages) on wasm32.
+pub use db::{Error as DbError, MigrateError};
 pub use error::{
     StorageError, LEGACY_JSON_FILES, LEGACY_STORAGE, NO_DATA_DIR, STORAGE_CORRUPT, STORAGE_ERROR,
     STORAGE_FULL, STORAGE_NEEDS_UPGRADE, STORAGE_NOT_FOUND, STORAGE_READ_ONLY,
 };
+#[cfg(target_arch = "wasm32")]
+pub use open::Image;
 pub use open::{Storage, StorageOptions, CAP_PAGE_SIZE, WRITE_WAIT};
 pub use write::{Reader, WriteTx};
 
@@ -61,17 +74,17 @@ pub async fn refill_list_meta(st: &Storage) -> Result<bool, StorageError> {
     if st.is_read_only() {
         return Ok(false);
     }
-    let pending: bool = sqlx::query_scalar(LIST_META_PENDING)
+    let pending: bool = db::query_scalar(LIST_META_PENDING)
         .fetch_one(st.pool())
         .await?;
     if !pending {
         return Ok(false);
     }
     let mut tx = st.write().await?;
-    sqlx::query(&queries::saved_canvases::refill_sql())
+    db::query(&queries::saved_canvases::refill_sql())
         .execute(tx.conn())
         .await?;
-    sqlx::query(&queries::dashboard_versions::refill_sql())
+    db::query(&queries::dashboard_versions::refill_sql())
         .execute(tx.conn())
         .await?;
     tx.commit().await?;

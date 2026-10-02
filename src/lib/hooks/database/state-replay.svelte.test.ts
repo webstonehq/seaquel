@@ -1,37 +1,43 @@
 /**
- * Phase 5d-2 Task 6b: the state fixtures replayed through the demo
+ * Phase 5d-2 Task 6b's state fixtures replayed through the GUI on Core
  * (`crates/seaquel-workspace/tests/fixtures/state`, the README's
  * "TypeScript replay"). The case definitions and the harness are the
  * recorder's (`docs/plans/artifacts/2026-10-04-record-state-fixtures.test.ts.txt`),
- * with the managers and stores wired as `UseDatabase` wires them after
- * Task 6b: the library's, the `settings` group's and the `ui` group's
- * calls go to the demo's `TsLibrary`, `TsSettings` and `TsUi` on one
- * in-memory sql.js file, with the recorder's stubs, clock, uuid counter and
- * `TZ`.
+ * with the managers and stores wired as `UseDatabase` wires them: the
+ * `library`, `settings` and `ui` groups go to `CoreLibrary`, `CoreSettings`
+ * and `CoreUi` over the browser module (phase 8: Core in the demo's page),
+ * each window under its own window id, with the recorder's stubs, clock,
+ * uuid counter and `TZ`. Seeds and dumps read and write the module's
+ * metadata file (`$lib/core/browser/testing/meta`).
  *
  * Each case runs its steps and, after every step, compares with the
  * recorded step (with `changes.json`'s expected steps in place):
  * - `outcome.ok` (the managers word their errors for the user; a create or
  *   rename that answers nothing counts as refused);
- * - the rows, as the Rust replay compares them: every dumped table whole,
- *   JSON columns parsed, `<id:n>` tokens bound to the ids made during the
- *   case (the same id everywhere in it), `<now>` any time of the pinned
- *   clock;
- * - `files` in order, and `view` (skipped where `changes.json` says `null`).
+ * - the rows, as the Rust replay compares them: every dumped table whole
+ *   (the legacy `project_state`/`tabs` mirror included), JSON columns
+ *   parsed, `<id:n>` tokens bound to the ids made during the case (the same
+ *   id everywhere in it), `<now>` any time of the pinned clock; Core's
+ *   derived columns and the open's own `app_state` key are left out, as
+ *   Rust's replay leaves them;
+ * - `view` (skipped where `changes.json` says `null`).
  *
- * Not compared (deviations, each named where it applies):
- * - `project_state` and `tabs`: the demo's `TsUi` writes no legacy mirror
- *   (6a, Decision 26: no older release reads the demo's file). The Rust
- *   replay pins the mirror.
- * - `secretCalls` and `secretStore`: the demo has no keychain.
+ * Not compared (each named where it applies):
+ * - `secretCalls` and `secretStore`: the module has no secret store. A step
+ *   that sends an AI API key (`SECRET_STEPS`) must be refused with
+ *   `NOT_SUPPORTED` and change nothing, as on web.
  * - `web` cases run as the desktop does here, except onboarding (skipped on
  *   web, as the recorder's case).
+ * - `SKIPPED_CASES`: a case this replay can't seed, each naming where it is
+ *   replayed instead.
  */
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { StorageClient } from "$lib/storage/client";
+import { DatabaseSync } from "node:sqlite";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
+import type { RustStorageClient } from "$lib/storage/rust-client";
 import type { SendAIMessageParams } from "$lib/services/ai";
 import type { SchemaTable } from "$lib/types";
 import type { SettingKey } from "./library/types";
@@ -86,7 +92,6 @@ vi.mock("$lib/engine", () => ({
           key === "then" ? undefined : async () => (key === "schemaTables" ? [] : {}),
       },
     ),
-  TsEngineClient: class {},
 }));
 vi.mock("$lib/stores/ssh-host-key-prompt.svelte", () => ({
   sshHostKeyPromptStore: { prompt: async () => true },
@@ -121,15 +126,9 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
 }));
 
-const { bootstrapSqljsDatabase, createSqljsStorageClient } =
-  await import("$lib/storage/sqljs-client");
-const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
-const { projectStateRepo } = await import("$lib/storage/repos/project-state-repo");
 const { toStorable } = await import("$lib/values");
-const { TsLibrary } = await import("./library/ts-library");
-const { TsSettings } = await import("./library/ts-settings");
-const { TsUi } = await import("./library/ts-ui");
-const { getLibrary, setLibrary, setSettings } = await import("./library/index");
+const { CoreLibrary, CoreSettings, CoreUi, getLibrary, setLibrary, setSettings } =
+  await import("./library/index");
 const { WindowStateManager } = await import("./window-state.svelte.js");
 const { DatabaseState } = await import("./state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
@@ -261,7 +260,8 @@ interface Case {
 const T0 = "2024-01-01T00:00:00.000Z";
 const FIXED = new Date("2030-01-01T00:00:00.000Z");
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
 let uuidSeq = 0;
 
 beforeAll(async () => {
@@ -279,7 +279,7 @@ beforeAll(async () => {
     () =>
       `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, "0")}` as `${string}-${string}-${string}-${string}-${string}`,
   );
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
@@ -324,7 +324,7 @@ const DUMP: [string, string][] = [
   ["import_state", "source"],
 ];
 
-type Db = InstanceType<typeof WebSqliteDatabase>;
+type Db = ModuleCore;
 
 async function insertRows(db: Db, seed: Seed): Promise<void> {
   for (const table of SEED_TABLES) {
@@ -338,28 +338,45 @@ async function insertRows(db: Db, seed: Seed): Promise<void> {
   }
 }
 
-/**
- * A file that started on v2026.4.5-beta.1, as the baseline upgrade leaves
- * it: `dashboards.project_id` is a plain nullable column with no foreign key
- * (and so is `saved_queries.project_id`, which these cases don't touch).
- */
-async function makeBetaEra(db: Db): Promise<void> {
-  await db.execute("PRAGMA foreign_keys=OFF");
-  await db.execute(`CREATE TABLE dashboards_beta (id TEXT PRIMARY KEY, name TEXT NOT NULL,
-    viewport TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}', widgets TEXT NOT NULL DEFAULT '[]',
-    date_filter TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, starred INTEGER DEFAULT 0,
-    shared INTEGER NOT NULL DEFAULT 0, description TEXT, project_id TEXT)`);
-  await db.execute("DROP TABLE dashboards");
-  await db.execute("ALTER TABLE dashboards_beta RENAME TO dashboards");
-  await db.execute("DROP INDEX IF EXISTS idx_dashboards_project");
-  await db.execute("CREATE INDEX idx_dashboards_project ON dashboards(project_id)");
-  await db.execute("PRAGMA foreign_keys=ON");
+/** The schema a file made by v2026.4.5-beta.1 has (the storage crate's frozen fixture). */
+const BETA_SCHEMA = join(
+  process.cwd(),
+  "crates/seaquel-storage/tests/fixtures/schemas/v2026.4.5-beta.1.sql",
+);
+
+/** A file that started on v2026.4.5-beta.1, for Core to upgrade, as Rust's replay makes it. */
+function betaEraImage(): Uint8Array {
+  const raw = new DatabaseSync(":memory:");
+  try {
+    raw.exec(readFileSync(BETA_SCHEMA, "utf8"));
+    // `serialize` is in Node 24's `node:sqlite` but not yet in its types.
+    return (raw as unknown as { serialize(): Uint8Array }).serialize();
+  } finally {
+    raw.close();
+  }
 }
 
+/** Core's columns the recording predates, read as Rust's replay reads them (`snapshot`). */
+const CORE_ONLY_COLUMNS: Record<string, string[]> = {
+  // Phase 5e's shared-file links: never set in these cases.
+  dashboards: ["shared_path", "shared_base", "shared_file_id", "name_key"],
+  // Migration 0003's list metadata, derived from each row.
+  saved_canvases: ["meta"],
+  dashboard_versions: ["widget_count"],
+};
+
+/**
+ * The file's rows, as the recording holds them: without the columns above
+ * and without the string-secrets upgrade's own `app_state` key (Core's
+ * open sets it; the recording never had it).
+ */
 async function dump(db: Db): Promise<Record<string, Row[]>> {
   const out: Record<string, Row[]> = {};
   for (const [table, order] of DUMP) {
-    const rows = await db.query<Row>(`SELECT * FROM ${table} ORDER BY ${order}`);
+    let rows = await db.query<Row>(`SELECT * FROM ${table} ORDER BY ${order}`);
+    if (table === "app_state")
+      rows = rows.filter((r) => r.key !== "connectionStringSecretsUpgraded");
+    for (const row of rows) for (const column of CORE_ONLY_COLUMNS[table] ?? []) delete row[column];
     if (rows.length) out[table] = rows;
   }
   return out;
@@ -384,82 +401,7 @@ async function settle(): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------- Core calls derived from storage calls
-
-/** The view state a window saves: today's project state minus what Decision 22 keeps elsewhere. */
-function viewStateOf(s: Obj): Obj {
-  const {
-    savedWorkflows: _w,
-    connectionOrder: _c,
-    starredSharedQueryIds: _q,
-    starredSharedDashboardIds: _d,
-    ...rest
-  } = s;
-  return rest;
-}
-
-/** A workflow as a `workflowCreate`/`workflowUpdate` sends it: its storable JSON minus what Core sets. */
-function workflowBody(w: Obj): Obj {
-  const { id: _i, projectId: _p, createdAt: _c, updatedAt: _u, ...rest } = w;
-  return rest;
-}
-
-/** Decision 22's window rows, as Core would hold them during the case. */
-interface WindowRow {
-  state: Json;
-  rev: number;
-  touched: number;
-}
-
-/** The case's record: calls in order, and Core's window rows. */
-const run = {
-  storage: [] as StorageEntry[],
-  core: [] as CoreCall[],
-  windows: new Map<string, WindowRow>(),
-  /** Decision 22's `windows` rows: each window's active project and when it was last written. */
-  windowMeta: new Map<string, { activeProjectId: string | null; touched: number }>(),
-  /** `lastActiveProjectId` as Core would hold it. */
-  lastActive: null as string | null,
-  clock: 0,
-};
-
-/** A write to window `windowId` (a save, an activation, a copied load): it becomes the most recently used. */
-function touchWindow(windowId: string, activeProjectId?: string): void {
-  const meta = run.windowMeta.get(windowId) ?? { activeProjectId: null, touched: 0 };
-  if (activeProjectId !== undefined) meta.activeProjectId = activeProjectId;
-  meta.touched = ++run.clock;
-  run.windowMeta.set(windowId, meta);
-}
-
-/**
- * `windowGet`'s answer (Decision 22): the window's own active project; for a
- * window with none, the most recently used window's; else `lastActiveProjectId`.
- */
-function windowGet(windowId: string): Json {
-  const own = run.windowMeta.get(windowId)?.activeProjectId;
-  if (own) return { activeProjectId: own, from: "window" };
-  const recent = [...run.windowMeta.entries()]
-    .filter(([id, m]) => id !== windowId && m.activeProjectId)
-    .sort(([, a], [, b]) => b.touched - a.touched)[0];
-  if (recent) return { activeProjectId: recent[1].activeProjectId, from: "recent" };
-  return { activeProjectId: run.lastActive, from: run.lastActive ? "lastActive" : null };
-}
-
-/** What a page on Core would remember between calls, to send only what changed. */
-interface Baseline {
-  connectionOrder: Map<string, string>;
-  workflows: Map<string, Map<string, string>>;
-  dashboards: Map<string, Obj>;
-  pendingVersion: Map<string, string>;
-  chats: Map<string, Obj>;
-  messages: Map<string, Map<string, string>>;
-  revs: Map<string, number>;
-  onboarding: Obj;
-  themePrefs: Obj | null;
-  pendingPrefs: Obj | null;
-  themes: Map<string, string>;
-}
-
+/** The onboarding record the store starts from. */
 const ONBOARDING_DEFAULTS: Obj = {
   isFirstRun: true,
   userBackground: "none",
@@ -468,494 +410,18 @@ const ONBOARDING_DEFAULTS: Obj = {
   dismissedHints: [],
   learnEnabled: true,
 };
-const PREFS_DEFAULTS: Obj = { lightThemeId: "default-light", darkThemeId: "default-dark" };
-
-/** A user theme as `userThemeCreate`/`userThemeUpdate` send it: without what Core sets. */
-function themeBody(theme: Obj): Obj {
-  const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = theme;
-  return rest;
-}
-
-function newBaseline(): Baseline {
-  return {
-    connectionOrder: new Map(),
-    workflows: new Map(),
-    dashboards: new Map(),
-    pendingVersion: new Map(),
-    chats: new Map(),
-    messages: new Map(),
-    revs: new Map(),
-    onboarding: { ...ONBOARDING_DEFAULTS },
-    themePrefs: null,
-    pendingPrefs: null,
-    themes: new Map(),
-  };
-}
-
-const windowKey = (windowId: string, projectId: string) => `${windowId}\u0000${projectId}`;
-
-/** `windowStateLoad`'s answer by Decision 22, given what today's load returned. */
-function windowLoad(windowId: string, projectId: string, legacy: Obj | null, base: Baseline): Json {
-  const own = run.windows.get(windowKey(windowId, projectId));
-  let answer: { state: Json; rev: number; copiedFrom: string | null };
-  if (own) {
-    // A load writes nothing, so it doesn't make the row more recent.
-    answer = { state: own.state, rev: own.rev, copiedFrom: null };
-  } else {
-    const others = [...run.windows.entries()]
-      .filter(([k]) => k.endsWith(`\u0000${projectId}`))
-      .sort(([, a], [, b]) => b.touched - a.touched);
-    if (others.length > 0) {
-      answer = { state: others[0][1].state, rev: 0, copiedFrom: "window" };
-    } else if (legacy) {
-      answer = { state: viewStateOf(legacy), rev: 0, copiedFrom: "legacy" };
-    } else {
-      answer = { state: null, rev: 0, copiedFrom: "empty" };
-    }
-    if (answer.state !== null) {
-      // The copy is written as the window's row at once.
-      run.windows.set(windowKey(windowId, projectId), {
-        state: answer.state,
-        rev: 0,
-        touched: ++run.clock,
-      });
-      touchWindow(windowId);
-    }
-  }
-  base.revs.set(projectId, answer.rev);
-  return answer;
-}
-
-function dashboardParams(d: Obj): Obj {
-  return {
-    name: d.name,
-    description: d.description ?? null,
-    widgets: JSON.parse(d.widgets as string),
-    viewport: JSON.parse(d.viewport as string),
-    dateFilter: d.dateFilter ? JSON.parse(d.dateFilter as string) : null,
-    starred: !!d.starred,
-    shared: !!d.shared,
-  };
-}
-
-/** The Core calls for one storage call, before it runs (saves) or after (loads). */
-function derive(
-  page: PageCtx,
-  call: string,
-  args: unknown[],
-  result: unknown,
-  phase: "before" | "after",
-): void {
-  const base = page.baseline;
-  const push = (c: CoreCall) => run.core.push(c);
-  if (phase === "after") {
-    switch (call) {
-      case "projectState.load": {
-        const projectId = args[0] as string;
-        const legacy = result ? (plain(result) as Obj) : null;
-        push({
-          group: "ui",
-          method: "windowStateLoad",
-          params: { windowId: page.windowId, projectId },
-          expect: windowLoad(page.windowId, projectId, legacy, base),
-        });
-        base.connectionOrder.set(projectId, JSON.stringify(legacy?.connectionOrder ?? []));
-        base.workflows.set(
-          projectId,
-          new Map(
-            ((legacy?.savedWorkflows as Obj[]) ?? []).map((w) => [
-              w.id as string,
-              JSON.stringify(w),
-            ]),
-          ),
-        );
-        return;
-      }
-      case "appState.get":
-        if (args[0] === "lastActiveProjectId") {
-          push({
-            group: "ui",
-            method: "windowGet",
-            params: { windowId: page.windowId },
-            expect: windowGet(page.windowId),
-          });
-        }
-        return;
-      case "dashboards.loadByProject":
-        push({
-          group: "library",
-          method: "dashboardsList",
-          params: { projectId: args[0] },
-          expect: {
-            dashboards: (result as Obj[]).map((d) => ({ id: d.id, starred: !!d.starred })),
-          },
-        });
-        for (const d of result as Obj[]) base.dashboards.set(d.id as string, plain(d) as Obj);
-        return;
-      case "dashboardVersions.loadByProject":
-        push({
-          group: "library",
-          method: "dashboardVersionsList",
-          params: { projectId: args[0] },
-          expect: { ids: (result as Obj[]).map((v) => v.id) },
-        });
-        return;
-      case "aiChats.loadByConnection":
-        push({
-          group: "library",
-          method: "chatsList",
-          params: { connectionId: args[0] },
-          expect: { ids: (result as Obj[]).map((c) => c.id) },
-        });
-        for (const c of result as Obj[]) base.chats.set(c.id as string, plain(c) as Obj);
-        return;
-      case "onboarding.load":
-        base.onboarding = { ...ONBOARDING_DEFAULTS, ...(plain(result) as Obj | null) };
-        return;
-      case "themes.loadPreferences":
-        base.themePrefs = (plain(result) as Obj | null) ?? { ...PREFS_DEFAULTS };
-        return;
-      case "themes.loadUserThemes":
-        base.themes = new Map(
-          (plain(result) as Obj[]).map((t) => [t.id as string, JSON.stringify(t)]),
-        );
-        return;
-      case "aiChats.loadMessages":
-        push({
-          group: "library",
-          method: "chatMessagesList",
-          params: { chatId: args[0] },
-          expect: { ids: (result as Obj[]).map((m) => m.id) },
-        });
-        base.messages.set(
-          args[0] as string,
-          new Map((result as Obj[]).map((m) => [m.id as string, JSON.stringify(plain(m))])),
-        );
-        return;
-    }
-    return;
-  }
-  switch (call) {
-    case "projectState.save": {
-      const s = plain(args[0]) as Obj;
-      const projectId = s.projectId as string;
-      const order = JSON.stringify(s.connectionOrder ?? []);
-      if (base.connectionOrder.get(projectId) !== order) {
-        push({
-          group: "library",
-          method: "projectSidebarSet",
-          params: { projectId, connectionOrder: s.connectionOrder ?? [] },
-        });
-        base.connectionOrder.set(projectId, order);
-      }
-      const before = base.workflows.get(projectId) ?? new Map<string, string>();
-      const after = new Map<string, string>();
-      for (const w of (s.savedWorkflows as Obj[]) ?? []) {
-        const text = JSON.stringify(w);
-        after.set(w.id as string, text);
-        if (!before.has(w.id as string)) {
-          push({
-            group: "library",
-            method: "workflowCreate",
-            params: { workflow: { projectId, workflow: workflowBody(w) } },
-            binds: w.id as string,
-          });
-        } else if (before.get(w.id as string) !== text) {
-          push({
-            group: "library",
-            method: "workflowUpdate",
-            params: { id: w.id, workflow: workflowBody(w) },
-          });
-        }
-      }
-      for (const id of before.keys()) {
-        if (!after.has(id)) push({ group: "library", method: "workflowRemove", params: { id } });
-      }
-      base.workflows.set(projectId, after);
-      const rev = (base.revs.get(projectId) ?? 0) + 1;
-      base.revs.set(projectId, rev);
-      const state = viewStateOf(s);
-      push({
-        group: "ui",
-        method: "windowStateSave",
-        params: { windowId: page.windowId, projectId, rev, state },
-      });
-      run.windows.set(windowKey(page.windowId, projectId), { state, rev, touched: ++run.clock });
-      touchWindow(page.windowId);
-      return;
-    }
-    case "appState.set":
-      if (args[0] === "lastActiveProjectId") {
-        if (args[1]) {
-          push({
-            group: "ui",
-            method: "windowActivate",
-            params: { windowId: page.windowId, projectId: args[1] },
-          });
-          touchWindow(page.windowId, args[1] as string);
-          run.lastActive = args[1] as string;
-        }
-      } else if (args[0] !== "aiSettings") {
-        // aiSettings is split into the calls its steps name (Decision 20).
-        push({
-          group: "settings",
-          method: "settingSet",
-          params: { key: args[0], value: args[1] ?? null },
-        });
-      }
-      return;
-    case "importState.save":
-      push({
-        group: "settings",
-        method: "importStateSave",
-        params: { source: args[0], hasOfferedImport: args[1], lastCheckTimestamp: args[2] ?? null },
-      });
-      return;
-    case "tutorial.save":
-      push({
-        group: "settings",
-        method: "tutorialSave",
-        params: { lessonId: args[0], challengeId: args[1], state: args[2] ?? null },
-      });
-      return;
-    case "tutorial.removeLesson":
-      push({ group: "settings", method: "tutorialRemoveLesson", params: { lessonId: args[0] } });
-      return;
-    case "tutorial.removeAll":
-      push({ group: "settings", method: "tutorialReset" });
-      return;
-    case "onboarding.save": {
-      const next = plain(args[0]) as Obj;
-      const patch: Obj = {};
-      for (const [k, v] of Object.entries(next)) {
-        if (JSON.stringify(v) !== JSON.stringify(base.onboarding[k])) patch[k] = v;
-      }
-      if (Object.keys(patch).length > 0) {
-        push({ group: "settings", method: "onboardingPatch", params: { patch } });
-      }
-      base.onboarding = { ...base.onboarding, ...next };
-      return;
-    }
-    case "themes.savePreferences":
-      base.pendingPrefs = { lightThemeId: args[0], darkThemeId: args[1] };
-      return;
-    case "themes.saveUserThemes": {
-      const next = new Map((plain(args[0]) as Obj[]).map((t) => [t.id as string, t]));
-      const removed = [...base.themes.keys()].filter((id) => !next.has(id));
-      for (const id of removed) {
-        push({ group: "settings", method: "userThemeRemove", params: { id } });
-      }
-      for (const [id, theme] of next) {
-        const was = base.themes.get(id);
-        if (was === undefined) {
-          push({
-            group: "settings",
-            method: "userThemeCreate",
-            params: { theme: themeBody(theme) },
-            binds: id,
-          });
-        } else if (was !== JSON.stringify(theme)) {
-          push({
-            group: "settings",
-            method: "userThemeUpdate",
-            params: { id, theme: themeBody(theme) },
-          });
-        }
-      }
-      const prefs = base.pendingPrefs ?? base.themePrefs ?? PREFS_DEFAULTS;
-      const was = base.themePrefs ?? PREFS_DEFAULTS;
-      // A removed theme's preference falls back inside userThemeRemove.
-      const reset = (slot: "lightThemeId" | "darkThemeId", fallback: string) =>
-        prefs[slot] === was[slot] ||
-        (removed.includes(was[slot] as string) && prefs[slot] === fallback);
-      if (!reset("lightThemeId", "default-light") || !reset("darkThemeId", "default-dark")) {
-        push({ group: "settings", method: "themePreferencesSet", params: prefs });
-      }
-      base.themePrefs = prefs;
-      base.pendingPrefs = null;
-      base.themes = new Map([...next].map(([id, t]) => [id, JSON.stringify(t)]));
-      return;
-    }
-    case "dashboards.save": {
-      const d = plain(args[0]) as Obj;
-      const id = d.id as string;
-      const now = dashboardParams(d);
-      const old = base.dashboards.get(id);
-      const version = base.pendingVersion.get(id);
-      base.pendingVersion.delete(id);
-      if (!old) {
-        const draft: Obj = {
-          projectId: d.projectId,
-          name: now.name,
-          widgets: now.widgets,
-          viewport: now.viewport,
-        };
-        if (now.description !== null) draft.description = now.description;
-        if (now.dateFilter !== null) draft.dateFilter = now.dateFilter;
-        push({
-          group: "library",
-          method: "dashboardCreate",
-          params: { dashboard: draft },
-          binds: id,
-        });
-      } else {
-        const was = dashboardParams(old);
-        const patch: Obj = {};
-        for (const k of Object.keys(now)) {
-          if (JSON.stringify(now[k]) !== JSON.stringify(was[k])) patch[k] = now[k];
-        }
-        if (version) patch.captureVersion = true;
-        if (Object.keys(patch).length > 0) {
-          push({
-            group: "library",
-            method: "dashboardUpdate",
-            params: { id, patch },
-            ...(version ? { binds: version } : {}),
-          });
-        }
-      }
-      base.dashboards.set(id, d);
-      return;
-    }
-    case "dashboards.remove":
-      // The page keeps what it last sent: a save racing the removal is an
-      // update of the removed row, as a GUI on Core would send it.
-      push({ group: "library", method: "dashboardRemove", params: { id: args[0] } });
-      return;
-    case "dashboardVersions.insert": {
-      const v = args[0] as Obj;
-      base.pendingVersion.set(v.dashboardId as string, v.id as string);
-      return;
-    }
-    case "aiChats.saveChat": {
-      const c = plain(args[0]) as Obj;
-      const id = c.id as string;
-      const old = base.chats.get(id);
-      if (!old) {
-        push({
-          group: "library",
-          method: "chatCreate",
-          params: { chat: { connectionId: c.connectionId, title: c.title } },
-          binds: id,
-        });
-      } else {
-        const patch: Obj = {};
-        if (old.title !== c.title) patch.title = c.title;
-        if (old.updatedAt !== c.updatedAt) patch.touched = true;
-        if (Object.keys(patch).length > 0) {
-          push({ group: "library", method: "chatUpdate", params: { id, patch } });
-        }
-      }
-      base.chats.set(id, c);
-      return;
-    }
-    case "aiChats.replaceAllMessages": {
-      const chatId = args[0] as string;
-      const old = base.messages.get(chatId) ?? new Map<string, string>();
-      const next = new Map<string, string>();
-      const changed: Obj[] = [];
-      for (const m of plain(args[1]) as Obj[]) {
-        const text = JSON.stringify(m);
-        next.set(m.id as string, text);
-        if (old.get(m.id as string) !== text) {
-          const draft: Obj = {
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp,
-          };
-          if (m.query != null) draft.query = m.query;
-          if (m.dashboardId != null) draft.dashboardId = m.dashboardId;
-          changed.push(draft);
-        }
-      }
-      if (changed.length > 0) {
-        push({
-          group: "library",
-          method: "chatMessagesPut",
-          params: { chatId, messages: changed },
-        });
-      }
-      base.messages.set(chatId, next);
-      return;
-    }
-    case "aiChats.removeChat":
-      push({ group: "library", method: "chatRemove", params: { id: args[0] } });
-      base.chats.delete(args[0] as string);
-      base.messages.delete(args[0] as string);
-      return;
-  }
-}
-
-/** A page's storage client: every call recorded, and its Core calls derived. */
-function pageClient(base: StorageClient, page: PageCtx): StorageClient {
-  const out: Record<string, Record<string, unknown>> = {};
-  for (const [group, methods] of Object.entries(base as unknown as Record<string, Obj>)) {
-    out[group] = {};
-    for (const [name, fn] of Object.entries(methods)) {
-      if (typeof fn !== "function") continue;
-      const call = `${group}.${name}`;
-      out[group][name] = async (...args: unknown[]) => {
-        const entry: StorageEntry = { page: page.name, call, args: args.map(plain) };
-        run.storage.push(entry);
-        derive(page, call, args, undefined, "before");
-        try {
-          const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args);
-          if (result !== undefined) entry.result = plain(result);
-          derive(page, call, args, result, "after");
-          if (call === "projectState.load") await listWorkflows(page, args[0] as string);
-          return result;
-        } catch (e) {
-          entry.error = errorText(e);
-          throw e;
-        }
-      };
-    }
-  }
-  return out as unknown as StorageClient;
-}
 
 // ---------------------------------------------------------------- pages and stores
 
 interface PageCtx {
   name: string;
   windowId: string;
-  baseline: Baseline;
   db: Db;
 }
 
-/**
- * `workflowsList` (Decision 23), which a page on Core reads beside its view
- * state: every stored workflow of the project whose JSON parses, whether or
- * not the GUI can decode it, and whether or not the project has a
- * `project_state` row. A row that isn't JSON is skipped, never refused.
- */
-async function listWorkflows(page: PageCtx, projectId: string): Promise<void> {
-  const rows = await page.db.query<{ id: string; data: string }>(
-    "SELECT id, data FROM saved_canvases WHERE project_id = ? ORDER BY id",
-    [projectId],
-  );
-  const ids = rows
-    .filter((r) => {
-      try {
-        JSON.parse(r.data);
-        return true;
-      } catch {
-        return false;
-      }
-    })
-    .map((r) => r.id);
-  run.core.push({
-    group: "library",
-    method: "workflowsList",
-    params: { projectId },
-    expect: { ids },
-  });
-}
-
 async function openPage(db: Db, name: string, windowId: string, load: boolean) {
-  const ctx: PageCtx = { name, windowId, baseline: newBaseline(), db };
-  const client = pageClient(createSqljsStorageClient(db), ctx);
+  const ctx: PageCtx = { name, windowId, db };
+  const client = db.storage(windowId);
   rec.storage = client;
   const state = new DatabaseState();
   const schedule = (projectId: string | null) => windowState.scheduleProject(projectId);
@@ -964,7 +430,7 @@ async function openPage(db: Db, name: string, windowId: string, load: boolean) {
   ) => ui.setActiveView(view);
   // This window's view state, under its own id (the demo's page is `demo`;
   // the cases' windows keep the recorder's ids so two share one file).
-  const uiService = new TsUi(db, { origin: () => windowId });
+  const uiService = new CoreUi(() => client);
   const windowState = new WindowStateManager(state, {
     ui: () => uiService,
     windowId: () => windowId,
@@ -1119,7 +585,7 @@ class Ctx {
   constructor(
     readonly db: Db,
     /** The demo's `settings` group on the case's file, shared by its windows. */
-    readonly settings: InstanceType<typeof TsSettings>,
+    readonly settings: InstanceType<typeof CoreSettings>,
   ) {}
 
   get page(): Page {
@@ -1509,7 +975,7 @@ function tableMatches(table: string, expected: Row[], actual: Row[], b: Binding)
 }
 
 /** The tables the TS replay compares: `project_state` and `tabs` are the mirror (see the header). */
-const COMPARED = DUMP.map(([t]) => t).filter((t) => t !== "project_state" && t !== "tabs");
+const COMPARED = DUMP.map(([t]) => t);
 
 interface Fixture {
   name: string;
@@ -1531,15 +997,29 @@ const CHANGES = JSON.parse(readFileSync(join(FIXTURES, "changes.json"), "utf8"))
 >;
 
 /**
- * Steps whose outcome the demo can't reproduce the recorded way, each for a
- * reason (field, then why). Everything else about the step is compared.
+ * Steps that send an AI provider's API key. The module has no secret store
+ * (as the web workspace has none), so Core refuses the call with
+ * `NOT_SUPPORTED` before writing anything; the replay checks exactly that.
+ * Rust's replay (`seaquel-core/tests/state.rs`) runs them with a store.
+ */
+const SECRET_STEPS: Record<string, string> = {
+  "ai-settings/add-provider-with-key#1": "adds a provider with a key",
+  "ai-settings/update-provider#1": "sets a new key",
+  "ai-settings/update-provider#2": "clears the key",
+};
+const secretSeen = new Set<string>();
+
+/**
+ * Steps whose recorded field the module can't reproduce, each for a reason
+ * (field, then why). Everything else about the step is compared.
  */
 /** The exemptions a replay used, so a stale one fails the test. */
 const exemptSeen = new Set<string>();
 
 const EXEMPT: Record<string, string> = {
   // The managers show a refused edit (a toast) instead of throwing it; the
-  // rows (nothing written) are compared.
+  // rows (nothing written) are compared. Not the twins': Core refuses, the
+  // GUI words it.
   "dashboards/delete-during-pending-edit#1 outcome":
     "The pan's DASHBOARD_NOT_FOUND is shown, not thrown; the dashboard stays removed.",
   "settings/editor-keybinding-mode#2 outcome":
@@ -1547,24 +1027,17 @@ const EXEMPT: Record<string, string> = {
 };
 
 /**
- * The demo's `TsSettings` refuses API keys (it has no keychain, as the web
- * workspace has none). The cases run as the desktop, where Core takes the
- * key with the provider; secrets aren't compared, so the key is dropped
- * here and the rest of the call goes through.
+ * Cases this replay can't set up, each with where it is replayed instead.
+ * A stale entry (a case no file defines) fails the test.
  */
-function keyless(settings: InstanceType<typeof TsSettings>): InstanceType<typeof TsSettings> {
-  return new Proxy(settings, {
-    get(target, method: string) {
-      const fn = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
-      if (typeof fn !== "function") return fn;
-      if (method === "createAiProvider") return (draft: unknown) => fn.call(target, draft);
-      if (method === "updateAiProvider") {
-        return (id: unknown, patch: unknown) => fn.call(target, id, patch);
-      }
-      return fn.bind(target);
-    },
-  });
-}
+const SKIPPED_CASES: Record<string, string> = {
+  // The seed goes in through a reopen of Core (the module has no raw write
+  // into an open file), and the open's frozen baseline rewrites a stored
+  // `active_view` of `canvas` to `workflow`, as on any open of such a file.
+  // The recording seeded after the open.
+  "old-data/project-state-canvas-view":
+    "Replayed by Rust's replay (`seaquel-core/tests/state.rs`), which seeds after the open.",
+};
 
 /** Replays case `c` against its recording `fx`; the differences found, per step. */
 async function replay(c: Case, fx: Fixture): Promise<string[]> {
@@ -1575,33 +1048,25 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
   rec.secrets = new Map(Object.entries(c.secrets ?? {}));
   rec.ai = null;
   rec.workflowRows = () => [];
-  run.storage = [];
-  run.core = [];
-  run.windows = new Map();
-  run.windowMeta = new Map();
-  run.lastActive = null;
-  run.clock = 0;
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
     now: FIXED,
   });
   const failures: string[] = [];
   try {
-    const db = new WebSqliteDatabase(new SQL.Database());
-    await bootstrapSqljsDatabase(db);
-    if (c.file === "v2026.4.5-beta.1") await makeBetaEra(db);
+    const db = await openModuleCore(module!, {
+      image: c.file === "v2026.4.5-beta.1" ? betaEraImage() : null,
+    });
     const seed = c.seed ?? standard();
     await insertRows(db, seed);
-    setLibrary(new TsLibrary(db));
-    const settings = keyless(new TsSettings(db));
+    // Every page's calls go through its own storage client (its window's
+    // origin and write queue); the library and settings follow the page.
+    const current = () => rec.storage as RustStorageClient;
+    setLibrary(new CoreLibrary(current));
+    const settings = new CoreSettings(current);
     setSettings(settings);
-    // Store cases open no page: their storage calls go through this one.
-    rec.storage = pageClient(createSqljsStorageClient(db), {
-      name: "main",
-      windowId: "main",
-      baseline: newBaseline(),
-      db,
-    });
+    // Store cases open no page: their calls go through this one.
+    rec.storage = db.storage("main");
     const t = new Ctx(db, settings);
     const view: ViewFn =
       (c.view as ViewFn | undefined) ?? ((x) => (x.current ? pageView(x.current) : null));
@@ -1611,14 +1076,42 @@ async function replay(c: Case, fx: Fixture): Promise<string[]> {
       const recorded = fx.steps[i];
       rec.toasts.length = 0;
       rec.secretCalls.length = 0;
+      const secret = SECRET_STEPS[`${c.name}#${i}`];
+      if (secret) secretSeen.add(`${c.name}#${i}`);
+      const rowsBeforeStep = secret ? await dump(db) : null;
+      const viewBeforeStep = secret ? plain(await view(t)) : null;
       let ok: boolean;
+      let error: unknown = null;
       try {
         await step.run(t, ids);
         ok = true;
-      } catch {
+      } catch (e) {
         ok = false;
+        error = e;
       }
       await settle();
+      if (secret) {
+        // Refused before anything is written, as on web: the step changes
+        // nothing, rows or view.
+        const why: string[] = [];
+        if (ok || !errorText(error).includes("NOT_SUPPORTED")) {
+          why.push(`outcome: expected NOT_SUPPORTED, got ${ok ? "ok" : errorText(error)}`);
+        }
+        const after = await dump(db);
+        if (JSON.stringify(after) !== JSON.stringify(rowsBeforeStep)) {
+          why.push(
+            `rows changed:\n  before ${JSON.stringify(rowsBeforeStep)}\n  after  ${JSON.stringify(after)}`,
+          );
+        }
+        const shown = plain(await view(t));
+        if (JSON.stringify(shown) !== JSON.stringify(viewBeforeStep)) {
+          why.push(
+            `view changed:\n  before ${JSON.stringify(viewBeforeStep)}\n  after  ${JSON.stringify(shown)}`,
+          );
+        }
+        if (why.length) failures.push(`${c.name} step ${i} (${step.op}):\n${why.join("\n")}`);
+        continue;
+      }
       const change = CHANGES[c.name]?.expected?.steps?.[String(i)];
       const why: string[] = [];
       const expectedOk = ((change?.outcome as Obj | undefined) ?? recorded.outcome).ok === true;
@@ -1678,11 +1171,6 @@ function withTable(rows: Record<string, Row[]>, table: string, next: Row[]): Rec
 /** A refusal at step `i`: nothing written. */
 function refused(raw: RawCase, i: number, outcome: Obj): Record<number, StepChange> {
   return { [i]: { outcome: { ok: false, ...outcome }, rows: rowsBefore(raw, i) } };
-}
-
-/** The Core calls step `i` recorded. */
-function coreOf(raw: RawCase, i: number): CoreCall[] {
-  return raw.steps[i].core ?? [];
 }
 
 // ---------------------------------------------------------------- seeds
@@ -1880,58 +1368,6 @@ const LEGACY_P1: Seed = {
     },
   ],
 };
-
-/** The mirror rows a save of `state` writes, as today's save would with repeated tab ids skipped. */
-async function mirrorRows(raw: RawCase, i: number, state: Obj): Promise<Record<string, Row[]>> {
-  const db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
-  await insertRows(db, { projects: raw.seed.projects, connections: raw.seed.connections });
-  const before = rowsBefore(raw, i);
-  await insertRows(db, before);
-  const seen = new Set<string>();
-  const firstOnly = <T extends { id: string }>(list: T[] | undefined) =>
-    (list ?? []).filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
-  const s = { ...state } as Obj;
-  for (const key of [
-    "queryTabs",
-    "schemaTabs",
-    "explainTabs",
-    "erdTabs",
-    "statisticsTabs",
-    "workflowTabs",
-    "starterTabs",
-    "dashboardTabs",
-    "createTableTabs",
-    "dataTabs",
-  ]) {
-    s[key] = firstOnly(s[key] as { id: string }[]);
-  }
-  const stored = await db.query<{ data: string }>(
-    "SELECT data FROM saved_canvases WHERE project_id = ?",
-    [s.projectId],
-  );
-  // The mirror keeps the stored connection order and never touches saved workflows.
-  const order = await db.query<{ connection_order: string }>(
-    "SELECT connection_order FROM project_state WHERE project_id = ?",
-    [s.projectId],
-  );
-  await projectStateRepo.save(db, {
-    ...s,
-    connectionOrder: order.length ? JSON.parse(order[0].connection_order) : [],
-    savedWorkflows: [],
-  } as unknown as Parameters<typeof projectStateRepo.save>[1]);
-  for (const r of stored) {
-    await db.execute("INSERT INTO saved_canvases (id, project_id, data) VALUES (?, ?, ?)", [
-      (JSON.parse(r.data) as Obj).id,
-      s.projectId,
-      r.data,
-    ]);
-  }
-  const after = await dump(db);
-  let out = withTable(before, "project_state", after.project_state ?? []);
-  out = withTable(out, "tabs", after.tabs ?? []);
-  return out;
-}
 
 const viewCases: Case[] = [
   {
@@ -2141,11 +1577,8 @@ const viewCases: Case[] = [
     change: {
       decision: "22",
       why: "The legacy mirror skips a tab whose id repeats within the state instead of failing the save (the window's own row keeps the state as sent). Today the whole save fails on the tabs key and nothing is stored.",
-      expected: async (raw) => {
-        const i = 2;
-        const save = coreOf(raw, i).find((c) => c.method === "windowStateSave")!;
-        return { [i]: { rows: await mirrorRows(raw, i, (save.params as Obj).state as Obj) } };
-      },
+      // The mirror rows the save leaves are in the fixtures' changes.json.
+      expected: () => ({}),
     },
   },
   {
@@ -4456,8 +3889,10 @@ const FILES: Record<string, Case[]> = {
   "old-data.json": [...oldDataCases, ...moreOldDataCases],
 };
 
-describe("the state fixtures through the demo", () => {
-  it("the demo replays the state fixture cases", async () => {
+const skippedSeen = new Set<string>();
+
+describe.skipIf(missing)("the state fixtures through the module", () => {
+  it("the GUI on the module replays the state fixture cases", async () => {
     const failures: string[] = [];
     let cases = 0;
     let steps = 0;
@@ -4466,6 +3901,10 @@ describe("the state fixtures through the demo", () => {
       expect([...recorded.keys()].sort(), file).toEqual(defined.map((c) => c.name).sort());
       for (const c of defined) {
         const fx = recorded.get(c.name)!;
+        if (SKIPPED_CASES[c.name]) {
+          skippedSeen.add(c.name);
+          continue;
+        }
         expect(
           fx.steps.map((s) => s.op),
           c.name,
@@ -4482,7 +3921,14 @@ describe("the state fixtures through the demo", () => {
     expect([...exemptSeen].sort(), "every exemption names a replayed step").toEqual(
       Object.keys(EXEMPT).sort(),
     );
-    expect(cases).toBe(112);
-    expect(steps).toBe(377);
+    expect([...secretSeen].sort(), "every secret step was replayed").toEqual(
+      Object.keys(SECRET_STEPS).sort(),
+    );
+    expect([...skippedSeen].sort(), "every skipped case is defined").toEqual(
+      Object.keys(SKIPPED_CASES).sort(),
+    );
+    // 112 cases and 377 steps recorded, less the skipped case's 2 steps.
+    expect(cases).toBe(111);
+    expect(steps).toBe(375);
   }, 600_000);
 });

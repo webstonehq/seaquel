@@ -300,7 +300,7 @@
 								schema={db.state.activeSchema}
 								onExecute={exec.handleExecuteCurrent}
 								onToggleSidebar={() => sidebar.toggle()}
-								onAIInlinePrompt={aiSettingsStore.settings.enabled ? ai.handleOpen : undefined}
+								onAIInlinePrompt={aiSettingsStore.available ? ai.handleOpen : undefined}
 								onChange={(newValue) => {
 									if (activeTabId) {
 										db.queryTabs.updateContent(activeTabId, newValue);

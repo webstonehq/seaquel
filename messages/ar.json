@@ -1284,5 +1284,9 @@
   "shared_sync_status_skipped": "تم التخطي",
   "shared_sync_status_skipped_tooltip": "عدد الملفات كبير جدًا أو الحجم كبير جدًا للمزامنة: لم تتم قراءة أو كتابة أي شيء في هذا المشروع. قلّل محتوى مجلده لمزامنته مجددًا.",
   "shared_import_dir_already_linked": "يوجد مشروع هنا مرتبط بهذا المجلد بالفعل",
-  "shared_import_skipped_dirs": "لا يمكن استيراد مجلد المشروع {dirs}: {reason}."
+  "shared_import_skipped_dirs": "لا يمكن استيراد مجلد المشروع {dirs}: {reason}.",
+  "demo_notice_storage_unavailable": "هذا المتصفح لا يسمح للعرض التجريبي بحفظ بياناته، لذا لن يُحتفظ بأي شيء تفعله هنا بعد إغلاق الصفحة.",
+  "demo_notice_storage_corrupt": "تعذّر فتح البيانات المحفوظة للعرض التجريبي، لذا بدأ من جديد. تم وضع النسخة القديمة جانبًا.",
+  "unsupported_build_title": "يعمل هذا الإصدار داخل تطبيق Seaquel",
+  "unsupported_build_message": "يعمل هذا الإصدار داخل تطبيق Seaquel. لتشغيل العرض التجريبي في المتصفح، نفّذ `npm run dev:demo`."
 }

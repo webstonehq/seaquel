@@ -1,7 +1,8 @@
 //! `dashboardsRepo`: `dashboards`.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::PersistedDashboard;
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{bit, flag, insert_sql, opt_text, select_sql, text, upsert_sql, Result};
 use super::{IdName, RowLink, SharedLink};
@@ -68,7 +69,7 @@ pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<Persi
 /// file) is skipped rather than failing the list.
 pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<PersistedDashboard>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(&select_sql(
+    let rows = db::query(&select_sql(
         TABLE,
         &READ_COLUMNS,
         "project_id = ? ORDER BY rowid",
@@ -83,7 +84,7 @@ pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Pers
 /// value that doesn't decode, which no list shows either).
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedDashboard>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
+    let row = db::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -94,7 +95,7 @@ pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedD
 /// primary key) rather than overwriting.
 pub async fn insert(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<()> {
     let conn = tx.conn();
-    sqlx::query(&insert_sql(TABLE, &COLUMNS))
+    db::query(&insert_sql(TABLE, &COLUMNS))
         .bind(&d.id)
         .bind(&d.project_id)
         .bind(&d.name)
@@ -118,7 +119,7 @@ pub async fn insert(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<()> {
 /// re-inserts a deleted one.
 pub async fn update(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<bool> {
     let conn = tx.conn();
-    let done = sqlx::query(
+    let done = db::query(
         "UPDATE dashboards SET name = ?, viewport = ?, widgets = ?, date_filter = ?, starred = ?, \
          shared = ?, description = ?, updated_at = ? WHERE id = ?",
     )
@@ -146,11 +147,11 @@ pub async fn update(tx: &mut WriteTx, d: &PersistedDashboard) -> Result<bool> {
 /// `false` when there was no such dashboard.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
     let conn = tx.conn();
-    sqlx::query("DELETE FROM dashboard_versions WHERE dashboard_id = ?")
+    db::query("DELETE FROM dashboard_versions WHERE dashboard_id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
-    let done = sqlx::query("DELETE FROM dashboards WHERE id = ?")
+    let done = db::query("DELETE FROM dashboards WHERE id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
@@ -176,7 +177,7 @@ pub async fn with_name_key(
     key: &str,
 ) -> Result<Vec<IdName>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(NAME_KEY_LOOKUP)
+    let rows = db::query_as(NAME_KEY_LOOKUP)
         .bind(project_id)
         .bind(key)
         .fetch_all(&mut *conn)
@@ -214,7 +215,7 @@ pub const LINKS: &str = "SELECT id, shared_path, shared_base, shared_file_id \
 /// project's list, as in [`list`].
 pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(LINKS)
+    let rows = db::query_as(LINKS)
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -234,7 +235,7 @@ pub async fn by_shared_path(
     path: &str,
 ) -> Result<Vec<String>> {
     let mut conn = r.into().conn().await?;
-    Ok(sqlx::query_scalar(BY_SHARED_PATH)
+    Ok(db::query_scalar(BY_SHARED_PATH)
         .bind(project_id)
         .bind(path)
         .fetch_all(&mut *conn)
@@ -244,7 +245,7 @@ pub async fn by_shared_path(
 /// How many dashboards the file holds, in every project.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dashboards")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM dashboards")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)
@@ -252,7 +253,7 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 
 /// Upserts a dashboard.
 pub async fn save(st: &Storage, d: &PersistedDashboard) -> Result<()> {
-    sqlx::query(&upsert_sql(TABLE, &COLUMNS, "id"))
+    db::query(&upsert_sql(TABLE, &COLUMNS, "id"))
         .bind(&d.id)
         .bind(&d.project_id)
         .bind(&d.name)
@@ -271,7 +272,7 @@ pub async fn save(st: &Storage, d: &PersistedDashboard) -> Result<()> {
 
 /// Deletes a dashboard. Its versions cascade.
 pub async fn remove(st: &Storage, id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM dashboards WHERE id = ?")
+    db::query("DELETE FROM dashboards WHERE id = ?")
         .bind(id)
         .execute(st.pool())
         .await?;
@@ -280,7 +281,7 @@ pub async fn remove(st: &Storage, id: &str) -> Result<()> {
 
 /// Deletes a project's dashboards.
 pub async fn remove_by_project(st: &Storage, project_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM dashboards WHERE project_id = ?")
+    db::query("DELETE FROM dashboards WHERE project_id = ?")
         .bind(project_id)
         .execute(st.pool())
         .await?;

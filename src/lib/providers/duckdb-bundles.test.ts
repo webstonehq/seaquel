@@ -80,3 +80,32 @@ describe("startWithin", () => {
     await assertion;
   });
 });
+
+describe("the worker's script (Task 7 probe, item 8)", () => {
+  it("silences the worker's console before DuckDB-WASM loads, so failing SQL isn't logged", async () => {
+    const { duckdbWorkerScript } = await import("./duckdb-bundles");
+    const { runInNewContext } = await import("node:vm");
+    const printed: unknown[][] = [];
+    const record =
+      (level: string) =>
+      (...args: unknown[]) =>
+        printed.push([level, ...args]);
+    const console = Object.fromEntries(
+      ["log", "info", "debug", "trace", "warn", "error"].map((k) => [k, record(k)]),
+    );
+    const self: Record<string, unknown> = { console };
+    let loaded = "";
+    self.importScripts = (url: string) => {
+      loaded = url;
+      // What DuckDB-WASM's worker does with a failing statement.
+      (self.console as Record<string, (e: unknown) => void>).log(
+        new Error("Catalog Error … WHERE x = 'LEAKVALUE'"),
+      );
+      (self.console as Record<string, (e: unknown) => void>).error("FAIL WITH: LEAKVALUE");
+    };
+    self.self = self;
+    runInNewContext(duckdbWorkerScript("https://cdn.example/duckdb-browser-eh.worker.js"), self);
+    expect(loaded).toBe("https://cdn.example/duckdb-browser-eh.worker.js");
+    expect(printed).toEqual([]);
+  });
+});

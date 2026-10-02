@@ -36,15 +36,18 @@
 //! TIMETZ from a bare `Time64`, which has lost its offset, so it's printed
 //! without one.
 
-use duckdb::arrow::array::{Array, ArrayRef, AsArray, GenericListArray, OffsetSizeTrait};
-use duckdb::arrow::datatypes::{
-    DataType, Date32Type, Decimal128Type, Decimal32Type, Decimal64Type, Float32Type, Float64Type,
-    Int16Type, Int32Type, Int64Type, Int8Type, IntervalMonthDayNanoType, IntervalUnit,
-    Time64MicrosecondType, Time64NanosecondType, TimeUnit, TimestampMicrosecondType,
+use arrow_array::cast::AsArray;
+use arrow_array::types::{
+    ArrowDictionaryKeyType, Date32Type, Decimal128Type, Decimal32Type, Decimal64Type, Float32Type,
+    Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, IntervalMonthDayNanoType,
+    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
     UInt64Type, UInt8Type,
 };
-use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
+use arrow_array::{Array, ArrayRef, GenericListArray, OffsetSizeTrait};
+#[cfg(any(feature = "browser", test))]
+use arrow_schema::Field;
+use arrow_schema::{DataType, IntervalUnit, TimeUnit};
 use serde_json::Value as Json;
 
 use seaquel_engine::Value;
@@ -73,37 +76,38 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    /// The kind of a result column's DuckDB type. duckdb-rs panics on type
-    /// ids it doesn't know; the caller catches that and uses [`Kind::Plain`],
-    /// so decoding goes by the Arrow type alone.
-    pub(crate) fn of(t: &LogicalTypeHandle) -> Kind {
-        Self::walk(t)
-    }
-
-    fn walk(t: &LogicalTypeHandle) -> Kind {
-        let children = || {
-            (0..t.num_children())
-                .map(|i| Self::walk(&t.child(i)))
-                .collect()
-        };
-        match t.id() {
-            LogicalTypeId::Boolean => Kind::Bool,
-            LogicalTypeId::Hugeint => Kind::HugeInt,
-            LogicalTypeId::UHugeint => Kind::UHugeInt,
-            LogicalTypeId::Uuid => Kind::Uuid,
-            LogicalTypeId::Bit => Kind::Bit,
-            LogicalTypeId::Bignum => Kind::Bignum,
-            LogicalTypeId::TimeTZ => Kind::TimeTz,
-            LogicalTypeId::Varchar if t.get_alias().as_deref() == Some("JSON") => Kind::Json,
-            LogicalTypeId::List | LogicalTypeId::Array => {
-                Kind::List(Box::new(Self::walk(&t.child(0))))
+    /// The kind of an Arrow field, for the browser driver, which has no
+    /// DuckDB logical types (the native driver walks those). DuckDB marks the
+    /// types Arrow has no carrier for with extension metadata
+    /// (`ARROW:extension:name`): `arrow.uuid`, `arrow.json`, `arrow.bool8`
+    /// and DuckDB's own under `arrow.opaque` (with a `type_name`) or
+    /// `duckdb.*`. Without metadata the Arrow type decides
+    /// ([`Kind::Plain`]), except that with `decimal38_is_hugeint` a bare
+    /// `Decimal128(38, 0)` is read as HUGEINT (DuckDB-WASM 1.4.3 sends
+    /// HUGEINT so).
+    #[cfg(any(feature = "browser", test))]
+    pub(crate) fn of_field(field: &Field, decimal38_is_hugeint: bool) -> Kind {
+        let child = |f: &Field| Kind::of_field(f, decimal38_is_hugeint);
+        if let Some(kind) = extension_kind(field) {
+            return kind;
+        }
+        match field.data_type() {
+            DataType::Decimal128(38, 0) if decimal38_is_hugeint => Kind::HugeInt,
+            DataType::List(f)
+            | DataType::LargeList(f)
+            | DataType::FixedSizeList(f, _)
+            | DataType::ListView(f)
+            | DataType::LargeListView(f) => Kind::List(Box::new(child(f))),
+            DataType::Struct(fields) => Kind::Struct(fields.iter().map(|f| child(f)).collect()),
+            DataType::Union(fields, _) => {
+                Kind::Union(fields.iter().map(|(_, f)| child(f)).collect())
             }
-            LogicalTypeId::Struct => Kind::Struct(children()),
-            LogicalTypeId::Union => Kind::Union(children()),
-            LogicalTypeId::Map => Kind::Map(
-                Box::new(Self::walk(&t.child(0))),
-                Box::new(Self::walk(&t.child(1))),
-            ),
+            DataType::Map(entries, _) => match entries.data_type() {
+                DataType::Struct(kv) if kv.len() == 2 => {
+                    Kind::Map(Box::new(child(&kv[0])), Box::new(child(&kv[1])))
+                }
+                _ => Kind::Plain,
+            },
             _ => Kind::Plain,
         }
     }
@@ -114,6 +118,35 @@ impl Kind {
             _ => &Kind::Plain,
         }
     }
+}
+
+/// The kind an Arrow extension type names, if it names one the decoder
+/// treats specially.
+#[cfg(any(feature = "browser", test))]
+fn extension_kind(field: &Field) -> Option<Kind> {
+    let metadata = field.metadata();
+    let name = metadata.get("ARROW:extension:name")?;
+    let type_name = || {
+        let meta: Json = serde_json::from_str(metadata.get("ARROW:extension:metadata")?).ok()?;
+        meta.get("type_name")?.as_str().map(str::to_ascii_lowercase)
+    };
+    let duckdb_type = match name.as_str() {
+        "arrow.uuid" => return Some(Kind::Uuid),
+        "arrow.json" => return Some(Kind::Json),
+        "arrow.bool8" => return Some(Kind::Bool),
+        "arrow.opaque" => type_name()?,
+        other => other.strip_prefix("duckdb.")?.to_ascii_lowercase(),
+    };
+    Some(match duckdb_type.as_str() {
+        "hugeint" => Kind::HugeInt,
+        "uhugeint" => Kind::UHugeInt,
+        "uuid" => Kind::Uuid,
+        "json" => Kind::Json,
+        "bit" => Kind::Bit,
+        "bignum" | "varint" => Kind::Bignum,
+        "time_tz" | "timetz" | "time with time zone" => Kind::TimeTz,
+        _ => return None,
+    })
 }
 
 /// DuckDB's ±infinity for DATE (`date_t::infinity()`) and the TIMESTAMP
@@ -372,10 +405,7 @@ fn elements(
         .map(Value::Array)
 }
 
-fn dictionary_label<K: duckdb::arrow::datatypes::ArrowDictionaryKeyType>(
-    array: &dyn Array,
-    row: usize,
-) -> Option<&str> {
+fn dictionary_label<K: ArrowDictionaryKeyType>(array: &dyn Array, row: usize) -> Option<&str> {
     let a = array.as_dictionary_opt::<K>()?;
     let key = a.key(row)?;
     let values = a.values().as_string_opt::<i32>()?;

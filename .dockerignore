@@ -26,4 +26,7 @@
 !scripts/build-wasm.mjs
 # Built in the wasm-builder stage, never copied from the host.
 src/lib/wasm/pkg
+# The demo's module; the web image never has it.
+src/lib/wasm/browser-pkg
+src/lib/wasm/browser-test-pkg
 src/lib/wasm/.pkg-tmp-*

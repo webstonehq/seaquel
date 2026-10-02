@@ -10,8 +10,9 @@
 //! back to a keyframe from [`list_meta`] with [`delete_ids`], so no diff is
 //! ever resolved in Rust.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::{PersistedQueryVersion, QueryVersionsPrune};
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{begin, insert_sql, number, opt_number, opt_text, text, Result};
 use crate::{Reader, Storage, WriteTx};
@@ -39,7 +40,7 @@ fn map_row(row: &SqliteRow) -> Result<PersistedQueryVersion> {
 /// A saved query's versions, oldest first.
 pub async fn load_by_query(st: &Storage, query_id: &str) -> Result<Vec<PersistedQueryVersion>> {
     let rows =
-        sqlx::query("SELECT * FROM query_versions WHERE saved_query_id = ? ORDER BY version ASC")
+        db::query("SELECT * FROM query_versions WHERE saved_query_id = ? ORDER BY version ASC")
             .bind(query_id)
             .fetch_all(st.pool())
             .await?;
@@ -49,7 +50,7 @@ pub async fn load_by_query(st: &Storage, query_id: &str) -> Result<Vec<Persisted
 /// The versions of every saved query in a project, by query id, then
 /// oldest first.
 pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<PersistedQueryVersion>> {
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT qv.* FROM query_versions qv \
          JOIN saved_queries sq ON sq.id = qv.saved_query_id \
          WHERE sq.project_id = ? \
@@ -64,7 +65,7 @@ pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<Persi
 /// Inserts a version. The table's CHECK wants exactly one of `snapshot`
 /// and `diff`, and (query, version) is unique.
 pub async fn insert(st: &Storage, v: &PersistedQueryVersion) -> Result<()> {
-    sqlx::query(&insert_sql("query_versions", &COLUMNS))
+    db::query(&insert_sql("query_versions", &COLUMNS))
         .bind(&v.id)
         .bind(&v.query_id)
         .bind(v.version)
@@ -82,14 +83,14 @@ pub async fn insert(st: &Storage, v: &PersistedQueryVersion) -> Result<()> {
 pub async fn prune(st: &Storage, p: &QueryVersionsPrune) -> Result<()> {
     let mut tx = begin(st).await?;
     for id in &p.delete_ids {
-        sqlx::query("DELETE FROM query_versions WHERE saved_query_id = ? AND id = ?")
+        db::query("DELETE FROM query_versions WHERE saved_query_id = ? AND id = ?")
             .bind(&p.saved_query_id)
             .bind(id)
             .execute(&mut *tx)
             .await?;
     }
     if let Some(promote) = &p.promote {
-        sqlx::query(
+        db::query(
             "UPDATE query_versions SET snapshot = ?, diff = NULL \
              WHERE id = ? AND saved_query_id = ?",
         )
@@ -116,7 +117,7 @@ pub async fn append_keyframe(
 ) -> Result<PersistedQueryVersion> {
     let conn = tx.conn();
     let highest: Option<f64> = {
-        let row = sqlx::query(
+        let row = db::query(
             "SELECT MAX(version) AS highest FROM query_versions WHERE saved_query_id = ?",
         )
         .bind(saved_query_id)
@@ -125,7 +126,7 @@ pub async fn append_keyframe(
         opt_number(&row, "highest")?
     };
     let version = highest.map_or(1.0, |v| v.floor() + 1.0);
-    sqlx::query(&insert_sql("query_versions", &COLUMNS))
+    db::query(&insert_sql("query_versions", &COLUMNS))
         .bind(id)
         .bind(saved_query_id)
         .bind(version as i64)
@@ -160,7 +161,7 @@ pub struct VersionMeta {
 /// A saved query's versions, oldest first, without reading their text.
 pub async fn list_meta(r: impl Into<Reader<'_>>, saved_query_id: &str) -> Result<Vec<VersionMeta>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT id, version, snapshot IS NOT NULL AS keyframe, created_at, \
          COALESCE(octet_length(snapshot), octet_length(diff), 0) AS bytes FROM query_versions \
          WHERE saved_query_id = ? ORDER BY version ASC",
@@ -170,8 +171,8 @@ pub async fn list_meta(r: impl Into<Reader<'_>>, saved_query_id: &str) -> Result
     .await?;
     rows.iter()
         .map(|row| {
-            let keyframe: i64 = sqlx::Row::try_get(row, "keyframe")?;
-            let bytes: i64 = sqlx::Row::try_get(row, "bytes")?;
+            let keyframe: i64 = db::Row::try_get(row, "keyframe")?;
+            let bytes: i64 = db::Row::try_get(row, "bytes")?;
             Ok(VersionMeta {
                 id: text(row, "id")?,
                 version: number(row, "version")?,
@@ -189,7 +190,7 @@ pub async fn delete_ids(tx: &mut WriteTx, saved_query_id: &str, ids: &[String]) 
     let conn = tx.conn();
     let mut deleted = 0;
     for id in ids {
-        deleted += sqlx::query("DELETE FROM query_versions WHERE saved_query_id = ? AND id = ?")
+        deleted += db::query("DELETE FROM query_versions WHERE saved_query_id = ? AND id = ?")
             .bind(saved_query_id)
             .bind(id)
             .execute(&mut *conn)

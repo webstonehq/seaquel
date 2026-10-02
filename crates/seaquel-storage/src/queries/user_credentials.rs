@@ -1,13 +1,14 @@
 //! `userCredentialsRepo`: `user_credentials`, the web vault's encrypted
 //! credentials.
 
+use crate::db;
 use seaquel_types::storage::PersistedCredential;
 
 use super::codec::{text, Result};
 use crate::{Storage, WriteTx};
 
 pub async fn load(st: &Storage, scope: &str, key: &str) -> Result<Option<PersistedCredential>> {
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT scope, key, nonce, ciphertext, updated_at FROM user_credentials \
          WHERE scope = ? AND key = ?",
     )
@@ -28,7 +29,7 @@ pub async fn load(st: &Storage, scope: &str, key: &str) -> Result<Option<Persist
 }
 
 pub async fn save(st: &Storage, c: &PersistedCredential) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT OR REPLACE INTO user_credentials (scope, key, nonce, ciphertext, updated_at) \
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -43,7 +44,7 @@ pub async fn save(st: &Storage, c: &PersistedCredential) -> Result<()> {
 }
 
 pub async fn remove(st: &Storage, scope: &str, key: &str) -> Result<()> {
-    sqlx::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
+    db::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
         .bind(scope)
         .bind(key)
         .execute(st.pool())
@@ -54,7 +55,7 @@ pub async fn remove(st: &Storage, scope: &str, key: &str) -> Result<()> {
 /// Deletes every credential for `key` (a connection id, say), in every
 /// scope.
 pub async fn remove_all_for_key(st: &Storage, key: &str) -> Result<()> {
-    sqlx::query("DELETE FROM user_credentials WHERE key = ?")
+    db::query("DELETE FROM user_credentials WHERE key = ?")
         .bind(key)
         .execute(st.pool())
         .await?;
@@ -66,7 +67,7 @@ pub async fn remove_all_for_key(st: &Storage, key: &str) -> Result<()> {
 /// id) only, so a license or AI provider credential that happens to share
 /// the id stays. Returns how many rows it deleted.
 pub async fn remove_all_for_key_in(tx: &mut WriteTx, key: &str) -> Result<u64> {
-    let done = sqlx::query(
+    let done = db::query(
         "DELETE FROM user_credentials WHERE key = ? AND scope IN ('db', 'ssh', 'ssh-key')",
     )
     .bind(key)
@@ -79,7 +80,7 @@ pub async fn remove_all_for_key_in(tx: &mut WriteTx, key: &str) -> Result<u64> {
 /// removed AI provider's vault row on web, phase 5d-2 Decision 20).
 /// Returns how many rows it deleted.
 pub async fn remove_in(tx: &mut WriteTx, scope: &str, key: &str) -> Result<u64> {
-    let done = sqlx::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
+    let done = db::query("DELETE FROM user_credentials WHERE scope = ? AND key = ?")
         .bind(scope)
         .bind(key)
         .execute(tx.conn())

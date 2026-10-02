@@ -2,15 +2,12 @@
  * `EngineClient`: the one async interface every dialect-dependent call site
  * uses (introspection, EXPLAIN, statistics and DDL SQL). The grid's edits,
  * the data tab's page and pagination are Core's (phase 5c: the edits
- * service; `TsEditService` and `TsQueryRunner` in the demo).
+ * service).
  *
- * Two implementations:
- * - `RustEngineClient` sends an `EngineRequest` to the Rust core as a
- *   `db.engine` call (`core_call` on desktop, `POST /api/rpc` on web).
- * - `TsEngineClient` runs the demo's TypeScript DuckDB adapter against its
- *   DuckDB-WASM provider (the browser demo has no Rust core).
- *
- * `getEngineClient(connection)` in `./index` picks one. One method per
+ * `RustEngineClient` sends an `EngineRequest` to the Rust core as a
+ * `db.engine` call (`core_call` on desktop, `POST /api/rpc` on web, the
+ * in-page module in the demo). `getEngineClient(connection)` in `./index`
+ * makes one. One method per
  * `EngineRequest` variant, taking and returning the generated wire types.
  */
 

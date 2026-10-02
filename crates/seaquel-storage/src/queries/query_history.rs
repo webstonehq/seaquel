@@ -1,5 +1,6 @@
 //! `queryHistoryRepo`: `query_history`.
 
+use crate::db;
 use seaquel_types::storage::PersistedQueryHistoryItem;
 
 use super::codec::{begin, bit, flag, insert_sql, json_or, json_text, number, text, Result};
@@ -35,7 +36,7 @@ pub async fn load_by_connection(
     st: &Storage,
     connection_id: &str,
 ) -> Result<Vec<PersistedQueryHistoryItem>> {
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT * FROM query_history WHERE connection_id = ? ORDER BY timestamp DESC, rowid DESC",
     )
     .bind(connection_id)
@@ -64,11 +65,11 @@ pub async fn load_by_connection(
 /// (the foreign key) or the id is taken.
 pub async fn append(st: &Storage, item: &PersistedQueryHistoryItem) -> Result<()> {
     let mut tx = begin(st).await?;
-    bind_item(sqlx::query(&insert_sql("query_history", &COLUMNS)), item)
+    bind_item(db::query(&insert_sql("query_history", &COLUMNS)), item)
         .execute(&mut *tx)
         .await?;
     // `favorite IS NOT 1` is "not a favourite" as `flag` reads it.
-    sqlx::query(
+    db::query(
         "DELETE FROM query_history WHERE connection_id = ?1 AND favorite IS NOT 1 AND rowid IN (\
            SELECT rowid FROM query_history WHERE connection_id = ?1 \
            ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?2)",
@@ -93,7 +94,7 @@ pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> R
     let mut tx = begin(st).await?;
     let insert = insert_sql("query_history", &COLUMNS);
     for item in items {
-        bind_item(sqlx::query(&insert), item)
+        bind_item(db::query(&insert), item)
             .execute(&mut *tx)
             .await?;
     }
@@ -104,7 +105,7 @@ pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> R
             continue;
         }
         pruned.push(connection_id);
-        sqlx::query(
+        db::query(
             "DELETE FROM query_history WHERE connection_id = ?1 AND favorite IS NOT 1 AND rowid IN (\
                SELECT rowid FROM query_history WHERE connection_id = ?1 \
                ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?2)",
@@ -121,7 +122,7 @@ pub async fn append_many(st: &Storage, items: &[PersistedQueryHistoryItem]) -> R
 /// Sets (not toggles) a row's favourite flag, so two writes queued in
 /// either order agree. An unknown id changes nothing.
 pub async fn set_favorite(st: &Storage, id: &str, favorite: bool) -> Result<()> {
-    sqlx::query("UPDATE query_history SET favorite = ? WHERE id = ?")
+    db::query("UPDATE query_history SET favorite = ? WHERE id = ?")
         .bind(bit(favorite))
         .bind(id)
         .execute(st.pool())
@@ -129,7 +130,7 @@ pub async fn set_favorite(st: &Storage, id: &str, favorite: bool) -> Result<()> 
     Ok(())
 }
 
-type Query<'q> = sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>;
+type Query<'q> = crate::db::SqliteQuery<'q>;
 
 /// Binds `h` in [`COLUMNS`]' order.
 fn bind_item<'q>(q: Query<'q>, h: &'q PersistedQueryHistoryItem) -> Query<'q> {
@@ -152,13 +153,13 @@ pub async fn replace_all(
     items: &[PersistedQueryHistoryItem],
 ) -> Result<()> {
     let mut tx = begin(st).await?;
-    sqlx::query("DELETE FROM query_history WHERE connection_id = ?")
+    db::query("DELETE FROM query_history WHERE connection_id = ?")
         .bind(connection_id)
         .execute(&mut *tx)
         .await?;
     let insert = insert_sql("query_history", &COLUMNS);
     for h in items {
-        bind_item(sqlx::query(&insert), h).execute(&mut *tx).await?;
+        bind_item(db::query(&insert), h).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -166,7 +167,7 @@ pub async fn replace_all(
 
 /// Deletes a connection's history.
 pub async fn remove_by_connection(st: &Storage, connection_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM query_history WHERE connection_id = ?")
+    db::query("DELETE FROM query_history WHERE connection_id = ?")
         .bind(connection_id)
         .execute(st.pool())
         .await?;

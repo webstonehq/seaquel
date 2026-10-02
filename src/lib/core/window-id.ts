@@ -14,8 +14,8 @@
  *   checking one id at once (a tab reloading while its duplicate opens)
  *   tell each other apart by a random nonce in each claim: the lower one
  *   makes a new id. A page that makes a fresh id has nothing to check.
- * - **Demo:** `demo`. The demo has no Core and no second window sharing its
- *   file.
+ * - **Demo:** `demo`. The demo's Core runs in the page (phase 8) and stamps
+ *   every write with `demo`; each tab has its own copy of the file.
  *
  * The web id must be settled before the page's first Core call, since it is
  * the origin every call carries: `windowIdReady()` resolves it once, the

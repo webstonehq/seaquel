@@ -1,5 +1,6 @@
 //! `importStateRepo`: `import_state`, per import source.
 
+use crate::db;
 use seaquel_types::storage::ImportState;
 
 use super::codec::{bit, flag, opt_text, Result};
@@ -13,7 +14,7 @@ pub async fn load(st: &Storage, source: &str) -> Result<Option<ImportState>> {
 /// [`load`] on the pool or inside a write.
 pub async fn get(r: impl Into<Reader<'_>>, source: &str) -> Result<Option<ImportState>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(
+    let row = db::query(
         "SELECT has_offered_import, last_check_timestamp FROM import_state WHERE source = ?",
     )
     .bind(source)
@@ -34,7 +35,7 @@ pub async fn save(
     has_offered_import: bool,
     last_check_timestamp: Option<&str>,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT OR REPLACE INTO import_state (source, has_offered_import, last_check_timestamp) \
          VALUES (?, ?, ?)",
     )
@@ -53,7 +54,7 @@ pub async fn save_in(
     has_offered_import: bool,
     last_check_timestamp: Option<&str>,
 ) -> Result<()> {
-    sqlx::query(
+    db::query(
         "INSERT OR REPLACE INTO import_state (source, has_offered_import, last_check_timestamp) \
          VALUES (?, ?, ?)",
     )

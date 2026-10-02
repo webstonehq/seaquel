@@ -4,8 +4,9 @@
 //! upserts messages by id ([`put_messages`]) instead of replacing a chat's
 //! list; [`replace_all_messages`] stays for its frozen fixtures.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::{PersistedAIChat, PersistedAIMessage};
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{begin, insert_sql, opt_text, text, upsert_sql, Result};
 use crate::{Reader, Storage, WriteTx};
@@ -41,11 +42,10 @@ pub async fn load_by_connection(st: &Storage, connection_id: &str) -> Result<Vec
 /// failing the list.
 pub async fn list(r: impl Into<Reader<'_>>, connection_id: &str) -> Result<Vec<PersistedAIChat>> {
     let mut conn = r.into().conn().await?;
-    let rows =
-        sqlx::query("SELECT * FROM ai_chats WHERE connection_id = ? ORDER BY updated_at DESC")
-            .bind(connection_id)
-            .fetch_all(&mut *conn)
-            .await?;
+    let rows = db::query("SELECT * FROM ai_chats WHERE connection_id = ? ORDER BY updated_at DESC")
+        .bind(connection_id)
+        .fetch_all(&mut *conn)
+        .await?;
     Ok(rows.iter().filter_map(|row| map_chat(row).ok()).collect())
 }
 
@@ -53,7 +53,7 @@ pub async fn list(r: impl Into<Reader<'_>>, connection_id: &str) -> Result<Vec<P
 /// which no list shows either).
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedAIChat>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query("SELECT * FROM ai_chats WHERE id = ?")
+    let row = db::query("SELECT * FROM ai_chats WHERE id = ?")
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -62,7 +62,7 @@ pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedA
 
 /// Upserts a chat.
 pub async fn save_chat(st: &Storage, chat: &PersistedAIChat) -> Result<()> {
-    sqlx::query(&upsert_sql("ai_chats", &CHAT_COLUMNS, "id"))
+    db::query(&upsert_sql("ai_chats", &CHAT_COLUMNS, "id"))
         .bind(&chat.id)
         .bind(&chat.connection_id)
         .bind(&chat.title)
@@ -75,7 +75,7 @@ pub async fn save_chat(st: &Storage, chat: &PersistedAIChat) -> Result<()> {
 
 /// Inserts a new chat. An id that exists fails rather than overwriting.
 pub async fn insert(tx: &mut WriteTx, chat: &PersistedAIChat) -> Result<()> {
-    sqlx::query(&insert_sql("ai_chats", &CHAT_COLUMNS))
+    db::query(&insert_sql("ai_chats", &CHAT_COLUMNS))
         .bind(&chat.id)
         .bind(&chat.connection_id)
         .bind(&chat.title)
@@ -90,7 +90,7 @@ pub async fn insert(tx: &mut WriteTx, chat: &PersistedAIChat) -> Result<()> {
 /// to another connection and keeps when it was made. `false` when there's
 /// no chat with that id.
 pub async fn update(tx: &mut WriteTx, chat: &PersistedAIChat) -> Result<bool> {
-    let done = sqlx::query("UPDATE ai_chats SET title = ?, updated_at = ? WHERE id = ?")
+    let done = db::query("UPDATE ai_chats SET title = ?, updated_at = ? WHERE id = ?")
         .bind(&chat.title)
         .bind(&chat.updated_at)
         .bind(&chat.id)
@@ -104,11 +104,11 @@ pub async fn update(tx: &mut WriteTx, chat: &PersistedAIChat) -> Result<bool> {
 /// chat.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
     let conn = tx.conn();
-    sqlx::query("DELETE FROM ai_messages WHERE chat_id = ?")
+    db::query("DELETE FROM ai_messages WHERE chat_id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
-    let done = sqlx::query("DELETE FROM ai_chats WHERE id = ?")
+    let done = db::query("DELETE FROM ai_chats WHERE id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
@@ -118,7 +118,7 @@ pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
 /// How many chats the file holds, for every connection.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ai_chats")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM ai_chats")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)
@@ -126,7 +126,7 @@ pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
 
 /// Deletes a chat. Its messages cascade.
 pub async fn remove_chat(st: &Storage, chat_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM ai_chats WHERE id = ?")
+    db::query("DELETE FROM ai_chats WHERE id = ?")
         .bind(chat_id)
         .execute(st.pool())
         .await?;
@@ -135,7 +135,7 @@ pub async fn remove_chat(st: &Storage, chat_id: &str) -> Result<()> {
 
 /// Deletes a connection's chats.
 pub async fn remove_by_connection(st: &Storage, connection_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM ai_chats WHERE connection_id = ?")
+    db::query("DELETE FROM ai_chats WHERE connection_id = ?")
         .bind(connection_id)
         .execute(st.pool())
         .await?;
@@ -157,7 +157,7 @@ pub async fn load_messages(
     chat_id: &str,
 ) -> Result<Vec<PersistedAIMessage>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(LOAD_MESSAGES)
+    let rows = db::query(LOAD_MESSAGES)
         .bind(chat_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -188,13 +188,13 @@ pub async fn replace_all_messages(
     messages: &[PersistedAIMessage],
 ) -> Result<()> {
     let mut tx = begin(st).await?;
-    sqlx::query("DELETE FROM ai_messages WHERE chat_id = ?")
+    db::query("DELETE FROM ai_messages WHERE chat_id = ?")
         .bind(chat_id)
         .execute(&mut *tx)
         .await?;
     let insert = insert_sql("ai_messages", &MESSAGE_COLUMNS);
     for m in messages {
-        sqlx::query(&insert)
+        db::query(&insert)
             .bind(&m.id)
             .bind(&m.chat_id)
             .bind(&m.role)
@@ -229,7 +229,7 @@ pub async fn message_chat_ids(
     let mut out = Vec::new();
     for id in ids {
         let chat: Option<(Option<Vec<u8>>,)> =
-            sqlx::query_as("SELECT CAST(chat_id AS BLOB) FROM ai_messages WHERE id = ?")
+            db::query_as("SELECT CAST(chat_id AS BLOB) FROM ai_messages WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&mut *conn)
                 .await?;
@@ -262,7 +262,7 @@ pub async fn put_messages(
     let upsert = upsert_sql("ai_messages", &MESSAGE_COLUMNS, "id");
     let conn = tx.conn();
     for m in messages {
-        sqlx::query(&upsert)
+        db::query(&upsert)
             .bind(&m.id)
             .bind(chat_id)
             .bind(&m.role)
@@ -282,7 +282,7 @@ pub async fn delete_messages(tx: &mut WriteTx, chat_id: &str, ids: &[String]) ->
     let conn = tx.conn();
     let mut deleted = 0;
     for id in ids {
-        deleted += sqlx::query("DELETE FROM ai_messages WHERE chat_id = ? AND id = ?")
+        deleted += db::query("DELETE FROM ai_messages WHERE chat_id = ? AND id = ?")
             .bind(chat_id)
             .bind(id)
             .execute(&mut *conn)
@@ -299,7 +299,7 @@ pub const MESSAGE_COUNT: &str = "SELECT COUNT(*) FROM ai_messages WHERE chat_id 
 /// How many messages a chat holds.
 pub async fn message_count(r: impl Into<Reader<'_>>, chat_id: &str) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar(MESSAGE_COUNT)
+    let n: i64 = db::query_scalar(MESSAGE_COUNT)
         .bind(chat_id)
         .fetch_one(&mut *conn)
         .await?;
@@ -316,7 +316,7 @@ pub const CONTENT_BYTES: &str =
 /// `max_chat_bytes`, Decision 24).
 pub async fn content_bytes(r: impl Into<Reader<'_>>, chat_id: &str) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar(CONTENT_BYTES)
+    let n: i64 = db::query_scalar(CONTENT_BYTES)
         .bind(chat_id)
         .fetch_one(&mut *conn)
         .await?;
@@ -333,7 +333,7 @@ pub async fn content_bytes_of(
     let mut conn = r.into().conn().await?;
     let mut total = 0u64;
     for id in ids {
-        let n: Option<i64> = sqlx::query_scalar(
+        let n: Option<i64> = db::query_scalar(
             "SELECT octet_length(content) FROM ai_messages WHERE id = ? AND chat_id = ?",
         )
         .bind(id)

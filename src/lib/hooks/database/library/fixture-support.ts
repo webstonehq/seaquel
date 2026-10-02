@@ -1,18 +1,16 @@
 /**
- * The library fixtures' replay rules, shared by the replay through
- * `TsLibrary`'s calls (`ts-library.test.ts`) and the one through the view
- * models (`library-replay.svelte.test.ts`): tokens and id binding, `<now>`,
+ * The library fixtures' replay rules, for the replay through the view
+ * models (`library-replay.svelte.test.ts`, over Core in the browser
+ * module since phase 8): tokens and id binding, `<now>`,
  * the row comparison (library tables whole, cascade tables by id, no state
  * of a removed project), `changes.json` and the case files. Test support
  * only; nothing in the app imports it.
  */
-import type initSqlJs from "sql.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { bootstrapSqljsDatabase } from "$lib/storage/sqljs-client";
-import { WebSqliteDatabase } from "$lib/storage/web-sqlite";
-
-export type SqlJs = Awaited<ReturnType<typeof initSqlJs>>;
+import { DatabaseSync } from "node:sqlite";
+import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
+import type { TestModule } from "$lib/core/browser/testing/node";
 
 export type Json = unknown;
 export type Row = Record<string, unknown>;
@@ -248,43 +246,46 @@ export function compare(exp: Expected, outcome: Outcome, snap: Tables, cx: Ctx):
 
 // ── Running a case ──
 
-export type Db = InstanceType<typeof WebSqliteDatabase>;
-
-/** The recorder's beta-era file: no foreign key on the two `project_id` columns. */
-export async function makeBetaEra(db: Db): Promise<void> {
-  await db.execute("PRAGMA foreign_keys=OFF");
-  const rebuild: [string, string, string][] = [
-    [
-      "saved_queries",
-      `CREATE TABLE saved_queries_beta (id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL,
-        parameters TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        starred INTEGER NOT NULL DEFAULT 0, shared INTEGER NOT NULL DEFAULT 0, description TEXT,
-        database_type TEXT, tags TEXT, folder TEXT, project_id TEXT)`,
-      "CREATE INDEX idx_saved_queries_project ON saved_queries(project_id)",
-    ],
-    [
-      "dashboards",
-      `CREATE TABLE dashboards_beta (id TEXT PRIMARY KEY, name TEXT NOT NULL,
-        viewport TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}', widgets TEXT NOT NULL DEFAULT '[]',
-        date_filter TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, starred INTEGER DEFAULT 0,
-        shared INTEGER NOT NULL DEFAULT 0, description TEXT, project_id TEXT)`,
-      "CREATE INDEX idx_dashboards_project ON dashboards(project_id)",
-    ],
-  ];
-  for (const [table, create, index] of rebuild) {
-    await db.execute(create);
-    await db.execute(`DROP TABLE ${table}`);
-    await db.execute(`ALTER TABLE ${table}_beta RENAME TO ${table}`);
-    await db.execute(`DROP INDEX IF EXISTS idx_${table}_project`);
-    await db.execute(index);
-  }
-  await db.execute("PRAGMA foreign_keys=ON");
+/** The case's metadata file, read and written directly (`ModuleCore`'s `query`/`execute`). */
+export interface Db {
+  query<T = Row>(sql: string, params?: unknown[]): Promise<T[]>;
+  execute(sql: string, params?: unknown[]): Promise<unknown>;
 }
 
-export async function openCaseDb(SQL: SqlJs, c: Obj): Promise<Db> {
-  const db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
-  if (c.file === "v2026.4.5-beta.1") await makeBetaEra(db);
+/** The frozen schema of a file v2026.4.5-beta.1 made (`seaquel-storage`'s fixtures). */
+const BETA_SCHEMA = join(
+  process.cwd(),
+  "crates/seaquel-storage/tests/fixtures/schemas/v2026.4.5-beta.1.sql",
+);
+
+/**
+ * Opens Core on case `c`'s file, as the Rust replay (`seaquel-core/tests/
+ * library.rs`) opens it: a beta-era case starts from that release's frozen
+ * schema, which Core's open upgrades; then the seed rows go in; the legacy
+ * strings case runs `drop_legacy_built_connection_strings` again on them.
+ * Core reopens on the result before the first call or read.
+ */
+export async function openCaseCore(module: TestModule, c: Obj): Promise<ModuleCore> {
+  let image: Uint8Array | null = null;
+  if (c.file === "v2026.4.5-beta.1") {
+    const beta = new DatabaseSync(":memory:");
+    beta.exec(readFileSync(BETA_SCHEMA, "utf8"));
+    // Node 24 has `serialize`; the installed @types/node doesn't list it yet.
+    image = (beta as unknown as { serialize(): Uint8Array }).serialize();
+    beta.close();
+  }
+  const db = await openModuleCore(module, { image });
+  await seedCase(db, c);
+  if (c.name === "legacy/strings-for-each-engine") {
+    await db.execute(
+      "DELETE FROM _seaquel_data_steps WHERE name = 'drop_legacy_built_connection_strings'",
+    );
+  }
+  return db;
+}
+
+/** Seeds case `c`'s rows into `db`. */
+export async function seedCase(db: Db, c: Obj): Promise<void> {
   const seed = (c.seed ?? {}) as Record<string, Row[]>;
   for (const [table] of TABLES) {
     for (const row of seed[table] ?? []) {
@@ -300,13 +301,44 @@ export async function openCaseDb(SQL: SqlJs, c: Obj): Promise<Db> {
       );
     }
   }
-  return db;
 }
 
+/**
+ * The link columns migrations `0004_shared_links.sql` and
+ * `0005_shared_connection_origin.sql` (phase 5e) added, by table. The 5d
+ * fixtures were recorded before them and never link a row (as
+ * `seaquel-core/tests/common`'s `LINK_COLUMNS`).
+ */
+const LINK_COLUMNS: Record<string, string[]> = {
+  projects: ["shared_dir"],
+  saved_queries: ["shared_path", "shared_base", "shared_file_id"],
+  dashboards: ["shared_path", "shared_base", "shared_file_id"],
+  connections: ["shared_base", "shared_file_id", "shared_origin"],
+};
+
+/**
+ * Every recorded table, as the Rust replay reads it: the link columns are
+ * checked NULL and dropped, and `name_key` (migration `0001`, after the
+ * recording) is checked present for a named row and dropped. A problem is
+ * thrown, naming the table and column.
+ */
 export async function snapshot(db: Db): Promise<Tables> {
   const out: Tables = {};
   for (const [table, order] of TABLES) {
-    out[table] = await db.query<Row>(`SELECT * FROM ${table} ORDER BY ${order}`);
+    const rows = await db.query<Row>(`SELECT * FROM ${table} ORDER BY ${order}`);
+    for (const row of rows) {
+      for (const column of LINK_COLUMNS[table] ?? []) {
+        if (row[column] !== null) throw new Error(`${table}.${column} isn't NULL`);
+        delete row[column];
+      }
+      if ("name_key" in row) {
+        if (typeof row.name === "string" && typeof row.name_key !== "string") {
+          throw new Error(`${table}.name_key is missing for ${String(row.id)}`);
+        }
+        delete row.name_key;
+      }
+    }
+    out[table] = rows;
   }
   return out;
 }

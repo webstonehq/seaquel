@@ -17,7 +17,6 @@ vi.mock("$lib/utils/environment", () => ({
 }));
 vi.mock("$lib/engine", () => ({
   getEngineClient: () => ({ schemaTables: async () => [] }),
-  TsEngineClient: class {},
 }));
 vi.mock("$lib/services/keyring", () => ({
   getKeyringService: () => ({ isAvailable: () => false, isUnlocked: () => false }),

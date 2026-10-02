@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (or superpowers:executing-plans) to implement this plan task by task.
 
-**Status:** implemented (Tasks 1–9; checkpoint 2026-10-01, see "Checkpoint"); the owner's manual checks are pending. Owner answered Q20–Q32. Surveyed on 2026-09-30 at HEAD `5d876af` (5d-2, committed); the only uncommitted changes then were the owner's edits to the 5d plan and the design doc. Line numbers are as of `5d876af`.
+**Status:** implemented (Tasks 1–9; checkpoint 2026-10-01, see "Checkpoint"); the owner's manual checks passed. Owner answered Q20–Q32. Surveyed on 2026-09-30 at HEAD `5d876af` (5d-2, committed); the only uncommitted changes then were the owner's edits to the 5d plan and the design doc. Line numbers are as of `5d876af`.
 
 **Goal:** The `.seaquel` projection of a shared project (which files map to which rows, and the reconcile in both directions) runs in Core, and so do the TablePlus and DBeaver import readers. Every edit of a shared row reaches its file, every file change reaches its row, each side's changes are told apart from the other's, and nothing is written into a repo the row doesn't belong to. The webview no longer reads or writes the repo's files, and the CLI can call both through Core. The TypeScript keeps the dialogs, the sync button and the view of git status.
 
@@ -1447,7 +1447,7 @@ The full check list, run on 2026-10-01 one step at a time on the shared `scratch
 
 **The one failure.** `npm run cli:build` stopped with `E0432: unresolved import crate::library::connection_order_in` in `seaquel-core/src/imports.rs`: the CLI builds Core with `imports` and without `git`, and probe fix 8 had gated the function on `git` alone. Fixed by gating it on either feature (`crates/seaquel-core/src/library.rs`). After the fix: `cli:build`, `cargo fmt --check`, the CI clippy, `cargo clippy -p seaquel-core -- -D warnings` under five feature sets (`storage`; `storage,imports`; `storage,git`; `storage,git,imports`; the CLI's `storage,secrets,ssh,workspace,imports`), clippy of `seaquel-cli`, `seaquel-mcp` and `seaquel-server` on their own, `cargo test -p seaquel-cli` (2 and 3), Core's `imports` (8) and `shared_cli` (1) tests, `cargo check -p seaquel` and `cargo test -p seaquel --lib` (46) all pass. The live run came before the fix; the change only affects builds without `git`, which the workspace run never makes. The earlier `cargo check -p seaquel` had passed against a sidecar binary left from before probe fix 8.
 
-**Manual checks:** pending (the owner).
+**Manual checks:** passed (the owner).
 
 **Not run:** the release workflow and a signed build.
 

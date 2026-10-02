@@ -5,6 +5,8 @@
 //! in-memory list before every save, so an existing user's first append
 //! removes what their next `replaceAll` would have, and nothing else.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::collections::BTreeSet;
 use std::path::Path;
 

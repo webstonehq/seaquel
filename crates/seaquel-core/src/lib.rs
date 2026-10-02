@@ -27,8 +27,13 @@ use seaquel_sql::read_only::read_only_error;
 use seaquel_sql::SqlEngine;
 pub use seaquel_types::{StreamEvent, Value};
 
-// `browser` is the wasm32 build for the web page: no native engine or
-// infrastructure may come with it. Build it with `--no-default-features`.
+// `browser` is the wasm32 build for the web page (phase 8): Core with
+// `storage` (the metadata file in memory) and `workspace` (connecting,
+// runs, edits), and nothing native. Every engine feature is refused,
+// `engine-duckdb` included: that one is the native driver, and the page's
+// module registers the DuckDB engine's browser driver itself. So are the
+// secret store, SSH, git, licensing and the imports. Build it with
+// `--no-default-features --features browser,storage,workspace`.
 #[cfg(all(
     feature = "browser",
     any(
@@ -37,21 +42,25 @@ pub use seaquel_types::{StreamEvent, Value};
         feature = "engine-sqlite",
         feature = "engine-mssql",
         feature = "engine-duckdb",
-        feature = "storage",
         feature = "secrets",
         feature = "ssh",
         feature = "git",
         feature = "license-desktop",
         feature = "license-server",
-        feature = "workspace",
+        feature = "imports",
     )
 ))]
 compile_error!(
     "seaquel-core's `browser` feature can't be combined with an engine or native infrastructure \
-     feature; build it with --no-default-features --features browser"
+     feature (only `storage` and `workspace`); build it with --no-default-features --features \
+     browser,storage,workspace"
 );
 
 mod changes;
+// The demo's connection (phase 8 Decision 19): the browser build only, and
+// this crate's own tests.
+#[cfg(all(feature = "storage", any(feature = "browser", test)))]
+mod demo;
 #[cfg(feature = "workspace")]
 mod edits;
 #[cfg(feature = "imports")]
@@ -74,6 +83,8 @@ pub use changes::{
     is_origin, ChangeSeq, Seqd, StorageChange, StoredKind, WriteOrigin, MAX_EVENT_IDS,
     MAX_EVENT_IDS_BYTES, MAX_EVENT_ID_BYTES,
 };
+#[cfg(all(feature = "storage", any(feature = "browser", test)))]
+pub use demo::DEMO_CONNECTION_ID;
 pub use seaquel_runtime::Executor;
 /// What a GUI sends to connect: the form and the secrets it supplies.
 pub use seaquel_types::connect::{ConnectionForm, SuppliedSecrets};
@@ -734,9 +745,12 @@ impl Core {
     /// Storage failures keep their codes (`LEGACY_STORAGE`,
     /// `STORAGE_CORRUPT`, `NO_DATA_DIR`, `STORAGE_ERROR`, and for a
     /// read-only spec `STORAGE_NEEDS_UPGRADE` and `STORAGE_NOT_FOUND`).
+    // In the browser (phase 8) nothing is `Send`: the page has one thread,
+    // and storage's in-memory SQLite and the executor are local to it.
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
     pub async fn open_workspace(&self, spec: WorkspaceSpec) -> Result<Arc<Workspace>, CoreError> {
         info!(activity = "workspace.open"; "Opening workspace");
-        let workspace = Workspace::open(spec).await?;
+        let workspace = Workspace::open(spec, self.executor.as_ref()).await?;
         // Phase 5d Decision 12a: move secrets left in stored connection
         // strings to the keychain, then strip them (once; a read-only open
         // never runs it).

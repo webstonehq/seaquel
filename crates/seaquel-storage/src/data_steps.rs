@@ -3,7 +3,7 @@
 //! file, recorded by name in `_seaquel_data_steps`. See
 //! `migrations/README.md` for when to write one instead of a migration.
 
-use sqlx::{Row, SqliteConnection, SqlitePool};
+use crate::db::{self, Row, SqliteConnection, SqlitePool};
 
 use crate::connection_string::{is_legacy_built_string, username_from_string, StringFields};
 use crate::queries::codec::{number, opt_text, text};
@@ -84,14 +84,14 @@ pub(crate) async fn run(pool: &SqlitePool) {
 /// without the message, which can quote stored values.
 fn category(e: &StorageError) -> String {
     match e {
-        StorageError::Sqlx(sqlx::Error::Database(db)) => {
+        StorageError::Sqlx(db::Error::Database(db)) => {
             format!(
                 "database error {:?}, code {}",
                 db.kind(),
                 db.code().unwrap_or_default()
             )
         }
-        StorageError::Sqlx(sqlx::Error::Decode(_)) => "decode error".to_string(),
+        StorageError::Sqlx(db::Error::Decode(_)) => "decode error".to_string(),
         StorageError::Sqlx(_) => "sqlx error".to_string(),
         _ => e.code().to_string(),
     }
@@ -100,13 +100,13 @@ fn category(e: &StorageError) -> String {
 /// One step and its record, in one transaction: both or neither.
 async fn run_step(pool: &SqlitePool, step: &Step) -> Result<(), StorageError> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    sqlx::query(&format!(
+    db::query(&format!(
         "CREATE TABLE IF NOT EXISTS {DATA_STEPS_TABLE} (name TEXT PRIMARY KEY, applied_at TEXT)"
     ))
     .execute(&mut *tx)
     .await?;
     // Another process may have run it since `pending` looked.
-    let done: Option<(String,)> = sqlx::query_as(&format!(
+    let done: Option<(String,)> = db::query_as(&format!(
         "SELECT name FROM {DATA_STEPS_TABLE} WHERE name = ?"
     ))
     .bind(step.name)
@@ -125,7 +125,7 @@ async fn run_step(pool: &SqlitePool, step: &Step) -> Result<(), StorageError> {
         StepKind::BackfillNameKeys => backfill_name_keys(&mut tx).await?,
         StepKind::BackfillDashboardNameKeys => backfill_dashboard_name_keys(&mut tx).await?,
     }
-    sqlx::query(&format!(
+    db::query(&format!(
         "INSERT INTO {DATA_STEPS_TABLE} (name, applied_at) VALUES (?, datetime('now'))"
     ))
     .bind(step.name)
@@ -141,14 +141,14 @@ pub(crate) async fn pending(
     conn: &mut SqliteConnection,
 ) -> Result<Vec<&'static str>, StorageError> {
     let exists: Option<(String,)> =
-        sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        db::query_as("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
             .bind(DATA_STEPS_TABLE)
             .fetch_optional(&mut *conn)
             .await?;
     if exists.is_none() {
         return Ok(STEPS.iter().map(|s| s.name).collect());
     }
-    let done: Vec<(String,)> = sqlx::query_as(&format!("SELECT name FROM {DATA_STEPS_TABLE}"))
+    let done: Vec<(String,)> = db::query_as(&format!("SELECT name FROM {DATA_STEPS_TABLE}"))
         .fetch_all(&mut *conn)
         .await?;
     Ok(STEPS
@@ -165,7 +165,7 @@ pub(crate) async fn pending(
 async fn strip_connection_string_passwords(
     conn: &mut SqliteConnection,
 ) -> Result<(), StorageError> {
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT rowid, connection_string FROM connections \
          WHERE typeof(connection_string) = 'text'",
     )
@@ -179,7 +179,7 @@ async fn strip_connection_string_passwords(
         };
         let stripped = strip_connection_string_password(&stored);
         if stripped != stored {
-            sqlx::query("UPDATE connections SET connection_string = ? WHERE rowid = ?")
+            db::query("UPDATE connections SET connection_string = ? WHERE rowid = ?")
                 .bind(stripped)
                 .bind(rowid)
                 .execute(&mut *conn)
@@ -211,7 +211,7 @@ async fn strip_connection_string_passwords(
 async fn drop_legacy_built_connection_strings(
     conn: &mut SqliteConnection,
 ) -> Result<(), StorageError> {
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT rowid, type, host, port, database_name, username, ssl_mode, connection_string \
          FROM connections WHERE typeof(connection_string) = 'text' AND connection_string <> ''",
     )
@@ -224,13 +224,13 @@ async fn drop_legacy_built_connection_strings(
         };
         match change {
             LegacyRow::Drop => {
-                sqlx::query("UPDATE connections SET connection_string = NULL WHERE rowid = ?")
+                db::query("UPDATE connections SET connection_string = NULL WHERE rowid = ?")
                     .bind(rowid)
                     .execute(&mut *conn)
                     .await?;
             }
             LegacyRow::DropKeepingUser(username) => {
-                sqlx::query(
+                db::query(
                     "UPDATE connections SET connection_string = NULL, username = ? WHERE rowid = ?",
                 )
                 .bind(username)
@@ -271,7 +271,7 @@ pub(crate) async fn backfill_name_keys(conn: &mut SqliteConnection) -> Result<()
 pub(crate) async fn name_keys_pending(pool: &SqlitePool) -> Result<bool, StorageError> {
     let mut conn = pool.acquire().await?;
     for table in ALL_NAME_KEY_TABLES {
-        let names: Vec<(Vec<u8>,)> = sqlx::query_as(&format!(
+        let names: Vec<(Vec<u8>,)> = db::query_as(&format!(
             "SELECT CAST(name AS BLOB) FROM {table} \
              WHERE name_key IS NULL AND typeof(name) = 'text'"
         ))
@@ -301,7 +301,7 @@ pub(crate) async fn fill_name_keys(
     tables: &[&str],
 ) -> Result<(), StorageError> {
     for table in tables {
-        let rows = sqlx::query(&format!(
+        let rows = db::query(&format!(
             "SELECT rowid, name FROM {table} WHERE name_key IS NULL AND typeof(name) = 'text'"
         ))
         .fetch_all(&mut *conn)
@@ -313,7 +313,7 @@ pub(crate) async fn fill_name_keys(
             let Ok(name) = String::from_utf8(bytes) else {
                 continue;
             };
-            sqlx::query(&update)
+            db::query(&update)
                 .bind(seaquel_types::names::name_key(&name))
                 .bind(rowid)
                 .execute(&mut *conn)
@@ -331,7 +331,7 @@ enum LegacyRow {
 
 /// What the step does to one row: `None` leaves it alone, including when a
 /// value doesn't decode.
-fn legacy_row(row: &sqlx::sqlite::SqliteRow) -> Option<LegacyRow> {
+fn legacy_row(row: &db::SqliteRow) -> Option<LegacyRow> {
     let string = opt_text(row, "connection_string").ok()??;
     let ty = text(row, "type").ok()?;
     let host = text(row, "host").ok()?;

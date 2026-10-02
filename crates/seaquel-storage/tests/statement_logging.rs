@@ -2,6 +2,8 @@
 //! WARN, with its whole SQL. Storage turns both off on every connection it
 //! opens (the pool, the probe and the read-only checks).
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use seaquel_storage::{Storage, StorageOptions};

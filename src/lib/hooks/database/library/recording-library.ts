@@ -2,8 +2,8 @@
  * A `LibraryService` for tests: rows in memory, every call recorded as
  * sent, failures injectable per method, and a `seq` the test can move. It
  * keeps only the rules the GUI's tests lean on (ids, patches, `lastConnected`
- * on `connected`, label stripping, keyframe versions); `TsLibrary` holds
- * Core's full rules.
+ * on `connected`, label stripping, keyframe versions); Core holds the full
+ * rules (the replays run them through the browser module).
  */
 import type {
   ChatDraft,

@@ -3,14 +3,13 @@
  * `ProjectManager`, `LabelManager`, `SavedQueryManager`) and whatever
  * stores the library (phase 5d-1, Decision 6), like 5c's `EditService`.
  *
- * - `CoreLibrary` (desktop and web): the `library` RPC group. Core checks
- *   the input, assigns ids and times, writes in one transaction (and, on the
- *   desktop, the keychain in the same call), and tells the user's other
- *   windows and tabs (`storageChanged`).
- * - `TsLibrary` (the demo): the same rules in TypeScript over sql.js, until
- *   phase 8.
+ * `CoreLibrary` (every build; the demo's Core runs in the page since phase
+ * 8): the `library` RPC group. Core checks the input, assigns ids and
+ * times, writes in one transaction (and, on the desktop, the keychain in
+ * the same call), and tells the user's other windows and tabs
+ * (`storageChanged`).
  *
- * Both take and return the generated wire types: rows are the
+ * It takes and return the generated wire types: rows are the
  * `seaquel_types::storage` rows (`lastConnected` is text), and every result
  * carries the change `seq` it is at least as new as (Decision 17). A
  * refusal rejects with a `LibraryCallError` (`code`, and `takenBy` for
@@ -235,9 +234,8 @@ export interface LibraryService {
  * `seq`; a record Core keeps as JSON (`aiSettings`, onboarding) crosses as
  * a parsed value.
  *
- * - `CoreSettings` (desktop and web): the `settings` RPC group, writes on
- *   the storage client's write queue.
- * - `TsSettings` (the demo): the same rules over the demo's sql.js file.
+ * `CoreSettings` (every build): the `settings` RPC group, writes on the
+ * storage client's write queue.
  */
 export interface SettingsService {
   /** A setting's stored value; `null` for none. */
@@ -316,9 +314,8 @@ export interface ViewStateLoaded {
  * project, and its active project. `windowId` must be the caller's origin
  * (its window id); Core refuses any other (`INVALID_ARGUMENT`).
  *
- * - `CoreUi` (desktop and web): the `ui` RPC group, writes on the storage
- *   client's write queue.
- * - `TsUi` (the demo): the same rules over the demo's sql.js file.
+ * `CoreUi` (every build): the `ui` RPC group, writes on the storage
+ * client's write queue.
  */
 export interface UiService {
   /** The window's active project, else the most recent window's, else `lastActiveProjectId`. */

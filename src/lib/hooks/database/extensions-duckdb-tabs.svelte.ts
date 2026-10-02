@@ -8,8 +8,8 @@ import type { ExtensionAction } from "$lib/types/generated/ExtensionAction";
 
 /**
  * Runs an extensions tab action on the saved connection `connectionId` (the
- * tab's, never the active one): `db.duckdbExtension` on desktop, the
- * demo's TypeScript path in the demo (`EditService.duckdbExtension`).
+ * tab's, never the active one): Core's `db.duckdbExtension`
+ * (`EditService.duckdbExtension`), on desktop and in the demo's page.
  * `list` answers `duckdb_extensions()`'s rows.
  */
 export type RunExtensionAction = (

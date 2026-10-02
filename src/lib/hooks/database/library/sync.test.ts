@@ -27,7 +27,6 @@ vi.mock("$lib/storage", () => ({
 }));
 vi.mock("$lib/engine", () => ({
   getEngineClient: () => ({ schemaTables: async () => [] }),
-  TsEngineClient: class {},
 }));
 vi.mock("$lib/services/keyring", () => ({
   getKeyringService: () => ({ isAvailable: () => false }),

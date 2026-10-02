@@ -126,12 +126,12 @@ pub enum StorageError {
 
     /// SQLite failed.
     #[error(transparent)]
-    Sqlx(#[from] sqlx::Error),
+    Sqlx(#[from] crate::db::Error),
 
     /// A numbered migration failed, or the file has one this build doesn't
     /// know (it was opened by a newer release).
     #[error(transparent)]
-    Migrate(#[from] sqlx::migrate::MigrateError),
+    Migrate(#[from] crate::db::MigrateError),
 }
 
 impl StorageError {
@@ -156,9 +156,9 @@ impl StorageError {
 
 /// SQLite's `SQLITE_FULL` (13, and its extended codes): the file reached
 /// its `max_page_count`, or the disk is full.
-fn is_full(e: &sqlx::Error) -> bool {
+fn is_full(e: &crate::db::Error) -> bool {
     match e {
-        sqlx::Error::Database(db) => db
+        crate::db::Error::Database(db) => db
             .code()
             .and_then(|c| c.parse::<i64>().ok())
             .is_some_and(|c| c & 0xff == 13),

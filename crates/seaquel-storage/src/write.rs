@@ -3,9 +3,8 @@
 
 use std::ops::{Deref, DerefMut};
 
-use sqlx::pool::PoolConnection;
-use sqlx::{Sqlite, SqliteConnection, Transaction};
-use tokio::sync::OwnedMutexGuard;
+use crate::db::{self, PoolConnection, SqliteConnection, Transaction};
+use crate::lock::OwnedMutexGuard;
 
 use crate::{Storage, StorageError};
 
@@ -31,7 +30,7 @@ use crate::{Storage, StorageError};
 /// back while the caller awaits the read.
 pub struct WriteTx {
     /// `None` once committed or handed to the rollback in `Drop`.
-    conn: Option<PoolConnection<Sqlite>>,
+    conn: Option<PoolConnection>,
     /// Held until the transaction has ended (a rollback on drop keeps it
     /// until the `ROLLBACK` ran), so the next writer never begins on top.
     turn: Option<OwnedMutexGuard<()>>,
@@ -51,9 +50,9 @@ impl std::fmt::Debug for WriteTx {
 /// which would leave the pooled connection unusable for every later
 /// transaction (phase 5d-2 review, the size cap).
 async fn rollback_on(conn: &mut SqliteConnection) -> Result<(), StorageError> {
-    match sqlx::query("ROLLBACK").execute(conn).await {
+    match db::query("ROLLBACK").execute(conn).await {
         Ok(_) => Ok(()),
-        Err(sqlx::Error::Database(e)) if e.message().contains("no transaction is active") => Ok(()),
+        Err(db::Error::Database(e)) if e.message().contains("no transaction is active") => Ok(()),
         Err(e) => Err(e.into()),
     }
 }
@@ -65,7 +64,7 @@ impl WriteTx {
         let Some(conn) = self.conn.as_mut() else {
             return Ok(());
         };
-        sqlx::query("COMMIT").execute(&mut **conn).await?;
+        db::query("COMMIT").execute(&mut **conn).await?;
         self.conn = None;
         Ok(())
     }
@@ -96,7 +95,7 @@ impl WriteTx {
         } else {
             "PRAGMA secure_delete = OFF"
         };
-        sqlx::query(sql).execute(self.conn()).await?;
+        db::query(sql).execute(self.conn()).await?;
         Ok(())
     }
 
@@ -119,14 +118,15 @@ impl Drop for WriteTx {
     /// connection either (both need a runtime). The connection is leaked
     /// with the process; SQLite discards the uncommitted transaction when
     /// the file is next opened.
+    #[cfg(not(target_arch = "wasm32"))]
     fn drop(&mut self) {
         let Some(mut conn) = self.conn.take() else {
             return;
         };
         let turn = self.turn.take();
         match tokio::runtime::Handle::try_current() {
-            // Storage is native only (never a wasm32 Core crate), so a task
-            // on the caller's runtime is fine here.
+            // The native executor only: on wasm32 the `ROLLBACK` is
+            // synchronous (below).
             Ok(rt) => {
                 rt.spawn(async move {
                     if rollback_on(&mut conn).await.is_err() {
@@ -141,6 +141,24 @@ impl Drop for WriteTx {
                 drop(turn);
             }
         }
+    }
+
+    /// Rolls back a transaction that wasn't committed (phase 8 Decision
+    /// 5). The in-memory executor is synchronous, so the `ROLLBACK` runs
+    /// here, before the connection and the write turn are released; "no
+    /// transaction is active" (SQLite already rolled back) is fine, and any
+    /// other failure is logged by code.
+    #[cfg(target_arch = "wasm32")]
+    fn drop(&mut self) {
+        let Some(mut conn) = self.conn.take() else {
+            return;
+        };
+        if let Err(e) = conn.rollback_now() {
+            let code = StorageError::from(e).code();
+            log::warn!(activity = "storage.rollback", code = code; "Rolling back a dropped write failed");
+        }
+        drop(conn);
+        drop(self.turn.take());
     }
 }
 
@@ -175,12 +193,7 @@ impl Storage {
                 path: self.path().to_path_buf(),
             });
         }
-        let turn = tokio::time::timeout(self.write_wait(), self.write_lock().lock_owned())
-            .await
-            .map_err(|_| StorageError::WriteLockTimeout {
-                path: self.path().to_path_buf(),
-                waited: self.write_wait(),
-            })?;
+        let turn = self.turn().await?;
         let conn = self.pool().acquire().await?;
         // The guard exists before `BEGIN` is sent: sqlx's worker runs a
         // statement even when its future is dropped, so a caller cancelled
@@ -190,7 +203,7 @@ impl Storage {
             conn: Some(conn),
             turn: Some(turn),
         };
-        sqlx::query("BEGIN IMMEDIATE").execute(tx.conn()).await?;
+        db::query("BEGIN IMMEDIATE").execute(tx.conn()).await?;
         Ok(tx)
     }
 }
@@ -204,7 +217,7 @@ impl Storage {
     pub async fn vacuum(&self) -> Result<(), StorageError> {
         let _turn = self.exclusive_turn().await?;
         let mut conn = self.pool().acquire().await?;
-        sqlx::query("VACUUM").execute(&mut *conn).await?;
+        db::query("VACUUM").execute(&mut *conn).await?;
         Ok(())
     }
 
@@ -214,7 +227,7 @@ impl Storage {
     pub async fn checkpoint(&self) -> Result<bool, StorageError> {
         let _turn = self.exclusive_turn().await?;
         let mut conn = self.pool().acquire().await?;
-        let (busy,): (i64,) = sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+        let (busy,): (i64,) = db::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
             .fetch_one(&mut *conn)
             .await?;
         Ok(busy == 0)
@@ -222,18 +235,62 @@ impl Storage {
 
     /// This process's write turn, for a statement that can't run in a
     /// [`WriteTx`].
-    async fn exclusive_turn(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, StorageError> {
+    async fn exclusive_turn(&self) -> Result<OwnedMutexGuard<()>, StorageError> {
         if self.is_read_only() {
             return Err(StorageError::ReadOnly {
                 path: self.path().to_path_buf(),
             });
         }
-        tokio::time::timeout(self.write_wait(), self.write_lock().lock_owned())
+        self.turn().await
+    }
+
+    /// This process's write turn, waiting at most [`crate::WRITE_WAIT`]
+    /// for the earlier writers. The wait races the executor's `sleep` when
+    /// Core gave storage one ([`Storage::with_executor`]); otherwise
+    /// tokio's timer natively, as before, and the page's timer on wasm32.
+    async fn turn(&self) -> Result<OwnedMutexGuard<()>, StorageError> {
+        let timed_out = || StorageError::WriteLockTimeout {
+            path: self.path().to_path_buf(),
+            waited: self.write_wait(),
+        };
+        let lock = self.write_lock();
+        let acquire = lock.lock_owned();
+        if let Some(clock) = self.clock() {
+            return race(acquire, clock.0.sleep(self.write_wait()))
+                .await
+                .ok_or_else(timed_out);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::time::timeout(self.write_wait(), acquire)
+                .await
+                .map_err(|_| timed_out())
+        }
+        // No tokio timer in the browser: the wait races the page's own
+        // timer (phase 8 Decision 5), the one Core's `WasmExecutor` uses.
+        #[cfg(target_arch = "wasm32")]
+        {
+            use seaquel_runtime::Executor as _;
+            race(
+                acquire,
+                seaquel_runtime::WasmExecutor.sleep(self.write_wait()),
+            )
             .await
-            .map_err(|_| StorageError::WriteLockTimeout {
-                path: self.path().to_path_buf(),
-                waited: self.write_wait(),
-            })
+            .ok_or_else(timed_out)
+        }
+    }
+}
+
+/// `acquire`'s guard, or `None` if `wait` ends first. `acquire` is polled
+/// first, so a free lock wins over a wait that has already ended.
+async fn race<G>(
+    acquire: impl std::future::Future<Output = G>,
+    wait: seaquel_runtime::BoxFuture<'static, ()>,
+) -> Option<G> {
+    use futures::future::{select, Either};
+    match select(Box::pin(acquire), wait).await {
+        Either::Left((guard, _)) => Some(guard),
+        Either::Right(_) => None,
     }
 }
 
@@ -273,7 +330,7 @@ impl<'a> Reader<'a> {
 }
 
 pub(crate) enum ReadConn<'a> {
-    Own(Transaction<'static, Sqlite>),
+    Own(Transaction),
     Borrowed(&'a mut SqliteConnection),
 }
 

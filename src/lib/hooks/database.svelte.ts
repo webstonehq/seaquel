@@ -41,7 +41,7 @@ import { aiSettingsStore } from "$lib/stores/ai-settings.svelte";
 import { storageGate } from "$lib/storage/storage-gate.svelte";
 import { pendingChangesSettingsStore } from "$lib/stores/pending-changes-settings.svelte";
 import { editorSettingsStore } from "$lib/stores/editor-settings.svelte";
-import { isDemo, isTauri } from "$lib/utils/environment";
+import { isTauri } from "$lib/utils/environment";
 import { getCoreClient } from "$lib/core";
 import { pageOrigin } from "$lib/core/origin";
 import { windowId } from "$lib/core/window-id";
@@ -64,7 +64,7 @@ function isStandaloneWindow(): boolean {
  *   db.queryTabs.add("My Query", "SELECT * FROM users");
  *   db.queries.execute(tabId);
  */
-class UseDatabase {
+export class UseDatabase {
   // Core state - exposes all reactive state and derived values
   readonly state: DatabaseState;
 
@@ -337,33 +337,31 @@ class UseDatabase {
       filesChanged: (projectId) => this.sharedRepos.refreshProjectStatus(projectId),
     });
 
-    // Other windows' and tabs' library changes (phase 5d-1). The demo has
-    // no Core and one page.
-    if (!isDemo()) {
-      const feed = new ChangeFeed({
-        client: getCoreClient,
-        origin: pageOrigin,
-        seqs: this.state.librarySeqs,
-      });
-      this.librarySync = new LibrarySync(this.state, feed, {
-        connections: this.connections,
-        projects: this.projects,
-        savedQueries: this.savedQueries,
-        history: this._stateRestoration,
-        projectsViewState: this.projects,
-        windowId,
-        dashboards: this.dashboards,
-        workflows: this.workflow,
-        chats: {
-          refreshChats: (connectionId) =>
-            this.aiChats.refreshChats(connectionId, (id) => this._stateRestoration.loadAIChats(id)),
-          refreshMessages: (chatId) => this.aiChats.refreshMessages(chatId),
-        },
-        settings: applyStoredChange,
-        // Desktop only: web has no shared projects.
-        sharedRepos: isTauri() ? this.sharedRepos : undefined,
-      });
-    }
+    // Other windows' and tabs' library changes (phase 5d-1), and in the
+    // demo Core's own writes (phase 8, Decision 17).
+    const feed = new ChangeFeed({
+      client: getCoreClient,
+      origin: pageOrigin,
+      seqs: this.state.librarySeqs,
+    });
+    this.librarySync = new LibrarySync(this.state, feed, {
+      connections: this.connections,
+      projects: this.projects,
+      savedQueries: this.savedQueries,
+      history: this._stateRestoration,
+      projectsViewState: this.projects,
+      windowId,
+      dashboards: this.dashboards,
+      workflows: this.workflow,
+      chats: {
+        refreshChats: (connectionId) =>
+          this.aiChats.refreshChats(connectionId, (id) => this._stateRestoration.loadAIChats(id)),
+        refreshMessages: (chatId) => this.aiChats.refreshMessages(chatId),
+      },
+      settings: applyStoredChange,
+      // Desktop only: web has no shared projects.
+      sharedRepos: isTauri() ? this.sharedRepos : undefined,
+    });
 
     // Set up embedded explain callbacks
     this.explainTabs.setEmbeddedCallbacks(
@@ -400,10 +398,9 @@ class UseDatabase {
       void log.info("Initializing app");
 
       // Once per page: connections Core closes on its own (an evicted web
-      // session, a lost connection) show as disconnected. The demo has no Core.
-      if (!isDemo()) {
-        this.stopCoreEvents = this.connections.listenForCoreEvents();
-      }
+      // session, a lost connection, the demo's Core restarted after a trap)
+      // show as disconnected.
+      this.stopCoreEvents = this.connections.listenForCoreEvents();
       // Before the first library list, so no change between them is lost.
       this.librarySync?.start();
 

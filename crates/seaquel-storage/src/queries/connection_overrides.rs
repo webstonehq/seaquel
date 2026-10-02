@@ -1,8 +1,9 @@
 //! `connectionOverridesRepo`: `connection_overrides`, this machine's
 //! settings for shared connections.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::PersistedConnectionOverride;
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{bit, flag, opt_number, opt_text, select_sql, text, upsert_sql, Result};
 use crate::Storage;
@@ -35,7 +36,7 @@ pub async fn load(
     st: &Storage,
     shared_connection_id: &str,
 ) -> Result<Option<PersistedConnectionOverride>> {
-    let row = sqlx::query(&select_sql(TABLE, &COLUMNS, "shared_connection_id = ?"))
+    let row = db::query(&select_sql(TABLE, &COLUMNS, "shared_connection_id = ?"))
         .bind(shared_connection_id)
         .fetch_optional(st.pool())
         .await?;
@@ -44,7 +45,7 @@ pub async fn load(
 
 /// Every override, in rowid order.
 pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnectionOverride>> {
-    let rows = sqlx::query(&select_sql(TABLE, &COLUMNS, ""))
+    let rows = db::query(&select_sql(TABLE, &COLUMNS, ""))
         .fetch_all(st.pool())
         .await?;
     rows.iter().map(map_row).collect()
@@ -52,7 +53,7 @@ pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnectionOverride>> 
 
 /// Upserts an override.
 pub async fn save(st: &Storage, o: &PersistedConnectionOverride) -> Result<()> {
-    sqlx::query(&upsert_sql(TABLE, &COLUMNS, "shared_connection_id"))
+    db::query(&upsert_sql(TABLE, &COLUMNS, "shared_connection_id"))
         .bind(&o.shared_connection_id)
         .bind(&o.username)
         .bind(&o.host_override)
@@ -67,7 +68,7 @@ pub async fn save(st: &Storage, o: &PersistedConnectionOverride) -> Result<()> {
 
 /// Deletes one override.
 pub async fn remove(st: &Storage, shared_connection_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM connection_overrides WHERE shared_connection_id = ?")
+    db::query("DELETE FROM connection_overrides WHERE shared_connection_id = ?")
         .bind(shared_connection_id)
         .execute(st.pool())
         .await?;

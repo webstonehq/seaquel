@@ -1280,5 +1280,9 @@
   "shared_sync_status_skipped": "건너뜀",
   "shared_sync_status_skipped_tooltip": "파일이 너무 많거나 너무 커서 동기화할 수 없습니다. 이 프로젝트에서는 아무것도 읽거나 쓰지 않았습니다. 다시 동기화하려면 폴더를 줄이세요.",
   "shared_import_dir_already_linked": "이 폴더에 이미 연결된 프로젝트가 있습니다",
-  "shared_import_skipped_dirs": "프로젝트 폴더 {dirs}을(를) 가져올 수 없습니다: {reason}."
+  "shared_import_skipped_dirs": "프로젝트 폴더 {dirs}을(를) 가져올 수 없습니다: {reason}.",
+  "demo_notice_storage_unavailable": "이 브라우저가 데모의 데이터 저장을 허용하지 않아 페이지를 닫으면 여기서 한 작업이 모두 사라집니다.",
+  "demo_notice_storage_corrupt": "데모의 저장된 데이터를 열 수 없어 새로 시작했습니다. 이전 사본은 따로 보관되었습니다.",
+  "unsupported_build_title": "이 빌드는 Seaquel 앱 안에서 실행됩니다",
+  "unsupported_build_message": "이 빌드는 Seaquel 앱 안에서 실행됩니다. 브라우저 데모를 사용하려면 `npm run dev:demo`를 실행하세요."
 }

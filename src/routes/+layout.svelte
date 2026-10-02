@@ -11,6 +11,7 @@
   import { page } from "$app/state";
   import { Toaster } from "$lib/components/ui/sonner/index.js";
   import WasmLoadError from "$lib/wasm/load-error.svelte";
+  import UnsupportedBuild from "$lib/components/unsupported-build.svelte";
   let { data, children } = $props();
 
   // Routes that never touch SQL still work when seaquel-wasm failed to load.
@@ -22,7 +23,10 @@
 
 <ModeWatcher />
 <Toaster position="bottom-right" richColors expand />
-{#if showWasmError && data.wasmError}
+{#if data.unsupportedBuild}
+  <!-- Not the desktop app, the web build or the demo: nothing of the app runs. -->
+  <UnsupportedBuild />
+{:else if showWasmError && data.wasmError}
   <WasmLoadError error={data.wasmError} />
 {:else}
   {@render children()}

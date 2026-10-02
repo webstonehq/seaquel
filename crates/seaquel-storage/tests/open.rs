@@ -2,6 +2,8 @@
 //! that aren't SQLite, a baseline that fails, the connection pragmas, the
 //! read-only open and the migration lock.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use std::path::Path;

@@ -2,6 +2,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
 use duckdb::arrow::array::{Array, StructArray};
+use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
 use duckdb::{
     params_from_iter, types::Decimal as DuckDecimal, types::Value as DuckValue, Config, Connection,
     InterruptHandle, Statement,
@@ -19,6 +20,36 @@ use seaquel_engine::{
 use crate::blocking::{self, Op, Worker};
 use crate::decode::{self, Kind};
 use crate::introspect;
+
+/// The [`Kind`] of a result column's DuckDB type. duckdb-rs panics on type
+/// ids it doesn't know; the caller catches that and uses [`Kind::Plain`], so
+/// decoding goes by the Arrow type alone. (The browser driver has no logical
+/// types and reads the Arrow field instead: [`Kind::of_field`].)
+fn kind_of(t: &LogicalTypeHandle) -> Kind {
+    let children = || {
+        (0..t.num_children())
+            .map(|i| kind_of(&t.child(i)))
+            .collect()
+    };
+    match t.id() {
+        LogicalTypeId::Boolean => Kind::Bool,
+        LogicalTypeId::Hugeint => Kind::HugeInt,
+        LogicalTypeId::UHugeint => Kind::UHugeInt,
+        LogicalTypeId::Uuid => Kind::Uuid,
+        LogicalTypeId::Bit => Kind::Bit,
+        LogicalTypeId::Bignum => Kind::Bignum,
+        LogicalTypeId::TimeTZ => Kind::TimeTz,
+        LogicalTypeId::Varchar if t.get_alias().as_deref() == Some("JSON") => Kind::Json,
+        LogicalTypeId::List | LogicalTypeId::Array => Kind::List(Box::new(kind_of(&t.child(0)))),
+        LogicalTypeId::Struct => Kind::Struct(children()),
+        LogicalTypeId::Union => Kind::Union(children()),
+        LogicalTypeId::Map => Kind::Map(
+            Box::new(kind_of(&t.child(0))),
+            Box::new(kind_of(&t.child(1))),
+        ),
+        _ => Kind::Plain,
+    }
+}
 
 /// Convert a parameter into a DuckDB `Value` for binding. `Int` binds as
 /// BIGINT, so integers are exact. `Decimal` binds as an exact DECIMAL when
@@ -302,7 +333,7 @@ impl<'s, 'c> ResultReader<'s, 'c> {
         // walking them); the cells then decode by their Arrow type alone.
         let kinds = (0..count)
             .map(|i| {
-                catch_unwind(AssertUnwindSafe(|| Kind::of(&stmt.column_logical_type(i))))
+                catch_unwind(AssertUnwindSafe(|| kind_of(&stmt.column_logical_type(i))))
                     .unwrap_or(Kind::Plain)
             })
             .collect();
@@ -870,90 +901,35 @@ impl Driver for DuckdbDriver {
         Ok(())
     }
 
-    // ── Introspection (see `crate::introspect`) ──
+    // ── Introspection (see `crate::introspect::calls`) ──
 
     async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
-        let r = self.query(&introspect::schemas_sql(), vec![]).await?;
-        Ok(introspect::parse_schemas(&r))
+        introspect::calls::list_schemas(self).await
     }
 
     async fn schema_tables(&self) -> Result<Vec<SchemaTable>, DbError> {
-        let r = self.query(&introspect::schema_sql(), vec![]).await?;
-        Ok(introspect::parse_schema(&r))
+        introspect::calls::schema_tables(self).await
     }
 
-    /// `schema` is the schema as `schema_tables` lists it (`fx_aux.main`
-    /// for an attached catalog). Bug fix 7: a failing foreign-key or UNIQUE
-    /// query is logged and the columns come back without foreign keys or
-    /// UNIQUE flags.
     async fn table_metadata(
         &self,
         schema: &str,
         table: &str,
     ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
-        let params = || vec![Value::from(schema), Value::from(table)];
-        let columns = self.query(&introspect::columns_sql(), params()).await?;
-        let optional = |what: &'static str, r: Result<QueryResult, DbError>| match r {
-            Ok(r) => Some(r),
-            Err(e) => {
-                warn!(activity = "db.table_metadata", driver = "duckdb", schema = schema, table = table; "The {what} of {schema}.{table} failed to load: {}", e.message);
-                None
-            }
-        };
-        let foreign_keys = optional(
-            "foreign keys",
-            self.query(&introspect::foreign_keys_sql(), params()).await,
-        );
-        let unique = optional(
-            "UNIQUE constraints",
-            self.query(&introspect::unique_columns_sql(), params())
-                .await,
-        );
-        let indexes = self.query(&introspect::indexes_sql(), params()).await?;
-        let mut columns = introspect::parse_columns(&columns, foreign_keys.as_ref());
-        if let Some(unique) = &unique {
-            introspect::apply_unique_columns(&mut columns, unique);
-        }
-        Ok((columns, introspect::parse_indexes(&indexes)))
+        introspect::calls::table_metadata(self, schema, table).await
     }
 
-    /// Table sizes (row counts only: DuckDB keeps no per-table sizes), the
-    /// indexes and the overview, over the same catalogs as the tree. Each
-    /// table is counted in its own catalog; a count that fails leaves 0, as
-    /// TsEngineClient did.
     async fn statistics(&self) -> Result<DatabaseStatistics, DbError> {
-        let overview = self.query(introspect::OVERVIEW_SQL, vec![]).await?;
-        let sizes = self.query(&introspect::table_sizes_sql(), vec![]).await?;
-        let usage = self.query(&introspect::index_usage_sql(), vec![]).await?;
-        let mut table_sizes = introspect::parse_table_sizes(&sizes);
-        for (table, sql) in table_sizes
-            .iter_mut()
-            .zip(introspect::row_count_targets(&sizes))
-        {
-            if let Ok(r) = self.query(&sql, vec![]).await {
-                table.row_count = introspect::parse_row_count(&r);
-            }
-        }
-        Ok(DatabaseStatistics {
-            overview: introspect::parse_overview(&overview),
-            table_sizes,
-            index_usage: introspect::parse_index_usage(&usage),
-        })
+        introspect::calls::statistics(self).await
     }
 
-    /// `EXPLAIN (FORMAT JSON)`, with `ANALYZE` when asked (which **runs**
-    /// the statement, writes included, as Postgres's does). The parameters
-    /// are bound to the EXPLAIN.
     async fn explain(
         &self,
         sql: &str,
         params: Vec<Value>,
         analyze: bool,
     ) -> Result<ExplainResult, DbError> {
-        let r = self
-            .query(&introspect::explain_sql(sql, analyze), params)
-            .await?;
-        Ok(introspect::parse_explain(&r, analyze))
+        introspect::calls::explain(self, sql, params, analyze).await
     }
 
     /// A plain `EXPLAIN (FORMAT JSON)` of one statement (a second is
@@ -984,6 +960,16 @@ impl Driver for DuckdbDriver {
         .await?;
         Ok(introspect::parse_explain(&r, false))
     }
+}
+
+/// The native driver's decoding of `sql`'s rows on `conn`, for
+/// `decode_from_ipc_matches_decode_from_duckdb` (`browser/ipc.rs`).
+#[cfg(test)]
+pub(crate) fn native_rows(conn: &Connection, sql: &str) -> Result<CappedResult, DbError> {
+    let interrupt = conn.interrupt_handle();
+    let (_call, worker) = blocking::call(interrupt);
+    let cap = RowCap::fail(seaquel_engine::max_query_rows());
+    query_capped(conn, &worker, sql, &[], cap)
 }
 
 #[cfg(test)]

@@ -1,55 +1,48 @@
 /**
- * Database provider factory.
- * Returns the appropriate provider based on the runtime environment.
+ * Database provider factory. Every build's connections go through Core
+ * (`CoreProvider`): embedded on desktop, `seaquel-server` on web, and the
+ * module in the demo's page (phase 8).
  *
- * Three modes:
- *   - Tauri desktop          → CoreProvider   (Core over `core_call`/`core_stream`)
- *   - Web (hosted/self-host) → CoreProvider   (Core over `/api/rpc` and its WebSocket)
- *   - Demo (browser)         → DuckDBProvider (DuckDB-WASM)
+ * The tutorial is the exception: on web and in the demo it runs on
+ * DuckDB-WASM in the page (`getDuckDBProvider`, Q5 A), since the web server
+ * has no DuckDB engine (Decision 11b). On desktop it uses Core's SQLite.
  */
 
 import type { DatabaseProvider } from "./types";
-import { isTauri, isWeb } from "$lib/utils/environment";
+import type { TutorialProvider } from "./duckdb-provider";
 
 export type { DatabaseProvider, ConnectRequest, ExecuteResult, ReadOnlyRows } from "./types";
+export type { TutorialProvider } from "./duckdb-provider";
 
 let provider: DatabaseProvider | null = null;
-let duckdbProvider: DatabaseProvider | null = null;
+let duckdbProvider: TutorialProvider | null = null;
 
-/**
- * Get the database provider for the current environment.
- */
+/** The page's provider: Core. */
 export async function getProvider(): Promise<DatabaseProvider> {
   if (provider) return provider;
-
-  if (isTauri() || isWeb()) {
-    const { CoreProvider } = await import("./core-provider");
-    provider = new CoreProvider();
-  } else {
-    const { DuckDBProvider } = await import("./duckdb-provider");
-    provider = new DuckDBProvider();
-  }
-
+  const { CoreProvider } = await import("./core-provider");
+  provider = new CoreProvider();
   return provider;
 }
 
 /**
- * Get the DuckDB provider for the current environment: Core on desktop, and
- * DuckDB-WASM in the browser, both in the demo and on web. The web server has no DuckDB engine (Decision 11b: it would read and
- * write the server's files), so web's in-browser DuckDB (the tutorial) runs
- * in the page.
+ * Loads the tutorial's DuckDB-WASM provider. The branch is on the
+ * build-time constant itself, so Rollup drops it (and DuckDB-WASM) from the
+ * desktop build, whose tutorial runs on Core's SQLite.
  */
-export async function getDuckDBProvider(): Promise<DatabaseProvider> {
+const loadDuckDBProvider =
+  import.meta.env.VITE_BUILD_TARGET === "web" || import.meta.env.VITE_BUILD_TARGET === "demo"
+    ? () => import("./duckdb-provider")
+    : null;
+
+/** The tutorial's DuckDB-WASM in the page (web and the demo builds only). */
+export async function getDuckDBProvider(): Promise<TutorialProvider> {
   if (duckdbProvider) return duckdbProvider;
-
-  if (isTauri()) {
-    const { CoreProvider } = await import("./core-provider");
-    duckdbProvider = new CoreProvider();
-  } else {
-    const { DuckDBProvider } = await import("./duckdb-provider");
-    duckdbProvider = new DuckDBProvider();
+  if (!loadDuckDBProvider) {
+    throw new Error("The tutorial's DuckDB-WASM is only in the web and demo builds");
   }
-
+  const { DuckDBProvider } = await loadDuckDBProvider();
+  duckdbProvider = new DuckDBProvider();
   return duckdbProvider;
 }
 

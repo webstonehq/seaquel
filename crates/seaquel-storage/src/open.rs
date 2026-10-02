@@ -2,35 +2,43 @@
 //! the numbered migrations (under a write lock) and the data steps; or, for
 //! a read-only open, the check that none of those has anything to do.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::migrate::Migrator;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
-use sqlx::{ConnectOptions, Connection, SqliteConnection};
-
+use crate::db::{self, SqlitePool};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::db::{
+    ConnectOptions, Connection, Migrator, SqliteConnectOptions, SqliteConnection,
+    SqliteJournalMode, SqlitePoolOptions,
+};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::error::LEGACY_JSON_FILES;
-use crate::{schema, StorageError};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::schema;
+use crate::StorageError;
 
 /// The numbered migrations in `migrations/`, run after the baseline.
 ///
 /// Migrations a newer build applied and this one doesn't know are ignored,
 /// so going back to an older release still opens the file. That holds only
 /// because migrations are expand-only (see `migrations/README.md`).
+#[cfg(not(target_arch = "wasm32"))]
 fn migrator() -> Migrator {
-    let mut migrator = sqlx::migrate!("./migrations");
+    let mut migrator = db::embedded_migrator();
     migrator.set_ignore_missing(true);
     migrator
 }
 
 /// How long a connection waits for another's write lock before failing, as
 /// both TypeScript backends set it.
+#[cfg(not(target_arch = "wasm32"))]
 const BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
 
 /// The first 16 bytes of every SQLite database file.
-const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
+pub(crate) const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 
 /// How [`Storage::open`] opens the file and sizes its pool.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +70,38 @@ pub struct StorageOptions {
     /// uncapped, so a file at or over the cap still opens; it stays
     /// readable, and deletes still work so its user can make room.
     pub max_bytes: Option<u64>,
+    /// wasm32 only (phase 8 Decision 4): the file to start from, a
+    /// snapshot the page kept ([`Storage::snapshot`]). `None` starts an
+    /// empty file. Set it with [`StorageOptions::in_memory`].
+    #[cfg(target_arch = "wasm32")]
+    pub image: Option<Image>,
+}
+
+/// The bytes of a metadata file the browser kept. Its `Debug` gives the
+/// length only.
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, PartialEq, Eq)]
+pub struct Image(pub Vec<u8>);
+
+#[cfg(target_arch = "wasm32")]
+impl std::fmt::Debug for Image {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Image({} bytes)", self.0.len())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl StorageOptions {
+    /// The browser's open (phase 8 Decision 4): SQLite's memory database,
+    /// starting from `image` when there is one. [`Storage::open`] then runs
+    /// the baseline, the migrations and the data steps as it does on a
+    /// file. The path it's given only names the file in errors.
+    pub fn in_memory(image: Option<Vec<u8>>) -> Self {
+        Self {
+            image: image.map(Image),
+            ..Self::default()
+        }
+    }
 }
 
 /// The page size [`StorageOptions::max_bytes`] is counted in: SQLite's
@@ -75,6 +115,8 @@ impl Default for StorageOptions {
             idle_timeout: None,
             read_only: false,
             max_bytes: None,
+            #[cfg(target_arch = "wasm32")]
+            image: None,
         }
     }
 }
@@ -90,9 +132,24 @@ pub struct Storage {
     read_only: bool,
     /// Serialises this process's writers before they take a pool
     /// connection (see [`crate::WriteTx`]). Clones share it.
-    write_lock: Arc<tokio::sync::Mutex<()>>,
+    write_lock: Arc<crate::lock::Mutex<()>>,
     /// How long [`Storage::write`] waits for this process's earlier writers.
     write_wait: Duration,
+    /// The executor whose `sleep` times that wait ([`Storage::with_executor`];
+    /// phase 8 Decision 5). `None`: tokio's timer natively, the page's
+    /// `setTimeout` through `WasmExecutor` on wasm32.
+    clock: Option<Clock>,
+}
+
+/// The interface's executor, for the write turn's wait. Its `Debug` names
+/// no more than that it's there.
+#[derive(Clone)]
+pub(crate) struct Clock(pub(crate) Arc<dyn seaquel_runtime::Executor>);
+
+impl std::fmt::Debug for Clock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<executor>")
+    }
 }
 
 /// How long [`Storage::write`] waits for the write mutex before failing:
@@ -123,6 +180,7 @@ impl Storage {
     ///   fails is rolled back and logged, and `open` still succeeds.
     ///
     /// With [`StorageOptions::read_only`] none of that writes: see there.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn open(
         path: impl AsRef<Path>,
         options: StorageOptions,
@@ -134,6 +192,7 @@ impl Storage {
     /// `migrations/`, for tests that need a pending migration. Missing
     /// versions are ignored, as in [`Storage::open`].
     #[doc(hidden)]
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_with_migrator(
         path: impl AsRef<Path>,
         options: StorageOptions,
@@ -173,8 +232,7 @@ impl Storage {
             return Err(match e {
                 StorageError::Sqlx(e) => classify(&path, e, false),
                 StorageError::Migrate(
-                    sqlx::migrate::MigrateError::Execute(e)
-                    | sqlx::migrate::MigrateError::ExecuteMigration(e, _),
+                    db::MigrateError::Execute(e) | db::MigrateError::ExecuteMigration(e, _),
                 ) if is_corrupt(&e) => classify(&path, e, false),
                 other => other,
             });
@@ -199,14 +257,29 @@ impl Storage {
         Ok(Self::new(capped, path, false))
     }
 
-    fn new(pool: SqlitePool, path: PathBuf, read_only: bool) -> Self {
+    pub(crate) fn new(pool: SqlitePool, path: PathBuf, read_only: bool) -> Self {
         Self {
             pool,
             path,
             read_only,
             write_lock: Arc::default(),
             write_wait: WRITE_WAIT,
+            clock: None,
         }
+    }
+
+    /// Times the write turn's wait ([`WRITE_WAIT`]) with `executor`'s
+    /// `sleep` instead of the default timer (phase 8 Decision 5). Core
+    /// passes its own when it opens a workspace, so the browser's waits run
+    /// on the page's clock and a test's on its own.
+    #[must_use]
+    pub fn with_executor(mut self, executor: Arc<dyn seaquel_runtime::Executor>) -> Self {
+        self.clock = Some(Clock(executor));
+        self
+    }
+
+    pub(crate) fn clock(&self) -> Option<&Clock> {
+        self.clock.as_ref()
     }
 
     /// [`WRITE_WAIT`] replaced, for tests.
@@ -225,7 +298,7 @@ impl Storage {
         self.read_only
     }
 
-    pub(crate) fn write_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
+    pub(crate) fn write_lock(&self) -> Arc<crate::lock::Mutex<()>> {
         Arc::clone(&self.write_lock)
     }
 
@@ -245,6 +318,7 @@ impl Storage {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// What [`preflight`] found at the path.
 #[derive(Debug, PartialEq, Eq)]
 enum Existing {
@@ -254,6 +328,7 @@ enum Existing {
     NonEmpty,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The checks that run before anything opens `path`. A missing file's
 /// directory is created when `create` is set; otherwise a missing file is
 /// [`StorageError::NotFound`].
@@ -295,6 +370,7 @@ fn preflight(path: &Path, create: bool) -> Result<Existing, StorageError> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// An empty file is an empty database. Anything else has to start with
 /// SQLite's header.
 fn check_header(path: &Path) -> Result<Existing, StorageError> {
@@ -321,6 +397,7 @@ fn check_header(path: &Path) -> Result<Existing, StorageError> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Options every connection to the metadata file starts from. sqlx logs
 /// each statement at DEBUG (and, at WARN, one slower than a second) with its
 /// whole SQL; storage's SQL is its own, but nothing here should log SQL.
@@ -328,6 +405,7 @@ fn sqlite_options() -> SqliteConnectOptions {
     SqliteConnectOptions::new().disable_statement_logging()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Read the schema through a read-only connection that sets no journal mode,
 /// so a file with SQLite's header over something else is refused before the
 /// pool switches it to WAL (which rewrites the header).
@@ -339,7 +417,7 @@ async fn probe(path: &Path) -> Result<(), StorageError> {
         .connect()
         .await
         .map_err(|e| classify(path, e, true))?;
-    let read = sqlx::query("SELECT COUNT(*) FROM sqlite_master")
+    let read = db::query("SELECT COUNT(*) FROM sqlite_master")
         .execute(&mut conn)
         .await;
     // A failed close can't change a read-only file.
@@ -347,6 +425,7 @@ async fn probe(path: &Path) -> Result<(), StorageError> {
     read.map(drop).map_err(|e| classify(path, e, true))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The baseline in one transaction, then the numbered migrations, then the
 /// data steps.
 async fn prepare(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageError> {
@@ -375,6 +454,7 @@ async fn prepare(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Run the pending migrations, one pool or process at a time.
 ///
 /// sqlx's migrate lock does nothing on SQLite, so two pools on one file
@@ -408,6 +488,7 @@ async fn migrate(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// How many busy timeouts an open with schema work to do (the baseline or
 /// a migration) waits for the write lock before it fails: another pool's
 /// migration can hold it longer than one (`0003`'s
@@ -416,16 +497,15 @@ async fn migrate(pool: &SqlitePool, migrator: &Migrator) -> Result<(), StorageEr
 /// waits up to about a minute (5d-2 Task 7 review).
 const MIGRATION_WAIT_ATTEMPTS: u32 = 12;
 
+#[cfg(not(target_arch = "wasm32"))]
 /// `BEGIN IMMEDIATE`, tried again while another connection holds the
 /// write lock (`SQLITE_BUSY` after the busy timeout), up to
 /// [`MIGRATION_WAIT_ATTEMPTS`] times. Any other error fails at once.
-async fn begin_immediate_waiting(
-    pool: &SqlitePool,
-) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+async fn begin_immediate_waiting(pool: &SqlitePool) -> Result<db::Transaction, db::Error> {
     let mut attempt = 1;
     loop {
         match pool.begin_with("BEGIN IMMEDIATE").await {
-            Err(sqlx::Error::Database(e)) if attempt < MIGRATION_WAIT_ATTEMPTS && is_busy(&*e) => {
+            Err(db::Error::Database(e)) if attempt < MIGRATION_WAIT_ATTEMPTS && is_busy(&*e) => {
                 attempt += 1;
             }
             other => return other,
@@ -433,13 +513,15 @@ async fn begin_immediate_waiting(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// `SQLITE_BUSY` or one of its extended codes (their low byte is 5).
-fn is_busy(e: &dyn sqlx::error::DatabaseError) -> bool {
+fn is_busy(e: &dyn db::DatabaseError) -> bool {
     e.code()
         .and_then(|c| c.parse::<i32>().ok())
         .is_some_and(|n| n & 0xff == 5)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// What the migrator would do to a file, read without writing.
 #[derive(Debug, PartialEq, Eq)]
 enum MigrationState {
@@ -457,11 +539,12 @@ enum MigrationState {
     Mismatch(i64),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn migration_state(
     conn: &mut SqliteConnection,
     migrator: &Migrator,
-) -> Result<MigrationState, sqlx::Error> {
-    let exists: Option<String> = sqlx::query_scalar(
+) -> Result<MigrationState, db::Error> {
+    let exists: Option<String> = db::query_scalar(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
     )
     .fetch_optional(&mut *conn)
@@ -470,7 +553,7 @@ async fn migration_state(
         return Ok(MigrationState::NoTable);
     }
     let applied: Vec<(i64, Vec<u8>, bool)> =
-        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
+        db::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&mut *conn)
             .await?;
     if let Some((version, _, _)) = applied.iter().find(|(_, _, success)| !success) {
@@ -491,6 +574,7 @@ async fn migration_state(
     Ok(MigrationState::Current)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// [`Storage::open`] with [`StorageOptions::read_only`]: a first check that
 /// the file is current through one read-only connection, then a read-only
 /// pool, and the authoritative check again on one of its connections.
@@ -529,6 +613,7 @@ async fn open_read_only(
     Ok(Storage::new(pool, path, true))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The first, cheap pass of the read-only check ([`check_on`]), before the
 /// pool exists. It also stands in for [`probe`]: a file that isn't a
 /// database fails here, as [`StorageError::Corrupt`] with `untouched`.
@@ -569,6 +654,7 @@ async fn check_current(path: &Path, migrator: &Migrator) -> Result<(), StorageEr
     checked
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn check_on(
     conn: &mut SqliteConnection,
     path: &Path,
@@ -595,10 +681,10 @@ async fn check_on(
             ));
         }
         MigrationState::Dirty(version) => {
-            return Err(sqlx::migrate::MigrateError::Dirty(version).into());
+            return Err(db::MigrateError::Dirty(version).into());
         }
         MigrationState::Mismatch(version) => {
-            return Err(sqlx::migrate::MigrateError::VersionMismatch(version).into());
+            return Err(db::MigrateError::VersionMismatch(version).into());
         }
     }
     let steps = crate::data_steps::pending(&mut tx)
@@ -617,6 +703,7 @@ async fn check_on(
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn needs_upgrade(path: &Path, reason: &str) -> StorageError {
     StorageError::NeedsUpgrade {
         path: path.to_path_buf(),
@@ -627,9 +714,9 @@ fn needs_upgrade(path: &Path, reason: &str) -> StorageError {
 /// SQLite's "not a database" (26) and "corrupt" (11) become
 /// [`StorageError::Corrupt`]; everything else stays a SQLite error.
 /// `untouched` says whether nothing could have written to the file yet.
-fn classify(path: &Path, e: sqlx::Error, untouched: bool) -> StorageError {
+pub(crate) fn classify(path: &Path, e: db::Error, untouched: bool) -> StorageError {
     match &e {
-        sqlx::Error::Database(db) if is_corrupt(&e) => StorageError::Corrupt {
+        db::Error::Database(db) if is_corrupt(&e) => StorageError::Corrupt {
             path: path.to_path_buf(),
             reason: db.message().to_string(),
             untouched,
@@ -638,8 +725,8 @@ fn classify(path: &Path, e: sqlx::Error, untouched: bool) -> StorageError {
     }
 }
 
-fn is_corrupt(e: &sqlx::Error) -> bool {
-    let sqlx::Error::Database(db) = e else {
+pub(crate) fn is_corrupt(e: &db::Error) -> bool {
+    let db::Error::Database(db) = e else {
         return false;
     };
     let primary = db

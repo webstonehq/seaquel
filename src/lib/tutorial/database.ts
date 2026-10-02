@@ -4,11 +4,10 @@ import {
   getProvider,
   getDuckDBProvider,
   type ConnectRequest,
-  type DatabaseProvider,
+  type TutorialProvider,
 } from "$lib/providers";
-import { isTauri } from "$lib/utils/environment";
 
-let tutorialProvider: DatabaseProvider | null = null;
+let tutorialProvider: TutorialProvider | null = null;
 let tutorialConnectionId: string | null = null;
 
 /**
@@ -277,6 +276,13 @@ function memoryDatabase(type: "sqlite" | "duckdb", connectionString: string): Co
 }
 
 /**
+ * Whether the tutorial runs on DuckDB-WASM in the page (the web and demo
+ * builds), a build-time constant so the desktop bundle has no DuckDB-WASM.
+ */
+const inPageDuckDb =
+  import.meta.env.VITE_BUILD_TARGET === "web" || import.meta.env.VITE_BUILD_TARGET === "demo";
+
+/**
  * Get or create the tutorial database connection.
  * Uses SQLite via Tauri on desktop and DuckDB-WASM in the browser (the demo
  * and web; the web server has no DuckDB or SQLite engine).
@@ -287,16 +293,17 @@ async function initializeTutorialDatabase(): Promise<void> {
     return;
   }
 
-  if (isTauri()) {
+  if (inPageDuckDb) {
+    // In the browser (demo and web), DuckDB-WASM in the page, apart from the
+    // demo connection's.
+    tutorialProvider = await getDuckDBProvider();
+    tutorialConnectionId = await tutorialProvider.connect(memoryDatabase("duckdb", ""));
+  } else {
     // On desktop, an in-memory SQLite database through Core
     tutorialProvider = await getProvider();
     tutorialConnectionId = await tutorialProvider.connect(
       memoryDatabase("sqlite", "sqlite::memory:"),
     );
-  } else {
-    // In the browser (demo and web), DuckDB-WASM in the page
-    tutorialProvider = await getDuckDBProvider();
-    tutorialConnectionId = await tutorialProvider.connect(memoryDatabase("duckdb", ""));
   }
   await seedDatabaseWithExecutor((sql) => tutorialProvider!.execute(tutorialConnectionId!, sql));
 }

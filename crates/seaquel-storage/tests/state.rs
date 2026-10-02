@@ -5,6 +5,8 @@
 //! mirror of `project_state` and `tabs`, and the
 //! `backfill_dashboard_name_keys` data step.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use std::path::{Path, PathBuf};

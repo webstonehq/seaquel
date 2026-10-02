@@ -4,6 +4,7 @@
  */
 
 import type { DashboardWidget } from "$lib/types";
+import { getLibrary } from "$lib/hooks/database/library/index.js";
 
 const DEMO_WIDGETS: DashboardWidget[] = [
   // === ROW 1: KPI Widgets ===
@@ -230,10 +231,39 @@ ORDER BY total_spent DESC`,
 ];
 
 /**
- * Create a demo dashboard with pre-configured widgets.
- * Should be called after the demo connection is established.
+ * Whether two dashboard names clash in Core's check. Core compares
+ * `name_key` (trim, NFC, full Unicode case folding); for the sample's
+ * ASCII name, trimming and lowercasing both sides is the same.
+ */
+function sameName(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** The sample dashboard's name. */
+export const DEMO_DASHBOARD_NAME = "E-Commerce Overview";
+
+/**
+ * The demo's sample dashboard, created on the first load only. Called after
+ * the demo connection is established, once the page has loaded the project
+ * (its dashboards and its restored tabs).
+ *
+ * A reload finds it stored (by name, in the library's own list) and only
+ * runs its widgets again, since their rows aren't stored and the sample
+ * tables were just seeded again; it opens no tab, because the reload
+ * restored the tabs the visitor had. Creating it again was refused by
+ * Core's name check, an error toast on every reload. A visitor who renamed
+ * it gets a new one once, under the sample's name.
+ *
+ * - Names are compared as Core's check compares them for this name: trimmed
+ *   and case-folded (`sameName`), so a sample renamed to
+ *   "e-commerce overview" is found, not created again and refused.
+ * - It works in the active project: a reload with another project active
+ *   creates one sample there.
+ * - A failed `listDashboards` throws, and the demo's start shows its
+ *   generic "Failed to initialize demo database" toast.
  */
 export async function createDemoDashboard(db: {
+  state: { activeProjectId: string | null };
   dashboards: {
     createDashboard: (name: string) => Promise<{ id: string } | null>;
     addWidget: (dashboardId: string, widget: DashboardWidget) => Promise<void>;
@@ -243,7 +273,17 @@ export async function createDemoDashboard(db: {
     add: (dashboardId?: string, dashboardName?: string) => string | null;
   };
 }): Promise<void> {
-  const dashboard = await db.dashboards.createDashboard("E-Commerce Overview");
+  const projectId = db.state.activeProjectId;
+  if (!projectId) return;
+
+  const { value: stored } = await getLibrary().listDashboards(projectId);
+  const existing = stored.find((d) => sameName(d.name, DEMO_DASHBOARD_NAME));
+  if (existing) {
+    await db.dashboards.executeAllWidgets(existing.id);
+    return;
+  }
+
+  const dashboard = await db.dashboards.createDashboard(DEMO_DASHBOARD_NAME);
   if (!dashboard) return;
 
   // Add all widgets
@@ -252,7 +292,7 @@ export async function createDemoDashboard(db: {
   }
 
   // Open the dashboard tab
-  db.dashboardTabs.add(dashboard.id, "E-Commerce Overview");
+  db.dashboardTabs.add(dashboard.id, DEMO_DASHBOARD_NAME);
 
   // Execute all widget queries to populate data
   await db.dashboards.executeAllWidgets(dashboard.id);

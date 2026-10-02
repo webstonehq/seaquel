@@ -1,6 +1,7 @@
 /**
  * The settings stores on the `settings` group (phase 5d-2, Decision 20),
- * against the demo's `TsSettings` over sql.js, which keeps Core's rules.
+ * against Core's `settings` group in the browser module (phase 8, the
+ * demo's Core).
  * Each tab is a fresh set of store modules on one database; another tab's
  * write reaches a tab as Core's event does, through `applyStoredChange`
  * (what `LibrarySync` calls for the settings kinds).
@@ -12,8 +13,9 @@
  * - On the desktop an AI key goes with the Core call, never to the
  *   keychain from TypeScript.
  */
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { openModuleCore } from "$lib/core/browser/testing/meta";
 
 const env = vi.hoisted(() => ({ tauri: false, web: false, applied: [] as string[] }));
 vi.mock("$lib/utils/environment", () => ({
@@ -46,13 +48,11 @@ vi.mock("$lib/services/keyring", () => ({
 }));
 vi.mock("./license.svelte.js", () => ({ licenseStore: { status: "personal" } }));
 
-const { bootstrapSqljsDatabase } = await import("$lib/storage/sqljs-client");
-const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
-const { TsSettings } = await import("$lib/hooks/database/library/ts-settings");
+const { CoreSettings } = await import("$lib/hooks/database/library/core-settings");
 import type { SettingsService } from "$lib/hooks/database/library/types";
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
-let db: InstanceType<typeof WebSqliteDatabase>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
 let settings: SettingsService;
 
 beforeAll(async () => {
@@ -62,7 +62,7 @@ beforeAll(async () => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   });
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
@@ -77,9 +77,9 @@ beforeEach(async () => {
   env.applied.length = 0;
   keychain.length = 0;
   toasts.length = 0;
-  db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
-  settings = new TsSettings(db);
+  if (!module) return;
+  const client = (await openModuleCore(module)).storage();
+  settings = new CoreSettings(() => client);
 });
 
 /** One tab: fresh store modules over the shared settings service. */
@@ -111,7 +111,7 @@ async function openTab(service: SettingsService = settings) {
   };
 }
 
-describe("settings across tabs", () => {
+describe.skipIf(missing)("settings across tabs", () => {
   it("a theme added in one tab appears in the other", async () => {
     const one = await openTab();
     const two = await openTab();
@@ -177,7 +177,8 @@ describe("settings across tabs", () => {
         if (method !== "createAiProvider" && method !== "updateAiProvider") return fn.bind(target);
         return async (...args: unknown[]) => {
           calls.push([method, ...args]);
-          // The demo's service refuses keys; Core takes them on the desktop.
+          // The module's Core has no keychain and refuses keys (as web's
+          // does); Core takes them on the desktop.
           const [first, second] = args;
           return method === "createAiProvider"
             ? fn.call(target, first)
@@ -422,7 +423,7 @@ describe("settings across tabs", () => {
   });
 });
 
-describe("the theme editor's save", () => {
+describe.skipIf(missing)("the theme editor's save", () => {
   it("says whether a theme change was stored", async () => {
     const tab = await openTab();
     await tab.theme.initialize();
@@ -437,7 +438,7 @@ describe("the theme editor's save", () => {
   });
 });
 
-describe("the version limits", () => {
+describe.skipIf(missing)("the version limits", () => {
   it("another tab's limit applies, and a save before the read answers isn't undone", async () => {
     await settings.setSetting("query_version_limit", "50");
     let release!: () => void;

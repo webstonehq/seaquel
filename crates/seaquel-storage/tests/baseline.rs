@@ -2,6 +2,8 @@
 //! fixtures): each file opens, ends in the structure today's TypeScript
 //! upgrade gave it, and a second open changes nothing.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use common::*;

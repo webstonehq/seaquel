@@ -4,26 +4,66 @@ version = "0.1.0"
 edition = "2021"
 description = "Seaquel metadata storage: the SQLite schema, its migrations and the typed queries behind every saved connection, project, query and setting."
 
+[features]
+# `Storage::debug_rows` on wasm32, for this crate's own tests; never on in
+# the module.
+test-hooks = []
+
 [dependencies]
 seaquel-runtime = { path = "../seaquel-runtime" }
 seaquel-types = { path = "../seaquel-types" }
-dirs = { workspace = true }
+# The write turn's wait races the executor's sleep (`futures::future::select`,
+# phase 8 Decision 5); on wasm32 also the turn's and the pool's mutex
+# (`futures::lock`).
+futures = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 # JavaScript's encodeURIComponent, for the legacy-string check (already
 # in the build through `url`).
 percent-encoding = "2"
-sqlx = { workspace = true }
 thiserror = { workspace = true }
-# `time`: the write mutex's wait gives up (`Storage::write`). `rt`: a
-# dropped `WriteTx` runs its `ROLLBACK` on a task (`Handle::spawn`).
-tokio = { workspace = true, features = ["time", "rt"] }
 # WHATWG URL parsing, for stripping passwords from connection strings exactly as
 # the TypeScript's `new URL` did.
 url = "2"
 uuid = { workspace = true }
 
-[dev-dependencies]
+# Native: sqlx over the bundled SQLite, as before phase 8.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dirs = { workspace = true }
+sqlx = { workspace = true }
+# `sync`: the write mutex (`src/lock.rs`). `time`: the write mutex's wait
+# gives up (`Storage::write`). `rt`: a dropped `WriteTx` runs its `ROLLBACK`
+# on a task (`Handle::spawn`). Not the workspace tokio, whose `net` this
+# crate doesn't need. wasm32 links no tokio (phase 8 Decision 5).
+tokio = { version = "1", default-features = false, features = ["sync", "time", "rt"] }
+
+# wasm32 (the demo, phase 8 Decision 3): SQLite compiled to wasm, called
+# through `src/db/mem/`. It `links = "wsqlite3"`, so it resolves next to
+# sqlx's libsqlite3-sys. Building it needs a clang with the wasm32 backend
+# (`CC_wasm32_unknown_unknown`; Q9 of the phase 8 plan).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sqlite-wasm-rs = "=0.5.5"
+# sqlx's migration checksum (SHA-384 of the file's text), which the wasm32
+# migrator writes itself (phase 8 Decision 4).
+sha2 = "0.10"
+# Saved workflow ids are v4 UUIDs; in the browser their randomness comes
+# from crypto.getRandomValues, as Core's do.
+uuid = { workspace = true, features = ["js"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
+# The in-memory executor's unit tests run natively over the same C API
+# (src/db/mem/); the version sqlx links, so there is only one.
+libsqlite3-sys = "=0.30.1"
+futures = { workspace = true }
+# `migrations_match_sqlx` computes the checksums natively.
+sha2 = "0.10"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+seaquel-storage = { path = ".", features = ["test-hooks"] }
+wasm-bindgen-test = "0.3"
+wasm-bindgen = { workspace = true }
+js-sys = "0.3"
+sha2 = "0.10"

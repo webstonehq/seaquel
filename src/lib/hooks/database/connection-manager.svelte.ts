@@ -8,7 +8,7 @@ import type { DatabaseState } from "./state.svelte.js";
 import type { WindowStateManager } from "./window-state.svelte.js";
 import type { StateRestorationManager } from "./state-restoration.svelte.js";
 import type { TabOrderingManager } from "./tab-ordering.svelte.js";
-import { getEngineClient, TsEngineClient, type EngineClient } from "$lib/engine";
+import { getEngineClient, type EngineClient } from "$lib/engine";
 import { errorCode } from "$lib/core/client";
 import {
   getCoreClient,
@@ -35,7 +35,6 @@ import { reportProjection } from "./shared/projection.js";
 import {
   NEW,
   getLibrary,
-  isDemoLibrary,
   rowKey,
   type ChangeSeq,
   type ConnectionDraft,
@@ -60,6 +59,12 @@ import {
   storeConnectionOrder,
   storedFieldsDiffer,
 } from "./library/view.js";
+
+/**
+ * Core restarted in the demo's page (`$lib/core/browser`'s `CORE_RESTARTED`),
+ * named here rather than imported so desktop and web don't bundle that module.
+ */
+const CORE_RESTARTED = "CORE_RESTARTED";
 
 export type ConnectionInput = Omit<DatabaseConnection, "id" | "projectId" | "labelIds"> & {
   projectId?: string;
@@ -456,7 +461,13 @@ export class ConnectionManager {
     });
   }
 
-  /** Mark the connection `event` names as disconnected, and say why. */
+  /**
+   * Mark the connection `event` names as disconnected, and say why. After
+   * Core restarted in the page (`CORE_RESTARTED`, the demo's trap recovery,
+   * phase 8 Decision 16) nothing is wrong with the connection itself, so
+   * it's reconnected at once as a saved target, as `autoReconnect` does;
+   * only a failed reconnect is shown.
+   */
   handleConnectionClosed(event: ConnectionClosedEvent): void {
     const connection = this.state.connections.find(
       (c) => c.providerConnectionId === event.connectionId,
@@ -464,6 +475,12 @@ export class ConnectionManager {
     if (!connection) return;
     void log.warn(`Connection closed by Core (${event.code}): ${connection.id}`);
     this.markDisconnected(connection);
+    if (event.code === CORE_RESTARTED) {
+      void this.autoReconnect(connection.id).then((ok) => {
+        if (!ok) errorToast(connectionClosedMessage(connection.name, event));
+      });
+      return;
+    }
     errorToast(connectionClosedMessage(connection.name, event));
   }
 
@@ -921,78 +938,38 @@ export class ConnectionManager {
   }
 
   /**
-   * Add a demo connection that's already established.
-   * Used in browser demo mode where the provider connection is pre-established.
+   * The demo's connection, once the demo's start (`$lib/demo/init`) has
+   * stored it (Core's `ensureDemoConnection`, Decision 19: the fixed
+   * `demo-connection` row, created once and afterwards only marked
+   * connected, so the visitor's labels, AI flags and project stay),
+   * connected it as a saved target (`providerConnectionId`) and seeded its
+   * sample tables. Shows the row Core stored, loads the schema and makes
+   * it the active connection.
+   *
+   * A row the page already listed keeps its query history and chats (the
+   * page loaded them with the list); one stored just now has none.
    */
-  async addDemoConnection(providerConnectionId: string): Promise<string> {
-    const connectionId = "demo-connection";
-    const persisted = this.state.connections.find((c) => c.id === connectionId);
-    const projectId = persisted?.projectId ?? (this.state.activeProjectId || DEFAULT_PROJECT_ID);
-
-    const newConnection: DatabaseConnection = {
-      id: connectionId,
-      name: "Demo Database",
-      type: "duckdb",
-      host: "browser",
-      port: 0,
-      databaseName: "demo",
-      username: "",
-      password: "",
-      lastConnected: new Date(),
+  async addDemoConnection(
+    stored: { value: WireConnection; seq: ChangeSeq },
+    providerConnectionId: string,
+  ): Promise<string> {
+    const listed = this.state.connections.some((c) => c.id === stored.value.id);
+    const connection = this.applyOwn(stored.value, stored.seq, {
       providerConnectionId,
-      projectId,
-      labelIds: ["prod"],
-    };
-
-    // Store the row (the demo's fixed id, Q2): history, AI chats and the
-    // other rows that reference this connection need it. A stored row keeps
-    // the user's edits (labels, AI model) and its project. The demo still
-    // opens if that fails.
-    const library = getLibrary();
-    let stored: DatabaseConnection | undefined;
-    if (isDemoLibrary(library)) {
-      try {
-        const { value, seq } = await library.putDemoConnection(connectionId, {
-          ...connectionDraft(newConnection, projectId),
-          connected: true,
-        });
-        stored = this.applyOwn(value, seq, { providerConnectionId, password: "" });
-      } catch (error) {
-        void log.warn("Saving the demo connection failed:", error);
-      }
-    }
-    if (!stored) {
-      const connection: DatabaseConnection = persisted
-        ? {
-            ...newConnection,
-            labelIds: persisted.labelIds,
-            activeAIProviderId: persisted.activeAIProviderId,
-            activeAIModel: persisted.activeAIModel,
-            aiShareSchema: persisted.aiShareSchema,
-            aiShareData: persisted.aiShareData,
-          }
-        : newConnection;
-      this.state.connections = persisted
-        ? this.state.connections.map((c) => (c.id === connectionId ? connection : c))
-        : [...this.state.connections, connection];
-    }
-
-    this.stateRestoration.initializeConnectionMaps(connectionId);
-    this.appendToOrder(projectId, connectionId);
-
-    // Load schema
-    const client = new TsEngineClient({
-      type: "duckdb",
-      getConnectionId: () =>
-        this.state.connections.find((c) => c.id === connectionId)?.providerConnectionId,
-      getProvider: () => this.providers.getOrCreateDuckDB(),
+      password: "",
     });
+    const { id: connectionId, projectId } = connection;
+    if (listed) {
+      this.stateRestoration.ensureConnectionMapsExist(connectionId);
+    } else {
+      this.stateRestoration.initializeConnectionMaps(connectionId);
+      this.appendToOrder(projectId, connectionId);
+    }
+
+    const client = getEngineClient(connection, this.state);
     const schemasWithTables = await client.schemaTables();
 
-    // Set active connection
     this.setActiveForProject(connectionId, projectId);
-
-    // Store tables
     this.state.schemas = {
       ...this.state.schemas,
       [connectionId]: schemasWithTables,
@@ -1001,8 +978,13 @@ export class ConnectionManager {
     // Load column metadata asynchronously
     void this.onSchemaLoaded(connectionId, schemasWithTables, client);
 
-    // Create initial query tab
-    this.onCreateInitialTab();
+    // A query tab only when the project has none, as `reconnect` does. The
+    // page restored the project's tabs before the demo connects, so a
+    // reload opening one here added another ("Query 2", …) on every load
+    // and made it the active tab.
+    if ((this.state.queryTabsByProject[projectId] ?? []).length === 0) {
+      this.onCreateInitialTab();
+    }
 
     return connectionId;
   }

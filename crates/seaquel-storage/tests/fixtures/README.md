@@ -109,6 +109,19 @@ Some cases also have:
 
 Task 4's ts-rs types must regenerate to the same shapes. Where `observed` and the declared type disagree, `observed` is the behaviour. For example, `PersistedSavedQuery.starred` is declared optional but is always present, and `PersistedConnection.isLocalOnly` is only ever `true` or absent.
 
+### `sqljs/` (phase 8 Task 2)
+
+Two metadata files the demo's sql.js storage wrote, dumped from `localStorage["seaquel_db"]` in Chromium on 2026-10-01 (spike S6 of the phase 8 plan) after a cold load and one reload. They hold the demo's sample content only.
+
+- `demo-2026-10-01.db`: today's demo build at `8d73887`. One connection (`demo-connection`, with the `prod` label the recorder gave it).
+- `live-demo-2026-09-23.db`: the live demo (`seaquel.app/demo`, built 2026-09-23). No connection row and two sample dashboards with one name. The spike opened it natively, which switched its header to WAL (bytes 18 and 19 are 2); it is kept that way, since the browser's open has to take a desktop file's WAL header too.
+
+Native readers (`sqlite3`, a test) must copy a fixture to a temp dir first: opening one in place can switch it to WAL and leaves `-shm`/`-wal` files next to it (`tests/fixtures/.gitignore` keeps those out of the tree). `tests/wasm.rs` opens both in wasm32 from `include_bytes!`: the baseline, every migration and every data step run, and the rows survive. The new demo never reads the old file (Q2 of the plan); these only pin that the two formats are one.
+
+### `wasm-made/meta.db` (phase 8 Task 2)
+
+A file the browser's storage made (like the others, copy it to a temp dir before opening it natively, as `tests/wasm_made.rs` does): an empty open, a project named `Straße 東京` and an `app_state` row, then `Storage::snapshot`. `tests/wasm_made.rs` opens it natively read-only, which fails on any baseline step, migration or data step left to do, so it checks that `_sqlx_migrations` was recorded as sqlx records it. A fixture older than a migration or data step only warns locally and fails when `CI` or `SEAQUEL_STRICT_FIXTURES` is set. Regenerate it (after a new migration or data step) with `SEAQUEL_RECORD_WASM_FIXTURE=1` and the wasm32 test command in `tests/wasm.rs`'s header; the test `a_snapshot_reopens_with_nothing_pending` writes it.
+
 ## Surprises found while recording
 
 Recorded as the TS behaves. None were fixed.

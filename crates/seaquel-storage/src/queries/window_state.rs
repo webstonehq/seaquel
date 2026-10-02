@@ -7,9 +7,10 @@
 //! Core calls `windows::touch` before [`put_if_newer`]. Rows go with their
 //! window and with their project (both cascade).
 
+use crate::db;
+use crate::db::Row;
+use crate::db::SqliteRow;
 use serde_json::value::RawValue;
-use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
 
 use super::codec::{encode_error, stored_json, Result};
 use super::windows::{spare_json, PRUNE_BATCH};
@@ -55,7 +56,7 @@ pub async fn get(
     project_id: &str,
 ) -> Result<Option<WindowStateRow>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(&format!(
+    let row = db::query(&format!(
         "SELECT {COLUMNS} FROM window_state WHERE window_id = ? AND project_id = ?"
     ))
     .bind(window_id)
@@ -75,7 +76,7 @@ pub async fn state_bytes(
     project_id: &str,
 ) -> Result<Option<u64>> {
     let mut conn = r.into().conn().await?;
-    let n: Option<Option<i64>> = sqlx::query_scalar(
+    let n: Option<Option<i64>> = db::query_scalar(
         "SELECT octet_length(state) FROM window_state WHERE window_id = ? AND project_id = ?",
     )
     .bind(window_id)
@@ -102,7 +103,7 @@ pub async fn most_recent(
     project_id: &str,
 ) -> Result<Option<WindowStateRow>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(MOST_RECENT)
+    let row = db::query(MOST_RECENT)
         .bind(project_id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -134,7 +135,7 @@ pub async fn put_if_newer(
     now: &str,
 ) -> Result<Put> {
     let rev = i64::try_from(rev).map_err(|_| encode_error("rev is past 2^63 - 1"))?;
-    let done = sqlx::query(
+    let done = db::query(
         "INSERT INTO window_state (window_id, project_id, state, rev, updated_at, write_seq) \
          VALUES (?1, ?2, ?3, ?4, ?5, \
            (SELECT COALESCE(MAX(write_seq), 0) + 1 FROM window_state WHERE project_id = ?2)) \
@@ -156,14 +157,14 @@ pub async fn put_if_newer(
             rev: rev as u64,
         });
     }
-    let stored: Option<i64> = sqlx::query_scalar::<_, Option<i64>>(
+    let stored: Option<Option<i64>> = db::query_scalar(
         "SELECT CAST(rev AS INTEGER) FROM window_state WHERE window_id = ? AND project_id = ?",
     )
     .bind(window_id)
     .bind(project_id)
     .fetch_optional(tx.conn())
-    .await?
-    .flatten();
+    .await?;
+    let stored = stored.flatten();
     Ok(Put {
         written: false,
         rev: stored.unwrap_or(0).max(0) as u64,
@@ -190,7 +191,7 @@ pub async fn prune_for_project(
     max_states: u32,
     spare: &[&str],
 ) -> Result<u64> {
-    let done = sqlx::query(PRUNE_FOR_PROJECT)
+    let done = db::query(PRUNE_FOR_PROJECT)
         .bind(project_id)
         .bind(i64::from(max_states))
         .bind(spare_json(spare)?)

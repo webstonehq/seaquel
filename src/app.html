@@ -9,9 +9,60 @@
       // Prevent flash of wrong theme/direction on initial load
       (function () {
         var root = document.documentElement;
+        // Blocked site data (Firefox with storage off, some private modes)
+        // makes `localStorage` and `sessionStorage` throw on access, and
+        // libraries read them unguarded at startup (paraglide's locale,
+        // mode-watcher, persisted state). Such a page gets an in-memory
+        // Storage instead: nothing is kept anyway, and the demo says so
+        // (its IndexedDB fails the same way: "nothing is kept").
+        function memoryStorage() {
+          var items = new Map();
+          return {
+            get length() {
+              return items.size;
+            },
+            key: function (i) {
+              var keys = Array.from(items.keys());
+              return i < keys.length ? keys[i] : null;
+            },
+            getItem: function (k) {
+              return items.has(String(k)) ? items.get(String(k)) : null;
+            },
+            setItem: function (k, v) {
+              items.set(String(k), String(v));
+            },
+            removeItem: function (k) {
+              items.delete(String(k));
+            },
+            clear: function () {
+              items.clear();
+            },
+          };
+        }
+        ["localStorage", "sessionStorage"].forEach(function (name) {
+          try {
+            void window[name];
+          } catch (e) {
+            try {
+              Object.defineProperty(window, name, {
+                value: memoryStorage(),
+                configurable: true,
+              });
+            } catch (e2) {
+              // Left as it is; `read` below still copes.
+            }
+          }
+        });
+        function read(key) {
+          try {
+            return window.localStorage.getItem(key);
+          } catch (e) {
+            return null;
+          }
+        }
 
         // Handle RTL direction from persisted locale
-        var locale = localStorage.getItem("PARAGLIDE_LOCALE");
+        var locale = read("PARAGLIDE_LOCALE");
         if (locale) {
           root.lang = locale;
           if (["ar", "he", "fa", "ur"].indexOf(locale) !== -1) {
@@ -20,7 +71,7 @@
         }
 
         // Handle dark mode
-        var mode = localStorage.getItem("mode-watcher-mode");
+        var mode = read("mode-watcher-mode");
         var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         var isDark =
           mode === "dark" || (mode === "system" && prefersDark) || (!mode && prefersDark);
@@ -31,7 +82,7 @@
 
         // Apply cached theme colors
         try {
-          var cached = localStorage.getItem("seaquel-theme-cache");
+          var cached = read("seaquel-theme-cache");
           if (cached) {
             var theme = JSON.parse(cached);
             if (theme.colors) {

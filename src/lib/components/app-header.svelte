@@ -309,7 +309,7 @@
                 >
                     <NetworkIcon class="size-3.5" />
                 </Button>
-                {#if aiSettingsStore.settings.enabled}
+                {#if aiSettingsStore.available}
                 <Button
                     size="icon"
                     variant="ghost"

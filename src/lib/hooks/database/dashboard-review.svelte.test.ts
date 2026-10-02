@@ -1,12 +1,13 @@
 /**
- * Dashboards through Core, against the demo's `TsLibrary` over sql.js
- * (Core's rules): new dashboards take the next free name, a refused edit
+ * Dashboards through Core, against the browser module (phase 8: Core in
+ * the demo's page): new dashboards take the next free name, a refused edit
  * is taken back (fields and the tab's name) (5d-2 Task 6b review: I1, I7,
  * I8, M7, M8). The git reconcile and the shared file moved to Core in phase
  * 5e: its tests are Core's (`seaquel-core/tests/shared.rs`).
  */
-import initSqlJs from "sql.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadTestModule, testModuleMissing, type TestModule } from "$lib/core/browser/testing/node";
+import { openModuleCore, type ModuleCore } from "$lib/core/browser/testing/meta";
 
 const toasts = vi.hoisted(() => [] as string[]);
 vi.mock("$lib/utils/toast", () => ({ errorToast: (m: string) => toasts.push(m) }));
@@ -21,48 +22,37 @@ vi.mock("$lib/utils/logger", () => ({
   log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn(), trace: vi.fn() },
 }));
 
-const { bootstrapSqljsDatabase } = await import("$lib/storage/sqljs-client");
-const { WebSqliteDatabase } = await import("$lib/storage/web-sqlite");
-const { projectsRepo } = await import("$lib/storage/repository");
 const { DatabaseState } = await import("./state.svelte.js");
 const { DashboardManager } = await import("./dashboard-manager.svelte.js");
 const { WindowStateManager } = await import("./window-state.svelte.js");
 const { StateRestorationManager } = await import("./state-restoration.svelte.js");
 const { ProjectManager } = await import("./project-manager.svelte.js");
-const { TsLibrary } = await import("./library/ts-library");
-const { setLibrary, LibraryCallError } = await import("./library/index");
+const { CoreLibrary, setLibrary, LibraryCallError } = await import("./library/index");
 
-let SQL: Awaited<ReturnType<typeof initSqlJs>>;
-let library: InstanceType<typeof TsLibrary>;
+const missing = testModuleMissing();
+let module: TestModule | null = null;
+let core: ModuleCore;
+let library: InstanceType<typeof CoreLibrary>;
 
 beforeAll(async () => {
-  const store = new Map<string, string>();
-  vi.stubGlobal("localStorage", {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-  });
-  SQL = await initSqlJs();
+  module = await loadTestModule();
 });
 
 afterAll(() => {
   setLibrary(null);
-  vi.unstubAllGlobals();
 });
 
 beforeEach(async () => {
   toasts.length = 0;
-  const db = new WebSqliteDatabase(new SQL.Database());
-  await bootstrapSqljsDatabase(db);
+  if (!module) return;
+  core = await openModuleCore(module);
   const now = new Date().toISOString();
-  await projectsRepo.save(db, {
-    id: "p",
-    name: "proj",
-    createdAt: now,
-    updatedAt: now,
-    customLabels: [],
-  });
-  library = new TsLibrary(db);
+  await core.execute(
+    "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p', 'proj', ?, ?)",
+    [now, now],
+  );
+  const storage = core.storage();
+  library = new CoreLibrary(() => storage);
   setLibrary(library);
 });
 
@@ -88,7 +78,7 @@ function setup() {
 
 const stored = async () => (await library.listDashboards("p")).value;
 
-describe("new dashboards", () => {
+describe.skipIf(missing)("new dashboards", () => {
   it("a second New Dashboard takes the next free name", async () => {
     const { dashboards } = setup();
     const first = await dashboards.createDashboard("New Dashboard", { renameIfTaken: true });
@@ -100,7 +90,7 @@ describe("new dashboards", () => {
   });
 });
 
-describe("a refused edit", () => {
+describe.skipIf(missing)("a refused edit", () => {
   it("is taken back, the tab's name too", async () => {
     const { state, dashboards } = setup();
     const sales = (await dashboards.createDashboard("Sales"))!;
@@ -134,7 +124,7 @@ describe("a refused edit", () => {
   });
 });
 
-describe("two refused edits in flight", () => {
+describe.skipIf(missing)("two refused edits in flight", () => {
   it("two refused widget adds end on the stored widgets", async () => {
     const { dashboards } = setup();
     const d = (await dashboards.createDashboard("Sales"))!;
@@ -166,7 +156,7 @@ describe("two refused edits in flight", () => {
   });
 });
 
-describe("after a refused edit", () => {
+describe.skipIf(missing)("after a refused edit", () => {
   it("an edit made right after it isn't undone by the restore's read", async () => {
     const { dashboards } = setup();
     const d = (await dashboards.createDashboard("Sales"))!;

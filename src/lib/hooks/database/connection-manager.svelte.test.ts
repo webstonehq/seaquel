@@ -37,7 +37,6 @@ vi.mock("$lib/features", async (importOriginal) => ({
 }));
 vi.mock("$lib/engine", () => ({
   getEngineClient: () => ({ schemaTables: () => schemaTables() }),
-  TsEngineClient: class {},
 }));
 const keyringCalls: string[] = [];
 vi.mock("$lib/services/keyring", () => ({
@@ -588,6 +587,36 @@ describe("connectionClosed events", () => {
       message: "lost",
     });
     expect(errorToast.mock.calls[0][0]).toContain("lost its connection");
+  });
+
+  it("reconnects at once after Core restarted (CORE_RESTARTED), without an error", async () => {
+    const { manager, state } = setup();
+    state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
+    const reconnect = vi.spyOn(manager, "autoReconnect").mockResolvedValue(true);
+    manager.handleConnectionClosed({
+      type: "connectionClosed",
+      connectionId: "pc-1",
+      code: "CORE_RESTARTED",
+      message: "restarted",
+    });
+    expect(state.connections[0].providerConnectionId).toBeUndefined();
+    await vi.waitFor(() => expect(reconnect).toHaveBeenCalledWith("conn-1"));
+    await Promise.resolve();
+    expect(errorToast).not.toHaveBeenCalled();
+  });
+
+  it("says so if the reconnect after a restart fails", async () => {
+    const { manager, state } = setup();
+    state.connections = [{ ...saved, providerConnectionId: "pc-1" }];
+    vi.spyOn(manager, "autoReconnect").mockResolvedValue(false);
+    manager.handleConnectionClosed({
+      type: "connectionClosed",
+      connectionId: "pc-1",
+      code: "CORE_RESTARTED",
+      message: "restarted",
+    });
+    await vi.waitFor(() => expect(errorToast).toHaveBeenCalledOnce());
+    expect(errorToast.mock.calls[0][0]).toContain('"Local"');
   });
 
   it("ignores a connection this page doesn't show", () => {

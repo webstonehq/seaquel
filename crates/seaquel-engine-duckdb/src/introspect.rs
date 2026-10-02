@@ -732,6 +732,97 @@ fn is_truthy(v: &Json) -> bool {
     }
 }
 
+// ── The drivers' introspection calls ────────────────────────────────────────
+
+/// The `Driver` introspection methods, over the driver's own `query`: the
+/// native and the browser driver both answer through these.
+#[cfg(any(feature = "native", all(feature = "browser", target_arch = "wasm32")))]
+pub(crate) mod calls {
+    use log::warn;
+    use seaquel_engine::{DbError, Driver, QueryResult, Value};
+    use seaquel_types::{
+        DatabaseStatistics, ExplainResult, SchemaColumn, SchemaIndex, SchemaTable,
+    };
+
+    pub(crate) async fn list_schemas(d: &dyn Driver) -> Result<Vec<String>, DbError> {
+        let r = d.query(&super::schemas_sql(), vec![]).await?;
+        Ok(super::parse_schemas(&r))
+    }
+
+    pub(crate) async fn schema_tables(d: &dyn Driver) -> Result<Vec<SchemaTable>, DbError> {
+        let r = d.query(&super::schema_sql(), vec![]).await?;
+        Ok(super::parse_schema(&r))
+    }
+
+    /// `schema` is the schema as `schema_tables` lists it (`fx_aux.main`
+    /// for an attached catalog). Bug fix 7: a failing foreign-key or UNIQUE
+    /// query is logged and the columns come back without foreign keys or
+    /// UNIQUE flags.
+    pub(crate) async fn table_metadata(
+        d: &dyn Driver,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Vec<SchemaColumn>, Vec<SchemaIndex>), DbError> {
+        let params = || vec![Value::from(schema), Value::from(table)];
+        let columns = d.query(&super::columns_sql(), params()).await?;
+        let optional = |what: &'static str, r: Result<QueryResult, DbError>| match r {
+            Ok(r) => Some(r),
+            Err(e) => {
+                warn!(activity = "db.table_metadata", driver = "duckdb", schema = schema, table = table; "The {what} of {schema}.{table} failed to load: {}", e.message);
+                None
+            }
+        };
+        let foreign_keys = optional(
+            "foreign keys",
+            d.query(&super::foreign_keys_sql(), params()).await,
+        );
+        let unique = optional(
+            "UNIQUE constraints",
+            d.query(&super::unique_columns_sql(), params()).await,
+        );
+        let indexes = d.query(&super::indexes_sql(), params()).await?;
+        let mut columns = super::parse_columns(&columns, foreign_keys.as_ref());
+        if let Some(unique) = &unique {
+            super::apply_unique_columns(&mut columns, unique);
+        }
+        Ok((columns, super::parse_indexes(&indexes)))
+    }
+
+    /// Table sizes (row counts only: DuckDB keeps no per-table sizes), the
+    /// indexes and the overview, over the same catalogs as the tree. Each
+    /// table is counted in its own catalog; a count that fails leaves 0, as
+    /// TsEngineClient did.
+    pub(crate) async fn statistics(d: &dyn Driver) -> Result<DatabaseStatistics, DbError> {
+        let overview = d.query(super::OVERVIEW_SQL, vec![]).await?;
+        let sizes = d.query(&super::table_sizes_sql(), vec![]).await?;
+        let usage = d.query(&super::index_usage_sql(), vec![]).await?;
+        let mut table_sizes = super::parse_table_sizes(&sizes);
+        for (table, sql) in table_sizes.iter_mut().zip(super::row_count_targets(&sizes)) {
+            if let Ok(r) = d.query(&sql, vec![]).await {
+                table.row_count = super::parse_row_count(&r);
+            }
+        }
+        Ok(DatabaseStatistics {
+            overview: super::parse_overview(&overview),
+            table_sizes,
+            index_usage: super::parse_index_usage(&usage),
+        })
+    }
+
+    /// `EXPLAIN (FORMAT JSON)`, with `ANALYZE` when asked (which **runs**
+    /// the statement, writes included, as Postgres's does). The parameters
+    /// are bound to the EXPLAIN.
+    pub(crate) async fn explain(
+        d: &dyn Driver,
+        sql: &str,
+        params: Vec<Value>,
+        analyze: bool,
+    ) -> Result<ExplainResult, DbError> {
+        let r = d.query(&super::explain_sql(sql, analyze), params).await?;
+        Ok(super::parse_explain(&r, analyze))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

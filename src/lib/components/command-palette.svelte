@@ -401,7 +401,7 @@
 						<span>{m.command_explain_analyze_query()}</span>
 					</Command.Item>
 				{/if}
-				{#if aiSettingsStore.settings.enabled}
+				{#if aiSettingsStore.available}
 				<Command.Item value="toggle-ai" onSelect={toggleAI}>
 					<Sparkles class="size-4" />
 					<span>{m.command_toggle_ai()}</span>

@@ -37,13 +37,28 @@ export function isWeb(): boolean {
 }
 
 /**
- * Check if running in browser demo mode.
+ * Check if this is the browser demo build: Seaquel Core running in the
+ * page (phase 8: the browser module over DuckDB-WASM), no backend.
  *
- * "Demo" means in-browser with WASM DB engines (DuckDB-WASM, sql.js), no
- * real backend — i.e. not Tauri AND not the web server build.
+ * A build-time constant (`BUILD_TARGET=demo`, which `vite.config.js` turns
+ * into `VITE_BUILD_TARGET` and `VITE_IS_DEMO`), so a desktop or dev build
+ * opened in a plain browser is not the demo (see `isSupportedBuild`).
  */
 export function isDemo(): boolean {
-  return !isTauri() && !isWeb();
+  if (typeof import.meta === "undefined" || !import.meta.env) return false;
+  return (
+    import.meta.env.VITE_BUILD_TARGET === "demo" || String(import.meta.env.VITE_IS_DEMO) === "true"
+  );
+}
+
+/**
+ * Whether this build can run where it is: inside the desktop app, as the
+ * web build, or as the demo build. A desktop build opened in a plain
+ * browser (`npm run dev` in Chrome) is none of them; the root layout then
+ * shows how to run the demo instead of the app.
+ */
+export function isSupportedBuild(): boolean {
+  return isTauri() || isWeb() || isDemo();
 }
 
 /**

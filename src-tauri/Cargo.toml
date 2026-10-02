@@ -31,7 +31,7 @@ seaquel-runtime = { path = "../crates/seaquel-runtime", features = ["tokio"] }
 seaquel-rpc = { path = "../crates/seaquel-rpc", features = ["storage", "secrets", "license-desktop", "git", "ssh", "workspace", "imports"] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { workspace = true }
 time = { version = "0.3", features = ["formatting"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

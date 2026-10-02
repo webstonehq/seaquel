@@ -16,7 +16,7 @@
 
     const rightPanelOpen = $derived(
         db.state.activeRightPanel === "pendingChanges" ||
-        (db.state.activeRightPanel === "ai" && !db.state.isDashboardFullscreen && aiSettingsStore.settings.enabled)
+        (db.state.activeRightPanel === "ai" && !db.state.isDashboardFullscreen && aiSettingsStore.available)
     );
 
     // Register keyboard shortcuts (settings + sidebar only; tab shortcuts are in header-tabs)

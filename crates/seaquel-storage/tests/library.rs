@@ -3,6 +3,8 @@
 //! versions) Core's `library` methods run inside one write transaction, and
 //! the `drop_legacy_built_connection_strings` data step.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use std::path::{Path, PathBuf};

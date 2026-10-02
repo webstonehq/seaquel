@@ -7,6 +7,8 @@
 //! Then the password stripping of Decision 13.1: `connections::save` and
 //! the `strip_connection_string_passwords` data step.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use std::collections::BTreeSet;

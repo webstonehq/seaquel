@@ -1,0 +1,5 @@
+# SQLite side files a native reader leaves next to a fixture. Readers copy
+# a fixture to a temp dir first; these never belong in the tree.
+*.db-shm
+*.db-wal
+*.db-journal

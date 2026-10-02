@@ -2,6 +2,8 @@
 //! binary with one test, because setting a variable races with any other
 //! thread that reads the environment.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 use seaquel_storage::{data_dir, DATA_DIR_ENV};
 
 #[test]

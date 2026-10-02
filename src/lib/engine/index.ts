@@ -1,8 +1,7 @@
 /**
- * Picks the `EngineClient` for a connection: the Rust core for Postgres,
- * MySQL, MariaDB, SQLite, SQL Server and DuckDB on desktop and web, and
- * `TsEngineClient` over `duckdb.ts` in the browser demo, which has no Rust
- * core (only DuckDB-WASM).
+ * Picks the `EngineClient` for a connection: the Rust core for every
+ * engine, on desktop, on web and in the demo (phase 8: Core runs in the
+ * demo's page).
  *
  * The provider connection id is read on every call, not when the client is
  * made. `reconnect()` doesn't mutate the connection object: it replaces it in
@@ -14,35 +13,14 @@
  */
 
 import type { DatabaseConnection } from "$lib/types";
-import { isTauri, isWeb } from "$lib/utils/environment";
-import { RustEngineClient, type RustEngine } from "./rust-engine-client";
-import { TsEngineClient } from "./ts-engine-client";
+import { RustEngineClient } from "./rust-engine-client";
 import type { EngineClient } from "./types";
 
 export type { EngineClient, TableMetadata } from "./types";
 export { RustEngineClient } from "./rust-engine-client";
-export { TsEngineClient, type TsEngineClientOptions } from "./ts-engine-client";
 export { editorQualifiedTable, quoteIdent, selectPreview } from "./qualified-table";
 
 type EngineConnection = Pick<DatabaseConnection, "id" | "type" | "providerConnectionId">;
-
-/** Connection types whose dialect runs in Rust (MariaDB uses the MySQL engine). */
-const RUST_ENGINES: ReadonlySet<string> = new Set<RustEngine>([
-  "postgres",
-  "mysql",
-  "mariadb",
-  "sqlite",
-  "mssql",
-  "duckdb",
-]);
-
-function isRustEngine(type: DatabaseConnection["type"]): type is RustEngine {
-  return RUST_ENGINES.has(type);
-}
-
-export function usesRustEngine(connection: Pick<DatabaseConnection, "type">): boolean {
-  return isRustEngine(connection.type) && (isTauri() || isWeb());
-}
 
 /**
  * @param state Where the live connection list is (the app's `DatabaseState`).
@@ -55,13 +33,5 @@ export function getEngineClient(
   const getConnectionId = state
     ? () => state.connections.find((c) => c.id === connection.id)?.providerConnectionId
     : () => connection.providerConnectionId;
-
-  const { type } = connection;
-  if (isRustEngine(type) && (isTauri() || isWeb())) {
-    return new RustEngineClient(type, getConnectionId);
-  }
-  return new TsEngineClient({
-    type: connection.type,
-    getConnectionId,
-  });
+  return new RustEngineClient(connection.type, getConnectionId);
 }

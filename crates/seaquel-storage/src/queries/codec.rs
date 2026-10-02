@@ -7,8 +7,8 @@
 //! is false.
 
 use serde_json::value::RawValue;
-use sqlx::sqlite::{SqliteArguments, SqliteRow, SqliteValueRef};
-use sqlx::{Decode, Row, Sqlite, TypeInfo, ValueRef};
+
+use crate::db::{self, Cell, Row, SqliteRow};
 
 use crate::{Storage, StorageError, WriteTx};
 
@@ -25,12 +25,12 @@ pub(crate) async fn begin(st: &Storage) -> Result<WriteTx> {
 /// A value in a stored row that can't be read as the TypeScript read it
 /// (`vault_state.kdf_params` that isn't JSON).
 pub(crate) fn decode_error(msg: impl Into<String>) -> StorageError {
-    StorageError::Sqlx(sqlx::Error::Decode(msg.into().into()))
+    StorageError::Sqlx(db::Error::Decode(msg.into().into()))
 }
 
 /// An argument storage can't bind, where the TypeScript's driver threw.
 pub(crate) fn encode_error(msg: impl Into<String>) -> StorageError {
-    StorageError::Sqlx(sqlx::Error::Encode(msg.into().into()))
+    StorageError::Sqlx(db::Error::Encode(msg.into().into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -59,32 +59,25 @@ pub(crate) fn opt_number(row: &SqliteRow, col: &str) -> Result<Option<f64>> {
 }
 
 /// `value === 1`: only an INTEGER 1 (or REAL 1.0) is true.
-fn is_one(v: SqliteValueRef<'_>) -> Result<bool> {
-    // A NULL's type_info is the column's declared type, not NULL.
-    if v.is_null() {
-        return Ok(false);
+fn is_one(v: Cell) -> bool {
+    match v {
+        Cell::Integer(n) => n == 1,
+        Cell::Real(n) => n == 1.0,
+        Cell::Null | Cell::Other => false,
     }
-    let kind = v.type_info();
-    Ok(match kind.name() {
-        "INTEGER" => <i64 as Decode<Sqlite>>::decode(v).map_err(sqlx::Error::Decode)? == 1,
-        "REAL" => <f64 as Decode<Sqlite>>::decode(v).map_err(sqlx::Error::Decode)? == 1.0,
-        _ => false,
-    })
 }
 
 /// `bool(...)`: `value === 1`, never absent.
 pub(crate) fn flag(row: &SqliteRow, col: &str) -> Result<bool> {
-    is_one(row.try_get_raw(col)?)
+    Ok(is_one(db::cell(row, col)?))
 }
 
 /// `optBool(...)`: NULL is `None`, anything else `value === 1`.
 pub(crate) fn opt_flag(row: &SqliteRow, col: &str) -> Result<Option<bool>> {
-    let v = row.try_get_raw(col)?;
-    if v.is_null() {
-        Ok(None)
-    } else {
-        is_one(v).map(Some)
-    }
+    Ok(match db::cell(row, col)? {
+        Cell::Null => None,
+        v => Some(is_one(v)),
+    })
 }
 
 /// `JSON.parse(text)`, keeping the JSON as text. `None` when it doesn't
@@ -181,7 +174,7 @@ fn json_id(v: &RawValue) -> Result<JsonId> {
     }
 }
 
-pub(crate) type SqliteQuery<'q> = sqlx::query::Query<'q, Sqlite, SqliteArguments<'q>>;
+pub(crate) use crate::db::SqliteQuery;
 
 /// Binds the `id` of a JSON value stored whole (a user theme, a shared repo,
 /// a saved workflow), the way the TypeScript bound `value.id`: a string as
@@ -215,7 +208,7 @@ pub(crate) async fn load_singleton_json(
     table: &str,
 ) -> Result<Option<Box<RawValue>>> {
     let row: Option<(Option<String>,)> =
-        sqlx::query_as(&format!("SELECT data FROM {table} WHERE id = 1"))
+        db::query_as(&format!("SELECT data FROM {table} WHERE id = 1"))
             .fetch_optional(st.pool())
             .await?;
     Ok(row.and_then(|(data,)| parse_json(&data?)))
@@ -224,7 +217,7 @@ pub(crate) async fn load_singleton_json(
 /// Stores `data` in `table`'s one row as the JSON given (`null` is stored
 /// as `'null'`).
 pub(crate) async fn save_singleton_json(st: &Storage, table: &str, data: &RawValue) -> Result<()> {
-    sqlx::query(&format!(
+    db::query(&format!(
         "INSERT OR REPLACE INTO {table} (id, data) VALUES (1, ?)"
     ))
     .bind(data.get())

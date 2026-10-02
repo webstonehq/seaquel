@@ -249,6 +249,46 @@ describe("checkCrateDeps", () => {
     ]);
   });
 
+  it("lets seaquel-browser register DuckDB's browser driver, and nothing else of the kind", () => {
+    const base = [
+      pkg("seaquel-core"),
+      pkg("seaquel-rpc", "seaquel-core"),
+      pkg("seaquel-runtime"),
+      pkg("seaquel-types"),
+      pkg("seaquel-engine-duckdb"),
+      pkg("seaquel-engine-sqlite"),
+      pkg("seaquel-storage"),
+    ];
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg(
+          "seaquel-browser",
+          "seaquel-core",
+          "seaquel-rpc",
+          "seaquel-runtime",
+          "seaquel-types",
+          "seaquel-engine-duckdb",
+        ),
+      ]),
+    ).toEqual([]);
+    expect(
+      checkCrateDeps([
+        ...base,
+        pkg("seaquel-browser", "seaquel-core", "seaquel-engine-sqlite", "seaquel-storage"),
+      ]),
+    ).toEqual([
+      "seaquel-browser -> seaquel-engine-sqlite: the browser module may name only seaquel-engine-duckdb's browser driver; other engines go through seaquel-core",
+      "seaquel-browser -> seaquel-storage: interfaces reach infrastructure crates through seaquel-core (e.g. core.license_server())",
+    ]);
+    // Other interfaces still may not name the DuckDB crate.
+    expect(
+      checkCrateDeps([...base, pkg("seaquel-server", "seaquel-core", "seaquel-engine-duckdb")]),
+    ).toEqual([
+      "seaquel-server -> seaquel-engine-duckdb: interfaces reach everything through seaquel-core",
+    ]);
+  });
+
   it("rejects seaquel-server depending on seaquel-license in this workspace's metadata", () => {
     const metadata = execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
       encoding: "utf8",

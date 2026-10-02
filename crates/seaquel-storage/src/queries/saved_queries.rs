@@ -1,7 +1,8 @@
 //! `savedQueriesRepo`: `saved_queries`.
 
+use crate::db;
+use crate::db::SqliteRow;
 use seaquel_types::storage::PersistedSavedQuery;
-use sqlx::sqlite::SqliteRow;
 
 use super::codec::{
     begin, bit, flag, insert_sql, json, json_text, opt_text, select_sql, text, upsert_sql, Result,
@@ -67,7 +68,7 @@ fn map_row(row: &SqliteRow) -> Result<PersistedSavedQuery> {
 
 /// A project's saved queries, in rowid order.
 pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<PersistedSavedQuery>> {
-    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
+    let rows = db::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
         .bind(project_id)
         .fetch_all(st.pool())
         .await?;
@@ -78,7 +79,7 @@ pub async fn load_by_project(st: &Storage, project_id: &str) -> Result<Vec<Persi
 /// write, the transaction): the rows a shared project's sync plans over.
 pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<PersistedSavedQuery>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
+    let rows = db::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -88,7 +89,7 @@ pub async fn list(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Pers
 /// One saved query, as [`load_by_project`] gives it, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedSavedQuery>> {
     let mut conn = r.into().conn().await?;
-    let row = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
+    let row = db::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
@@ -116,7 +117,7 @@ fn bind_fields<'q>(q: SqliteQuery<'q>, sq: &'q PersistedSavedQuery) -> SqliteQue
 pub async fn insert(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<()> {
     let sql = insert_sql(TABLE, &COLUMNS);
     let conn = tx.conn();
-    bind_fields(sqlx::query(&sql).bind(&q.id).bind(&q.project_id), q)
+    bind_fields(db::query(&sql).bind(&q.id).bind(&q.project_id), q)
         .execute(&mut *conn)
         .await?;
     super::set_name_key(conn, TABLE, &q.id, &q.name).await
@@ -128,7 +129,7 @@ pub async fn insert(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<()> {
 /// `false` when there's no saved query with that id.
 pub async fn update(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<bool> {
     let conn = tx.conn();
-    let done = sqlx::query(
+    let done = db::query(
         "UPDATE saved_queries SET name = ?, query = ?, parameters = ?, starred = ?, shared = ?, \
          description = ?, database_type = ?, tags = ?, folder = ?, updated_at = ? WHERE id = ?",
     )
@@ -155,7 +156,7 @@ pub async fn update(tx: &mut WriteTx, q: &PersistedSavedQuery) -> Result<bool> {
 /// Deletes one saved query; its versions cascade. `false` when there was no
 /// such query.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
-    let done = sqlx::query("DELETE FROM saved_queries WHERE id = ?")
+    let done = db::query("DELETE FROM saved_queries WHERE id = ?")
         .bind(id)
         .execute(tx.conn())
         .await?;
@@ -171,7 +172,7 @@ pub async fn names_in_folder(
     folder: Option<&str>,
 ) -> Result<Vec<IdName>> {
     let mut conn = r.into().conn().await?;
-    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(Option<String>, Option<String>)> = db::query_as(
         "SELECT id, name FROM saved_queries \
          WHERE project_id = ? AND COALESCE(folder, '') = COALESCE(?, '') ORDER BY rowid",
     )
@@ -209,7 +210,7 @@ pub async fn with_name_key_in_folder(
     key: &str,
 ) -> Result<Vec<IdName>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(NAME_KEY_LOOKUP)
+    let rows = db::query_as(NAME_KEY_LOOKUP)
         .bind(project_id)
         .bind(folder)
         .bind(key)
@@ -247,7 +248,7 @@ pub const LINKS: &str = "SELECT id, shared_path, shared_base, shared_file_id \
 /// order.
 pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(LINKS)
+    let rows = db::query_as(LINKS)
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -268,7 +269,7 @@ pub async fn by_shared_path(
     path: &str,
 ) -> Result<Vec<String>> {
     let mut conn = r.into().conn().await?;
-    Ok(sqlx::query_scalar(BY_SHARED_PATH)
+    Ok(db::query_scalar(BY_SHARED_PATH)
         .bind(project_id)
         .bind(path)
         .fetch_all(&mut *conn)
@@ -278,7 +279,7 @@ pub async fn by_shared_path(
 /// How many saved queries the file holds, in every project.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM saved_queries")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM saved_queries")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)
@@ -295,7 +296,7 @@ pub async fn save_all(
 ) -> Result<()> {
     let mut tx = begin(st).await?;
     if queries.is_empty() {
-        sqlx::query("DELETE FROM saved_queries WHERE project_id = ?")
+        db::query("DELETE FROM saved_queries WHERE project_id = ?")
             .bind(project_id)
             .execute(&mut *tx)
             .await?;
@@ -304,7 +305,7 @@ pub async fn save_all(
         let sql = format!(
             "DELETE FROM saved_queries WHERE project_id = ? AND id NOT IN ({placeholders})"
         );
-        let mut delete = sqlx::query(&sql).bind(project_id);
+        let mut delete = db::query(&sql).bind(project_id);
         for q in queries {
             delete = delete.bind(&q.id);
         }
@@ -312,7 +313,7 @@ pub async fn save_all(
     }
     let upsert = upsert_sql(TABLE, &COLUMNS, "id");
     for q in queries {
-        bind_fields(sqlx::query(&upsert).bind(&q.id).bind(&q.project_id), q)
+        bind_fields(db::query(&upsert).bind(&q.id).bind(&q.project_id), q)
             .execute(&mut *tx)
             .await?;
     }
@@ -322,7 +323,7 @@ pub async fn save_all(
 
 /// Deletes a project's saved queries. Their versions cascade.
 pub async fn remove_by_project(st: &Storage, project_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM saved_queries WHERE project_id = ?")
+    db::query("DELETE FROM saved_queries WHERE project_id = ?")
         .bind(project_id)
         .execute(st.pool())
         .await?;

@@ -1,8 +1,9 @@
 //! `connectionsRepo`: `connections` and their `connection_labels`.
 
+use crate::db;
+use crate::db::SqliteRow;
+use db::SqliteConnection;
 use seaquel_types::storage::PersistedConnection;
-use sqlx::sqlite::SqliteRow;
-use sqlx::SqliteConnection;
 
 use super::codec::{
     begin, bit, flag, json, number, opt_bit, opt_flag, opt_text, select_sql, text,
@@ -76,7 +77,7 @@ pub const ORIGIN_IMPORTED: &str = "imported";
 /// primary key.
 async fn label_ids(conn: &mut SqliteConnection, id: &str) -> Result<Vec<String>> {
     let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT label_id FROM connection_labels WHERE connection_id = ?")
+        db::query_as("SELECT label_id FROM connection_labels WHERE connection_id = ?")
             .bind(id)
             .fetch_all(&mut *conn)
             .await?;
@@ -117,7 +118,7 @@ fn map_row(row: &SqliteRow, id: String, label_ids: Vec<String>) -> Result<Persis
 /// in the order of `connection_labels`' primary key, not the order they were
 /// saved in.
 pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnection>> {
-    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, ""))
+    let rows = db::query(&select_sql(TABLE, &READ_COLUMNS, ""))
         .fetch_all(st.pool())
         .await?;
     let mut conn = st.pool().acquire().await?;
@@ -133,7 +134,7 @@ pub async fn load_all(st: &Storage) -> Result<Vec<PersistedConnection>> {
 /// One connection, as [`load_all`] gives it, or `None`.
 pub async fn get(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<PersistedConnection>> {
     let mut conn = r.into().conn().await?;
-    let Some(row) = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
+    let Some(row) = db::query(&select_sql(TABLE, &READ_COLUMNS, "id = ?"))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?
@@ -175,13 +176,13 @@ fn bind_fields<'q>(
 /// Makes `labels` the connection's labels. A label id listed twice is saved
 /// once (a repeat would fail the primary key).
 async fn replace_labels(conn: &mut SqliteConnection, id: &str, labels: &[String]) -> Result<()> {
-    sqlx::query("DELETE FROM connection_labels WHERE connection_id = ?")
+    db::query("DELETE FROM connection_labels WHERE connection_id = ?")
         .bind(id)
         .execute(&mut *conn)
         .await?;
     let mut seen = std::collections::HashSet::new();
     for label_id in labels.iter().filter(|id| seen.insert(id.as_str())) {
-        sqlx::query("INSERT INTO connection_labels (connection_id, label_id) VALUES (?, ?)")
+        db::query("INSERT INTO connection_labels (connection_id, label_id) VALUES (?, ?)")
             .bind(id)
             .bind(label_id)
             .execute(&mut *conn)
@@ -204,7 +205,7 @@ pub async fn save(st: &Storage, c: &PersistedConnection) -> Result<()> {
         .as_deref()
         .map(strip_connection_string_password);
     bind_fields(
-        sqlx::query(&sql).bind(&c.id).bind(&c.project_id),
+        db::query(&sql).bind(&c.id).bind(&c.project_id),
         c,
         connection_string,
     )
@@ -232,7 +233,7 @@ pub async fn insert(tx: &mut WriteTx, c: &PersistedConnection) -> Result<()> {
     let conn = tx.conn();
     let sql = super::codec::insert_sql(TABLE, &COLUMNS);
     bind_fields(
-        sqlx::query(&sql).bind(&c.id).bind(&c.project_id),
+        db::query(&sql).bind(&c.id).bind(&c.project_id),
         c,
         stored_string(c),
     )
@@ -251,7 +252,7 @@ pub async fn update(tx: &mut WriteTx, c: &PersistedConnection) -> Result<bool> {
     let conn = tx.conn();
     let sets: Vec<String> = COLUMNS[2..].iter().map(|c| format!("{c} = ?")).collect();
     let sql = format!("UPDATE {TABLE} SET {} WHERE id = ?", sets.join(", "));
-    let done = bind_fields(sqlx::query(&sql), c, stored_string(c))
+    let done = bind_fields(db::query(&sql), c, stored_string(c))
         .bind(&c.id)
         .execute(&mut *conn)
         .await?;
@@ -265,7 +266,7 @@ pub async fn update(tx: &mut WriteTx, c: &PersistedConnection) -> Result<bool> {
 
 /// Deletes the connection. Its labels, history and AI chats cascade.
 pub async fn remove(st: &Storage, connection_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM connections WHERE id = ?")
+    db::query("DELETE FROM connections WHERE id = ?")
         .bind(connection_id)
         .execute(st.pool())
         .await?;
@@ -275,7 +276,7 @@ pub async fn remove(st: &Storage, connection_id: &str) -> Result<()> {
 /// [`remove`] inside a write transaction. `false` when there was no such
 /// connection.
 pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
-    let done = sqlx::query("DELETE FROM connections WHERE id = ?")
+    let done = db::query("DELETE FROM connections WHERE id = ?")
         .bind(id)
         .execute(tx.conn())
         .await?;
@@ -286,7 +287,7 @@ pub async fn delete(tx: &mut WriteTx, id: &str) -> Result<bool> {
 pub async fn names_in_project(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<IdName>> {
     let mut conn = r.into().conn().await?;
     let rows: Vec<(Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT id, name FROM connections WHERE project_id = ? ORDER BY rowid")
+        db::query_as("SELECT id, name FROM connections WHERE project_id = ? ORDER BY rowid")
             .bind(project_id)
             .fetch_all(&mut *conn)
             .await?;
@@ -318,7 +319,7 @@ pub async fn with_name_key(
     key: &str,
 ) -> Result<Vec<IdName>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(NAME_KEY_LOOKUP)
+    let rows = db::query_as(NAME_KEY_LOOKUP)
         .bind(project_id)
         .bind(key)
         .fetch_all(&mut *conn)
@@ -336,7 +337,7 @@ pub(crate) async fn ids_of_project(
     conn: &mut SqliteConnection,
     project_id: &str,
 ) -> Result<Vec<String>> {
-    let rows: Vec<(Option<String>,)> = sqlx::query_as(
+    let rows: Vec<(Option<String>,)> = db::query_as(
         "SELECT id FROM connections WHERE project_id = ? AND id IS NOT NULL ORDER BY rowid",
     )
     .bind(project_id)
@@ -368,7 +369,7 @@ pub const SET_ORIGIN: &str = "UPDATE connections SET shared_origin = ?1 WHERE id
 /// [`ORIGIN_IMPORTED`]; `None` clears it). `false` when there's no
 /// connection with that id.
 pub async fn set_origin(tx: &mut WriteTx, id: &str, origin: Option<&str>) -> Result<bool> {
-    let done = sqlx::query(SET_ORIGIN)
+    let done = db::query(SET_ORIGIN)
         .bind(origin)
         .bind(id)
         .execute(tx.conn())
@@ -381,7 +382,7 @@ pub async fn set_origin(tx: &mut WriteTx, id: &str, origin: Option<&str>) -> Res
 pub async fn origin(r: impl Into<Reader<'_>>, id: &str) -> Result<Option<String>> {
     let mut conn = r.into().conn().await?;
     let v: Option<Option<String>> =
-        sqlx::query_scalar("SELECT shared_origin FROM connections WHERE id = ?1")
+        db::query_scalar("SELECT shared_origin FROM connections WHERE id = ?1")
             .bind(id)
             .fetch_optional(&mut *conn)
             .await?;
@@ -406,7 +407,7 @@ pub async fn list_in_project(
     project_id: &str,
 ) -> Result<Vec<PersistedConnection>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
+    let rows = db::query(&select_sql(TABLE, &READ_COLUMNS, "project_id = ?"))
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -427,7 +428,7 @@ pub const LINKS: &str = "SELECT id, shared_connection_id, shared_base, shared_fi
 /// order; `path` is `shared_connection_id`.
 pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<RowLink>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query_as(LINKS)
+    let rows = db::query_as(LINKS)
         .bind(project_id)
         .fetch_all(&mut *conn)
         .await?;
@@ -437,7 +438,7 @@ pub async fn links(r: impl Into<Reader<'_>>, project_id: &str) -> Result<Vec<Row
 /// How many connections the file holds.
 pub async fn count(r: impl Into<Reader<'_>>) -> Result<u64> {
     let mut conn = r.into().conn().await?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM connections")
+    let n: i64 = db::query_scalar("SELECT COUNT(*) FROM connections")
         .fetch_one(&mut *conn)
         .await?;
     Ok(n.max(0) as u64)
@@ -460,7 +461,7 @@ pub struct SecretInString {
 /// Rows with a NULL id, or a value that isn't UTF-8, are skipped.
 pub async fn with_secret_in_string(r: impl Into<Reader<'_>>) -> Result<Vec<SecretInString>> {
     let mut conn = r.into().conn().await?;
-    let rows = sqlx::query(
+    let rows = db::query(
         "SELECT id, type, connection_string FROM connections \
          WHERE id IS NOT NULL AND typeof(connection_string) = 'text' \
          AND connection_string <> '' ORDER BY rowid",

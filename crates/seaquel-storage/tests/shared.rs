@@ -4,6 +4,8 @@
 //! connections and projects, and the targeted `shared_repos` queries
 //! (Decision 43).
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use std::path::{Path, PathBuf};

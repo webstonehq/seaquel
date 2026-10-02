@@ -1,43 +1,22 @@
 /**
- * Centralized provider lifecycle manager.
- * Replaces duplicated getOrCreate/getProviderFor patterns across managers.
- *
- * Three modes:
- *   - Tauri desktop          → CoreProvider          (Core over IPC)
- *   - Web (hosted/self-host) → CoreProvider          (Core over HTTP + WS)
- *   - Demo (browser)         → DuckDBProvider        (DuckDB-WASM only — the demo
- *                                                     UI disables newConnections,
- *                                                     so no other driver is ever
- *                                                     selectable)
+ * Centralized provider lifecycle manager: one provider for every driver,
+ * Core (embedded on desktop, `seaquel-server` on web, the in-page module in
+ * the demo). The web server has no SQLite or DuckDB, and `ConnectionManager`
+ * refuses those types on web before reaching here.
  */
 
 import type { DatabaseProvider } from "./types";
-import { getProvider, getDuckDBProvider } from "./index";
-import { isTauri, isWeb } from "$lib/utils/environment";
+import { getProvider } from "./index";
 
 export class ProviderRegistry {
   private provider: DatabaseProvider | null = null;
-  private duckdbProvider: DatabaseProvider | null = null;
 
-  /**
-   * Get the appropriate provider for a given database type.
-   * Lazily initializes and caches provider instances.
-   */
+  /** The provider for a database type (Core for every type). */
   async getForType(_dbType: string): Promise<DatabaseProvider> {
-    // Tauri and Web have one provider for every driver they offer: Core,
-    // embedded or in seaquel-server (which has no SQLite or DuckDB;
-    // ConnectionManager refuses those types on web before reaching here).
-    if (isTauri() || isWeb()) {
-      return this.getOrCreateDefault();
-    }
-    // Demo mode: DuckDB-WASM is the only in-browser engine. Non-duckdb types
-    // would fail at connect, but the demo UI prevents that from being reached.
-    return this.getOrCreateDuckDB();
+    return this.getOrCreateDefault();
   }
 
-  /**
-   * Get or create the default database provider.
-   */
+  /** Get or create the default database provider. */
   async getOrCreateDefault(): Promise<DatabaseProvider> {
     if (!this.provider) {
       this.provider = await getProvider();
@@ -46,21 +25,10 @@ export class ProviderRegistry {
   }
 
   /**
-   * Get or create the DuckDB provider (Tauri on desktop, WASM in the browser).
-   */
-  async getOrCreateDuckDB(): Promise<DatabaseProvider> {
-    if (!this.duckdbProvider) {
-      this.duckdbProvider = await getDuckDBProvider();
-    }
-    return this.duckdbProvider;
-  }
-
-  /**
    * Reset cached provider instances.
    * Call on disconnect or cleanup.
    */
   reset(): void {
     this.provider = null;
-    this.duckdbProvider = null;
   }
 }
